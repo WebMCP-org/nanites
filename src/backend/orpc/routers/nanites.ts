@@ -21,7 +21,7 @@ import {
 } from "#/backend/nanites/repository-scope.ts";
 import { requireMcpScope } from "#/backend/mcp/auth-context.ts";
 import { buildNotFoundErrorData } from "#/backend/orpc/errors.ts";
-import { publicProcedure } from "#/backend/orpc/orpc.ts";
+import { publicProcedure } from "#/backend/orpc/procedures.ts";
 import {
   createNaniteInputSchema,
   createNaniteOutputSchema,

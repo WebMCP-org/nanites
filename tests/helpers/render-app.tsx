@@ -1,6 +1,6 @@
 import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { installAuthQueryRedirects } from "#/frontend/features/auth/auth-client.ts";
+import { installAuthQueryRedirects } from "#/frontend/routes/-auth-client.ts";
 import { ORPCProvider, adminOrpc, orpc, queryClient } from "#/frontend/lib/orpc.tsx";
 import { createAppRouter } from "#/frontend/router.ts";
 

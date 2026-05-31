@@ -1,11 +1,10 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus/test/config";
 import { playwright } from "vite-plus/test/browser-playwright";
 
 const testsDir = import.meta.dirname;
-const srcDir = fileURLToPath(new URL("../../src", import.meta.url));
+const srcDir = path.join(testsDir, "../../src");
 
 export default defineConfig({
   plugins: [react()],

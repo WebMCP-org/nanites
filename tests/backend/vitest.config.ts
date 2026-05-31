@@ -1,11 +1,10 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vite-plus/test/config";
 import agents from "agents/vite";
 
 const testsDir = import.meta.dirname;
-const srcDir = fileURLToPath(new URL("../../src", import.meta.url));
+const srcDir = path.join(testsDir, "../../src");
 
 export default defineConfig({
   plugins: [

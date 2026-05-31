@@ -11,7 +11,7 @@ import {
   isAuthenticationRequiredError,
   type InstallationAuthErrorDetails,
   resolveAuthReturnTo,
-} from "#/frontend/features/auth/auth-client.ts";
+} from "#/frontend/routes/-auth-client.ts";
 import { useORPC } from "#/frontend/lib/orpc.tsx";
 
 interface StateAction {

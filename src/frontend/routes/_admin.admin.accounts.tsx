@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Badge, Card } from "@nanites/ui";
-import { AdminPageIntro } from "#/frontend/features/admin/admin-shell.tsx";
+import { AdminPageIntro } from "#/frontend/routes/_admin/-admin-shell.tsx";
 
 export const Route = createFileRoute("/_admin/admin/accounts")({
   loader: ({ context }) =>

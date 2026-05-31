@@ -4,7 +4,7 @@ import {
   RouteErrorBoundary,
   RouteNotFoundPage,
   RoutePendingPage,
-} from "#/frontend/features/routing/route-state.tsx";
+} from "#/frontend/routes/-route-state.tsx";
 import type { AdminORPCUtils, ORPCUtils } from "#/frontend/lib/orpc.tsx";
 import { adminOrpc, orpc, queryClient } from "#/frontend/lib/orpc.tsx";
 import { routeTree } from "#/frontend/routeTree.gen.ts";

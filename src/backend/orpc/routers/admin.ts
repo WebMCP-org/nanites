@@ -9,7 +9,7 @@ import {
   adminUsageSnapshotSchema,
 } from "@nanites/contracts/admin";
 import { createDbClient } from "@nanites/db/client";
-import { adminBaseProcedure } from "#/backend/orpc/orpc.ts";
+import { adminBaseProcedure } from "#/backend/orpc/procedures.ts";
 import { baseErrors, buildNotFoundErrorData } from "#/backend/orpc/errors.ts";
 import {
   accountIdParameterDescriptions,

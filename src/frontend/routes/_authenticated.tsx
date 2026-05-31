@@ -13,7 +13,7 @@ import {
   buildReturnToPath,
   invalidateAuthQueries,
   requireSession,
-} from "#/frontend/features/auth/auth-client.ts";
+} from "#/frontend/routes/-auth-client.ts";
 import {
   buildGitHubAppInstallOnAnotherOwnerHref,
   buildGitHubAppManageAccessHref,

@@ -1,0 +1,4 @@
+{
+  // Rolldown's Babel integration resolves this plugin by package name during build.
+  "ignoreDependencies": ["@babel/plugin-proposal-decorators"],
+}

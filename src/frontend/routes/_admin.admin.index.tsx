@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Card } from "@nanites/ui";
-import { AdminMetricCard, AdminPageIntro } from "#/frontend/features/admin/admin-shell.tsx";
+import { AdminMetricCard, AdminPageIntro } from "#/frontend/routes/_admin/-admin-shell.tsx";
 
 export const Route = createFileRoute("/_admin/admin/")({
   loader: ({ context }) =>

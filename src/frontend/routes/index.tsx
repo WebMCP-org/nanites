@@ -6,7 +6,7 @@ import {
   loadSession,
   readRequestedReturnToFromWindow,
   resolveAuthReturnTo,
-} from "#/frontend/features/auth/auth-client.ts";
+} from "#/frontend/routes/-auth-client.ts";
 
 export const Route = createFileRoute("/")({
   loader: async ({ context, location }) => {

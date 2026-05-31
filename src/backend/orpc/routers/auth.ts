@@ -33,7 +33,7 @@ import {
   githubRevalidationProcedure,
   installationRevalidationProcedure,
   publicProcedure,
-} from "#/backend/orpc/orpc.ts";
+} from "#/backend/orpc/procedures.ts";
 import { applyNoAuthOpenAPISpec } from "#/backend/orpc/openapi-contract.ts";
 import { AUTH_INSTALLATION_ACTIVE_REPOSITORIES_ROUTE } from "#/shared/constants/routes.ts";
 

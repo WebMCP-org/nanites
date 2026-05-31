@@ -1,4 +1,4 @@
-import { publicProcedure } from "#/backend/orpc/orpc.ts";
+import { publicProcedure } from "#/backend/orpc/procedures.ts";
 import { healthCheckOutputSchema } from "#/backend/orpc/contracts/health.ts";
 import { applyNoAuthOpenAPISpec } from "#/backend/orpc/openapi-contract.ts";
 

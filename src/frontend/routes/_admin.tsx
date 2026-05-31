@@ -1,5 +1,5 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
-import { isAdminNotAuthorizedError } from "#/frontend/features/admin/admin-access.ts";
+import { isAdminNotAuthorizedError } from "#/frontend/routes/_admin/-admin-access.ts";
 
 export const Route = createFileRoute("/_admin")({
   beforeLoad: async ({ context }) => {

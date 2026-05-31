@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Badge, Card } from "@nanites/ui";
 import { accountIdSchema } from "@nanites/contracts/ids";
-import { AdminMetricCard, AdminPageIntro } from "#/frontend/features/admin/admin-shell.tsx";
+import { AdminMetricCard, AdminPageIntro } from "#/frontend/routes/_admin/-admin-shell.tsx";
 
 export const Route = createFileRoute("/_admin/admin/accounts/$accountId")({
   loader: ({ context, params }) =>

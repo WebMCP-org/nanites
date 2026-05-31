@@ -68,9 +68,9 @@ import {
   NaniteRuntimeChatConnector,
   NaniteRuntimeChatLoading,
   NaniteRuntimeChatPlaceholder,
-} from "#/frontend/features/nanites/nanite-runtime-chat.tsx";
-import { RoutePendingPage } from "#/frontend/features/routing/route-state.tsx";
-import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/features/auth/auth-client.ts";
+} from "#/frontend/routes/_authenticated/-nanites/nanite-runtime-chat.tsx";
+import { RoutePendingPage } from "#/frontend/routes/-route-state.tsx";
+import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/routes/-auth-client.ts";
 import { useORPC } from "#/frontend/lib/orpc.tsx";
 import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/shared/constants/nanites.ts";
 import { API_DOCS_PATH } from "#/shared/constants/openapi-document.ts";

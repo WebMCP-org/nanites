@@ -5,10 +5,10 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 import type { PluginOption } from "vite-plus";
 import agents from "agents/vite";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { noTestMocksOverride } from "./tooling/lint/no-test-mocks.ts";
 
-const srcDir = fileURLToPath(new URL("./src", import.meta.url));
+const srcDir = path.join(import.meta.dirname, "src");
 const isVitest = process.env.VITEST !== undefined;
 const sentryOrg = process.env.SENTRY_ORG;
 const sentryProject = process.env.SENTRY_PROJECT?.split(",")
@@ -39,59 +39,6 @@ if (hasSentryBuildConfig && !canUploadSentrySourceMaps) {
   );
 }
 
-function cloudflareNodeRequireInterop(): PluginOption {
-  const runtimeMarker = "Calling `require`";
-  const requireStart = "var __require = /* @__PURE__ */";
-  const requireEnd = ");\n//#endregion";
-
-  return {
-    name: "nanites:cloudflare-node-require-interop",
-    apply: "build",
-    enforce: "post",
-    generateBundle(_options, bundle) {
-      for (const chunk of Object.values(bundle)) {
-        if (
-          chunk.type !== "chunk" ||
-          !chunk.code.includes(runtimeMarker) ||
-          !chunk.code.includes(requireStart)
-        ) {
-          continue;
-        }
-
-        const imports = [
-          'import * as __nanites_node_buffer from "node:buffer";',
-          'import * as __nanites_node_crypto from "node:crypto";',
-          'import * as __nanites_node_os from "node:os";',
-          'import * as __nanites_node_path from "node:path";',
-          'import * as __nanites_node_util from "node:util";',
-        ].join("\n");
-
-        let code = `${imports}\n${chunk.code}`;
-        const start = code.indexOf(requireStart);
-        const end = code.indexOf(requireEnd, start);
-        if (start === -1 || end === -1) {
-          this.error("Unable to patch Rolldown runtime require shim for Cloudflare Workers.");
-        }
-
-        const replacement = [
-          "var __require = (id) => {",
-          '\tif (id === "buffer") return __nanites_node_buffer;',
-          '\tif (id === "crypto") return __nanites_node_crypto;',
-          '\tif (id === "os") return __nanites_node_os;',
-          '\tif (id === "path") return __nanites_node_path;',
-          '\tif (id === "util") return __nanites_node_util;',
-          '\tif (typeof require !== "undefined") return require(id);',
-          '\tthrow Error("Calling require for \\"" + id + "\\" in an environment that does not expose require.");',
-          "};",
-        ].join("\n");
-
-        code = code.slice(0, start) + replacement + code.slice(end + 2);
-        chunk.code = code;
-      }
-    },
-  };
-}
-
 export default defineConfig({
   staged: {
     "*.{ts,tsx,js,jsx}": "vp check --fix",
@@ -100,7 +47,6 @@ export default defineConfig({
     sourcemap: hasSentryBuildConfig,
   },
   plugins: [
-    cloudflareNodeRequireInterop(),
     routerPlugin,
     agents() as PluginOption,
     react() as PluginOption,
