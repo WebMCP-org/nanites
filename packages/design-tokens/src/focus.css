@@ -1,0 +1,13 @@
+/*
+ * Focus Tokens
+ */
+
+:root,
+.sigvelo-light,
+.sigvelo-dark,
+[data-theme="light"],
+[data-theme="dark"] {
+  --sigvelo-focus-width: 3px;
+  --sigvelo-focus-offset: 1px;
+  --sigvelo-backdrop-filter: blur(6px);
+}

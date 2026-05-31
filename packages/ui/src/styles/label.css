@@ -1,0 +1,12 @@
+.label {
+  font-family: var(--sigvelo-font-family);
+  font-size: 0.875rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  line-height: 1;
+  color: var(--sigvelo-text-body);
+}
+
+.label[data-disabled] {
+  color: var(--sigvelo-text-muted);
+  cursor: not-allowed;
+}

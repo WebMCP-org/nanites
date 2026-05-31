@@ -1,0 +1,50 @@
+/*
+ * Fluent UI Style Preset
+ *
+ * Subtle radii, compact density, Segoe UI, restrained elevation.
+ * Pairs well with the Blue or Sky color presets.
+ */
+
+.sigvelo-style-fluent {
+  /* Shape: restrained, professional */
+  --sigvelo-border-radius-xs: 0.125rem; /* 2px */
+  --sigvelo-border-radius-sm: 0.25rem; /* 4px */
+  --sigvelo-border-radius-md: 0.25rem; /* 4px */
+  --sigvelo-border-radius-lg: 0.5rem; /* 8px */
+  --sigvelo-border-radius-xl: 0.75rem; /* 12px */
+
+  /* Shadows: restrained, ambient + key light */
+  --sigvelo-shadow-softer: 0 0.8px 1.6px rgb(0 0 0 / 0.08);
+  --sigvelo-shadow-soft: 0 1.6px 3.6px rgb(0 0 0 / 0.13), 0 0.3px 0.9px rgb(0 0 0 / 0.11);
+  --sigvelo-shadow-mid: 0 3.2px 7.2px rgb(0 0 0 / 0.13), 0 0.6px 1.8px rgb(0 0 0 / 0.11);
+  --sigvelo-shadow-loud: 0 6.4px 14.4px rgb(0 0 0 / 0.13), 0 1.2px 3.6px rgb(0 0 0 / 0.11);
+  --sigvelo-shadow-louder: 0 12.8px 28.8px rgb(0 0 0 / 0.13), 0 2.4px 7.2px rgb(0 0 0 / 0.11);
+
+  /* Typography */
+  --sigvelo-font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --sigvelo-font-weight-normal: 400;
+  --sigvelo-font-weight-semibold: 600;
+  --sigvelo-font-weight-bold: 700;
+  --sigvelo-line-height: 1.4;
+
+  /* Controls: compact density */
+  --sigvelo-form-control-height-xs: 1.5rem;
+  --sigvelo-form-control-height-sm: 1.75rem;
+  --sigvelo-form-control-height-md: 2rem;
+  --sigvelo-form-control-height-lg: 2.5rem;
+  --sigvelo-form-control-height-xl: 3rem;
+  --sigvelo-form-control-font-size-sm: 0.8125rem;
+  --sigvelo-form-control-font-size-md: 0.875rem;
+  --sigvelo-form-control-font-size-lg: 1rem;
+
+  /* Borders */
+  --sigvelo-border-width: 1px;
+
+  /* Focus: thick bottom-accent style */
+  --sigvelo-focus-width: 2px;
+  --sigvelo-focus-offset: 1px;
+
+  /* Interaction */
+  --sigvelo-button-active-offset: 0px;
+  --sigvelo-content-spacing: 1.25rem;
+}

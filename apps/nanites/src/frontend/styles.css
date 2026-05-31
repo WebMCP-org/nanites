@@ -1,0 +1,20 @@
+@import "@nanites/ui/styles";
+@import "./styles/dashboard.css";
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--sigvelo-background-color);
+  color: var(--sigvelo-text-body);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

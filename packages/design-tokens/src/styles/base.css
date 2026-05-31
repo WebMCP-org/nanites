@@ -1,0 +1,48 @@
+/*
+ * Base UI Style Preset
+ *
+ * Raw, functional, zero decoration. Sharp edges, no shadows, system font.
+ * A blank canvas that lets content and color do all the work.
+ */
+
+.sigvelo-style-base {
+  /* Shape: sharp, no rounding */
+  --sigvelo-border-radius-xs: 0px;
+  --sigvelo-border-radius-sm: 0px;
+  --sigvelo-border-radius-md: 0px;
+  --sigvelo-border-radius-lg: 0px;
+  --sigvelo-border-radius-xl: 0px;
+  --sigvelo-border-radius-pill: 0px;
+
+  /* Shadows: none */
+  --sigvelo-shadow-softer: none;
+  --sigvelo-shadow-soft: none;
+  --sigvelo-shadow-mid: none;
+  --sigvelo-shadow-loud: none;
+  --sigvelo-shadow-louder: none;
+
+  /* Typography */
+  --sigvelo-font-family: system-ui, sans-serif;
+  --sigvelo-font-weight-normal: 400;
+  --sigvelo-font-weight-semibold: 500;
+  --sigvelo-font-weight-bold: 700;
+  --sigvelo-line-height: 1.5;
+
+  /* Controls: default sizing */
+  --sigvelo-form-control-height-xs: 1.75rem;
+  --sigvelo-form-control-height-sm: 2.25rem;
+  --sigvelo-form-control-height-md: 2.5rem;
+  --sigvelo-form-control-height-lg: 3rem;
+  --sigvelo-form-control-height-xl: 3.5rem;
+
+  /* Borders: heavier to compensate for no radius */
+  --sigvelo-border-width: 1px;
+
+  /* Focus: sharp ring */
+  --sigvelo-focus-width: 2px;
+  --sigvelo-focus-offset: 2px;
+
+  /* Interaction */
+  --sigvelo-button-active-offset: 0px;
+  --sigvelo-backdrop-filter: none;
+}

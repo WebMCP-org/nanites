@@ -1,0 +1,80 @@
+/*
+ * Color Palettes
+ *
+ * Generated from seed colors via color-mix(in oklab). Palettes are static in
+ * both light and dark mode — 100 is always light and 900 is always dark.
+ *
+ * Use semantic tokens (fill/text/stroke) instead of these primitives when
+ * building components that support dark mode.
+ */
+
+:root,
+.sigvelo-light,
+.sigvelo-dark,
+[data-theme="light"],
+[data-theme="dark"] {
+  /* Primary */
+  --sigvelo-primary-50: color-mix(in oklab, var(--sigvelo-primary-seed), white 95%);
+  --sigvelo-primary-100: color-mix(in oklab, var(--sigvelo-primary-seed), white 87%);
+  --sigvelo-primary-200: color-mix(in oklab, var(--sigvelo-primary-seed), white 70%);
+  --sigvelo-primary-300: color-mix(in oklab, var(--sigvelo-primary-seed), white 47%);
+  --sigvelo-primary-400: color-mix(in oklab, var(--sigvelo-primary-seed), white 23%);
+  --sigvelo-primary-500: var(--sigvelo-primary-seed);
+  --sigvelo-primary-600: color-mix(in oklab, var(--sigvelo-primary-seed), black 15.5%);
+  --sigvelo-primary-700: color-mix(in oklab, var(--sigvelo-primary-seed), black 28.25%);
+  --sigvelo-primary-800: color-mix(in oklab, var(--sigvelo-primary-seed), black 43.5%);
+  --sigvelo-primary-900: color-mix(in oklab, var(--sigvelo-primary-seed), black 58.5%);
+  --sigvelo-primary-950: color-mix(in oklab, var(--sigvelo-primary-seed), black 73.75%);
+
+  /* Neutral */
+  --sigvelo-neutral-50: color-mix(in oklab, var(--sigvelo-neutral-seed), white 95%);
+  --sigvelo-neutral-100: color-mix(in oklab, var(--sigvelo-neutral-seed), white 87%);
+  --sigvelo-neutral-200: color-mix(in oklab, var(--sigvelo-neutral-seed), white 70%);
+  --sigvelo-neutral-300: color-mix(in oklab, var(--sigvelo-neutral-seed), white 47%);
+  --sigvelo-neutral-400: color-mix(in oklab, var(--sigvelo-neutral-seed), white 23%);
+  --sigvelo-neutral-500: var(--sigvelo-neutral-seed);
+  --sigvelo-neutral-600: color-mix(in oklab, var(--sigvelo-neutral-seed), black 15.5%);
+  --sigvelo-neutral-700: color-mix(in oklab, var(--sigvelo-neutral-seed), black 28.25%);
+  --sigvelo-neutral-800: color-mix(in oklab, var(--sigvelo-neutral-seed), black 43.5%);
+  --sigvelo-neutral-900: color-mix(in oklab, var(--sigvelo-neutral-seed), black 58.5%);
+  --sigvelo-neutral-950: color-mix(in oklab, var(--sigvelo-neutral-seed), black 73.75%);
+
+  /* Constructive */
+  --sigvelo-success-50: color-mix(in oklab, var(--sigvelo-success-seed), white 95%);
+  --sigvelo-success-100: color-mix(in oklab, var(--sigvelo-success-seed), white 87%);
+  --sigvelo-success-200: color-mix(in oklab, var(--sigvelo-success-seed), white 70%);
+  --sigvelo-success-300: color-mix(in oklab, var(--sigvelo-success-seed), white 47%);
+  --sigvelo-success-400: color-mix(in oklab, var(--sigvelo-success-seed), white 23%);
+  --sigvelo-success-500: var(--sigvelo-success-seed);
+  --sigvelo-success-600: color-mix(in oklab, var(--sigvelo-success-seed), black 15.5%);
+  --sigvelo-success-700: color-mix(in oklab, var(--sigvelo-success-seed), black 28.25%);
+  --sigvelo-success-800: color-mix(in oklab, var(--sigvelo-success-seed), black 43.5%);
+  --sigvelo-success-900: color-mix(in oklab, var(--sigvelo-success-seed), black 58.5%);
+  --sigvelo-success-950: color-mix(in oklab, var(--sigvelo-success-seed), black 73.75%);
+
+  /* Caution */
+  --sigvelo-warning-50: color-mix(in oklab, var(--sigvelo-warning-seed), white 95%);
+  --sigvelo-warning-100: color-mix(in oklab, var(--sigvelo-warning-seed), white 87%);
+  --sigvelo-warning-200: color-mix(in oklab, var(--sigvelo-warning-seed), white 70%);
+  --sigvelo-warning-300: color-mix(in oklab, var(--sigvelo-warning-seed), white 47%);
+  --sigvelo-warning-400: color-mix(in oklab, var(--sigvelo-warning-seed), white 23%);
+  --sigvelo-warning-500: var(--sigvelo-warning-seed);
+  --sigvelo-warning-600: color-mix(in oklab, var(--sigvelo-warning-seed), black 15.5%);
+  --sigvelo-warning-700: color-mix(in oklab, var(--sigvelo-warning-seed), black 28.25%);
+  --sigvelo-warning-800: color-mix(in oklab, var(--sigvelo-warning-seed), black 43.5%);
+  --sigvelo-warning-900: color-mix(in oklab, var(--sigvelo-warning-seed), black 58.5%);
+  --sigvelo-warning-950: color-mix(in oklab, var(--sigvelo-warning-seed), black 73.75%);
+
+  /* Destructive */
+  --sigvelo-destructive-50: color-mix(in oklab, var(--sigvelo-destructive-seed), white 95%);
+  --sigvelo-destructive-100: color-mix(in oklab, var(--sigvelo-destructive-seed), white 87%);
+  --sigvelo-destructive-200: color-mix(in oklab, var(--sigvelo-destructive-seed), white 70%);
+  --sigvelo-destructive-300: color-mix(in oklab, var(--sigvelo-destructive-seed), white 47%);
+  --sigvelo-destructive-400: color-mix(in oklab, var(--sigvelo-destructive-seed), white 23%);
+  --sigvelo-destructive-500: var(--sigvelo-destructive-seed);
+  --sigvelo-destructive-600: color-mix(in oklab, var(--sigvelo-destructive-seed), black 15.5%);
+  --sigvelo-destructive-700: color-mix(in oklab, var(--sigvelo-destructive-seed), black 28.25%);
+  --sigvelo-destructive-800: color-mix(in oklab, var(--sigvelo-destructive-seed), black 43.5%);
+  --sigvelo-destructive-900: color-mix(in oklab, var(--sigvelo-destructive-seed), black 58.5%);
+  --sigvelo-destructive-950: color-mix(in oklab, var(--sigvelo-destructive-seed), black 73.75%);
+}

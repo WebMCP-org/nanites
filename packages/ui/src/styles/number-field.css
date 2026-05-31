@@ -1,0 +1,103 @@
+.number-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.number-field__group {
+  display: flex;
+  align-items: stretch;
+}
+
+.number-field__input {
+  flex: 1;
+  width: 100%;
+  height: 2.5rem;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  font-family: var(--sigvelo-font-family);
+  font-size: 0.875rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--sigvelo-text-body);
+  background-color: var(--sigvelo-background-color);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width) var(--sigvelo-neutral-stroke-soft);
+  border-inline: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.number-field__input:focus-visible {
+  outline: none;
+  border-color: var(--sigvelo-focus-color);
+  z-index: 1;
+}
+
+.number-field__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.number-field__input[data-invalid] {
+  border-color: var(--sigvelo-destructive-fill-mid);
+}
+
+.number-field__decrement,
+.number-field__increment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  font-family: var(--sigvelo-font-family);
+  font-size: 1rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  color: var(--sigvelo-text-body);
+  background-color: var(--sigvelo-background-color);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width) var(--sigvelo-neutral-stroke-soft);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.number-field__decrement {
+  border-start-start-radius: var(--sigvelo-border-radius-md);
+  border-end-start-radius: var(--sigvelo-border-radius-md);
+}
+
+.number-field__increment {
+  border-start-end-radius: var(--sigvelo-border-radius-md);
+  border-end-end-radius: var(--sigvelo-border-radius-md);
+}
+
+.number-field__decrement:hover,
+.number-field__increment:hover {
+  background-color: var(--sigvelo-neutral-fill-softer);
+  color: var(--sigvelo-neutral-text-on-soft);
+}
+
+.number-field__decrement:focus-visible,
+.number-field__increment:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--sigvelo-background-color),
+    0 0 0 4px var(--sigvelo-focus-color);
+  z-index: 1;
+}
+
+.number-field__decrement:disabled,
+.number-field__increment:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.number-field__scrub-area {
+  cursor: ew-resize;
+}
+
+.number-field__scrub-area[data-scrubbing] {
+  cursor: grabbing;
+}

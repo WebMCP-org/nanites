@@ -1,0 +1,10 @@
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.checkbox-group[data-disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}

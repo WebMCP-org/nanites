@@ -1,0 +1,36 @@
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.meter__track {
+  position: relative;
+  width: 100%;
+  height: 0.5rem;
+  overflow: hidden;
+  background-color: var(--sigvelo-neutral-fill-softer);
+  border-radius: var(--sigvelo-border-radius-pill);
+}
+
+.meter__indicator {
+  height: 100%;
+  background-color: var(--sigvelo-primary-fill-mid);
+  border-radius: var(--sigvelo-border-radius-pill);
+  transition: width 300ms ease;
+}
+
+.meter__label {
+  font-family: var(--sigvelo-font-family);
+  font-size: 0.875rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  color: var(--sigvelo-text-body);
+}
+
+.meter__value {
+  font-family: var(--sigvelo-font-family);
+  font-size: 0.875rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  color: var(--sigvelo-text-muted);
+}

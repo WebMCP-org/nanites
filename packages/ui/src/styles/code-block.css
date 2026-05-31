@@ -1,0 +1,105 @@
+.code-block {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  font-family: var(--sigvelo-font-family);
+  background-color: var(--sigvelo-paper-color);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width)
+    var(--sigvelo-neutral-stroke-softer);
+  border-radius: var(--sigvelo-border-radius-md);
+  overflow: hidden;
+}
+
+.code-block__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  background-color: var(--sigvelo-neutral-fill-softer);
+  border-block-end: var(--sigvelo-border-style) var(--sigvelo-border-width)
+    var(--sigvelo-neutral-stroke-softer);
+}
+
+.code-block__title {
+  font-size: 0.75rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  color: var(--sigvelo-text-body);
+}
+
+.code-block__filename {
+  font-family: var(--sigvelo-font-family-code);
+  font-size: 0.75rem;
+  color: var(--sigvelo-text-muted);
+}
+
+.code-block__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
+.code-block__language-selector {
+  display: inline-flex;
+}
+
+.code-block__container {
+  position: relative;
+  overflow: auto;
+  max-height: 30rem;
+}
+
+.code-block__content {
+  margin: 0;
+  padding-block: 0.75rem;
+  padding-inline: 0.875rem;
+  font-family: var(--sigvelo-font-family-code);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--sigvelo-text-body);
+  background-color: var(--sigvelo-paper-color);
+  overflow-x: auto;
+}
+
+.code-block__content--highlighted {
+  padding: 0;
+}
+
+.code-block__content--highlighted pre.shiki {
+  margin: 0;
+  padding-block: 0.75rem;
+  padding-inline: 0.875rem;
+  background-color: transparent !important;
+  font-family: var(--sigvelo-font-family-code);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+
+.code-block__content--numbered pre code {
+  counter-reset: line;
+}
+
+.code-block__content--numbered pre code .line {
+  counter-increment: line;
+}
+
+.code-block__content--numbered pre code .line::before {
+  content: counter(line);
+  display: inline-block;
+  width: 2rem;
+  padding-inline-end: 0.75rem;
+  margin-inline-end: 0.75rem;
+  color: var(--sigvelo-text-muted);
+  text-align: end;
+  border-inline-end: var(--sigvelo-border-style) var(--sigvelo-border-width)
+    var(--sigvelo-neutral-stroke-softer);
+}
+
+@media (forced-colors: active) {
+  .code-block {
+    border: 1px solid CanvasText;
+  }
+}

@@ -1,0 +1,44 @@
+/*
+ * Spacing & Form Control Tokens
+ */
+
+:root,
+.sigvelo-light,
+.sigvelo-dark,
+[data-theme="light"],
+[data-theme="dark"] {
+  /* Spacing scale */
+  --sigvelo-space-xs: 0.25rem;
+  --sigvelo-space-sm: 0.5rem;
+  --sigvelo-space-md: 1rem;
+  --sigvelo-space-lg: 1.5rem;
+  --sigvelo-space-xl: 2rem;
+  --sigvelo-space-2xl: 3rem;
+
+  --sigvelo-content-spacing: 1.75rem;
+
+  /* Form control heights per size */
+  --sigvelo-form-control-height-xs: 1.75rem;
+  --sigvelo-form-control-height-sm: 2.25rem;
+  --sigvelo-form-control-height-md: 2.75rem;
+  --sigvelo-form-control-height-lg: 3.25rem;
+  --sigvelo-form-control-height-xl: 3.75rem;
+
+  /* Form control font sizes per size */
+  --sigvelo-form-control-font-size-xs: 0.75rem;
+  --sigvelo-form-control-font-size-sm: 0.875rem;
+  --sigvelo-form-control-font-size-md: 1rem;
+  --sigvelo-form-control-font-size-lg: 1.25rem;
+  --sigvelo-form-control-font-size-xl: 1.5rem;
+
+  /* Form control misc */
+  --sigvelo-form-control-required-content: "*";
+  --sigvelo-form-control-placeholder-color: color-mix(
+    in oklab,
+    var(--sigvelo-text-muted),
+    transparent 25%
+  );
+
+  /* Button */
+  --sigvelo-button-active-offset: 1.5px;
+}

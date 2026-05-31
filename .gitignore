@@ -1,0 +1,104 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+coverage
+playwright-report
+test-results
+*.local
+*.tsbuildinfo
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tool caches and generated workspace state
+.astro/
+.fallow/
+.tanstack/
+.vite/
+.vite-hooks/_/
+.wrangler/
+
+# AI agent worktrees
+.claude/worktrees/
+.claude/skills/
+.claude/settings.local.json
+
+# Generated agent compatibility skill copies we do not use in this repo.
+.adal/
+.aider-desk/
+.augment/
+.bob/
+.codeartsdoer/
+.codebuddy/
+.codemaker/
+.codestudio/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.devin/
+.factory/
+.forge/
+.goose/
+.hermes/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.playwright-mcp/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.rovodev/
+.tabnine/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+skills/
+!.agents/skills/
+!.agents/skills/**
+
+# Local secrets
+*.private-key.pem
+*.pem
+.dev.vars*
+.env
+.env.*
+!.env.example
+.env.sentry-build-plugin
+
+# Local exports and packaged artifacts
+*.mcpb
+/mcp-*-smoke.json
+/sigvelo-create-*.json
+/Screenshot *.png
+/CleanShot *.png
+/Screen Recording *
+
+# opensrc - source code for packages
+opensrc/

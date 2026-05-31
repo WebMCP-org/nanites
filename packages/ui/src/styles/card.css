@@ -1,0 +1,31 @@
+.card {
+  background-color: var(--sigvelo-paper-color);
+  color: var(--sigvelo-text-body);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width) var(--sigvelo-neutral-stroke-soft);
+  border-radius: var(--sigvelo-border-radius-md);
+  padding: 1.5rem;
+  container-type: inline-size;
+  box-shadow: var(--sigvelo-shadow-soft);
+  transition:
+    box-shadow 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.card--hover {
+  cursor: default;
+}
+
+.card--hover:hover {
+  box-shadow: var(--sigvelo-shadow-mid);
+  border-color: var(--sigvelo-focus-color);
+  transform: translateY(-2px);
+}
+
+.card--hover:focus-visible {
+  outline: none;
+  border-color: var(--sigvelo-focus-color);
+  box-shadow:
+    0 0 0 2px var(--sigvelo-background-color),
+    0 0 0 4px var(--sigvelo-focus-color);
+}

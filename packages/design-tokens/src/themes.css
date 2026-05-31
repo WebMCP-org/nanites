@@ -1,0 +1,10 @@
+/*
+ * Global theme styles
+ */
+
+.sigvelo-light,
+.sigvelo-dark,
+[data-theme="light"],
+[data-theme="dark"] {
+  color: var(--sigvelo-text-body);
+}

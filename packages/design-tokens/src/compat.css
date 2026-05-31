@@ -1,0 +1,70 @@
+/*
+ * Compatibility Layer
+ *
+ * Maps old React component token names to new --sigvelo-* tokens.
+ * Import this alongside the main tokens during migration, then remove
+ * once all CSS files have been updated to use --sigvelo-* directly.
+ */
+
+:root,
+.sigvelo-light,
+[data-theme="light"] {
+  --primary: var(--sigvelo-primary-fill-mid);
+  --primary-foreground: var(--sigvelo-primary-text-on-mid);
+  --secondary: var(--sigvelo-neutral-fill-softer);
+  --secondary-foreground: var(--sigvelo-neutral-text-on-soft);
+  --destructive: var(--sigvelo-destructive-fill-mid);
+  --destructive-foreground: var(--sigvelo-destructive-text-on-mid);
+  --success: var(--sigvelo-success-fill-mid);
+  --success-foreground: var(--sigvelo-success-text-on-mid);
+  --warning: var(--sigvelo-warning-fill-mid);
+  --warning-foreground: var(--sigvelo-warning-text-on-mid);
+  --background: var(--sigvelo-background-color);
+  --foreground: var(--sigvelo-text-body);
+  --card: var(--sigvelo-paper-color);
+  --card-foreground: var(--sigvelo-text-body);
+  --popover: var(--sigvelo-paper-color);
+  --popover-foreground: var(--sigvelo-text-body);
+  --muted: var(--sigvelo-neutral-fill-softer);
+  --muted-foreground: var(--sigvelo-text-muted);
+  --accent: var(--sigvelo-neutral-fill-softer);
+  --accent-foreground: var(--sigvelo-neutral-text-on-soft);
+  --border: var(--sigvelo-neutral-stroke-soft);
+  --input: var(--sigvelo-neutral-stroke-soft);
+  --ring: var(--sigvelo-focus-color);
+  --radius: var(--sigvelo-border-radius-md);
+  --font-sans: var(--sigvelo-font-family);
+  --font-heading: var(--sigvelo-font-family-heading);
+  --font-mono: var(--sigvelo-font-family-code);
+}
+
+.sigvelo-dark,
+[data-theme="dark"] {
+  --primary: var(--sigvelo-primary-fill-mid);
+  --primary-foreground: var(--sigvelo-primary-text-on-mid);
+  --secondary: var(--sigvelo-neutral-fill-softer);
+  --secondary-foreground: var(--sigvelo-neutral-text-on-soft);
+  --destructive: var(--sigvelo-destructive-fill-mid);
+  --destructive-foreground: var(--sigvelo-destructive-text-on-mid);
+  --success: var(--sigvelo-success-fill-mid);
+  --success-foreground: var(--sigvelo-success-text-on-mid);
+  --warning: var(--sigvelo-warning-fill-mid);
+  --warning-foreground: var(--sigvelo-warning-text-on-mid);
+  --background: var(--sigvelo-background-color);
+  --foreground: var(--sigvelo-text-body);
+  --card: var(--sigvelo-paper-color);
+  --card-foreground: var(--sigvelo-text-body);
+  --popover: var(--sigvelo-paper-color);
+  --popover-foreground: var(--sigvelo-text-body);
+  --muted: var(--sigvelo-neutral-fill-softer);
+  --muted-foreground: var(--sigvelo-text-muted);
+  --accent: var(--sigvelo-neutral-fill-softer);
+  --accent-foreground: var(--sigvelo-neutral-text-on-soft);
+  --border: var(--sigvelo-neutral-stroke-soft);
+  --input: var(--sigvelo-neutral-stroke-soft);
+  --ring: var(--sigvelo-focus-color);
+  --radius: var(--sigvelo-border-radius-md);
+  --font-sans: var(--sigvelo-font-family);
+  --font-heading: var(--sigvelo-font-family-heading);
+  --font-mono: var(--sigvelo-font-family-code);
+}

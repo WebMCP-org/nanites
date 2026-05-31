@@ -1,0 +1,47 @@
+{
+  "name": "@nanites/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "typesVersions": {
+    "*": {
+      "auth": [
+        "./src/auth.ts"
+      ],
+      "admin": [
+        "./src/admin.ts"
+      ],
+      "nanites": [
+        "./src/nanites.ts"
+      ],
+      "ids": [
+        "./src/ids.ts"
+      ]
+    }
+  },
+  "exports": {
+    "./auth": {
+      "types": "./src/auth.ts",
+      "default": "./src/auth.ts"
+    },
+    "./admin": {
+      "types": "./src/admin.ts",
+      "default": "./src/admin.ts"
+    },
+    "./nanites": {
+      "types": "./src/nanites.ts",
+      "default": "./src/nanites.ts"
+    },
+    "./ids": {
+      "types": "./src/ids.ts",
+      "default": "./src/ids.ts"
+    }
+  },
+  "dependencies": {
+    "@nanites/domain": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

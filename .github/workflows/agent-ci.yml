@@ -1,0 +1,60 @@
+name: Agent CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/agent-ci.yml"
+      - "apps/nanites/**"
+      - "packages/contracts/**"
+      - "packages/db/**"
+      - "packages/observability/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/agent-ci.yml"
+      - "apps/nanites/**"
+      - "packages/contracts/**"
+      - "packages/db/**"
+      - "packages/observability/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check-and-test:
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version: "24"
+          cache: true
+          run-install: true
+
+      - name: Check agent app
+        working-directory: apps/nanites
+        run: vp check
+
+      - name: Test agent app
+        working-directory: apps/nanites
+        env:
+          CI: "true"
+        run: vp test --project backend

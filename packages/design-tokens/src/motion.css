@@ -1,0 +1,17 @@
+:root {
+  --sigvelo-motion-duration-fast: 150ms;
+  --sigvelo-motion-duration-medium: 240ms;
+  --sigvelo-motion-duration-slow: 360ms;
+
+  --sigvelo-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --sigvelo-motion-easing-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+  --sigvelo-motion-easing-accelerate: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sigvelo-motion-duration-fast: 0ms;
+    --sigvelo-motion-duration-medium: 0ms;
+    --sigvelo-motion-duration-slow: 0ms;
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "sigvelo-nanites",
+  "version": "0.1.0",
+  "description": "One canonical skill plus commands for creating, testing, and debugging Sigvelo Nanites through MCP.",
+  "author": {
+    "name": "WebMCP / Sigvelo"
+  }
+}

@@ -1,0 +1,67 @@
+.scroll-area {
+  position: relative;
+  overflow: hidden;
+}
+
+.scroll-area__viewport {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.scroll-area__viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.scroll-area__scrollbar {
+  position: absolute;
+  display: flex;
+  padding: 2px;
+  background-color: transparent;
+  transition: background-color 150ms ease;
+  user-select: none;
+  touch-action: none;
+}
+
+.scroll-area__scrollbar:hover {
+  background-color: color-mix(in oklab, var(--sigvelo-neutral-fill-softer), transparent 50%);
+}
+
+.scroll-area__scrollbar[data-orientation="vertical"] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  flex-direction: column;
+}
+
+.scroll-area__scrollbar[data-orientation="horizontal"] {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 10px;
+  flex-direction: row;
+}
+
+.scroll-area__thumb {
+  flex: 1;
+  background-color: color-mix(in oklab, var(--sigvelo-text-muted), transparent 70%);
+  border-radius: var(--sigvelo-border-radius-pill);
+  transition: background-color 150ms ease;
+}
+
+.scroll-area__thumb:hover {
+  background-color: color-mix(in oklab, var(--sigvelo-text-muted), transparent 50%);
+}
+
+.scroll-area__scrollbar[data-scrolling] .scroll-area__thumb {
+  background-color: color-mix(in oklab, var(--sigvelo-text-muted), transparent 50%);
+}
+
+.scroll-area__corner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  background-color: color-mix(in oklab, var(--sigvelo-neutral-fill-softer), transparent 50%);
+}

@@ -1,0 +1,521 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nanites-app",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-03-02",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public",
+    "no_handle_cross_request_promise_resolution",
+  ],
+  "workers_dev": true,
+  "preview_urls": true,
+  "worker_loaders": [
+    {
+      "binding": "LOADER",
+    },
+  ],
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true,
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true,
+  },
+  "vars": {
+    "GITHUB_APP_ID": "3280686",
+    "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+    "ALLOW_TEST_AUTH": "false",
+    "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "",
+    "CLOUDFLARE_ACCESS_AUD": "",
+    "SENTRY_ENVIRONMENT": "development",
+    "SENTRY_TRACES_SAMPLE_RATE": "1",
+    "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
+    "NANITES_LLM_BASE_URL": "",
+    "NANITES_LLM_FIXTURE": "",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nanites-db",
+      "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
+      "migrations_dir": "../../packages/db/migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "WORKSPACE_FILES",
+      "bucket_name": "nanites-workspace-files",
+    },
+  ],
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/rpc/*",
+      "/admin/api/*",
+      "/admin/rpc/*",
+      "/agents/*",
+      "/auth/*",
+      "/authorize",
+      "/mcp",
+      "/oauth/*",
+      "/.well-known/oauth-*",
+    ],
+  },
+  "kv_namespaces": [
+    /**
+     * Replace placeholder ids with real Cloudflare KV namespace ids before deploying MCP OAuth.
+     * The binding name is fixed by @cloudflare/workers-oauth-provider.
+     */
+    {
+      "binding": "OAUTH_KV",
+      "id": "332558f8cf684876878b33baed2354be",
+      "preview_id": "332558f8cf684876878b33baed2354be",
+    },
+    {
+      "binding": "TOOL_OUTPUTS",
+      "id": "856a7500658a4b6aa767198933d01edf",
+      "preview_id": "856a7500658a4b6aa767198933d01edf",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "SigveloChatIngress",
+        "name": "SigveloChatIngress",
+      },
+      {
+        "class_name": "SigveloManagerConversationAgent",
+        "name": "SigveloManagerConversationAgent",
+      },
+      {
+        "class_name": "SigveloMcpAgent",
+        "name": "SigveloMcpAgent",
+      },
+      {
+        "class_name": "SigveloNaniteManager",
+        "name": "SigveloNaniteManager",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["ChatAgent"],
+      "tag": "v1",
+    },
+    {
+      "new_sqlite_classes": ["RepoAgent"],
+      "tag": "v2",
+    },
+    {
+      "new_sqlite_classes": ["NaniteRunAgent"],
+      "tag": "v3",
+    },
+    {
+      "renamed_classes": [
+        {
+          "from": "RepoAgent",
+          "to": "NaniteManager",
+        },
+        {
+          "from": "NaniteRunAgent",
+          "to": "Nanite",
+        },
+      ],
+      "tag": "v4",
+    },
+    {
+      "deleted_classes": ["ChatAgent"],
+      "tag": "v5",
+    },
+    {
+      "new_sqlite_classes": ["Sandbox"],
+      "tag": "v6",
+    },
+    {
+      "renamed_classes": [
+        {
+          "from": "Nanite",
+          "to": "GeneratedNanite",
+        },
+      ],
+      "tag": "v7",
+    },
+    {
+      "renamed_classes": [
+        {
+          "from": "NaniteManager",
+          "to": "LegacyNaniteManager20260518",
+        },
+        {
+          "from": "GeneratedNanite",
+          "to": "LegacyGeneratedNanite20260518",
+        },
+      ],
+      "new_sqlite_classes": ["NaniteManager", "GeneratedNanite"],
+      "tag": "v8",
+    },
+    {
+      "new_sqlite_classes": ["NaniteAgent"],
+      "tag": "v9",
+    },
+    {
+      "new_sqlite_classes": ["SigveloNaniteManager", "SigveloNaniteAgent"],
+      "tag": "v10",
+    },
+    {
+      "tag": "v11",
+    },
+    {
+      "new_sqlite_classes": ["SigveloChatIngress"],
+      "tag": "v12",
+    },
+    {
+      "new_sqlite_classes": ["SigveloManagerConversationAgent", "SigveloMcpAgent"],
+      "tag": "v13",
+    },
+  ],
+  "secrets": {
+    "required": [
+      "AUTH_COOKIE_SECRET",
+      "CLOUDFLARE_ACCOUNT_ID",
+      "GITHUB_APP_PRIVATE_KEY",
+      "GITHUB_CLIENT_SECRET",
+      "GITHUB_WEBHOOK_SECRET",
+    ],
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+    },
+  },
+  "upload_source_maps": true,
+  /**
+   * Smart Placement
+   * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+   */
+  // "placement": {  "mode": "smart" }
+  /**
+   * Bindings
+   * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
+   * databases, object storage, AI inference, real-time communication and more.
+   * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+   */
+  /**
+   * Environment Variables
+   * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+   * Note: Use secrets to store sensitive data.
+   * https://developers.cloudflare.com/workers/configuration/secrets/
+   */
+  "env": {
+    "local": {
+      "name": "nanites-app-local",
+      "worker_loaders": [
+        {
+          "binding": "LOADER",
+        },
+      ],
+      "ai": {
+        "binding": "AI",
+        "remote": true,
+      },
+      "vars": {
+        "GITHUB_APP_ID": "3280686",
+        "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+        "ALLOW_TEST_AUTH": "true",
+        "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "",
+        "CLOUDFLARE_ACCESS_AUD": "",
+        "SENTRY_ENVIRONMENT": "local",
+        "SENTRY_TRACES_SAMPLE_RATE": "1",
+        "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
+        "NANITES_LLM_BASE_URL": "",
+        "NANITES_LLM_FIXTURE": "",
+      },
+      "browser": {
+        "binding": "BROWSER",
+        "remote": true,
+      },
+      "secrets": {
+        "required": [
+          "AUTH_COOKIE_SECRET",
+          "GITHUB_APP_PRIVATE_KEY",
+          "GITHUB_CLIENT_SECRET",
+          "GITHUB_WEBHOOK_SECRET",
+          "GITHUB_TEST_USER_TOKEN",
+          "CLOUDFLARE_ACCOUNT_ID",
+        ],
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nanites-db",
+          "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
+          "migrations_dir": "../../packages/db/migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "WORKSPACE_FILES",
+          "bucket_name": "nanites-local-workspace-files",
+        },
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "OAUTH_KV",
+          "id": "332558f8cf684876878b33baed2354be",
+          "preview_id": "332558f8cf684876878b33baed2354be",
+        },
+        {
+          "binding": "TOOL_OUTPUTS",
+          "id": "e1e2b77bd9a44251b39d5d1632277c7d",
+          "preview_id": "e1e2b77bd9a44251b39d5d1632277c7d",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "SigveloChatIngress",
+            "name": "SigveloChatIngress",
+          },
+          {
+            "class_name": "SigveloManagerConversationAgent",
+            "name": "SigveloManagerConversationAgent",
+          },
+          {
+            "class_name": "SigveloMcpAgent",
+            "name": "SigveloMcpAgent",
+          },
+          {
+            "class_name": "SigveloNaniteManager",
+            "name": "SigveloNaniteManager",
+          },
+        ],
+      },
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+        },
+      },
+    },
+    "staging": {
+      "name": "nanites-app-staging",
+      "worker_loaders": [
+        {
+          "binding": "LOADER",
+        },
+      ],
+      "routes": [
+        {
+          "pattern": "app.staging.sigvelo.com",
+          "custom_domain": true,
+        },
+      ],
+      "ai": {
+        "binding": "AI",
+        "remote": true,
+      },
+      "vars": {
+        "GITHUB_APP_ID": "3280686",
+        "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+        "ALLOW_TEST_AUTH": "false",
+        "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "",
+        "CLOUDFLARE_ACCESS_AUD": "",
+        "SENTRY_ENVIRONMENT": "staging",
+        "SENTRY_TRACES_SAMPLE_RATE": "0.2",
+        "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
+        "NANITES_LLM_BASE_URL": "",
+        "NANITES_LLM_FIXTURE": "",
+      },
+      "browser": {
+        "binding": "BROWSER",
+        "remote": true,
+      },
+      "secrets": {
+        "required": [
+          "AUTH_COOKIE_SECRET",
+          "CLOUDFLARE_ACCOUNT_ID",
+          "GITHUB_APP_PRIVATE_KEY",
+          "GITHUB_CLIENT_SECRET",
+          "GITHUB_WEBHOOK_SECRET",
+        ],
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nanites-db-staging",
+          "database_id": "9d0c356a-8b4c-4f96-a1ab-313204cd0d7f",
+          "migrations_dir": "../../packages/db/migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "WORKSPACE_FILES",
+          "bucket_name": "nanites-staging-workspace-files",
+        },
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "OAUTH_KV",
+          "id": "332558f8cf684876878b33baed2354be",
+          "preview_id": "332558f8cf684876878b33baed2354be",
+        },
+        {
+          "binding": "TOOL_OUTPUTS",
+          "id": "7ceecff590354528bb710e0c6e3838b9",
+          "preview_id": "7ceecff590354528bb710e0c6e3838b9",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "SigveloChatIngress",
+            "name": "SigveloChatIngress",
+          },
+          {
+            "class_name": "SigveloManagerConversationAgent",
+            "name": "SigveloManagerConversationAgent",
+          },
+          {
+            "class_name": "SigveloMcpAgent",
+            "name": "SigveloMcpAgent",
+          },
+          {
+            "class_name": "SigveloNaniteManager",
+            "name": "SigveloNaniteManager",
+          },
+        ],
+      },
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 0.2,
+        },
+      },
+    },
+    "production": {
+      "name": "nanites-app-production",
+      "worker_loaders": [
+        {
+          "binding": "LOADER",
+        },
+      ],
+      "routes": [
+        {
+          "pattern": "app.sigvelo.com",
+          "custom_domain": true,
+        },
+      ],
+      "ai": {
+        "binding": "AI",
+        "remote": true,
+      },
+      "vars": {
+        "GITHUB_APP_ID": "3280686",
+        "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+        "ALLOW_TEST_AUTH": "false",
+        "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "alexnahasprojects.cloudflareaccess.com",
+        "CLOUDFLARE_ACCESS_AUD": "6c619369cab2e7e805261ca8f2b9e20e2022fa5ccf083bd476dffb0681eae1a2",
+        "SENTRY_ENVIRONMENT": "production",
+        "SENTRY_TRACES_SAMPLE_RATE": "0.1",
+        "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
+        "NANITES_LLM_BASE_URL": "",
+        "NANITES_LLM_FIXTURE": "",
+      },
+      "browser": {
+        "binding": "BROWSER",
+        "remote": true,
+      },
+      "secrets": {
+        "required": [
+          "AUTH_COOKIE_SECRET",
+          "CLOUDFLARE_ACCOUNT_ID",
+          "GITHUB_APP_PRIVATE_KEY",
+          "GITHUB_CLIENT_SECRET",
+          "GITHUB_WEBHOOK_SECRET",
+        ],
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nanites-db",
+          "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
+          "migrations_dir": "../../packages/db/migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "WORKSPACE_FILES",
+          "bucket_name": "nanites-workspace-files",
+        },
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "OAUTH_KV",
+          "id": "332558f8cf684876878b33baed2354be",
+          "preview_id": "332558f8cf684876878b33baed2354be",
+        },
+        {
+          "binding": "TOOL_OUTPUTS",
+          "id": "44412418780c409990baa5a4573417b2",
+          "preview_id": "44412418780c409990baa5a4573417b2",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "SigveloChatIngress",
+            "name": "SigveloChatIngress",
+          },
+          {
+            "class_name": "SigveloManagerConversationAgent",
+            "name": "SigveloManagerConversationAgent",
+          },
+          {
+            "class_name": "SigveloMcpAgent",
+            "name": "SigveloMcpAgent",
+          },
+          {
+            "class_name": "SigveloNaniteManager",
+            "name": "SigveloNaniteManager",
+          },
+        ],
+      },
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 0.1,
+        },
+      },
+    },
+  },
+  /**
+   * Service Bindings (communicate between multiple Workers)
+   * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
+   */
+  // "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+}

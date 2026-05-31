@@ -1,0 +1,124 @@
+.reasoning {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  font-family: var(--sigvelo-font-family);
+  color: var(--sigvelo-text-body);
+}
+
+.reasoning__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--sigvelo-border-radius-sm);
+  color: var(--sigvelo-text-muted);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.reasoning__trigger:hover:not([data-disabled]) {
+  background-color: var(--sigvelo-neutral-fill-softer);
+  color: var(--sigvelo-text-body);
+}
+
+.reasoning__trigger:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--sigvelo-background-color),
+    0 0 0 4px var(--sigvelo-focus-color);
+}
+
+.reasoning__trigger[data-streaming] .reasoning__trigger-label {
+  animation: reasoning-pulse 1400ms ease-in-out infinite;
+}
+
+.reasoning__trigger-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.reasoning__trigger-label > * {
+  margin: 0;
+}
+
+.reasoning__trigger-icon {
+  display: inline-flex;
+  transition: transform 200ms ease;
+}
+
+.reasoning__trigger[data-panel-open] .reasoning__trigger-icon {
+  transform: rotate(90deg);
+}
+
+.reasoning__content {
+  overflow: hidden;
+  transition:
+    height 200ms ease,
+    opacity 200ms ease;
+}
+
+.reasoning__content[data-closed] {
+  height: 0;
+}
+
+.reasoning__content[data-open] {
+  height: var(--collapsible-panel-height);
+}
+
+.reasoning__content[data-starting-style],
+.reasoning__content[data-ending-style] {
+  height: 0;
+  opacity: 0;
+}
+
+.reasoning__text {
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  margin-inline-start: 0.75rem;
+  border-inline-start: var(--sigvelo-border-style) 2px var(--sigvelo-neutral-stroke-softer);
+  color: var(--sigvelo-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.reasoning__text > * + * {
+  margin-block-start: 0.5rem;
+}
+
+@keyframes reasoning-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning__trigger[data-streaming] .reasoning__trigger-label {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .reasoning__text {
+    border-inline-start: 2px solid CanvasText;
+  }
+
+  .reasoning__trigger:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}

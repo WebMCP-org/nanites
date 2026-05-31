@@ -1,0 +1,188 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Architecture" />
+
+# Architecture
+
+## Overview
+
+Built on Base UI and provides a framework-agnostic component library with a clear separation of concerns between design tokens and application-specific styles.
+
+## CSS Architecture
+
+### Design System (Single Source of Truth)
+
+**Location**: `packages/design-system/src/styles/index.css`
+
+This file contains:
+
+- **Design tokens**: CSS variables for colors, spacing, typography, shadows, etc.
+- **Component styles**: All component-specific CSS (buttons, inputs, cards, etc.)
+- **Theme definitions**: Both light and dark theme variables
+
+**Import this in every app that uses the design system:**
+
+```typescript
+import "@nanites/ui/styles";
+```
+
+### Application-Specific Styles
+
+**Location**: `apps/user-application/src/styles/global.css`
+
+This file contains:
+
+- **Font definitions**: `@font-face` declarations for custom fonts
+- **Base HTML element styles**: `body`, `h1-h6`, `a`, `p`, `img`, etc.
+- **Utility classes**: App-specific helpers like `.sr-only`, `.prose`, etc.
+
+**Never duplicate design tokens here** - they come from the design system.
+
+## Import Order
+
+**Critical**: Always import design system styles first, then app-specific styles.
+
+In `BaseHead.astro`:
+
+```typescript
+// ✅ Correct order
+import "@nanites/ui/styles"; // Design tokens first
+import "../styles/global.css"; // App styles second
+```
+
+This ensures:
+
+1. CSS variables are defined before use
+2. App-specific styles can override design system defaults if needed
+3. No CSS variable duplication
+
+## CSS Variables Available
+
+All these variables are defined in the design system and available globally:
+
+### Colors
+
+- `--accent`, `--accent-hover`, `--accent-dark`
+- `--text-primary`, `--text-secondary`, `--text-tertiary`
+- `--bg-primary`, `--bg-secondary`, `--bg-tertiary`
+- `--border-color`, `--border-color-strong`
+
+### Layout
+
+- `--space-xs` through `--space-2xl`
+- `--radius-sm` through `--radius-xl`
+- `--box-shadow`, `--box-shadow-lg`
+
+### Typography
+
+- `--font-family`
+- `--font-size-sm` through `--font-size-2xl`
+
+### Transitions
+
+- `--transition-fast`, `--transition-base`, `--transition-slow`
+
+### Gradients
+
+- `--gradient-from`, `--gradient-to`
+
+### Legacy (for backwards compatibility)
+
+- `--black`, `--gray`, `--gray-light`, `--gray-dark` (RGB format)
+
+## Theme Switching
+
+Theme is controlled by the `.dark` class on `<html>`:
+
+```javascript
+// Light mode
+document.documentElement.classList.remove("dark");
+
+// Dark mode
+document.documentElement.classList.add("dark");
+```
+
+The theme toggle component (`ThemeToggle.astro`) handles this automatically.
+
+## Component Architecture
+
+All components:
+
+1. Import Base UI primitives
+2. Wrap them with library-specific styling
+3. Export TypeScript-typed interfaces
+4. Use CSS variables for theming
+
+## Key Fixes Applied
+
+### 1. Input Width Issue
+
+**Problem**: Input boxes exceeded card width
+**Solution**: Added `box-sizing: border-box` to `.sigvelo-input`
+
+### 2. CSS Duplication
+
+**Problem**: CSS variables defined in both design system and global.css
+**Solution**: Moved all variables to design system, made it single source of truth
+
+### 3. Import Strategy
+
+**Problem**: Unclear where to import design system styles
+**Solution**: Import in `BaseHead.astro` for global availability
+
+## Best Practices
+
+1. **Never modify CSS variables in global.css** - they belong in the design system
+2. **Always import design system styles first** - before any app-specific CSS
+3. **Use CSS variables for all theming** - never hardcode colors or spacing
+4. **Keep component styles in design system** - only app layout goes in global.css
+5. **Test both themes** - every component should work in light and dark mode
+
+## Files Structure
+
+```
+packages/design-system/
+├── src/
+│   ├── styles/
+│   │   └── index.css          # CSS variables + component styles
+│   ├── components/
+│   │   ├── Button.tsx          # Component wrappers
+│   │   ├── Input.tsx
+│   │   ├── Card.tsx
+│   │   └── ...
+│   └── index.ts                # Main export
+└── README.md
+
+apps/user-application/
+├── src/
+│   ├── styles/
+│   │   └── global.css          # App-specific styles only
+│   └── components/
+│       └── BaseHead.astro      # Imports design system CSS
+```
+
+## Migration Guide for New Apps
+
+To use the design system in a new app:
+
+1. Add dependency:
+
+   ```json
+   "@nanites/ui": "workspace:*"
+   ```
+
+2. Import styles in your base layout/head:
+
+   ```typescript
+   import "@nanites/ui/styles";
+   ```
+
+3. Use components:
+
+   ```typescript
+   import { Button, Card } from "@nanites/ui";
+   ```
+
+4. Implement theme toggle (see `ThemeToggle.astro` for reference)
+
+That's it! Your app now has full access to the design system.

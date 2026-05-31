@@ -1,0 +1,53 @@
+{
+  "name": "@nanites/observability",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "typesVersions": {
+    "*": {
+      "log-events": [
+        "./src/log-events.ts"
+      ],
+      "logging": [
+        "./src/logging.ts"
+      ],
+      "otel": [
+        "./src/otel.ts"
+      ],
+      "sampling": [
+        "./src/sampling.ts"
+      ],
+      "otel-attrs": [
+        "./src/otel-attrs.ts"
+      ]
+    }
+  },
+  "exports": {
+    "./log-events": {
+      "types": "./src/log-events.ts",
+      "default": "./src/log-events.ts"
+    },
+    "./logging": {
+      "types": "./src/logging.ts",
+      "default": "./src/logging.ts"
+    },
+    "./otel": {
+      "types": "./src/otel.ts",
+      "default": "./src/otel.ts"
+    },
+    "./sampling": {
+      "types": "./src/sampling.ts",
+      "default": "./src/sampling.ts"
+    },
+    "./otel-attrs": {
+      "types": "./src/otel-attrs.ts",
+      "default": "./src/otel-attrs.ts"
+    }
+  },
+  "dependencies": {
+    "@opentelemetry/api": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

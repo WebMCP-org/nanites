@@ -1,0 +1,123 @@
+/*
+ * Light Theme Semantic Colors
+ *
+ * Semantic aliases for fill, text, and stroke across all color intents.
+ * Use these tokens in components instead of raw palette values.
+ */
+
+:root,
+.sigvelo-light,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --sigvelo-silent: white;
+  --sigvelo-strident: black;
+  --sigvelo-background-color: white;
+  --sigvelo-paper-color: white;
+  --sigvelo-text-body: var(--sigvelo-neutral-900);
+  --sigvelo-text-muted: var(--sigvelo-neutral-700);
+  --sigvelo-focus-color: var(--sigvelo-primary-fill-mid);
+  --sigvelo-focus-ring: var(--sigvelo-border-style) var(--sigvelo-focus-width)
+    var(--sigvelo-focus-color);
+  --sigvelo-backdrop-color: rgb(0 0 0 / 0.5);
+  --sigvelo-selection-background-color: var(--sigvelo-primary-300);
+  --sigvelo-selection-color: var(--sigvelo-text-body);
+  --sigvelo-shadow-color: black;
+  --sigvelo-shadow-softer: 0 0.0625rem 0.0625rem
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 4%);
+  --sigvelo-shadow-soft: 0 0.125rem 0.1875rem
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 8%);
+  --sigvelo-shadow-mid: 0 0.1875rem 0.375rem
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 10%);
+  --sigvelo-shadow-loud: 0 0.375rem 0.75rem
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 12%);
+  --sigvelo-shadow-louder: 0 0.5rem 1rem
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 14%);
+  --sigvelo-inset-shadow-softer: inset 0 0.125rem 0.125rem -0.125rem
+    color-mix(in oklab, black, transparent 94%);
+  --sigvelo-inset-shadow-soft: inset 0 0.25rem 0.25rem -0.25rem
+    color-mix(in oklab, black, transparent 90%);
+  --sigvelo-inset-shadow-mid: inset 0 0.5rem 0.5rem -0.5rem
+    color-mix(in oklab, black, transparent 88%);
+  --sigvelo-inset-shadow-loud: inset 0 1rem 1rem -1rem color-mix(in oklab, black, transparent 85%);
+  --sigvelo-inset-shadow-louder: inset 0 1.5rem 1.5rem -1.5rem
+    color-mix(in oklab, black, transparent 82%);
+
+  /* Primary */
+  --sigvelo-primary-fill-softer: var(--sigvelo-primary-100);
+  --sigvelo-primary-fill-soft: var(--sigvelo-primary-200);
+  --sigvelo-primary-fill-mid: color-mix(in oklab, var(--sigvelo-primary-600), black 2.5%);
+  --sigvelo-primary-fill-loud: var(--sigvelo-primary-800);
+  --sigvelo-primary-fill-louder: var(--sigvelo-primary-900);
+  --sigvelo-primary-text-on-soft: var(--sigvelo-primary-900);
+  --sigvelo-primary-text-on-mid: white;
+  --sigvelo-primary-text-on-loud: white;
+  --sigvelo-primary-text-colorful: color-mix(in oklab, var(--sigvelo-primary-600), black 12.5%);
+  --sigvelo-primary-stroke-softer: color-mix(in oklab, var(--sigvelo-primary-100), black 3%);
+  --sigvelo-primary-stroke-soft: var(--sigvelo-primary-300);
+  --sigvelo-primary-stroke-mid: var(--sigvelo-primary-500);
+
+  /* Neutral */
+  --sigvelo-neutral-fill-softer: var(--sigvelo-neutral-100);
+  --sigvelo-neutral-fill-soft: var(--sigvelo-neutral-200);
+  --sigvelo-neutral-fill-mid: color-mix(in oklab, var(--sigvelo-neutral-600), black 2.5%);
+  --sigvelo-neutral-fill-loud: var(--sigvelo-neutral-800);
+  --sigvelo-neutral-fill-louder: var(--sigvelo-neutral-900);
+  --sigvelo-neutral-text-on-soft: var(--sigvelo-neutral-900);
+  --sigvelo-neutral-text-on-mid: white;
+  --sigvelo-neutral-text-on-loud: white;
+  --sigvelo-neutral-text-colorful: color-mix(in oklab, var(--sigvelo-neutral-600), black 12.5%);
+  --sigvelo-neutral-stroke-softer: color-mix(in oklab, var(--sigvelo-neutral-100), black 3%);
+  --sigvelo-neutral-stroke-soft: var(--sigvelo-neutral-300);
+  --sigvelo-neutral-stroke-mid: var(--sigvelo-neutral-500);
+
+  /* Constructive */
+  --sigvelo-success-fill-softer: var(--sigvelo-success-100);
+  --sigvelo-success-fill-soft: var(--sigvelo-success-200);
+  --sigvelo-success-fill-mid: color-mix(in oklab, var(--sigvelo-success-600), black 12%);
+  --sigvelo-success-fill-loud: var(--sigvelo-success-800);
+  --sigvelo-success-fill-louder: var(--sigvelo-success-900);
+  --sigvelo-success-text-on-soft: var(--sigvelo-success-900);
+  --sigvelo-success-text-on-mid: white;
+  --sigvelo-success-text-on-loud: white;
+  --sigvelo-success-text-colorful: color-mix(in oklab, var(--sigvelo-success-600), black 12.5%);
+  --sigvelo-success-stroke-softer: color-mix(in oklab, var(--sigvelo-success-100), black 3%);
+  --sigvelo-success-stroke-soft: var(--sigvelo-success-300);
+  --sigvelo-success-stroke-mid: var(--sigvelo-success-500);
+
+  /* Caution */
+  --sigvelo-warning-fill-softer: var(--sigvelo-warning-100);
+  --sigvelo-warning-fill-soft: var(--sigvelo-warning-200);
+  --sigvelo-warning-fill-mid: color-mix(in oklab, var(--sigvelo-warning-600), black 15%);
+  --sigvelo-warning-fill-loud: var(--sigvelo-warning-800);
+  --sigvelo-warning-fill-louder: var(--sigvelo-warning-900);
+  --sigvelo-warning-text-on-soft: var(--sigvelo-warning-900);
+  --sigvelo-warning-text-on-mid: white;
+  --sigvelo-warning-text-on-loud: white;
+  --sigvelo-warning-text-colorful: color-mix(in oklab, var(--sigvelo-warning-600), black 12.5%);
+  --sigvelo-warning-stroke-softer: color-mix(in oklab, var(--sigvelo-warning-100), black 3%);
+  --sigvelo-warning-stroke-soft: var(--sigvelo-warning-300);
+  --sigvelo-warning-stroke-mid: var(--sigvelo-warning-500);
+
+  /* Destructive */
+  --sigvelo-destructive-fill-softer: var(--sigvelo-destructive-100);
+  --sigvelo-destructive-fill-soft: var(--sigvelo-destructive-200);
+  --sigvelo-destructive-fill-mid: color-mix(in oklab, var(--sigvelo-destructive-600), black 2.5%);
+  --sigvelo-destructive-fill-loud: var(--sigvelo-destructive-800);
+  --sigvelo-destructive-fill-louder: var(--sigvelo-destructive-900);
+  --sigvelo-destructive-text-on-soft: var(--sigvelo-destructive-900);
+  --sigvelo-destructive-text-on-mid: white;
+  --sigvelo-destructive-text-on-loud: white;
+  --sigvelo-destructive-text-colorful: color-mix(
+    in oklab,
+    var(--sigvelo-destructive-600),
+    black 12.5%
+  );
+  --sigvelo-destructive-stroke-softer: color-mix(
+    in oklab,
+    var(--sigvelo-destructive-100),
+    black 3%
+  );
+  --sigvelo-destructive-stroke-soft: var(--sigvelo-destructive-300);
+  --sigvelo-destructive-stroke-mid: var(--sigvelo-destructive-500);
+}

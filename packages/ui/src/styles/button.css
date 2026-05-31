@@ -1,0 +1,176 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  border: none;
+  cursor: pointer;
+  font-family: var(--sigvelo-font-family);
+  font-weight: var(--sigvelo-font-weight-semibold);
+  line-height: 1.25;
+  text-decoration: none;
+  border-radius: var(--sigvelo-border-radius-md);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.button:focus-visible {
+  outline: var(--sigvelo-focus-ring);
+  outline-offset: var(--sigvelo-focus-offset);
+}
+
+.button[data-disabled] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Normal appearance */
+
+.button--normal.button--primary {
+  background-color: var(--sigvelo-primary-fill-mid);
+  color: var(--sigvelo-primary-text-on-mid);
+}
+
+.button--normal.button--primary:hover:not([data-disabled]) {
+  background-color: color-mix(in oklab, var(--sigvelo-primary-fill-mid), black 5%);
+}
+
+.button--normal.button--neutral {
+  background-color: var(--sigvelo-neutral-fill-softer);
+  color: var(--sigvelo-neutral-text-on-soft);
+}
+
+.button--normal.button--neutral:hover:not([data-disabled]) {
+  background-color: color-mix(in oklab, var(--sigvelo-neutral-fill-softer), black 5%);
+}
+
+.button--normal.button--destructive {
+  background-color: var(--sigvelo-destructive-fill-mid);
+  color: var(--sigvelo-destructive-text-on-mid);
+}
+
+.button--normal.button--destructive:hover:not([data-disabled]) {
+  background-color: color-mix(in oklab, var(--sigvelo-destructive-fill-mid), black 5%);
+}
+
+/* Outline appearance */
+
+.button--outline.button--neutral {
+  background-color: transparent;
+  color: var(--sigvelo-neutral-text-colorful);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width) var(--sigvelo-neutral-fill-mid);
+}
+
+.button--outline.button--neutral:hover:not([data-disabled]) {
+  background-color: color-mix(in oklab, transparent, var(--sigvelo-neutral-fill-mid) 7.5%);
+}
+
+.button--outline.button--primary {
+  background-color: transparent;
+  color: var(--sigvelo-primary-text-colorful);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width) var(--sigvelo-primary-fill-mid);
+}
+
+.button--outline.button--primary:hover:not([data-disabled]) {
+  background-color: color-mix(in oklab, transparent, var(--sigvelo-primary-fill-mid) 7.5%);
+}
+
+.button--outline.button--destructive {
+  background-color: transparent;
+  color: var(--sigvelo-destructive-text-colorful);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width)
+    var(--sigvelo-destructive-fill-mid);
+}
+
+.button--outline.button--destructive:hover:not([data-disabled]) {
+  background-color: color-mix(in oklab, transparent, var(--sigvelo-destructive-fill-mid) 7.5%);
+}
+
+/* Ghost appearance */
+
+.button--ghost {
+  background: none;
+  color: var(--sigvelo-neutral-text-on-soft);
+}
+
+.button--ghost:hover:not([data-disabled]) {
+  background-color: color-mix(in oklab, transparent, var(--sigvelo-text-body) 5%);
+}
+
+/* Link appearance */
+
+.button--link {
+  background-color: transparent;
+  color: var(--sigvelo-primary-text-colorful);
+  text-underline-offset: 4px;
+}
+
+.button--link:hover:not([data-disabled]) {
+  text-decoration: underline;
+}
+
+/* Sizes */
+
+.button--xs {
+  min-height: var(--sigvelo-form-control-height-xs);
+  padding-block: 0;
+  padding-inline: 0.65rem;
+  font-size: var(--sigvelo-form-control-font-size-xs);
+  border-radius: var(--sigvelo-border-radius-sm);
+}
+
+.button--sm {
+  min-height: var(--sigvelo-form-control-height-sm);
+  padding-block: 0;
+  padding-inline: 0.85rem;
+  font-size: var(--sigvelo-form-control-font-size-sm);
+  border-radius: var(--sigvelo-border-radius-sm);
+}
+
+.button--md {
+  min-height: var(--sigvelo-form-control-height-md);
+  padding-block: 0;
+  padding-inline: 1.25rem;
+  font-size: var(--sigvelo-form-control-font-size-md);
+}
+
+.button--lg {
+  min-height: var(--sigvelo-form-control-height-lg);
+  padding-block: 0;
+  padding-inline: 1.5rem;
+  font-size: var(--sigvelo-form-control-font-size-lg);
+}
+
+.button--xl {
+  min-height: var(--sigvelo-form-control-height-xl);
+  padding-block: 0;
+  padding-inline: 1.75rem;
+  font-size: var(--sigvelo-form-control-font-size-xl);
+}
+
+.button--icon {
+  min-height: var(--sigvelo-form-control-height-md);
+  width: var(--sigvelo-form-control-height-md);
+  padding: 0;
+}
+
+@media (forced-colors: active) {
+  .button {
+    border: 1px solid ButtonText;
+  }
+
+  .button--ghost,
+  .button--link {
+    border-color: transparent;
+  }
+
+  .button[data-disabled] {
+    border-color: GrayText;
+    color: GrayText;
+    opacity: 1;
+  }
+}

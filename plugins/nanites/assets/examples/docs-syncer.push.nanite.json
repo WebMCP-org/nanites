@@ -1,0 +1,34 @@
+{
+  "manifest": {
+    "id": "docs-syncer-react-webmcp",
+    "name": "React WebMCP Docs Syncer",
+    "description": "Keeps React WebMCP documentation aligned when the package changes.",
+    "trigger": {
+      "type": "github",
+      "event": "push",
+      "repository": "WebMCP-org/npm-packages",
+      "branch": "main"
+    },
+    "permissions": {
+      "github": {
+        "repositories": ["WebMCP-org/npm-packages", "WebMCP-org/docs"],
+        "appPermissions": {
+          "contents": "write",
+          "pull_requests": "write",
+          "actions": "read",
+          "checks": "write"
+        }
+      }
+    },
+    "capabilities": {
+      "githubMcp": {
+        "tier": "github_pr_author",
+        "extraTools": ["actions_list", "actions_get"]
+      }
+    },
+    "inboundTrigger": {
+      "sourceCode": "export default { async handle(event, ctx) { if (event.type !== 'github.push') return ctx.noop('Not a push event.'); if (event.payload.repository.full_name !== 'WebMCP-org/npm-packages') return ctx.noop('Different repository.'); const changed = event.payload.commits?.flatMap((commit) => [...(commit.added ?? []), ...(commit.modified ?? []), ...(commit.removed ?? [])]) ?? []; const relevant = changed.filter((file) => file.startsWith('packages/react-webmcp/')); if (relevant.length === 0) return ctx.noop('No React WebMCP package files changed.'); return ctx.dispatchSelf({ reason: 'React WebMCP package changed', files: relevant.slice(0, 50), after: event.payload.after }); } };"
+    }
+  },
+  "enabled": true
+}

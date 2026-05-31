@@ -1,0 +1,1 @@
+ALTER TABLE `installations` ADD `github_account_avatar_url` text DEFAULT '' NOT NULL;

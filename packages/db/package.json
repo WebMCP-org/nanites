@@ -1,0 +1,29 @@
+{
+  "name": "@nanites/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./mutations/business": "./src/mutations/business.ts",
+    "./mutations/installations": "./src/mutations/installations.ts",
+    "./schema/business": "./src/schema/business.ts",
+    "./schema/installations": "./src/schema/installations.ts",
+    "./zod/business": "./src/zod/business.ts",
+    "./zod/installations": "./src/zod/installations.ts"
+  },
+  "dependencies": {
+    "@logtape/drizzle-orm": "catalog:",
+    "@nanites/domain": "workspace:*",
+    "@nanites/observability": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "drizzle-zod": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "drizzle-kit": "catalog:",
+    "typescript": "catalog:"
+  }
+}

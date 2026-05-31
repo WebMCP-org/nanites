@@ -1,0 +1,34 @@
+{
+  "manifest": {
+    "id": "pr-quality-guard",
+    "name": "PR Quality Guard",
+    "description": "Reviews pull requests for shallow tests, missing docs, and risky changes.",
+    "trigger": {
+      "type": "github",
+      "event": "pull_request",
+      "repositories": ["WebMCP-org/nanites"],
+      "actions": ["opened", "synchronize", "reopened"]
+    },
+    "permissions": {
+      "github": {
+        "repositories": ["WebMCP-org/nanites"],
+        "appPermissions": {
+          "contents": "read",
+          "pull_requests": "write",
+          "actions": "read",
+          "checks": "write"
+        }
+      }
+    },
+    "capabilities": {
+      "githubMcp": {
+        "tier": "github_pr_read",
+        "extraTools": ["actions_list", "actions_get"]
+      }
+    },
+    "inboundTrigger": {
+      "sourceCode": "export default { async handle(event, ctx) { if (!event.type.startsWith('github.pull_request.')) return ctx.noop('Not a pull request event.'); const action = event.payload.action; if (!['opened', 'synchronize', 'reopened'].includes(action)) return ctx.noop(`Ignored pull request action: ${action}`); return ctx.dispatchSelf({ reason: 'Pull request needs quality review', repository: event.payload.repository.full_name, pullNumber: event.payload.pull_request.number, headSha: event.payload.pull_request.head.sha }); } };"
+    }
+  },
+  "enabled": true
+}

@@ -1,0 +1,27 @@
+{
+  "name": "sigvelo-nanites",
+  "version": "0.1.0",
+  "description": "A canonical skill for setting up Sigvelo, creating Nanites, writing generated triggers, and testing them through MCP.",
+  "author": {
+    "name": "WebMCP / Sigvelo"
+  },
+  "homepage": "https://app.sigvelo.com",
+  "license": "MIT",
+  "keywords": ["sigvelo", "nanites", "mcp", "github", "octokit", "cloudflare"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Sigvelo Nanites",
+    "shortDescription": "Create and test durable GitHub Nanites through MCP.",
+    "longDescription": "Teaches agents how to set up Sigvelo, author thin Nanite manifests, write generated trigger handlers, use the Sigvelo MCP acceptance loop, and keep Nanite operating knowledge in one focused skill with references.",
+    "developerName": "WebMCP / Sigvelo",
+    "category": "Developer Tools",
+    "capabilities": ["MCP", "GitHub", "Cloudflare", "Code Generation"],
+    "websiteURL": "https://app.sigvelo.com",
+    "defaultPrompt": [
+      "Create a Nanite for this repo",
+      "Write a generated trigger",
+      "Test this Nanite through MCP"
+    ],
+    "brandColor": "#2F6F73"
+  }
+}

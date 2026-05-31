@@ -1,0 +1,97 @@
+.terminal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  font-family: var(--sigvelo-font-family);
+  background-color: var(--sigvelo-neutral-950, var(--sigvelo-neutral-900));
+  color: var(--sigvelo-neutral-100);
+  border: var(--sigvelo-border-style) var(--sigvelo-border-width)
+    var(--sigvelo-neutral-stroke-softer);
+  border-radius: var(--sigvelo-border-radius-md);
+  overflow: hidden;
+}
+
+.terminal__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  background-color: color-mix(in oklab, var(--sigvelo-neutral-950) 80%, white 20%);
+  border-block-end: var(--sigvelo-border-style) var(--sigvelo-border-width)
+    color-mix(in oklab, var(--sigvelo-neutral-700) 40%, transparent);
+}
+
+.terminal__title {
+  font-family: var(--sigvelo-font-family-code);
+  font-size: 0.75rem;
+  color: var(--sigvelo-neutral-300);
+}
+
+.terminal__status {
+  /* Badge handles styling */
+}
+
+.terminal__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline-start: auto;
+}
+
+.terminal__copy,
+.terminal__clear {
+  color: var(--sigvelo-neutral-300);
+}
+
+.terminal__content {
+  flex: 1;
+  max-height: 24rem;
+  min-height: 8rem;
+}
+
+.terminal__content-viewport {
+  width: 100%;
+  height: 100%;
+  padding-block: 0.625rem;
+  padding-inline: 0.875rem;
+  overflow: auto;
+}
+
+.terminal__output {
+  margin: 0;
+  font-family: var(--sigvelo-font-family-code);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--sigvelo-neutral-100);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal__cursor {
+  display: inline-block;
+  width: 0.5rem;
+  height: 1em;
+  vertical-align: text-bottom;
+  background-color: var(--sigvelo-neutral-100);
+  margin-inline-start: 0.125rem;
+  animation: terminal-blink 1s step-end infinite;
+}
+
+@keyframes terminal-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal__cursor {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .terminal {
+    border: 1px solid CanvasText;
+  }
+}

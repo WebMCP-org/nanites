@@ -1,0 +1,104 @@
+/*
+ * Dark Theme Semantic Colors
+ */
+
+.sigvelo-dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --sigvelo-silent: black;
+  --sigvelo-strident: white;
+  --sigvelo-background-color: var(--sigvelo-neutral-950);
+  --sigvelo-paper-color: color-mix(in oklab, var(--sigvelo-neutral-950), white 2.5%);
+  --sigvelo-text-body: var(--sigvelo-neutral-200);
+  --sigvelo-text-muted: var(--sigvelo-neutral-500);
+  --sigvelo-focus-color: var(--sigvelo-primary-fill-mid);
+  --sigvelo-focus-ring: var(--sigvelo-border-style) var(--sigvelo-focus-width)
+    var(--sigvelo-focus-color);
+  --sigvelo-backdrop-color: rgb(0 0 0 / 0.5);
+  --sigvelo-selection-background-color: var(--sigvelo-primary-700);
+  --sigvelo-selection-color: var(--sigvelo-text-body);
+  --sigvelo-shadow-color: black;
+  --sigvelo-shadow-softer: 0 1px 2px
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 8%);
+  --sigvelo-shadow-soft: 0 2px 4px color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 12%);
+  --sigvelo-shadow-mid: 0 4px 8px color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 16%);
+  --sigvelo-shadow-loud: 0 8px 16px
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 20%);
+  --sigvelo-shadow-louder: 0 12px 20px
+    color-mix(in oklab, transparent, var(--sigvelo-shadow-color) 24%);
+
+  /* Primary */
+  --sigvelo-primary-fill-softer: color-mix(in oklab, var(--sigvelo-primary-900), white 1%);
+  --sigvelo-primary-fill-soft: var(--sigvelo-primary-800);
+  --sigvelo-primary-fill-mid: color-mix(in oklab, var(--sigvelo-primary-600), black 7.5%);
+  --sigvelo-primary-fill-loud: var(--sigvelo-primary-200);
+  --sigvelo-primary-fill-louder: var(--sigvelo-primary-100);
+  --sigvelo-primary-text-on-soft: var(--sigvelo-primary-100);
+  --sigvelo-primary-text-on-mid: white;
+  --sigvelo-primary-text-on-loud: black;
+  --sigvelo-primary-text-colorful: var(--sigvelo-primary-500);
+  --sigvelo-primary-stroke-softer: color-mix(in oklab, var(--sigvelo-primary-900), white 7.5%);
+  --sigvelo-primary-stroke-soft: var(--sigvelo-primary-800);
+  --sigvelo-primary-stroke-mid: var(--sigvelo-primary-600);
+
+  /* Neutral */
+  --sigvelo-neutral-fill-softer: color-mix(in oklab, var(--sigvelo-neutral-900), white 1%);
+  --sigvelo-neutral-fill-soft: var(--sigvelo-neutral-800);
+  --sigvelo-neutral-fill-mid: color-mix(in oklab, var(--sigvelo-neutral-600), black 7.5%);
+  --sigvelo-neutral-fill-loud: var(--sigvelo-neutral-200);
+  --sigvelo-neutral-fill-louder: var(--sigvelo-neutral-100);
+  --sigvelo-neutral-text-on-soft: var(--sigvelo-neutral-100);
+  --sigvelo-neutral-text-on-mid: white;
+  --sigvelo-neutral-text-on-loud: black;
+  --sigvelo-neutral-text-colorful: var(--sigvelo-neutral-500);
+  --sigvelo-neutral-stroke-softer: color-mix(in oklab, var(--sigvelo-neutral-900), white 7.5%);
+  --sigvelo-neutral-stroke-soft: var(--sigvelo-neutral-800);
+  --sigvelo-neutral-stroke-mid: var(--sigvelo-neutral-600);
+
+  /* Constructive */
+  --sigvelo-success-fill-softer: color-mix(in oklab, var(--sigvelo-success-900), white 1%);
+  --sigvelo-success-fill-soft: var(--sigvelo-success-800);
+  --sigvelo-success-fill-mid: color-mix(in oklab, var(--sigvelo-success-600), black 16%);
+  --sigvelo-success-fill-loud: var(--sigvelo-success-200);
+  --sigvelo-success-fill-louder: var(--sigvelo-success-100);
+  --sigvelo-success-text-on-soft: var(--sigvelo-success-100);
+  --sigvelo-success-text-on-mid: white;
+  --sigvelo-success-text-on-loud: black;
+  --sigvelo-success-text-colorful: var(--sigvelo-success-500);
+  --sigvelo-success-stroke-softer: color-mix(in oklab, var(--sigvelo-success-900), white 7.5%);
+  --sigvelo-success-stroke-soft: var(--sigvelo-success-800);
+  --sigvelo-success-stroke-mid: var(--sigvelo-success-600);
+
+  /* Caution */
+  --sigvelo-warning-fill-softer: color-mix(in oklab, var(--sigvelo-warning-900), white 1%);
+  --sigvelo-warning-fill-soft: var(--sigvelo-warning-800);
+  --sigvelo-warning-fill-mid: color-mix(in oklab, var(--sigvelo-warning-600), black 18%);
+  --sigvelo-warning-fill-loud: var(--sigvelo-warning-200);
+  --sigvelo-warning-fill-louder: var(--sigvelo-warning-100);
+  --sigvelo-warning-text-on-soft: var(--sigvelo-warning-100);
+  --sigvelo-warning-text-on-mid: white;
+  --sigvelo-warning-text-on-loud: black;
+  --sigvelo-warning-text-colorful: var(--sigvelo-warning-500);
+  --sigvelo-warning-stroke-softer: color-mix(in oklab, var(--sigvelo-warning-900), white 7.5%);
+  --sigvelo-warning-stroke-soft: var(--sigvelo-warning-800);
+  --sigvelo-warning-stroke-mid: var(--sigvelo-warning-600);
+
+  /* Destructive */
+  --sigvelo-destructive-fill-softer: color-mix(in oklab, var(--sigvelo-destructive-900), white 1%);
+  --sigvelo-destructive-fill-soft: var(--sigvelo-destructive-800);
+  --sigvelo-destructive-fill-mid: color-mix(in oklab, var(--sigvelo-destructive-600), black 7.5%);
+  --sigvelo-destructive-fill-loud: var(--sigvelo-destructive-200);
+  --sigvelo-destructive-fill-louder: var(--sigvelo-destructive-100);
+  --sigvelo-destructive-text-on-soft: var(--sigvelo-destructive-100);
+  --sigvelo-destructive-text-on-mid: white;
+  --sigvelo-destructive-text-on-loud: black;
+  --sigvelo-destructive-text-colorful: var(--sigvelo-destructive-500);
+  --sigvelo-destructive-stroke-softer: color-mix(
+    in oklab,
+    var(--sigvelo-destructive-900),
+    white 7.5%
+  );
+  --sigvelo-destructive-stroke-soft: var(--sigvelo-destructive-800);
+  --sigvelo-destructive-stroke-mid: var(--sigvelo-destructive-600);
+}

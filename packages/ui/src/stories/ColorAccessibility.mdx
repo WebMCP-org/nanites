@@ -1,0 +1,210 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Guides/Color & Accessibility" />
+
+# Color Theming & Accessibility Best Practices
+
+This guide documents the color accessibility standards implemented in this component library, based on WCAG (Web Content Accessibility Guidelines) requirements.
+
+## WCAG Contrast Requirements
+
+### Understanding Contrast Ratios
+
+Contrast ratio measures the difference in luminance between two colors. It's expressed as a ratio like 4.5:1, where higher numbers mean more contrast.
+
+| Level              | Normal Text | Large Text | UI Components |
+| ------------------ | ----------- | ---------- | ------------- |
+| **AA (Minimum)**   | 4.5:1       | 3:1        | 3:1           |
+| **AAA (Enhanced)** | 7:1         | 4.5:1      | Not defined   |
+
+### What Counts as Large Text?
+
+- **18pt (24px)** or larger at normal weight
+- **14pt (18.67px)** or larger when **bold**
+
+Large text has more relaxed requirements because it's inherently easier to read.
+
+### Exceptions
+
+These elements are exempt from contrast requirements:
+
+- **Inactive controls** (disabled buttons, inputs)
+- **Logotypes** and brand names
+- **Purely decorative** text or images
+
+## Our Token Decisions
+
+### Primary Color
+
+We chose a primary blue with **45% lightness** in both light and dark themes to ensure WCAG AA compliance with white text:
+
+```css
+/* Light theme */
+--primary: 221 83% 45%; /* ~5.9:1 with white */
+--primary-foreground: 0 0% 100%;
+
+/* Dark theme */
+--primary: 217 91% 45%; /* ~5.9:1 with white */
+--primary-foreground: 0 0% 100%;
+```
+
+**Why not brighter?** A 60% lightness blue only achieves ~3.4:1 contrast with white text, failing AA for normal-sized text.
+
+### Success Color (Green)
+
+Green is notoriously difficult for accessibility because pure greens tend to be low-contrast with both white and black text. We darkened our success green:
+
+```css
+/* Light theme */
+--success: 142 76% 28%; /* Darker green for white text */
+--success-foreground: 0 0% 100%;
+
+/* Dark theme */
+--success: 142 71% 35%;
+--success-foreground: 0 0% 100%;
+```
+
+### Warning Color (Yellow/Orange)
+
+Warning colors use dark text on light backgrounds because yellow with white text is nearly impossible to make accessible:
+
+```css
+--warning: 38 92% 50%;
+--warning-foreground: 38 92% 10%; /* Dark text */
+```
+
+### Destructive Color (Red)
+
+Red is more forgiving than green, but we still ensure proper contrast:
+
+```css
+--destructive: 0 72% 51%;
+--destructive-foreground: 0 0% 100%;
+```
+
+## Common Patterns & Solutions
+
+### 1. Icon-Only Buttons
+
+Icon-only buttons lack visible text labels. Always provide an accessible name:
+
+```tsx
+{
+  /* Always add aria-label for icon-only buttons */
+}
+<Button variant="outline" size="icon" aria-label="Close dialog">
+  <CloseIcon aria-hidden="true" />
+</Button>;
+```
+
+**Note:** Mark decorative SVGs with `aria-hidden="true"` to prevent screen readers from announcing them.
+
+### 2. Form Fields Without Visible Labels
+
+When design requires inputs without visible labels, use `aria-label`:
+
+```tsx
+{/* With visible label - preferred */}
+<Label htmlFor="email">Email</Label>
+<Input id="email" type="email" />
+
+{/* Without visible label - use aria-label */}
+<Input type="search" aria-label="Search" placeholder="Search..." />
+```
+
+### 3. Toggle Controls (Checkbox, Radio, Switch)
+
+All toggle controls need accessible names, even when paired with labels:
+
+```tsx
+<div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+  <Checkbox id="terms" aria-label="Accept terms and conditions" />
+  <Label htmlFor="terms">I accept the terms and conditions</Label>
+</div>
+```
+
+### 4. Progress Indicators
+
+Progress bars need labels to convey meaning:
+
+```tsx
+{/* With aria-labelledby for visible labels */}
+<Label id="upload-label">Uploading...</Label>
+<Progress value={60} aria-labelledby="upload-label" />
+
+{/* With aria-label for context-obvious indicators */}
+<Progress value={60} aria-label="Upload progress" />
+```
+
+### 5. Multiple Landmarks
+
+When using multiple landmarks of the same type (like multiple `<nav>` or Toast viewports), give them unique labels:
+
+```tsx
+<nav aria-label="Main navigation">...</nav>
+<nav aria-label="Footer navigation">...</nav>
+
+<Toast.Viewport aria-label="System notifications" />
+<Toast.Viewport aria-label="Action notifications" />
+```
+
+## Testing Color Contrast
+
+### Browser Tools
+
+1. **Firefox Accessibility Inspector**: DevTools > Accessibility tab > "Check for accessibility issues"
+2. **Chrome DevTools**: Elements panel shows contrast ratio when selecting text colors
+
+### Online Tools
+
+- [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/)
+- [Coolors Contrast Checker](https://coolors.co/contrast-checker)
+- [Adobe Color Contrast Analyzer](https://color.adobe.com/create/color-contrast-analyzer)
+
+### Calculating Contrast Ratio
+
+The formula uses relative luminance:
+
+```
+Contrast Ratio = (L1 + 0.05) / (L2 + 0.05)
+```
+
+Where L1 is the lighter color's luminance and L2 is the darker color's luminance (both between 0 and 1).
+
+## Designing for Color Blindness
+
+~8% of men and ~0.5% of women have some form of color vision deficiency. Best practices:
+
+1. **Don't rely solely on color** to convey information
+2. **Use icons, patterns, or text** alongside color
+3. **Test with color blindness simulators**
+
+```tsx
+{/* Bad: Only color indicates status */}
+<Badge color="success" />
+<Badge color="destructive" />
+
+{/* Good: Icon + color */}
+<Badge color="success">
+  <CheckIcon aria-hidden="true" /> Active
+</Badge>
+<Badge color="destructive">
+  <AlertIcon aria-hidden="true" /> Error
+</Badge>
+```
+
+## Dark Mode Considerations
+
+When implementing dark mode:
+
+1. **Don't just invert colors** - dark backgrounds need different contrast considerations
+2. **Reduce brightness of saturated colors** - highly saturated colors can appear too vibrant on dark backgrounds
+3. **Test both themes independently** - a color that passes in light mode may fail in dark mode
+
+## Resources
+
+- [WCAG 2.1 Success Criterion 1.4.3 - Contrast (Minimum)](https://www.w3.org/WAI/WCAG21/Understanding/contrast-minimum.html)
+- [WCAG 2.1 Success Criterion 1.4.6 - Contrast (Enhanced)](https://www.w3.org/WAI/WCAG21/Understanding/contrast-enhanced.html)
+- [WCAG 2.1 Success Criterion 1.4.11 - Non-text Contrast](https://www.w3.org/WAI/WCAG21/Understanding/non-text-contrast.html)
+- [MDN: Color Contrast](https://developer.mozilla.org/en-US/docs/Web/Accessibility/Guides/Understanding_WCAG/Perceivable/Color_contrast)
+- [A11y Color Contrast Testing](https://www.a11yproject.com/posts/what-is-color-contrast/)

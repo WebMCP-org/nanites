@@ -1,0 +1,88 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sigvelo-agent-tests",
+  "main": "../../src/server.ts",
+  "compatibility_date": "2026-03-02",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "worker_loaders": [
+    {
+      "binding": "LOADER",
+    },
+  ],
+  "vars": {
+    "ALLOW_TEST_AUTH": "true",
+    "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "",
+    "CLOUDFLARE_ACCESS_AUD": "",
+    "SENTRY_ENVIRONMENT": "test",
+    "SENTRY_TRACES_SAMPLE_RATE": "0",
+    "NANITES_LLM_FIXTURE": "complete",
+    "GITHUB_APP_ID": "1",
+    "GITHUB_APP_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\nMIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBANyvNgE0KDt115p0\nGt5oLU9MniuAqRjfQt50FumMCLE+Nu9EddLaO7C1N4N/vZL76FeSAXjI0nww7bE9\nYSVkzn0eGl6Qgq6qUh4gQyLizJYH99V0eim0Ohbu21fNWxZxAXAw3CWwd1A5+0Yi\nxPN13zYrEWTeOTmdBWqLh+Kx2b7HAgMBAAECgYBIcrDNBl1q383vI8yqVRMC5IlM\niMl6o9jlBMF83H8CCQWp2RTBKunLokJeRjJrLY3iKcmX6H3JTZrKw/a/eu+aYZDj\nWDrl1zOkealBrS1IZ7pScmD1ht/o95LkC9eCN6aJncsZAcXGDRJd34RdBkghSq+g\nTsIs1mVpgQsHuCVPCQJBAPHFhJIZRmFsYC3jX0eNH9QWtYQZwJkwduuCC9xDiuex\n+6fdlEp+qFPOj7CmMvgnQkhjR+F3LONrUeymgDQ3COMCQQDpq/+dskkxPLOLMSQc\nhwmILEA8TBa4nlMeOsfz8/SWfzyz3mV1Q4M0mAcJcdV8DQiFHCPufFohiK19zsEV\nSKvNAkA/sw25vIUJmBdDH9vzqyAOrikG9A4FjnpWlH3xe642W3N1h/DRK8vHwO2k\n2jUloppZHidLJS4jgRwloLy4hSOHAkEArLOvn6imSdq4RDbUnrT7SYaTDz2ZSWfS\nvLPrFpWGfziY78N+LxXvwg5enQ9iHmYvltm+gMOthb1TpHkL4aQtPQJAAPpUrZOR\nowaeGo0lGPCaUkgcWUbGYOlgx/M13GsGHwGGwotUmHV0PY956fLcoIWEqB2Bk/gm\n9rgJ/ER1bET+DQ==\n-----END PRIVATE KEY-----",
+    "GITHUB_CLIENT_ID": "test-client-id",
+    "GITHUB_CLIENT_SECRET": "test-client-secret",
+    "GITHUB_WEBHOOK_SECRET": "test-webhook-secret",
+    "AUTH_COOKIE_SECRET": "test-auth-cookie-secret",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sigvelo-agent-tests",
+      "database_id": "test-db",
+      "migrations_dir": "../../../../packages/db/migrations",
+    },
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "test-oauth-kv",
+    },
+    {
+      "binding": "TOOL_OUTPUTS",
+      "id": "b400bec1a47e4917816e8bf8628ce4f5",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "WORKSPACE_FILES",
+      "bucket_name": "test-workspace-files",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "SigveloChatIngress",
+        "name": "SigveloChatIngress",
+      },
+      // Test-harness-only binding: production only needs to export this class,
+      // but vitest-pool-workers needs it here for sub-agent resolution.
+      {
+        "class_name": "ChatSdkStateAgent",
+        "name": "ChatSdkStateAgent",
+      },
+      {
+        "class_name": "SigveloManagerConversationAgent",
+        "name": "SigveloManagerConversationAgent",
+      },
+      {
+        "class_name": "SigveloMcpAgent",
+        "name": "SigveloMcpAgent",
+      },
+      {
+        "class_name": "SigveloNaniteManager",
+        "name": "SigveloNaniteManager",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "SigveloChatIngress",
+        "SigveloManagerConversationAgent",
+        "SigveloMcpAgent",
+        "SigveloNaniteManager",
+        "SigveloNaniteAgent",
+      ],
+      "tag": "v1",
+    },
+  ],
+}

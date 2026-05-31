@@ -1,0 +1,31 @@
+{
+  "name": "nanites",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ready": "vp fmt && vp lint && vp run -r test && vp run -r build",
+    "dev": "vp run nanites-app#dev",
+    "prepare": "vp config"
+  },
+  "devDependencies": {
+    "@tanstack/intent": "catalog:",
+    "@tanstack/router-core": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@sentry/cli",
+      "better-sqlite3",
+      "core-js-pure",
+      "esbuild",
+      "msw",
+      "sharp",
+      "workerd"
+    ]
+  }
+}

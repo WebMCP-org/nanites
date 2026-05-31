@@ -1,0 +1,169 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Base UI Composition" />
+
+# Base UI Composition
+
+This design system is built on top of [Base UI](https://base-ui.com/), a library of unstyled, accessible React components. Understanding how we compose with Base UI helps explain our architectural decisions.
+
+## Base UI's Recommended Pattern
+
+Base UI recommends using the **`render` prop pattern** for component composition. In this approach, you pass a custom component to a Base UI component's `render` prop:
+
+```tsx
+// Base UI's recommended pattern
+<BaseButton render={<MyStyledButton color="primary" />}>Click me</BaseButton>
+```
+
+### Requirements for render prop components:
+
+- Must accept a `ref` prop (React 19 passes `ref` as a regular prop)
+- Must spread all received props onto the underlying DOM element
+
+```tsx
+function MyStyledButton({ ref, ...props }: Props & { ref?: React.Ref<HTMLButtonElement> }) {
+  return <button ref={ref} {...props} className="my-styles" />;
+}
+```
+
+## Our Design System Approach
+
+While Base UI's render prop pattern is powerful, **we use a wrapper component pattern** instead:
+
+```tsx
+// Our approach
+export function Button({
+  variant = "primary",
+  size = "md",
+  className = "",
+  ref,
+  ...props
+}: ButtonProps & { ref?: React.Ref<HTMLButtonElement> }) {
+  const classes = computeClasses(variant, size, className);
+  return <BaseButton ref={ref} className={classes} {...props} />;
+}
+
+// Usage
+<Button color="primary">Click me</Button>;
+```
+
+## Why We Chose Wrappers Over Render Props
+
+### 1. **Simpler API for Consumers**
+
+**Wrapper approach (ours):**
+
+```tsx
+<Button color="primary" size="lg">
+  Save
+</Button>
+```
+
+**Render prop approach:**
+
+```tsx
+<BaseButton render={<StyledButton color="primary" size="lg" />}>Save</BaseButton>
+```
+
+The wrapper approach is more intuitive and requires less knowledge of Base UI internals.
+
+### 2. **Design System Abstraction**
+
+Our design system acts as an abstraction layer. Consumers don't need to know about Base UI at all:
+
+```tsx
+// Consumers only import from our design system
+import { Button } from "@nanites/ui";
+
+// They never interact with Base UI directly
+import { Button as BaseButton } from "@base-ui/react/button"; // Not needed
+```
+
+### 3. **Cleaner Type Definitions**
+
+Our wrapper pattern provides cleaner TypeScript types:
+
+```tsx
+interface ButtonProps extends Omit<BaseButtonProps, "className"> {
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "sm" | "md" | "lg";
+  className?: string;
+}
+```
+
+Consumers get autocomplete for our specific variants and sizes without seeing Base UI's internal props.
+
+### 4. **Consistent Pattern Across Components**
+
+All our components follow the same wrapper pattern, creating consistency:
+
+```tsx
+<Button color="primary">Save</Button>
+<Input size="md" />
+<Card variant="elevated">Content</Card>
+```
+
+## When to Use Render Props
+
+The render prop pattern shines when **composing multiple Base UI primitives together** in application code:
+
+```tsx
+// Composing Dialog + Tooltip + Menu
+<Dialog.Root>
+  <Tooltip.Root>
+    <Tooltip.Trigger
+      render={<Dialog.Trigger render={<Menu.Trigger render={<Button color="primary" />} />} />}
+    />
+  </Tooltip.Root>
+</Dialog.Root>
+```
+
+If you need this level of composition in your application, you can:
+
+1. Import Base UI components directly in your app
+2. Use our styled components with Base UI's render prop
+3. Create app-specific composed components
+
+## Trade-offs
+
+### Wrapper Pattern (Our Choice)
+
+**Pros:**
+
+- Simpler API
+- Better abstraction
+- Cleaner types
+- Consistent usage
+
+**Cons:**
+
+- Extra component layer
+- Slightly less flexible for complex composition
+- Can't easily override the underlying DOM element
+
+### Render Prop Pattern (Base UI's Recommendation)
+
+**Pros:**
+
+- Maximum flexibility
+- Direct element override capability
+- Performance optimization options (function render props)
+- Better for complex multi-component composition
+
+**Cons:**
+
+- More verbose usage
+- Exposes Base UI internals
+- Steeper learning curve
+- More boilerplate
+
+## Summary
+
+Our design system intentionally deviates from Base UI's pure render prop pattern to provide:
+
+- A simpler, more ergonomic API
+- Complete abstraction from Base UI internals
+- Consistent patterns across all components
+- Better developer experience for common use cases
+
+The render prop pattern remains available for advanced use cases where you need to compose multiple Base UI primitives together in application code.
