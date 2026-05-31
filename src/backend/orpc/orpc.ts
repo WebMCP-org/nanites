@@ -4,7 +4,8 @@ import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins";
 import { RPCHandler } from "@orpc/server/fetch";
 import { onError } from "@orpc/server";
-import { ResponseHeadersPlugin } from "@orpc/server/plugins";
+import type { StandardHandlerOptions } from "@orpc/server/standard";
+import { ResponseHeadersPlugin, SimpleCsrfProtectionHandlerPlugin } from "@orpc/server/plugins";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { LOG_EVENTS } from "@nanites/observability/log-events";
 import { OTEL_ATTRS } from "@nanites/observability/otel-attrs";
@@ -42,6 +43,23 @@ const ADMIN_OPENAPI_SPEC_GENERATE_OPTIONS = buildAdminOpenAPIGenerateOptions(ADM
 
 let cachedOpenAPIDocument: Awaited<ReturnType<OpenAPIGenerator["generate"]>> | null = null;
 let cachedAdminOpenAPIDocument: Awaited<ReturnType<OpenAPIGenerator["generate"]>> | null = null;
+let cachedOpenAPIHandlerPromise: Promise<OpenAPIHandler<BaseContext>> | null = null;
+let cachedAdminOpenAPIHandlerPromise: Promise<OpenAPIHandler<BaseContext>> | null = null;
+let cachedRPCHandlerPromise: Promise<RPCHandler<BaseContext>> | null = null;
+let cachedAdminRPCHandlerPromise: Promise<RPCHandler<BaseContext>> | null = null;
+
+const errorInterceptors = [
+  onError((error, options) => {
+    options.context.logger.error(LOG_EVENTS.API_REQUEST_FAILED, {
+      [OTEL_ATTRS.HTTP_REQUEST_METHOD]: options.request.method,
+      [OTEL_ATTRS.URL_PATH]: new URL(options.request.url).pathname,
+      [OTEL_ATTRS.REQUEST_ID]: options.context.requestId,
+      [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
+      [OTEL_ATTRS.EXCEPTION_MESSAGE]: getErrorMessage(error),
+      error,
+    });
+  }),
+] satisfies NonNullable<StandardHandlerOptions<BaseContext>["interceptors"]>;
 
 function toOpenAPIHandlerPath(path: string, prefix: string): `/${string}` {
   return path.slice(prefix.length) as `/${string}`;
@@ -62,18 +80,7 @@ function buildOpenAPIHandler(
   },
 ) {
   return new OpenAPIHandler(router, {
-    interceptors: [
-      onError((error, options) => {
-        options.context.logger.error(LOG_EVENTS.API_REQUEST_FAILED, {
-          [OTEL_ATTRS.HTTP_REQUEST_METHOD]: options.request.method,
-          [OTEL_ATTRS.URL_PATH]: new URL(options.request.url).pathname,
-          [OTEL_ATTRS.REQUEST_ID]: options.context.requestId,
-          [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
-          [OTEL_ATTRS.EXCEPTION_MESSAGE]: getErrorMessage(error),
-          error,
-        });
-      }),
-    ],
+    interceptors: errorInterceptors,
     plugins: [
       new SmartCoercionPlugin({ schemaConverters }),
       new ResponseHeadersPlugin(),
@@ -90,14 +97,16 @@ function buildOpenAPIHandler(
 }
 
 async function getOpenAPIHandler() {
-  const { appRouter } = await import("#/backend/orpc/router.ts");
+  cachedOpenAPIHandlerPromise ??= import("#/backend/orpc/router.ts").then(({ appRouter }) =>
+    buildOpenAPIHandler(appRouter, {
+      docsPath: toOpenAPIHandlerPath(API_DOCS_PATH, API_PREFIX),
+      docsTitle: "Nanites API Reference",
+      specGenerateOptions: OPENAPI_SPEC_GENERATE_OPTIONS,
+      specPath: toOpenAPIHandlerPath(API_SPEC_PATH, API_PREFIX),
+    }),
+  );
 
-  return buildOpenAPIHandler(appRouter, {
-    docsPath: toOpenAPIHandlerPath(API_DOCS_PATH, API_PREFIX),
-    docsTitle: "Nanites API Reference",
-    specGenerateOptions: OPENAPI_SPEC_GENERATE_OPTIONS,
-    specPath: toOpenAPIHandlerPath(API_SPEC_PATH, API_PREFIX),
-  });
+  return cachedOpenAPIHandlerPromise;
 }
 
 export async function getOpenAPIDocument() {
@@ -112,14 +121,17 @@ export async function getOpenAPIDocument() {
 }
 
 async function getAdminOpenAPIHandler() {
-  const { adminRouter } = await import("#/backend/orpc/routers/admin.ts");
+  cachedAdminOpenAPIHandlerPromise ??= import("#/backend/orpc/routers/admin.ts").then(
+    ({ adminRouter }) =>
+      buildOpenAPIHandler(adminRouter, {
+        docsPath: toOpenAPIHandlerPath(ADMIN_API_DOCS_PATH, ADMIN_API_PREFIX),
+        docsTitle: "Nanites Admin API Reference",
+        specGenerateOptions: ADMIN_OPENAPI_SPEC_GENERATE_OPTIONS,
+        specPath: toOpenAPIHandlerPath(ADMIN_API_SPEC_PATH, ADMIN_API_PREFIX),
+      }),
+  );
 
-  return buildOpenAPIHandler(adminRouter, {
-    docsPath: toOpenAPIHandlerPath(ADMIN_API_DOCS_PATH, ADMIN_API_PREFIX),
-    docsTitle: "Nanites Admin API Reference",
-    specGenerateOptions: ADMIN_OPENAPI_SPEC_GENERATE_OPTIONS,
-    specPath: toOpenAPIHandlerPath(ADMIN_API_SPEC_PATH, ADMIN_API_PREFIX),
-  });
+  return cachedAdminOpenAPIHandlerPromise;
 }
 
 export async function getAdminOpenAPIDocument() {
@@ -136,44 +148,29 @@ export async function getAdminOpenAPIDocument() {
   return cachedAdminOpenAPIDocument;
 }
 
-async function getRPCHandler() {
-  const { appRouter } = await import("#/backend/orpc/router.ts");
-
-  return new RPCHandler(appRouter, {
-    interceptors: [
-      onError((error, options) => {
-        options.context.logger.error(LOG_EVENTS.API_REQUEST_FAILED, {
-          [OTEL_ATTRS.HTTP_REQUEST_METHOD]: options.request.method,
-          [OTEL_ATTRS.URL_PATH]: new URL(options.request.url).pathname,
-          [OTEL_ATTRS.REQUEST_ID]: options.context.requestId,
-          [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
-          [OTEL_ATTRS.EXCEPTION_MESSAGE]: getErrorMessage(error),
-          error,
-        });
-      }),
-    ],
-    plugins: [new ResponseHeadersPlugin()],
+function buildRPCHandler(router: AppRouter | AdminRouter) {
+  return new RPCHandler(router, {
+    interceptors: errorInterceptors,
+    // Simple CSRF protection replaces RPCHandler's default StrictGetMethodPlugin.
+    strictGetMethodPluginEnabled: false,
+    plugins: [new ResponseHeadersPlugin(), new SimpleCsrfProtectionHandlerPlugin()],
   });
 }
 
-async function getAdminRPCHandler() {
-  const { adminRouter } = await import("#/backend/orpc/routers/admin.ts");
+async function getRPCHandler() {
+  cachedRPCHandlerPromise ??= import("#/backend/orpc/router.ts").then(({ appRouter }) =>
+    buildRPCHandler(appRouter),
+  );
 
-  return new RPCHandler(adminRouter, {
-    interceptors: [
-      onError((error, options) => {
-        options.context.logger.error(LOG_EVENTS.API_REQUEST_FAILED, {
-          [OTEL_ATTRS.HTTP_REQUEST_METHOD]: options.request.method,
-          [OTEL_ATTRS.URL_PATH]: new URL(options.request.url).pathname,
-          [OTEL_ATTRS.REQUEST_ID]: options.context.requestId,
-          [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
-          [OTEL_ATTRS.EXCEPTION_MESSAGE]: getErrorMessage(error),
-          error,
-        });
-      }),
-    ],
-    plugins: [new ResponseHeadersPlugin()],
-  });
+  return cachedRPCHandlerPromise;
+}
+
+async function getAdminRPCHandler() {
+  cachedAdminRPCHandlerPromise ??= import("#/backend/orpc/routers/admin.ts").then(
+    ({ adminRouter }) => buildRPCHandler(adminRouter),
+  );
+
+  return cachedAdminRPCHandlerPromise;
 }
 
 export const openAPIHandler = {

@@ -20,6 +20,8 @@ const TEST_AUTH_MINT_SESSION_PATH = "/auth/test/mint-session";
 const GITHUB_OAUTH_LOGIN_PATH = "/auth/github/login";
 const SESSION_GET_OPTIONAL_RPC_PATH = buildRpcPath("auth", "session", "getOptional");
 const REPOSITORIES_LIST_ACTIVE_RPC_PATH = buildRpcPath("auth", "repositories", "listActive");
+const ORPC_CSRF_HEADER_NAME = "x-csrf-token";
+const ORPC_CSRF_HEADER_VALUE = "orpc";
 const TEST_AUTH_TOKEN_REQUIRED_MESSAGE =
   "Local authenticated browser sessions require a real GitHub user token. Provide GITHUB_TEST_USER_TOKEN, x-github-test-user-token, or ?githubAccessToken=...";
 
@@ -107,6 +109,13 @@ function collectSetCookieHeaders(response: Response): string[] {
   return [...response.headers.entries()]
     .filter(([name]) => name.toLowerCase() === "set-cookie")
     .map(([, value]) => value);
+}
+
+function buildRpcHeaders(headers: Record<string, string>): Record<string, string> {
+  return {
+    [ORPC_CSRF_HEADER_NAME]: ORPC_CSRF_HEADER_VALUE,
+    ...headers,
+  };
 }
 
 function mockGitHubOAuthRefreshToken(): { requestBodies: string[]; restore: () => void } {
@@ -284,12 +293,12 @@ test("auth session optional uses cached session installation without calling Git
   try {
     const request = new Request(`http://example.com${SESSION_GET_OPTIONAL_RPC_PATH}`, {
       method: "POST",
-      headers: {
+      headers: buildRpcHeaders({
         "content-type": "application/json",
         cookie: await buildAuthCookieHeader({
           activeInstallationSnapshot: activeInstallation,
         }),
-      },
+      }),
       body: "{}",
     });
     const ctx = createExecutionContext();
@@ -327,12 +336,12 @@ test("auth session optional supports old sessions without an installation snapsh
   try {
     const request = new Request(`http://example.com${SESSION_GET_OPTIONAL_RPC_PATH}`, {
       method: "POST",
-      headers: {
+      headers: buildRpcHeaders({
         "content-type": "application/json",
         cookie: await buildAuthCookieHeader({
           activeInstallationSnapshot: null,
         }),
-      },
+      }),
       body: "{}",
     });
     const ctx = createExecutionContext();
@@ -384,10 +393,10 @@ test("auth session optional keeps the browser session when the GitHub token cook
   const response = await worker.fetch(
     new Request(`http://example.com${SESSION_GET_OPTIONAL_RPC_PATH}`, {
       method: "POST",
-      headers: {
+      headers: buildRpcHeaders({
         "content-type": "application/json",
         cookie: sessionCookie.split(";", 1)[0] ?? "",
-      },
+      }),
       body: "{}",
     }),
     env,
@@ -430,7 +439,7 @@ test("auth session optional refreshes an expired GitHub access token when the re
   try {
     const request = new Request(`http://example.com${SESSION_GET_OPTIONAL_RPC_PATH}`, {
       method: "POST",
-      headers: {
+      headers: buildRpcHeaders({
         "content-type": "application/json",
         cookie: await buildAuthCookieHeader({
           activeInstallationSnapshot: activeInstallation,
@@ -441,7 +450,7 @@ test("auth session optional refreshes an expired GitHub access token when the re
             refreshTokenExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
           },
         }),
-      },
+      }),
       body: "{}",
     });
     const ctx = createExecutionContext();
@@ -486,7 +495,7 @@ test("auth session optional keeps the browser session when GitHub refresh is una
   };
   const request = new Request(`http://example.com${SESSION_GET_OPTIONAL_RPC_PATH}`, {
     method: "POST",
-    headers: {
+    headers: buildRpcHeaders({
       "content-type": "application/json",
       cookie: await buildAuthCookieHeader({
         activeInstallationSnapshot: activeInstallation,
@@ -497,7 +506,7 @@ test("auth session optional keeps the browser session when GitHub refresh is una
           refreshTokenExpiresAt: null,
         },
       }),
-    },
+    }),
     body: "{}",
   });
   const ctx = createExecutionContext();
@@ -538,10 +547,10 @@ test("repository RPC maps structural GitHub auth failures to unauthorized instea
   try {
     const request = new Request(`http://example.com${REPOSITORIES_LIST_ACTIVE_RPC_PATH}`, {
       method: "POST",
-      headers: {
+      headers: buildRpcHeaders({
         "content-type": "application/json",
         cookie: await buildAuthCookieHeader(),
-      },
+      }),
       body: "{}",
     });
     const ctx = createExecutionContext();

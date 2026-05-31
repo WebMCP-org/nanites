@@ -1,4 +1,5 @@
-// Wrangler entrypoint ("main" in wrangler.jsonc) — re-export only.
+// Wrangler entrypoint ("main" in wrangler.jsonc).
+import "#/backend/orpc/instrumentation.ts";
 import * as Sentry from "@sentry/cloudflare";
 import { OAuthError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
 export { HostBridgeLoopback } from "@cloudflare/think/extensions";

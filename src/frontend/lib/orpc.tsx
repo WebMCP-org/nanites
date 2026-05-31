@@ -1,7 +1,8 @@
 import { createContext, type ReactNode, useContext } from "react";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { createORPCReactQueryUtils } from "@orpc/react-query";
+import { SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
+import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import type { RouterClient } from "@orpc/server";
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AppRouter } from "#/backend/orpc/router.ts";
@@ -11,7 +12,7 @@ import { ADMIN_RPC_PREFIX, RPC_PREFIX } from "#/shared/constants/rpc.ts";
 /**
  * Browser-side oRPC data should stay warm until the UI explicitly invalidates it.
  *
- * Live Nanite state comes from `useAgent`/`useAgentChat`, not React Query refetch churn.
+ * Live Nanite state comes from `useAgent`/`useAgentChat`, not TanStack Query refetch churn.
  */
 const QUERY_STALE_TIME_MS = Number.POSITIVE_INFINITY;
 
@@ -85,16 +86,18 @@ type AdminClient = RouterClient<AdminRouter>;
 
 const link = new RPCLink({
   url: () => new URL(RPC_PREFIX, window.location.origin),
+  plugins: [new SimpleCsrfProtectionLinkPlugin()],
 });
 const adminLink = new RPCLink({
   url: () => new URL(ADMIN_RPC_PREFIX, window.location.origin),
+  plugins: [new SimpleCsrfProtectionLinkPlugin()],
 });
 
 const client: Client = createORPCClient(link);
 const adminClient: AdminClient = createORPCClient(adminLink);
 
-export const orpc = createORPCReactQueryUtils(client);
-export const adminOrpc = createORPCReactQueryUtils(adminClient);
+export const orpc = createTanstackQueryUtils(client);
+export const adminOrpc = createTanstackQueryUtils(adminClient);
 export type ORPCUtils = typeof orpc;
 export type AdminORPCUtils = typeof adminOrpc;
 
@@ -111,7 +114,7 @@ export function ORPCProvider({ children }: ORPCProviderProps) {
   );
 }
 
-/** Returns the shared typed oRPC React Query helpers for the current router tree. */
+/** Returns the shared typed oRPC TanStack Query helpers for the current router tree. */
 export function useORPC() {
   const value = useContext(ORPCContext);
   if (!value) {

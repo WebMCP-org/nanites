@@ -2,7 +2,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { oo } from "@orpc/openapi";
 import { ORPCError, os } from "@orpc/server";
 import { LOG_EVENTS } from "@nanites/observability/log-events";
-import { withActiveSpan } from "@nanites/observability/otel";
+import { setActiveSpanAttributes } from "@nanites/observability/otel";
 import { OTEL_ATTRS } from "@nanites/observability/otel-attrs";
 import {
   AUTH_ERROR_CODES,
@@ -34,44 +34,44 @@ import {
   browserSessionSecurity,
 } from "#/backend/orpc/openapi-contract.ts";
 
-const baseProcedure = os.$context<BaseContext>().use(async ({ context, next, path }) => {
+const baseProcedure = os.$context<BaseContext>().use(async function nanitesBaseProcedure({
+  context,
+  next,
+  path,
+}) {
   const rpcMethod = typeof path === "string" ? path : path.join(".");
 
-  return await withActiveSpan(
-    "orpc.procedure",
-    {
-      [OTEL_ATTRS.RPC_SYSTEM]: "orpc",
-      [OTEL_ATTRS.RPC_METHOD]: rpcMethod,
-      [OTEL_ATTRS.URL_PATH]: new URL(context.req.url).pathname,
+  setActiveSpanAttributes({
+    [OTEL_ATTRS.RPC_SYSTEM]: "orpc",
+    [OTEL_ATTRS.RPC_METHOD]: rpcMethod,
+    [OTEL_ATTRS.URL_PATH]: new URL(context.req.url).pathname,
+    [OTEL_ATTRS.REQUEST_ID]: context.requestId,
+  });
+
+  try {
+    return await next();
+  } catch (error) {
+    if (error instanceof ORPCError) {
+      throw error;
+    }
+
+    Sentry.captureException(error);
+
+    context.logger.error(LOG_EVENTS.API_UNHANDLED_ERROR, {
       [OTEL_ATTRS.REQUEST_ID]: context.requestId,
-    },
-    async () => {
-      try {
-        return await next();
-      } catch (error) {
-        if (error instanceof ORPCError) {
-          throw error;
-        }
+      [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
+      [OTEL_ATTRS.EXCEPTION_MESSAGE]: getErrorMessage(error),
+      error,
+    });
 
-        Sentry.captureException(error);
-
-        context.logger.error(LOG_EVENTS.API_UNHANDLED_ERROR, {
-          [OTEL_ATTRS.REQUEST_ID]: context.requestId,
-          [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
-          [OTEL_ATTRS.EXCEPTION_MESSAGE]: getErrorMessage(error),
-          error,
-        });
-
-        const errorData = buildInternalErrorData(context.requestId);
-        throw new ORPCError("INTERNAL_SERVER_ERROR", {
-          defined: true,
-          message: errorData.message,
-          data: errorData,
-          cause: error,
-        });
-      }
-    },
-  );
+    const errorData = buildInternalErrorData(context.requestId);
+    throw new ORPCError("INTERNAL_SERVER_ERROR", {
+      defined: true,
+      message: errorData.message,
+      data: errorData,
+      cause: error,
+    });
+  }
 });
 
 export const baseOrpc = baseProcedure;
