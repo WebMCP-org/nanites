@@ -1,6 +1,6 @@
 # Agent App Testing Golden Standard
 
-This document defines the testing philosophy for `apps/nanites` and the durable test lanes that enforce it.
+This document defines the testing philosophy for the Nanites app and the durable test lanes that enforce it.
 
 The short version:
 
@@ -11,7 +11,7 @@ The short version:
 
 ## Context
 
-`apps/nanites` is a Cloudflare Worker backend with a React + TanStack Router frontend and an oRPC/OpenAPI surface.
+Nanites is a Cloudflare Worker backend with a React + TanStack Router frontend and an oRPC/OpenAPI surface.
 
 That stack gives us clear product boundaries:
 
@@ -212,7 +212,7 @@ Disallowed:
 
 Status:
 
-- reserved but not scaffolded yet in `apps/nanites`
+- reserved but not scaffolded yet in the repository root app
 
 The standard for this lane is: assert user-visible progression and artifacts, not internal implementation.
 
@@ -279,7 +279,7 @@ Every critical surface should have an explicit durable lane owner.
 
 AI-generated tests are useful only when the prompt includes the lane, the real code under test, and the existing test patterns for that lane.
 
-When asking an agent to write or revise tests for `apps/nanites`, include:
+When asking an agent to write or revise tests for the repository root app, include:
 
 - the source file or route being tested, including imports and relevant types
 - the matching lane config: `vite.config.ts`, `tests/browser/vitest.config.ts`, `tests/backend/vitest.config.ts`, or `tests/e2e/vitest.config.ts`

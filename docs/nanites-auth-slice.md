@@ -30,9 +30,9 @@ Worker secret. The implementation does not store plaintext session state in cook
 
 - `packages/contracts`: canonical auth and installation contracts
 - `packages/db`: Drizzle schema and DB-derived contracts
-- `apps/nanites/src/auth`: runtime cookie, GitHub, and session behavior
-- `apps/nanites/src/orpc`: auth-aware request context and middleware layering
-- `apps/nanites/src/backend/mcp`: Sigvelo OAuth authorization and MCP tool exposure
+- `src/auth`: runtime cookie, GitHub, and session behavior
+- `src/orpc`: auth-aware request context and middleware layering
+- `src/backend/mcp`: Sigvelo OAuth authorization and MCP tool exposure
 
 ## MCP OAuth Model
 
@@ -79,7 +79,7 @@ analytics refresh work.
 
 - `docs/architecture/architecture.md`
 - `packages/contracts/src/auth.ts`
-- `apps/nanites/src/backend/github.ts`
+- `src/backend/github.ts`
 - GitHub App user access tokens:
   https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app
 - GitHub installations REST API:

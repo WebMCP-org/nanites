@@ -28,7 +28,7 @@
       "binding": "DB",
       "database_name": "sigvelo-agent-tests",
       "database_id": "test-db",
-      "migrations_dir": "../../../../packages/db/migrations",
+      "migrations_dir": "../../packages/db/migrations",
     },
   ],
   "kv_namespaces": [

@@ -5,11 +5,18 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/agent-ci.yml"
-      - "apps/nanites/**"
+      - "src/**"
+      - "tests/**"
+      - "public/**"
+      - "wrangler.jsonc"
+      - "vite.config.ts"
+      - "tsconfig.json"
       - "packages/contracts/**"
       - "packages/db/**"
+      - "packages/domain/**"
       - "packages/observability/**"
       - "packages/ui/**"
+      - "packages/design-tokens/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -17,11 +24,18 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/agent-ci.yml"
-      - "apps/nanites/**"
+      - "src/**"
+      - "tests/**"
+      - "public/**"
+      - "wrangler.jsonc"
+      - "vite.config.ts"
+      - "tsconfig.json"
       - "packages/contracts/**"
       - "packages/db/**"
+      - "packages/domain/**"
       - "packages/observability/**"
       - "packages/ui/**"
+      - "packages/design-tokens/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -49,12 +63,10 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Check agent app
-        working-directory: apps/nanites
+      - name: Check Nanites
         run: vp check
 
-      - name: Test agent app
-        working-directory: apps/nanites
+      - name: Test Nanites backend
         env:
           CI: "true"
         run: vp test --project backend

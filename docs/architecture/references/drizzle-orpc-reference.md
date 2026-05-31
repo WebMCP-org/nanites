@@ -46,8 +46,8 @@ The foundations plan needs real implementation constraints, not product speculat
 
 ### Project Context
 
-- `apps/nanites/src/server.ts`
-- `apps/nanites/wrangler.jsonc`
+- `src/server.ts`
+- `wrangler.jsonc`
 - `docs/architecture/execution-architecture.md`
 
 ## Official Docs
@@ -263,7 +263,7 @@ const authed = base.use(async ({ context, next }) => {
 });
 ```
 
-This is a good fit for the Nanites worker because it already has a custom fetch handler in `apps/nanites/src/server.ts`.
+This is a good fit for the Nanites worker because it already has a custom fetch handler in `src/server.ts`.
 
 ### OpenAPI Is Inferred, Not Magic
 

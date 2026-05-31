@@ -151,7 +151,7 @@ This matters if Nanites remain modeled as child agents under a manager. The Nani
 
 Nanite agent runtime:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
   - `beforeTurn()` sets model, tools, max steps, and lifecycle `stopWhen`.
   - `onStepFinish()` records the last step diagnostic.
   - `onChatResponse()` observes completed Think responses.
@@ -160,7 +160,7 @@ Nanite agent runtime:
 
 Nanite manager and run state:
 
-- `apps/nanites/src/backend/nanites/host.ts`
+- `src/backend/nanites/host.ts`
   - `NaniteRunStatus`
   - run transition rules
   - `recordRunCompletion()`
@@ -169,8 +169,8 @@ Nanite manager and run state:
 
 Current tests:
 
-- `apps/nanites/tests/backend/nanite-debug-transcript.test.ts`
-- `apps/nanites/tests/e2e/nanites-runtime.e2e.test.ts`
+- `tests/backend/nanite-debug-transcript.test.ts`
+- `tests/e2e/nanites-runtime.e2e.test.ts`
 
 ## Proposed implementation
 

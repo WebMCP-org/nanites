@@ -36,12 +36,12 @@ Important local note:
 
 Current runtime entrypoints:
 
-- `apps/nanites/src/server.ts`
-- `apps/nanites/wrangler.jsonc`
-- `apps/nanites/src/backend/nanites/host.ts`
-- `apps/nanites/src/backend/nanites/agent.ts`
-- `apps/nanites/src/backend/nanites/trigger-runtime.ts`
-- `apps/nanites/src/backend/nanites/github-mcp-capabilities.ts`
+- `src/server.ts`
+- `wrangler.jsonc`
+- `src/backend/nanites/host.ts`
+- `src/backend/nanites/agent.ts`
+- `src/backend/nanites/trigger-runtime.ts`
+- `src/backend/nanites/github-mcp-capabilities.ts`
 
 Historical hybrid execution seams:
 
@@ -50,12 +50,12 @@ Historical hybrid execution seams:
 
 Runtime-owned trust surfaces:
 
-- `apps/nanites/src/backend/nanites/github-mcp-capabilities.ts`
-- `apps/nanites/src/backend/github.ts`
+- `src/backend/nanites/github-mcp-capabilities.ts`
+- `src/backend/github.ts`
 
 Contracts and persisted product shape:
 
-- `apps/nanites/src/backend/nanites/host.ts`
+- `src/backend/nanites/host.ts`
 - `packages/contracts/src/nanites.ts` (old prototype UI surface; do not grow for the rewrite)
 - `packages/contracts/src/auth.ts`
 - `packages/domain/src/business.ts`
@@ -307,8 +307,8 @@ These are the extra inputs still missing or still worth making explicit before m
 
 If I had to hand someone only five starting files right now, I would choose:
 
-- `apps/nanites/src/backend/nanites/host.ts`
-- `apps/nanites/src/backend/nanites/agent.ts`
-- `apps/nanites/src/backend/nanites/trigger-runtime.ts`
+- `src/backend/nanites/host.ts`
+- `src/backend/nanites/agent.ts`
+- `src/backend/nanites/trigger-runtime.ts`
 - `../char-ai-saas/apps/char-ai-saas/worker/chat/thread-agent/chat-orchestrator.ts`
 - `docs/architecture/references/github-mcp-capability-assignment.md`

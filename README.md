@@ -24,7 +24,7 @@ Generated triggers route machine events. They do not edit repositories or own li
 
 ## Repository Layout
 
-- `apps/nanites` - Cloudflare Worker app with GitHub auth, Nanites runtime, MCP tools, product UI, admin views, and observability.
+- `src` - Cloudflare Worker app with GitHub auth, Nanites runtime, MCP tools, product UI, admin views, and observability.
 - `packages/contracts` - shared schemas, branded IDs, and API contracts.
 - `packages/db` - Drizzle schema, D1 migrations, and database helpers.
 - `packages/domain` - shared domain enums and value contracts.
@@ -54,7 +54,7 @@ vp check
 vp test
 ```
 
-App-specific commands can be run from `apps/nanites`:
+App commands run from the repository root:
 
 ```bash
 vp dev
@@ -64,7 +64,7 @@ vp test
 
 ## Cloudflare Setup
 
-`apps/nanites/wrangler.jsonc` declares the required Cloudflare bindings:
+`wrangler.jsonc` declares the required Cloudflare bindings:
 
 - Durable Objects for manager and agent state
 - D1 database for product state
@@ -78,10 +78,10 @@ Create resources with Wrangler, update `wrangler.jsonc`, then set required secre
 vp exec wrangler d1 create nanites-db
 vp exec wrangler r2 bucket create nanites-workspace-files
 vp exec wrangler kv namespace create OAUTH_KV
-vp exec wrangler secret put AUTH_COOKIE_SECRET --config apps/nanites/wrangler.jsonc
-vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config apps/nanites/wrangler.jsonc
-vp exec wrangler secret put GITHUB_CLIENT_SECRET --config apps/nanites/wrangler.jsonc
-vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config apps/nanites/wrangler.jsonc
+vp exec wrangler secret put AUTH_COOKIE_SECRET --config wrangler.jsonc
+vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.jsonc
+vp exec wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
+vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc
 ```
 
-See [apps/nanites/README.md](apps/nanites/README.md) for the detailed app setup.
+See [docs/development.md](docs/development.md) for the detailed app setup.

@@ -294,7 +294,7 @@ The manager should immediately publish or update the GitHub check with a `detail
 
 Add explicit repo-shape handling before a Nanite attempts work that is likely to exceed Workspace limits.
 
-The current installation repository contract in [packages/contracts/src/auth.ts](/packages/contracts/src/auth.ts:54) and the GitHub mapping in [apps/nanites/src/backend/github.ts](/apps/nanites/src/backend/github.ts:653) do not yet expose enough metadata to do this well.
+The current installation repository contract in [packages/contracts/src/auth.ts](/packages/contracts/src/auth.ts:54) and the GitHub mapping in [src/backend/github.ts](/src/backend/github.ts:653) do not yet expose enough metadata to do this well.
 
 Add:
 
@@ -346,7 +346,7 @@ GitHub stays thin. Sigvelo carries the full runtime story.
 
 ## UX implications
 
-The current repo page in [apps/nanites/src/frontend/routes/\_authenticated/repos.$repoId.tsx](/apps/nanites/src/frontend/routes/_authenticated/repos.$repoId.tsx:1435) already exposes live state well, but it is still operator-first.
+The current repo page in [src/frontend/routes/\_authenticated/repos.$repoId.tsx](/src/frontend/routes/_authenticated/repos.$repoId.tsx:1435) already exposes live state well, but it is still operator-first.
 
 The next product pass should make the primary review surface outcome-first:
 
@@ -366,13 +366,13 @@ Release baseline:
 
 - old unreleased manager/run prototype code has been removed or quarantined outside the active
   runtime path
-- [apps/nanites/src/backend/nanites/host.ts](/apps/nanites/src/backend/nanites/host.ts)
+- [src/backend/nanites/host.ts](/src/backend/nanites/host.ts)
   owns the installation manager state machine: registered Nanites, source versions, runs,
   trigger dedupe, human requests, and terminal transitions
-- [apps/nanites/src/backend/nanites/trigger-runtime.ts](/apps/nanites/src/backend/nanites/trigger-runtime.ts)
+- [src/backend/nanites/trigger-runtime.ts](/src/backend/nanites/trigger-runtime.ts)
   loads per-Nanite generated inbound trigger source through Worker Loader and returns JSON intents
   for the manager to validate
-- [apps/nanites/src/backend/nanites/github-mcp-capabilities.ts](/apps/nanites/src/backend/nanites/github-mcp-capabilities.ts)
+- [src/backend/nanites/github-mcp-capabilities.ts](/src/backend/nanites/github-mcp-capabilities.ts)
   derives Nanite-scoped GitHub MCP capability assignments
 - stable Nanite runtime execution goes through Think sub-agents, not generated Think facets
 - new live UI routes should use Agents SDK sub-agent routing, not a custom `/live` tunnel
@@ -407,15 +407,15 @@ Do not try to solve every future runtime problem in the same pass.
 
 - [docs/architecture/architecture.md](/docs/architecture/architecture.md)
 - [docs/architecture/roadmap.md](/docs/architecture/roadmap.md)
-- [apps/nanites/src/backend/nanites/host.ts](/apps/nanites/src/backend/nanites/host.ts)
-- [apps/nanites/src/backend/nanites/agent.ts](/apps/nanites/src/backend/nanites/agent.ts)
-- [apps/nanites/src/backend/nanites/trigger-runtime.ts](/apps/nanites/src/backend/nanites/trigger-runtime.ts)
-- [apps/nanites/src/backend/nanites/github-mcp-capabilities.ts](/apps/nanites/src/backend/nanites/github-mcp-capabilities.ts)
+- [src/backend/nanites/host.ts](/src/backend/nanites/host.ts)
+- [src/backend/nanites/agent.ts](/src/backend/nanites/agent.ts)
+- [src/backend/nanites/trigger-runtime.ts](/src/backend/nanites/trigger-runtime.ts)
+- [src/backend/nanites/github-mcp-capabilities.ts](/src/backend/nanites/github-mcp-capabilities.ts)
 - [packages/contracts/src/nanites.ts](/packages/contracts/src/nanites.ts)
   old prototype UI surface
 - [packages/contracts/src/auth.ts](/packages/contracts/src/auth.ts)
-- [apps/nanites/src/backend/github.ts](/apps/nanites/src/backend/github.ts)
-- [apps/nanites/src/frontend/routes/\_authenticated/repos.$repoId.tsx](/apps/nanites/src/frontend/routes/_authenticated/repos.$repoId.tsx)
+- [src/backend/github.ts](/src/backend/github.ts)
+- [src/frontend/routes/\_authenticated/repos.$repoId.tsx](/src/frontend/routes/_authenticated/repos.$repoId.tsx)
 
 ### Sibling working repos
 

@@ -146,7 +146,7 @@ export const NestedContent: Story = {
               <strong>Version:</strong> 1.0.0
             </div>
             <div>
-              <strong>License:</strong> MIT
+              <strong>License:</strong> Apache-2.0
             </div>
             <div>
               <strong>Stars:</strong> 1,234

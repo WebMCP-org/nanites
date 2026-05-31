@@ -1,6 +1,6 @@
 # Agent Test Lanes
 
-This directory contains the durable testing lanes for `apps/nanites`.
+This directory contains the durable testing lanes for the root Nanites app.
 
 Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the full philosophy. This README is the operational view.
 
@@ -42,9 +42,9 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 
 ## Commands
 
-- `vp test` or `vp run test` from `apps/nanites` runs the browser and backend lanes declared in `vite.config.ts`.
+- `vp test` or `vp run test` from the repository root runs the browser and backend lanes declared in `vite.config.ts`.
 - `vp run test:e2e` runs the Nanites e2e lane declared in `tests/e2e/vitest.config.ts`.
-- Root `vp test` intentionally excludes `apps/nanites`; Worker and Browser Mode tests must run through the app config so `cloudflare:test` and browser globals are available.
+- Worker and Browser Mode tests run through the repository root app config so `cloudflare:test` and browser globals are available.
 
 ## Current gaps
 

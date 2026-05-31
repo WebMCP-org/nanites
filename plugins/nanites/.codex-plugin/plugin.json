@@ -6,7 +6,7 @@
     "name": "WebMCP / Sigvelo"
   },
   "homepage": "https://app.sigvelo.com",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["sigvelo", "nanites", "mcp", "github", "octokit", "cloudflare"],
   "skills": "./skills/",
   "interface": {

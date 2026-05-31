@@ -241,7 +241,7 @@ Implement this first. Keep the change small.
 
 Current code:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - constant: `naniteMaxSteps = 1000`
 
 Decision:
@@ -260,7 +260,7 @@ Use the AI SDK stop condition that Think already accepts through `beforeTurn`.
 
 Target location:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - `beforeTurn(ctx)`
 
 Add `stopWhen` for lifecycle tools:
@@ -288,7 +288,7 @@ TurnConfig.stopWhen is additive with Think's stepCountIs(maxSteps).
 
 Target location:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - add near existing `beforeTurn`, `afterToolCall`, `onStepFinish`
 
 Use Think's `beforeStep` primitive to restrict behavior while the turn is still active.
@@ -326,7 +326,7 @@ Current lifecycle tools are generic status setters.
 
 Target location:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - `complete`
 - `no_change`
 - `fail`
@@ -369,7 +369,7 @@ After two materially similar failures, stop debugging and call fail or ask_human
 
 Target location:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - `onChatResponse(result)`
 
 Current fallback in `onSubmissionStatus` tells the manager the run failed after the submission is
@@ -410,7 +410,7 @@ Do this after lifecycle control.
 
 Current prompt over-biases toward workspace/git:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - `buildRunPrompt`
 - `getSystemPrompt`
 
@@ -440,9 +440,9 @@ Use Think execute provider primitives instead of model-authored raw git setup.
 
 Target:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - provider list passed to `createExecuteTool`
-- possibly new file under `apps/nanites/src/backend/nanites/`
+- possibly new file under `src/backend/nanites/`
 
 Shape:
 
@@ -465,8 +465,8 @@ Reference:
 
 - `/tmp/cloudflare-agents-review/packages/think/src/tools/execute.ts`
 - `/tmp/cloudflare-agents-review/packages/shell/src/git/index.ts`
-- `apps/nanites/src/backend/nanites/git-auth.ts`
-- `apps/nanites/src/backend/nanites/git-tools-with-lazy-auth.ts`
+- `src/backend/nanites/git-auth.ts`
+- `src/backend/nanites/git-tools-with-lazy-auth.ts`
 
 ### 3. Guard Raw `git.clone`
 
@@ -497,7 +497,7 @@ Reject GitHub clone where dir is missing or "/".
 
 Target:
 
-- `apps/nanites/src/backend/nanites/git-tools-with-lazy-auth.ts`
+- `src/backend/nanites/git-tools-with-lazy-auth.ts`
 
 Finding:
 
@@ -542,7 +542,7 @@ Do this after the loop-control fix unless the code is already open in the same a
 
 Target:
 
-- `apps/nanites/src/backend/nanites/agent.ts`
+- `src/backend/nanites/agent.ts`
 - `configureSession(session)`
 
 Current state:
@@ -585,14 +585,14 @@ Reference:
 
 ### Sigvelo Runtime
 
-- `/apps/nanites/src/backend/nanites/agent.ts`
-- `/apps/nanites/src/backend/nanites/host.ts`
-- `/apps/nanites/src/backend/nanites/git-auth.ts`
-- `/apps/nanites/src/backend/nanites/git-tools-with-lazy-auth.ts`
-- `/apps/nanites/src/backend/nanites/tool-output-budget.ts`
-- `/apps/nanites/src/backend/nanites/tool-output-artifacts.ts`
-- `/apps/nanites/src/backend/workers-ai.ts`
-- `/apps/nanites/src/backend/mcp/server.ts`
+- `/src/backend/nanites/agent.ts`
+- `/src/backend/nanites/host.ts`
+- `/src/backend/nanites/git-auth.ts`
+- `/src/backend/nanites/git-tools-with-lazy-auth.ts`
+- `/src/backend/nanites/tool-output-budget.ts`
+- `/src/backend/nanites/tool-output-artifacts.ts`
+- `/src/backend/workers-ai.ts`
+- `/src/backend/mcp/server.ts`
 
 ### Canonical Nanites Docs
 
@@ -622,7 +622,7 @@ Important files:
 - `/tmp/cloudflare-agents-review/packages/shell/src/git/index.ts`
 - `/tmp/cloudflare-agents-review/packages/agents/src/experimental/memory/utils/compaction.ts`
 
-Installed package versions in `apps/nanites/node_modules`:
+Installed package versions in `node_modules`:
 
 ```text
 @cloudflare/think 0.7.2

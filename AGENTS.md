@@ -20,9 +20,9 @@ For Nanites product or runtime work, read these first:
 
 ## Cloudflare Workers
 
-Use `#/...` for app-local imports rooted at `apps/nanites/src`.
+Use `#/...` for app-local imports rooted at `src`.
 
-Run `vp exec wrangler types env.d.ts --include-runtime false` from `apps/nanites` after changing bindings in `wrangler.jsonc`. Do not hand-write Worker binding types.
+Run `vp exec wrangler types env.d.ts --include-runtime false` from the repository root after changing bindings in `wrangler.jsonc`. Do not hand-write Worker binding types.
 
 ## Testing
 

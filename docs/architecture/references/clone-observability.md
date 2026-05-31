@@ -33,7 +33,7 @@ Run `manual:1ee081af-2232-431e-8c5b-7d164a604206` on repo ID `70998340` (a multi
 ### The clone call
 
 ```
-apps/nanites/src/backend/nanites.ts — prepareWorkspace() method
+src/backend/nanites.ts — prepareWorkspace() method
 ```
 
 1. Gets a GitHub installation access token
@@ -90,7 +90,7 @@ If git operations were replaced with API calls, the entire `.git` directory beco
 
 | File                                                            | What to look at                                                                  |
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `apps/nanites/src/backend/nanites.ts`                           | Everything. ~2950 lines. The Nanite and NaniteManager DOs.                       |
+| `src/backend/nanites.ts`                                        | Everything. ~2950 lines. The Nanite and NaniteManager DOs.                       |
 | `prepareWorkspace()`                                            | The clone call, workspace directory setup, post-clone info emission              |
 | `executeScheduledRun()`                                         | The try/catch wrapping prepareWorkspace; routes to `finalizeImplicitFailure()`   |
 | `emitNaniteActivity()`                                          | How progress/state is sent to frontend via projection sync to NaniteManager      |
@@ -124,9 +124,9 @@ If git operations were replaced with API calls, the entire `.git` directory beco
 
 ### GitHub API integration (already exists)
 
-| File                                 | What to look at                                                                                                                                                        |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/nanites/src/backend/github.ts` | Existing Octokit usage — already fetches file content via Contents API (see `getContent` calls). Pattern for authenticated GitHub API access with installation tokens. |
+| File                    | What to look at                                                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/backend/github.ts` | Existing Octokit usage — already fetches file content via Contents API (see `getContent` calls). Pattern for authenticated GitHub API access with installation tokens. |
 
 ### isomorphic-git types (not in opensrc)
 

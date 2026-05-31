@@ -63,7 +63,7 @@ the behavior boundary being controlled.
 
 ## Commands
 
-From `apps/nanites`:
+From the repository root:
 
 ```bash
 vp run test:e2e

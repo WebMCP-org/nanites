@@ -596,13 +596,13 @@ Purpose:
 
 Read next:
 
-- [nanites.ts](/apps/nanites/src/backend/nanites.ts)
-- [github.ts](/apps/nanites/src/backend/github.ts)
-- [session.ts](/apps/nanites/src/backend/browser-auth/session.ts)
-- [auth.ts](/apps/nanites/src/backend/orpc/routers/auth.ts)
-- [nanites.ts](/apps/nanites/src/backend/orpc/routers/nanites.ts)
-- [repos.$repoId.tsx](/apps/nanites/src/frontend/routes/_authenticated/repos.$repoId.tsx)
-- [nanites-chat.ts](/apps/nanites/src/shared/nanites-chat.ts)
+- [nanites.ts](/src/backend/nanites.ts)
+- [github.ts](/src/backend/github.ts)
+- [session.ts](/src/backend/browser-auth/session.ts)
+- [auth.ts](/src/backend/orpc/routers/auth.ts)
+- [nanites.ts](/src/backend/orpc/routers/nanites.ts)
+- [repos.$repoId.tsx](/src/frontend/routes/_authenticated/repos.$repoId.tsx)
+- [nanites-chat.ts](/src/shared/nanites-chat.ts)
 - [auth.ts](/packages/contracts/src/auth.ts)
 - [nanites.ts](/packages/contracts/src/nanites.ts)
 - [installations.ts](/packages/db/src/schema/installations.ts)
@@ -618,10 +618,10 @@ Purpose:
 
 If present on the reset point, inspect:
 
-- [provider.ts](/apps/nanites/src/backend/nanites/skills/provider.ts)
-- [registry.ts](/apps/nanites/src/backend/nanites/skills/registry.ts)
-- [webmcp-maintainer.ts](/apps/nanites/src/backend/nanites/skills/content/webmcp-maintainer.ts)
-- [webmcp-soul.ts](/apps/nanites/src/backend/nanites/skills/content/webmcp-soul.ts)
+- [provider.ts](/src/backend/nanites/skills/provider.ts)
+- [registry.ts](/src/backend/nanites/skills/registry.ts)
+- [webmcp-maintainer.ts](/src/backend/nanites/skills/content/webmcp-maintainer.ts)
+- [webmcp-soul.ts](/src/backend/nanites/skills/content/webmcp-soul.ts)
 
 If they are absent after reset, recreate them as the first concrete skill-provider slice.
 
@@ -1112,7 +1112,7 @@ After the bootstrap loop is solid:
 
 Primary runtime work remains centered in:
 
-- `apps/nanites/src/backend/nanites.ts`
+- `src/backend/nanites.ts`
 
 That is acceptable while the concept is still fluid.
 
@@ -1122,16 +1122,16 @@ Keep the file well-sectioned. Do not split it for aesthetics alone.
 
 Repo selection and install flow will likely touch:
 
-- `apps/nanites/src/backend/browser-auth/session.ts`
-- `apps/nanites/src/backend/orpc/routers/auth.ts`
-- `apps/nanites/src/frontend/routes/_authenticated.tsx`
+- `src/backend/browser-auth/session.ts`
+- `src/backend/orpc/routers/auth.ts`
+- `src/frontend/routes/_authenticated.tsx`
 - related setup components
 
 ### GitHub integration
 
 Support PR publishing and repo resolution will likely touch:
 
-- `apps/nanites/src/backend/github.ts`
+- `src/backend/github.ts`
 
 ### Contracts
 
@@ -1146,7 +1146,7 @@ Do not let contracts become a graveyard of abandoned product taxonomy.
 
 Skill content and provider code should live under:
 
-- `apps/nanites/src/backend/nanites/skills/`
+- `src/backend/nanites/skills/`
 
 That gives us a clean place for:
 

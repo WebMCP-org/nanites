@@ -1,6 +1,6 @@
 # Explain Nanites Imports
 
-This is a reference note for [apps/nanites/src/backend/nanites.ts](/apps/nanites/src/backend/nanites.ts).
+This is a reference note for [src/backend/nanites.ts](/src/backend/nanites.ts).
 
 Use these first for product truth:
 
@@ -11,7 +11,7 @@ Use these first for product truth:
 
 ## Short version
 
-Nanites are repo-scoped maintenance agents. In the current implementation, [NaniteManager](/apps/nanites/src/backend/nanites.ts:716) is the thin installation-scoped control layer and [Nanite](/apps/nanites/src/backend/nanites.ts:1054) is the durable worker that owns the live lane state, transcript-driven attempt state, support PR continuity, execution backend, and final artifact.
+Nanites are repo-scoped maintenance agents. In the current implementation, [NaniteManager](/src/backend/nanites.ts:716) is the thin installation-scoped control layer and [Nanite](/src/backend/nanites.ts:1054) is the durable worker that owns the live lane state, transcript-driven attempt state, support PR continuity, execution backend, and final artifact.
 
 The big import block in `nanites.ts` looks intimidating, but it is mostly one file pulling together five concerns:
 
@@ -83,11 +83,11 @@ The contracts layer matters because `nanites.ts` is not just runtime code. It is
 
 These imports are how Nanites touch real repositories and GitHub surfaces.
 
-- [#/backend/github.ts](/apps/nanites/src/backend/github.ts)
+- [#/backend/github.ts](/src/backend/github.ts)
   The main GitHub boundary. It gets installation tokens, creates and updates GitHub check runs, finds or creates support PRs, updates PR bodies and sticky comments, and inspects support-PR environments for checks, deployments, and preview candidates.
-- [#/backend/business-data.ts](/apps/nanites/src/backend/business-data.ts)
+- [#/backend/business-data.ts](/src/backend/business-data.ts)
   Higher-level business-data helper logic such as Workers AI pricing readiness.
-- [#/backend/nanites/installation-config.ts](/apps/nanites/src/backend/nanites/installation-config.ts)
+- [#/backend/nanites/installation-config.ts](/src/backend/nanites/installation-config.ts)
   Loads configured Nanite instances and decides which configured Nanites target or source a given repository.
 
 This is also the cleanest answer to "where does repo selection happen?": the manager loads configured Nanites, then routes to the worker selected by installation config plus trigger context.
@@ -96,11 +96,11 @@ This is also the cleanest answer to "where does repo selection happen?": the man
 
 These imports are the glue that turns transcript events into a UI- and GitHub-friendly runtime story.
 
-- [#/shared/constants/nanites.ts](/apps/nanites/src/shared/constants/nanites.ts)
+- [#/shared/constants/nanites.ts](/src/shared/constants/nanites.ts)
   Shared constants like the GitHub check-run name.
-- [#/shared/nanites.ts](/apps/nanites/src/shared/nanites.ts)
+- [#/shared/nanites.ts](/src/shared/nanites.ts)
   Stable key builders and naming helpers such as `buildNaniteKey`, `buildSupportBranchName`, and run URLs.
-- [#/shared/nanites-chat.ts](/apps/nanites/src/shared/nanites-chat.ts)
+- [#/shared/nanites-chat.ts](/src/shared/nanites-chat.ts)
   The transcript/projection layer. It defines Nanite UI message types, runtime activity parts, and `reduceNaniteRunProjection()`, which turns immutable attempt metadata plus transcript history into the current projection.
 
 If one import group is the conceptual center of the runtime, it is `nanites-chat.ts`. That file is why the live state can be derived from the chat log instead of being hand-maintained in many places.
@@ -109,13 +109,13 @@ If one import group is the conceptual center of the runtime, it is `nanites-chat
 
 These imports tell the model who it is and what remote MCP dependencies it needs.
 
-- [#/backend/nanites/skills/provider.ts](/apps/nanites/src/backend/nanites/skills/provider.ts)
+- [#/backend/nanites/skills/provider.ts](/src/backend/nanites/skills/provider.ts)
   Resolves prompt fragments for a Nanite definition.
-- [#/backend/nanites/skills/registry.ts](/apps/nanites/src/backend/nanites/skills/registry.ts)
+- [#/backend/nanites/skills/registry.ts](/src/backend/nanites/skills/registry.ts)
   Maps Nanite skill keys to embedded prompt documents.
-- [#/backend/nanites/mcp/provider.ts](/apps/nanites/src/backend/nanites/mcp/provider.ts)
+- [#/backend/nanites/mcp/provider.ts](/src/backend/nanites/mcp/provider.ts)
   Resolves and formats required MCP server context, including failure handling.
-- [#/backend/nanites/mcp/registry.ts](/apps/nanites/src/backend/nanites/mcp/registry.ts)
+- [#/backend/nanites/mcp/registry.ts](/src/backend/nanites/mcp/registry.ts)
   Registry of MCP servers declared by Nanite config.
 
 This is the answer to "where do the Nanite's soul, skills, and MCP servers come from?": the configured definition in contracts points to prompt and MCP keys, and these provider/registry modules resolve them into runtime context.
@@ -124,13 +124,13 @@ This is the answer to "where do the Nanite's soul, skills, and MCP servers come 
 
 These imports are the support-PR collaboration surface.
 
-- [#/backend/nanites/browser/support-pr-preview.ts](/apps/nanites/src/backend/nanites/browser/support-pr-preview.ts)
+- [#/backend/nanites/browser/support-pr-preview.ts](/src/backend/nanites/browser/support-pr-preview.ts)
   Runs the real preview verification pass and returns the verification report.
-- [#/backend/nanites/github-check-output.ts](/apps/nanites/src/backend/nanites/github-check-output.ts)
+- [#/backend/nanites/github-check-output.ts](/src/backend/nanites/github-check-output.ts)
   Formats the active and superseded GitHub check-run output.
-- [#/backend/nanites/support-pr-runtime.ts](/apps/nanites/src/backend/nanites/support-pr-runtime.ts)
+- [#/backend/nanites/support-pr-runtime.ts](/src/backend/nanites/support-pr-runtime.ts)
   Support-PR-specific document builders, sticky comment helpers, bootstrap-file rules, resume follow-up text, and preview verification block replacement.
-- [#/backend/nanites/runtime-contracts.ts](/apps/nanites/src/backend/nanites/runtime-contracts.ts)
+- [#/backend/nanites/runtime-contracts.ts](/src/backend/nanites/runtime-contracts.ts)
   Encodes "can this run finish?", "should this turn continue?", and "how should environment updates affect the active attempt?" rules.
 
 These helpers are the current support-PR seam. Even though the runtime still lives in one big file, most of the support-PR policy has already been pushed into dedicated helpers.
@@ -139,15 +139,15 @@ These helpers are the current support-PR seam. Even though the runtime still liv
 
 These imports exist because the old prototype mixed runtime state, durable side storage, and GitHub workflow concerns beyond the chat transcript.
 
-- [#/backend/nanites/context-store.ts](/apps/nanites/src/backend/nanites/context-store.ts)
+- [#/backend/nanites/context-store.ts](/src/backend/nanites/context-store.ts)
   Tiny SQLite-backed key/value store for attempt-local context.
-- [#/backend/workers-ai.ts](/apps/nanites/src/backend/workers-ai.ts)
+- [#/backend/workers-ai.ts](/src/backend/workers-ai.ts)
   Creates the Workers AI model with prompt caching and session affinity behavior.
-- [#/backend/nanites/observability.ts](/apps/nanites/src/backend/nanites/observability.ts)
+- [#/backend/nanites/observability.ts](/src/backend/nanites/observability.ts)
   Nanites-specific logging and observability wiring.
-- [#/backend/sentry.ts](/apps/nanites/src/backend/sentry.ts)
+- [#/backend/sentry.ts](/src/backend/sentry.ts)
   AI SDK telemetry wiring.
-- [#/backend/nanites/hybrid-execution.ts](/apps/nanites/src/backend/nanites/hybrid-execution.ts)
+- [#/backend/nanites/hybrid-execution.ts](/src/backend/nanites/hybrid-execution.ts)
   Old backend-routing decisions, checkout plans, fallback messages, and normalized repository status helpers.
 
 This group is why the old prototype could say "prepare the environment" without embedding every workflow detail inline.
@@ -165,8 +165,8 @@ That maps well onto the current code:
 
 - [NaniteManagerState](/packages/contracts/src/nanites.ts:692) is already small.
 - [NaniteLaneState](/packages/contracts/src/nanites.ts:686) is the stable worker-owned state.
-- The worker exposes [getSnapshot()](/apps/nanites/src/backend/nanites.ts:1452) and [getPersistedTranscriptMessages()](/apps/nanites/src/backend/nanites.ts:1447), which makes it possible for the UI to talk to workers directly.
-- [repository-manager.ts](/apps/nanites/src/backend/nanites/repository-manager.ts) already fans out from the manager to each configured Nanite and asks each one for its snapshot.
+- The worker exposes [getSnapshot()](/src/backend/nanites.ts:1452) and [getPersistedTranscriptMessages()](/src/backend/nanites.ts:1447), which makes it possible for the UI to talk to workers directly.
+- [repository-manager.ts](/src/backend/nanites/repository-manager.ts) already fans out from the manager to each configured Nanite and asks each one for its snapshot.
 
 That is why the strongest refactor takeaway is not "invent a new abstraction." It is "keep pushing authority down to the Nanite worker and keep the manager as config-plus-routing."
 

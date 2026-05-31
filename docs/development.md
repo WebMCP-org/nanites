@@ -1,6 +1,6 @@
 # Sigvelo Agent App
 
-`apps/nanites` is the Cloudflare Worker app that runs Sigvelo.
+The repository root is the Cloudflare Worker app that runs Sigvelo.
 
 It owns GitHub auth, installation selection, Nanite manager Durable Objects, Think sub-agents, generated trigger execution, the Sigvelo MCP server, product UI, admin views, and observability.
 
@@ -166,7 +166,7 @@ print or commit the token. Start the local app with:
 ALLOW_TEST_AUTH=true GITHUB_TEST_USER_TOKEN="$(gh auth token)" vp dev
 ```
 
-Run that from `apps/nanites`, then point MCPJam at the local server:
+Run that from the repository root, then point MCPJam at the local server:
 
 ```bash
 mcpjam oauth login \
@@ -212,10 +212,9 @@ Run the app:
 vp run dev
 ```
 
-Run package-level commands:
+Run app commands:
 
 ```bash
-cd apps/nanites
 vp dev
 vp build
 vp test
@@ -232,7 +231,6 @@ vp test
 Deploy:
 
 ```bash
-cd apps/nanites
 vp run deploy:staging
 vp run deploy:prod
 ```
@@ -250,11 +248,11 @@ Nanites runtime changes should favor end-to-end tests that exercise real Worker/
 
 ## More Docs
 
-- `../../docs/architecture/README.md`
-- `../../docs/architecture/architecture.md`
-- `../../docs/architecture/execution-architecture.md`
-- `../../docs/architecture/roadmap.md`
-- `../../docs/architecture/user-stories.md`
+- `docs/architecture/README.md`
+- `docs/architecture/architecture.md`
+- `docs/architecture/execution-architecture.md`
+- `docs/architecture/roadmap.md`
+- `docs/architecture/user-stories.md`
 - `docs/admin-access.md`
 - `docs/nanites-auth-slice.md`
 - `docs/testing-golden-standard.md`

@@ -74,8 +74,8 @@ const OPENAPI_CONTACT = {
 } as const;
 
 const OPENAPI_LICENSE = {
-  name: "MIT",
-  url: "https://opensource.org/license/mit",
+  name: "Apache-2.0",
+  url: "https://www.apache.org/licenses/LICENSE-2.0",
 } as const;
 
 const undefinedErrorCommonSchema = {

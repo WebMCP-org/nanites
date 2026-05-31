@@ -312,7 +312,7 @@ The shared module should be declarative. Keep the context type, schemas, explici
 small helper functions in one backend module:
 
 ```text
-apps/nanites/src/backend/nanites/manager-tools.ts
+src/backend/nanites/manager-tools.ts
 ```
 
 Export each tool by name, and keep an ordered list only for tests, documentation, and MCP
@@ -535,9 +535,9 @@ MCP output should include both structured content and text content:
 
 ## Migration plan
 
-1. Add `manager-tools.ts` under `apps/nanites/src/backend/nanites/`.
+1. Add `manager-tools.ts` under `src/backend/nanites/`.
 2. Move MCP-specific helper logic that composes manager operations into tool handlers.
-3. Register MCP tools from the registry instead of hand-writing each handler in `apps/nanites/src/backend/mcp/server.ts`.
+3. Register MCP tools from the registry instead of hand-writing each handler in `src/backend/mcp/server.ts`.
 4. Add frontend helper functions for browser workflows that need clearer UI-level names.
 5. Keep the UI on typed manager stubs unless a browser workflow needs a new composed manager callable.
 6. Update manager chat instructions and adapter code to call the same explicit tools.

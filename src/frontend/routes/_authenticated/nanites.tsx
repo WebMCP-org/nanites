@@ -1694,9 +1694,10 @@ function NaniteWorkspaceReview({
   const selectedFileIsLoading = selectedPath !== null && loadingFilePath === selectedPath;
   const hasWorkspaceEntries =
     (entriesByDirectory["/"]?.length ?? 0) > 0 || definitionFiles.length > 0;
-  const visibleTreeEntries = fileFilter.trim()
-    ? filteredFileEntries
-    : (entriesByDirectory["/"] ?? []);
+  const visibleTreeEntries = useMemo(
+    () => (fileFilter.trim() ? filteredFileEntries : (entriesByDirectory["/"] ?? [])),
+    [entriesByDirectory, fileFilter, filteredFileEntries],
+  );
 
   const handleSelectFile = useCallback(
     (path: string) => {
@@ -1852,7 +1853,6 @@ function NaniteWorkspaceReview({
                   className="nanites-workspace__resizer nanites-workspace__resizer--tree"
                   style={{ insetInlineEnd: `${treeWidth}px` }}
                   aria-label="Resize file tree"
-                  aria-orientation="vertical"
                   onPointerDown={(event) =>
                     beginColumnResize(event, {
                       current: treeWidth,
@@ -2394,7 +2394,6 @@ function NanitesRuntimeSurface({
         className="nanites-workspace__resizer nanites-workspace__resizer--sidebar"
         style={{ insetInlineStart: `${sidebarWidth}px` }}
         aria-label="Resize Nanites list"
-        aria-orientation="vertical"
         onPointerDown={(event) =>
           beginColumnResize(event, {
             current: sidebarWidth,
@@ -2411,7 +2410,6 @@ function NanitesRuntimeSurface({
           className="nanites-workspace__resizer nanites-workspace__resizer--aside"
           style={{ insetInlineEnd: `${asideWidth}px` }}
           aria-label="Resize side panel"
-          aria-orientation="vertical"
           onPointerDown={(event) =>
             beginColumnResize(event, {
               current: asideWidth,

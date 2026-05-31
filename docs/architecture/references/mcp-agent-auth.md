@@ -246,11 +246,11 @@ Sigvelo currently has a working HTTP MCP OAuth code flow:
 
 Important local code points:
 
-- `apps/nanites/src/server.ts`
-- `apps/nanites/src/backend/mcp/oauth.ts`
-- `apps/nanites/src/backend/mcp/auth-context.ts`
-- `apps/nanites/src/backend/orpc/contracts/mcp-openapi.ts`
-- `apps/nanites/tests/backend/mcp-oauth.test.ts`
+- `src/server.ts`
+- `src/backend/mcp/oauth.ts`
+- `src/backend/mcp/auth-context.ts`
+- `src/backend/orpc/contracts/mcp-openapi.ts`
+- `tests/backend/mcp-oauth.test.ts`
 
 Missing pieces for this direction:
 

@@ -276,10 +276,10 @@ Start from:
 
 Then adapt to Sigvelo:
 
-- [Worker entrypoint](/apps/nanites/src/server.ts)
-- [Current GitHub webhook path](/apps/nanites/src/backend/github.ts)
-- [Worker config](/apps/nanites/wrangler.jsonc)
-- [Agent package manifest](/apps/nanites/package.json)
+- [Worker entrypoint](/src/server.ts)
+- [Current GitHub webhook path](/src/backend/github.ts)
+- [Worker config](/wrangler.jsonc)
+- [Agent package manifest](/package.json)
 
 ### Dependencies
 
@@ -522,9 +522,9 @@ Sigvelo Nanites:
 - [Nanites README](/docs/architecture/README.md)
 - [Nanites architecture](/docs/architecture/architecture.md)
 - [Nanites execution architecture](/docs/architecture/execution-architecture.md)
-- [Worker entrypoint](/apps/nanites/src/server.ts)
-- [GitHub webhook handler](/apps/nanites/src/backend/github.ts)
-- [Nanite manager](/apps/nanites/src/backend/nanites/host.ts)
+- [Worker entrypoint](/src/server.ts)
+- [GitHub webhook handler](/src/backend/github.ts)
+- [Nanite manager](/src/backend/nanites/host.ts)
 
 ## Bottom Line
 

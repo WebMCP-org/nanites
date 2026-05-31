@@ -135,7 +135,7 @@ This matches the current branch direction:
 - [NaniteManagerState](/packages/contracts/src/nanites.ts:692) is small and dispatch-oriented.
 - [NaniteLaneState](/packages/contracts/src/nanites.ts:686) is the durable worker-owned state.
 - Repo state should resolve through the installation manager plus per-Nanite trigger decisions, not a shared dispatch layer.
-- [repository-manager.ts](/apps/nanites/src/backend/nanites/repository-manager.ts) already derives configured Nanites from code and treats each Nanite as the owner of its live snapshot.
+- [repository-manager.ts](/src/backend/nanites/repository-manager.ts) already derives configured Nanites from code and treats each Nanite as the owner of its live snapshot.
 
 ## How Session should fit
 
