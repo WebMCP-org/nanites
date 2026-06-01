@@ -2353,12 +2353,11 @@ function NanitesRuntimeSurface({
   }, [activeInstallation.account.login, activeInstallation.id, fallbackNaniteItem?.id, navigate]);
 
   return (
-    <div
+    <main
       className="nanites-workspace"
       data-desktop-panel={desktopPanel}
       data-aside-open={isAsideOpen}
       data-mobile-view={mobileView}
-      role="main"
       aria-label="Nanite runtime"
       style={
         {
@@ -2731,6 +2730,6 @@ function NanitesRuntimeSurface({
           <span>Details</span>
         </button>
       </nav>
-    </div>
+    </main>
   );
 }

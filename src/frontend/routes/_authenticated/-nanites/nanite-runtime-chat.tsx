@@ -334,14 +334,29 @@ function getConversationResetKey(messages: readonly UIMessage[], isStreaming: bo
 
 class ChatRenderBoundary extends Component<
   { readonly children: ReactNode; readonly resetKey: string },
-  { readonly hasError: boolean }
+  { readonly hasError: boolean; readonly resetKey: string }
 > {
   state = {
     hasError: false,
+    resetKey: this.props.resetKey,
   };
 
   static getDerivedStateFromError() {
     return { hasError: true };
+  }
+
+  static getDerivedStateFromProps(
+    props: { readonly resetKey: string },
+    state: { readonly hasError: boolean; readonly resetKey: string },
+  ) {
+    if (props.resetKey === state.resetKey) {
+      return null;
+    }
+
+    return {
+      hasError: false,
+      resetKey: props.resetKey,
+    };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -350,12 +365,6 @@ class ChatRenderBoundary extends Component<
       errorMessage: error.message,
       componentStack: errorInfo.componentStack,
     });
-  }
-
-  componentDidUpdate(previousProps: { readonly resetKey: string }) {
-    if (this.state.hasError && previousProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
-    }
   }
 
   render() {
