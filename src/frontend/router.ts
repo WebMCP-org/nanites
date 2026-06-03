@@ -1,19 +1,27 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { type RouterHistory, createRouter } from "@tanstack/react-router";
 import {
   RouteErrorBoundary,
   RouteNotFoundPage,
   RoutePendingPage,
 } from "#/frontend/routes/-route-state.tsx";
-import type { AdminORPCUtils, ORPCUtils } from "#/frontend/lib/orpc.tsx";
-import { adminOrpc, orpc, queryClient } from "#/frontend/lib/orpc.tsx";
 import { routeTree } from "#/frontend/routeTree.gen.ts";
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: Number.POSITIVE_INFINITY,
+      gcTime: 30 * 24 * 60 * 60 * 1000,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+  },
+});
 
 /** Shared router context used by route loaders and beforeLoad auth guards. */
 export interface NanitesRouterContext {
   queryClient: QueryClient;
-  orpc: ORPCUtils;
-  adminOrpc: AdminORPCUtils;
 }
 
 interface CreateAppRouterOptions {
@@ -22,12 +30,10 @@ interface CreateAppRouterOptions {
   readonly scrollRestoration?: boolean;
 }
 
-export function createAppRouter({
+function createAppRouter({
   history,
   context = {
     queryClient,
-    orpc,
-    adminOrpc,
   },
   scrollRestoration = true,
 }: CreateAppRouterOptions = {}) {

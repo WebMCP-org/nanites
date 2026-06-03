@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import { afterAll, afterEach, beforeAll } from "vite-plus/test";
 import { browserWorker } from "./msw-browser-worker.ts";
 

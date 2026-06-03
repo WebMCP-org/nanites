@@ -1,6 +1,8 @@
-import { Button, Badge } from "@nanites/ui";
+import { Badge } from "#/frontend/ui/components/Badge.tsx";
+import { Button } from "#/frontend/ui/components/Button.tsx";
 import { createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import type { McpAuthorizeContext } from "#/backend/mcp/oauth.ts";
 import {
   ArrowSquareOutIcon,
   ArrowRightIcon,
@@ -11,49 +13,6 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { MCP_AUTHORIZE_CONTEXT_ROUTE } from "#/shared/constants/mcp.ts";
-
-type McpAuthorizeContext =
-  | {
-      status: "login";
-      clientName: string;
-      loginHref: string;
-    }
-  | {
-      status: "no_installations";
-      clientName: string;
-      installHref: string;
-    }
-  | {
-      status: "no_repositories";
-      clientName: string;
-      installHref: string;
-      installations: McpAuthorizeInstallation[];
-    }
-  | {
-      status: "consent";
-      clientName: string;
-      requestedScopes: string[];
-      authorizeAction: string;
-      csrfToken: string;
-      activeGithubInstallationId: number | null;
-      installations: McpAuthorizeInstallation[];
-    }
-  | {
-      status: "invalid";
-      message: string;
-    };
-
-interface McpAuthorizeInstallation {
-  readonly id: number;
-  readonly repositoryCount: number;
-  readonly manageAccessHref: string;
-  readonly account: {
-    readonly id: number;
-    readonly login: string;
-    readonly type: string;
-    readonly avatar_url: string | null;
-  };
-}
 
 export const Route = createFileRoute("/mcp-authorize")({
   loader: async ({ location }) => {
@@ -159,20 +118,20 @@ function McpAuthorizePage() {
           <li>Return here and refresh to continue authorizing the MCP client.</li>
         </ol>
         <ul className="mcp-authorize__installation-list" aria-label="GitHub installations">
-          {context.installations.map((installation) => (
-            <li key={installation.id}>
+          {context.installations.map((option) => (
+            <li key={option.installation.id}>
               <a
                 className="mcp-authorize__installation-link"
-                href={installation.manageAccessHref}
+                href={option.manageAccessHref}
                 target="_blank"
                 rel="noreferrer"
               >
                 <span className="mcp-authorize__installation-copy">
                   <span className="mcp-authorize__installation-login">
-                    {installation.account.login}
+                    {option.installation.account.login}
                   </span>
                   <span className="mcp-authorize__installation-meta">
-                    {installation.account.type} - no repositories shared
+                    {option.installation.account.type} - no repositories shared
                   </span>
                 </span>
                 <span className="mcp-authorize__installation-action">
@@ -230,10 +189,10 @@ function McpAuthorizePage() {
   }
 
   const selectedInstallationId = context.installations.some(
-    (installation) => installation.id === context.activeGithubInstallationId,
+    (option) => option.installation.id === context.activeGithubInstallationId,
   )
     ? context.activeGithubInstallationId
-    : (context.installations[0]?.id ?? "");
+    : (context.installations[0]?.installation.id ?? "");
 
   return (
     <McpAuthorizeShell
@@ -252,10 +211,10 @@ function McpAuthorizePage() {
             defaultValue={String(selectedInstallationId)}
             required
           >
-            {context.installations.map((installation) => (
-              <option key={installation.id} value={installation.id}>
-                {installation.account.login} ({installation.repositoryCount}{" "}
-                {installation.repositoryCount === 1 ? "repository" : "repositories"})
+            {context.installations.map((option) => (
+              <option key={option.installation.id} value={option.installation.id}>
+                {option.installation.account.login} ({option.repositoryCount}{" "}
+                {option.repositoryCount === 1 ? "repository" : "repositories"})
               </option>
             ))}
           </select>

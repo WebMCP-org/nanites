@@ -1,7 +1,7 @@
 import type { ToolSet } from "ai";
 import { z } from "zod";
 
-export const naniteToolOutputBudget = {
+const naniteToolOutputBudget = {
   defaultMaxResponseChars: 24_000,
   minResponseChars: 1_000,
   hardMaxResponseChars: 100_000,
@@ -24,15 +24,15 @@ type PersistToolOutputArtifactInput = {
   extension: "json" | "txt";
 };
 
-export type PersistedToolOutputArtifact = {
+type PersistedToolOutputArtifact = {
   artifactId: string;
 };
 
-export type PersistToolOutputArtifact = (
+type PersistToolOutputArtifact = (
   input: PersistToolOutputArtifactInput,
 ) => Promise<PersistedToolOutputArtifact>;
 
-export type NaniteToolOutputBudgetOptions = {
+type NaniteToolOutputBudgetOptions = {
   defaultMaxResponseChars?: number;
   minResponseChars?: number;
   hardMaxResponseChars?: number;
@@ -50,10 +50,6 @@ export type NaniteToolOutputBudgetOptions = {
 type SerializedToolOutput = {
   text: string;
   extension: "json" | "txt";
-};
-
-export type NaniteTruncatedToolOutput = {
-  notice: string;
 };
 
 const sigveloToolInputControlSchema = z
@@ -243,7 +239,7 @@ export async function applyNaniteToolOutputBudget(
     returnedChars: notice.length,
   });
 
-  return { notice } satisfies NaniteTruncatedToolOutput;
+  return { notice };
 }
 
 export function wrapToolSetForNaniteOutputBudget(

@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   applyNaniteToolOutputBudget,
   wrapToolSetForNaniteOutputBudget,
-  type NaniteTruncatedToolOutput,
 } from "#/backend/nanites/tool-output-budget.ts";
 
 type ExecutableTool = {
@@ -34,7 +33,7 @@ test("Nanite tool output budget preserves small outputs inline", async () => {
 test("Nanite tool output budget stores large outputs and returns a natural language continuation notice", async () => {
   const writes: Array<{ content: string; extension: "json" | "txt" }> = [];
 
-  const output = (await applyNaniteToolOutputBudget("a".repeat(120), {
+  const output = await applyNaniteToolOutputBudget("a".repeat(120), {
     toolName: "execute",
     toolCallId: "call-2",
     requestedMaxResponseChars: 50,
@@ -45,13 +44,15 @@ test("Nanite tool output budget stores large outputs and returns a natural langu
         return { artifactId: "toolout_large" };
       },
     },
-  })) as NaniteTruncatedToolOutput;
+  });
 
   expect(writes).toEqual([{ content: "a".repeat(120), extension: "txt" }]);
-  expect(output.notice).toContain("Sigvelo saved the full tool result as a temporary artifact");
-  expect(output.notice).toContain("toolout_large");
-  expect(output.notice).toContain("120 characters");
-  expect(output.notice).toContain("[Sigvelo truncated");
+  expect(output).toEqual({ notice: expect.any(String) });
+  const notice = (output as { notice: string }).notice;
+  expect(notice).toContain("Sigvelo saved the full tool result as a temporary artifact");
+  expect(notice).toContain("toolout_large");
+  expect(notice).toContain("120 characters");
+  expect(notice).toContain("[Sigvelo truncated");
 });
 
 test("Nanite tool output wrapper applies per-call maxResponseChars and strips Sigvelo input", async () => {
@@ -74,14 +75,16 @@ test("Nanite tool output wrapper applies per-call maxResponseChars and strips Si
     persistArtifact: async () => ({ artifactId: "toolout_noisy" }),
   });
 
-  const result = (await (wrapped.noisy as ExecutableTool).execute(
+  const result = await (wrapped.noisy as ExecutableTool).execute(
     { query: "logs", _sigvelo: { maxResponseChars: 50 } },
     { toolCallId: "call-3" },
-  )) as NaniteTruncatedToolOutput;
+  );
 
   expect(receivedInput).toEqual({ query: "logs" });
-  expect(result.notice).toContain("toolout_noisy");
-  expect(result.notice).toContain("[Sigvelo truncated");
+  expect(result).toEqual({ notice: expect.any(String) });
+  const notice = (result as { notice: string }).notice;
+  expect(notice).toContain("toolout_noisy");
+  expect(notice).toContain("[Sigvelo truncated");
 });
 
 test("Nanite tool output wrapper exposes maxResponseChars on eligible Zod object schemas", () => {

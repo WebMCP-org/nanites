@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const naniteToolOutputArtifactTtlSeconds = 7 * 24 * 60 * 60;
+const naniteToolOutputArtifactTtlSeconds = 7 * 24 * 60 * 60;
 
 const artifactReadInputSchema = z.preprocess(
   (input) => (input === null ? undefined : input),
@@ -19,7 +19,7 @@ const artifactReadInputSchema = z.preprocess(
     .default({}),
 );
 
-export type NaniteToolOutputArtifactMetadata = {
+type NaniteToolOutputArtifactMetadata = {
   artifactId: string;
   runId: string;
   naniteId: string | null;
@@ -34,22 +34,18 @@ export type NaniteToolOutputArtifactMetadata = {
   expiresAt: string;
 };
 
-export type PersistNaniteToolOutputArtifactInput = {
+type PersistNaniteToolOutputArtifactInput = {
   toolName: string;
   toolCallId: string;
   content: string;
   extension: "json" | "txt";
 };
 
-export type NaniteToolOutputArtifactInfo = NaniteToolOutputArtifactMetadata & {
-  expired: boolean;
-};
+type NaniteToolOutputArtifactReadInput = z.infer<typeof artifactReadInputSchema>;
 
-export type NaniteToolOutputArtifactReadInput = z.infer<typeof artifactReadInputSchema>;
-
-export type NaniteToolOutputArtifactReadSliceResult = {
+type NaniteToolOutputArtifactReadSliceResult = {
   action: "read";
-  artifact: NaniteToolOutputArtifactInfo;
+  artifact: NaniteToolOutputArtifactMetadata;
   offset: number;
   maxChars: number;
   content: string;
@@ -58,13 +54,13 @@ export type NaniteToolOutputArtifactReadSliceResult = {
   truncated: boolean;
 };
 
-export type NaniteToolOutputArtifactGrepResult = {
+type NaniteToolOutputArtifactGrepResult = {
   action: "grep";
   pattern: string;
   regex: boolean;
   caseSensitive: boolean;
   matches: Array<{
-    artifact: NaniteToolOutputArtifactInfo;
+    artifact: NaniteToolOutputArtifactMetadata;
     line: number;
     text: string;
     before: Array<{ line: number; text: string }>;
@@ -73,12 +69,12 @@ export type NaniteToolOutputArtifactGrepResult = {
   truncated: boolean;
 };
 
-export type NaniteToolOutputArtifactListResult = {
+type NaniteToolOutputArtifactListResult = {
   action: "list";
-  artifacts: NaniteToolOutputArtifactInfo[];
+  artifacts: NaniteToolOutputArtifactMetadata[];
 };
 
-export type NaniteToolOutputArtifactReadResult =
+type NaniteToolOutputArtifactReadResult =
   | NaniteToolOutputArtifactReadSliceResult
   | NaniteToolOutputArtifactGrepResult
   | NaniteToolOutputArtifactListResult;
@@ -120,13 +116,6 @@ function contentTypeForExtension(
 
 function createArtifactId(): string {
   return `toolout_${crypto.randomUUID().replace(/-/g, "")}`;
-}
-
-function toInfo(metadata: NaniteToolOutputArtifactMetadata): NaniteToolOutputArtifactInfo {
-  return {
-    ...metadata,
-    expired: Date.parse(metadata.expiresAt) <= Date.now(),
-  };
 }
 
 function clampInteger(
@@ -216,7 +205,7 @@ export class NaniteToolOutputArtifactStore {
     return { artifactId };
   }
 
-  async info(artifactId: string): Promise<NaniteToolOutputArtifactInfo> {
+  async info(artifactId: string): Promise<NaniteToolOutputArtifactMetadata> {
     const scope = this.#requireScope();
     const result = await this.#kv.getWithMetadata<NaniteToolOutputArtifactMetadata>(
       this.#key(scope, artifactId),
@@ -226,17 +215,17 @@ export class NaniteToolOutputArtifactStore {
     if (!metadata) {
       throw new Error(`Tool output artifact ${artifactId} was not found or has expired.`);
     }
-    return toInfo(metadata);
+    return metadata;
   }
 
-  async list(limit: number): Promise<NaniteToolOutputArtifactInfo[]> {
+  async list(limit: number): Promise<NaniteToolOutputArtifactMetadata[]> {
     const scope = this.#requireScope();
     const result = await this.#kv.list<NaniteToolOutputArtifactMetadata>({
       prefix: this.#runPrefix(scope),
       limit: Math.min(Math.max(limit, 1), 100),
     });
     return result.keys
-      .flatMap((key) => (key.metadata ? [toInfo(key.metadata)] : []))
+      .flatMap((key) => (key.metadata ? [key.metadata] : []))
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
@@ -292,7 +281,7 @@ export class NaniteToolOutputArtifactStore {
     const content = artifact.value.slice(offset, offset + maxChars);
     return {
       action: "read",
-      artifact: toInfo(artifact.metadata),
+      artifact: artifact.metadata,
       offset,
       maxChars,
       content,

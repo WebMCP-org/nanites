@@ -5,20 +5,10 @@ type TriggerDispatchInputValue = TriggerDispatchInputScalar | TriggerDispatchInp
 
 export type TriggerDispatchInput = Record<string, TriggerDispatchInputValue>;
 
-export type TriggerGitHubCheckSurfaceRequest = {
-  type: "github_check";
-  repository: string;
-  headSha: string;
-  name?: string;
-};
-
-export type TriggerSurfaceRequest = TriggerGitHubCheckSurfaceRequest;
-
 type TriggerIntent =
   | {
       type: "dispatch_self";
       input: TriggerDispatchInput;
-      surfaces?: TriggerSurfaceRequest[];
     }
   | {
       type: "noop";
@@ -27,7 +17,7 @@ type TriggerIntent =
 
 export type TriggerDispatchIntent = Extract<TriggerIntent, { type: "dispatch_self" }>;
 
-export type TriggerExecutionResult =
+type TriggerExecutionResult =
   | {
       ok: true;
       intents: TriggerIntent[];
@@ -46,7 +36,7 @@ type TriggerFailurePhase =
   | "parse"
   | "normalize";
 
-export type GeneratedTriggerValidationResult =
+type GeneratedTriggerValidationResult =
   | {
       ok: true;
     }
@@ -62,11 +52,7 @@ export type RunGeneratedTriggerInput = {
   cacheKey: string;
 };
 
-export type ValidateGeneratedTriggerSourceInput = Omit<RunGeneratedTriggerInput, "event">;
-
-type GeneratedTriggerSourceInput = Pick<RunGeneratedTriggerInput, "sourceCode" | "cacheKey">;
-
-export const MAX_GENERATED_TRIGGER_SOURCE_BYTES = 64 * 1024;
+const MAX_GENERATED_TRIGGER_SOURCE_BYTES = 64 * 1024;
 
 const forbiddenStaticTriggerPatterns: Array<{ pattern: RegExp; reason: string }> = [
   {
@@ -138,7 +124,7 @@ function formatTriggerError(input: {
 function validateGeneratedTriggerSourceStatically({
   sourceCode,
   cacheKey,
-}: GeneratedTriggerSourceInput): GeneratedTriggerValidationResult {
+}: RunGeneratedTriggerInput): GeneratedTriggerValidationResult {
   const sourceBytes = new TextEncoder().encode(sourceCode).byteLength;
   if (sourceBytes === 0) {
     return {
@@ -185,10 +171,6 @@ function validateGeneratedTriggerSourceStatically({
 const triggerWorkerRuntimeSource = `
 import trigger from "./trigger.ts";
 
-function intent(type, payload) {
-  return { type, ...payload };
-}
-
 function toIntentList(result) {
   if (result === null || result === undefined) {
     return [{ type: "noop", reason: "Trigger returned no intent." }];
@@ -201,24 +183,17 @@ function toIntentList(result) {
 
 function createContext() {
   return {
-    dispatchSelf(input = {}, options = {}) {
-      return intent("dispatch_self", {
-        input,
-        ...(Object.prototype.hasOwnProperty.call(options, "surfaces")
-          ? { surfaces: options.surfaces }
-          : {}),
-      });
-    },
-    githubCheck(input) {
-      return intent("github_check", input);
+    dispatchSelf(input = {}) {
+      return { type: "dispatch_self", input };
     },
     noop(reason) {
-      return intent("noop", { reason });
+      return { type: "noop", reason };
     },
     record(message, data) {
-      return intent("noop", {
+      return {
+        type: "noop",
         reason: data === undefined ? message : JSON.stringify({ message, data }),
-      });
+      };
     },
   };
 }
@@ -308,34 +283,6 @@ function toDispatchInput(value: unknown): TriggerDispatchInput {
   );
 }
 
-function normalizeSurfaceRequest(value: unknown): TriggerSurfaceRequest | null {
-  if (!isRecord(value) || value.type !== "github_check") {
-    return null;
-  }
-
-  if (typeof value.repository !== "string" || typeof value.headSha !== "string") {
-    return null;
-  }
-
-  return {
-    type: "github_check",
-    repository: value.repository,
-    headSha: value.headSha,
-    ...(typeof value.name === "string" && value.name.trim() ? { name: value.name.trim() } : {}),
-  };
-}
-
-function normalizeSurfaceRequests(value: unknown): TriggerSurfaceRequest[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  return value.flatMap((surface) => {
-    const normalized = normalizeSurfaceRequest(surface);
-    return normalized ? [normalized] : [];
-  });
-}
-
 function normalizeIntent(value: unknown): TriggerIntent | null {
   if (!isRecord(value) || typeof value.type !== "string") {
     return null;
@@ -343,14 +290,10 @@ function normalizeIntent(value: unknown): TriggerIntent | null {
 
   switch (value.type) {
     case "dispatch_self": {
-      const dispatchIntent: TriggerDispatchIntent = {
+      return {
         type: "dispatch_self",
         input: toDispatchInput(value.input),
       };
-      if (Object.prototype.hasOwnProperty.call(value, "surfaces")) {
-        dispatchIntent.surfaces = normalizeSurfaceRequests(value.surfaces) ?? [];
-      }
-      return dispatchIntent;
     }
     case "noop":
       return {
@@ -368,7 +311,7 @@ export function getDispatchIntents(intents: readonly TriggerIntent[]): TriggerDi
   );
 }
 
-async function loadGeneratedTriggerWorker(input: ValidateGeneratedTriggerSourceInput) {
+async function loadGeneratedTriggerWorker(input: RunGeneratedTriggerInput) {
   return input.loader.get(input.cacheKey, async () => {
     let bundledWorker: Awaited<ReturnType<typeof createWorker>>;
     try {
@@ -413,12 +356,10 @@ type GeneratedTriggerWorkerResponse =
       error: string;
     };
 
-async function requestGeneratedTriggerWorker(input: {
-  loader: WorkerLoader;
-  sourceCode: string;
-  cacheKey: string;
-  request: Request;
-}): Promise<GeneratedTriggerWorkerResponse> {
+async function requestGeneratedTriggerWorker(
+  input: RunGeneratedTriggerInput,
+  request: Request,
+): Promise<GeneratedTriggerWorkerResponse> {
   const staticValidation = validateGeneratedTriggerSourceStatically(input);
   if (!staticValidation.ok) {
     return staticValidation;
@@ -440,7 +381,7 @@ async function requestGeneratedTriggerWorker(input: {
   }
 
   try {
-    const response = await worker.getEntrypoint().fetch(input.request);
+    const response = await worker.getEntrypoint().fetch(request);
     if (response.ok) {
       return { ok: true, response };
     }
@@ -471,15 +412,15 @@ async function requestGeneratedTriggerWorker(input: {
 }
 
 export async function validateGeneratedTriggerSource(
-  input: ValidateGeneratedTriggerSourceInput,
+  input: RunGeneratedTriggerInput,
 ): Promise<GeneratedTriggerValidationResult> {
-  const result = await requestGeneratedTriggerWorker({
-    ...input,
-    request: new Request("https://sigvelo-trigger.local/", {
+  const result = await requestGeneratedTriggerWorker(
+    input,
+    new Request("https://sigvelo-trigger.local/", {
       method: "POST",
       headers: { "x-sigvelo-trigger-validation": "1" },
     }),
-  });
+  );
 
   return result.ok ? { ok: true } : result;
 }
@@ -487,14 +428,14 @@ export async function validateGeneratedTriggerSource(
 export async function runGeneratedTrigger(
   input: RunGeneratedTriggerInput,
 ): Promise<TriggerExecutionResult> {
-  const result = await requestGeneratedTriggerWorker({
-    ...input,
-    request: new Request("https://sigvelo-trigger.local/", {
+  const result = await requestGeneratedTriggerWorker(
+    input,
+    new Request("https://sigvelo-trigger.local/", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input.event),
     }),
-  });
+  );
   if (!result.ok) {
     return result;
   }

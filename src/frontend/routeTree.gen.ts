@@ -11,17 +11,8 @@
 import { Route as rootRouteImport } from "./routes/__root";
 import { Route as McpAuthorizeRouteImport } from "./routes/mcp-authorize";
 import { Route as AuthenticatedRouteImport } from "./routes/_authenticated";
-import { Route as AdminRouteImport } from "./routes/_admin";
 import { Route as IndexRouteImport } from "./routes/index";
-import { Route as AdminNotAuthorizedRouteImport } from "./routes/admin.not-authorized";
 import { Route as AuthenticatedNanitesRouteImport } from "./routes/_authenticated/nanites";
-import { Route as AdminAdminRouteImport } from "./routes/_admin.admin";
-import { Route as AdminAdminIndexRouteImport } from "./routes/_admin.admin.index";
-import { Route as AdminAdminUsageRouteImport } from "./routes/_admin.admin.usage";
-import { Route as AdminAdminPeopleRouteImport } from "./routes/_admin.admin.people";
-import { Route as AdminAdminAiCostsRouteImport } from "./routes/_admin.admin.ai-costs";
-import { Route as AdminAdminAccountsRouteImport } from "./routes/_admin.admin.accounts";
-import { Route as AdminAdminAccountsAccountIdRouteImport } from "./routes/_admin.admin.accounts.$accountId";
 
 const McpAuthorizeRoute = McpAuthorizeRouteImport.update({
   id: "/mcp-authorize",
@@ -32,18 +23,9 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: "/_authenticated",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AdminRoute = AdminRouteImport.update({
-  id: "/_admin",
-  getParentRoute: () => rootRouteImport,
-} as any);
 const IndexRoute = IndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => rootRouteImport,
-} as any);
-const AdminNotAuthorizedRoute = AdminNotAuthorizedRouteImport.update({
-  id: "/admin/not-authorized",
-  path: "/admin/not-authorized",
   getParentRoute: () => rootRouteImport,
 } as any);
 const AuthenticatedNanitesRoute = AuthenticatedNanitesRouteImport.update({
@@ -51,133 +33,41 @@ const AuthenticatedNanitesRoute = AuthenticatedNanitesRouteImport.update({
   path: "/nanites",
   getParentRoute: () => AuthenticatedRoute,
 } as any);
-const AdminAdminRoute = AdminAdminRouteImport.update({
-  id: "/admin",
-  path: "/admin",
-  getParentRoute: () => AdminRoute,
-} as any);
-const AdminAdminIndexRoute = AdminAdminIndexRouteImport.update({
-  id: "/",
-  path: "/",
-  getParentRoute: () => AdminAdminRoute,
-} as any);
-const AdminAdminUsageRoute = AdminAdminUsageRouteImport.update({
-  id: "/usage",
-  path: "/usage",
-  getParentRoute: () => AdminAdminRoute,
-} as any);
-const AdminAdminPeopleRoute = AdminAdminPeopleRouteImport.update({
-  id: "/people",
-  path: "/people",
-  getParentRoute: () => AdminAdminRoute,
-} as any);
-const AdminAdminAiCostsRoute = AdminAdminAiCostsRouteImport.update({
-  id: "/ai-costs",
-  path: "/ai-costs",
-  getParentRoute: () => AdminAdminRoute,
-} as any);
-const AdminAdminAccountsRoute = AdminAdminAccountsRouteImport.update({
-  id: "/accounts",
-  path: "/accounts",
-  getParentRoute: () => AdminAdminRoute,
-} as any);
-const AdminAdminAccountsAccountIdRoute =
-  AdminAdminAccountsAccountIdRouteImport.update({
-    id: "/$accountId",
-    path: "/$accountId",
-    getParentRoute: () => AdminAdminAccountsRoute,
-  } as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/mcp-authorize": typeof McpAuthorizeRoute;
-  "/admin": typeof AdminAdminRouteWithChildren;
   "/nanites": typeof AuthenticatedNanitesRoute;
-  "/admin/not-authorized": typeof AdminNotAuthorizedRoute;
-  "/admin/accounts": typeof AdminAdminAccountsRouteWithChildren;
-  "/admin/ai-costs": typeof AdminAdminAiCostsRoute;
-  "/admin/people": typeof AdminAdminPeopleRoute;
-  "/admin/usage": typeof AdminAdminUsageRoute;
-  "/admin/": typeof AdminAdminIndexRoute;
-  "/admin/accounts/$accountId": typeof AdminAdminAccountsAccountIdRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/mcp-authorize": typeof McpAuthorizeRoute;
   "/nanites": typeof AuthenticatedNanitesRoute;
-  "/admin/not-authorized": typeof AdminNotAuthorizedRoute;
-  "/admin/accounts": typeof AdminAdminAccountsRouteWithChildren;
-  "/admin/ai-costs": typeof AdminAdminAiCostsRoute;
-  "/admin/people": typeof AdminAdminPeopleRoute;
-  "/admin/usage": typeof AdminAdminUsageRoute;
-  "/admin": typeof AdminAdminIndexRoute;
-  "/admin/accounts/$accountId": typeof AdminAdminAccountsAccountIdRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
-  "/_admin": typeof AdminRouteWithChildren;
   "/_authenticated": typeof AuthenticatedRouteWithChildren;
   "/mcp-authorize": typeof McpAuthorizeRoute;
-  "/_admin/admin": typeof AdminAdminRouteWithChildren;
   "/_authenticated/nanites": typeof AuthenticatedNanitesRoute;
-  "/admin/not-authorized": typeof AdminNotAuthorizedRoute;
-  "/_admin/admin/accounts": typeof AdminAdminAccountsRouteWithChildren;
-  "/_admin/admin/ai-costs": typeof AdminAdminAiCostsRoute;
-  "/_admin/admin/people": typeof AdminAdminPeopleRoute;
-  "/_admin/admin/usage": typeof AdminAdminUsageRoute;
-  "/_admin/admin/": typeof AdminAdminIndexRoute;
-  "/_admin/admin/accounts/$accountId": typeof AdminAdminAccountsAccountIdRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths:
-    | "/"
-    | "/mcp-authorize"
-    | "/admin"
-    | "/nanites"
-    | "/admin/not-authorized"
-    | "/admin/accounts"
-    | "/admin/ai-costs"
-    | "/admin/people"
-    | "/admin/usage"
-    | "/admin/"
-    | "/admin/accounts/$accountId";
+  fullPaths: "/" | "/mcp-authorize" | "/nanites";
   fileRoutesByTo: FileRoutesByTo;
-  to:
-    | "/"
-    | "/mcp-authorize"
-    | "/nanites"
-    | "/admin/not-authorized"
-    | "/admin/accounts"
-    | "/admin/ai-costs"
-    | "/admin/people"
-    | "/admin/usage"
-    | "/admin"
-    | "/admin/accounts/$accountId";
+  to: "/" | "/mcp-authorize" | "/nanites";
   id:
     | "__root__"
     | "/"
-    | "/_admin"
     | "/_authenticated"
     | "/mcp-authorize"
-    | "/_admin/admin"
-    | "/_authenticated/nanites"
-    | "/admin/not-authorized"
-    | "/_admin/admin/accounts"
-    | "/_admin/admin/ai-costs"
-    | "/_admin/admin/people"
-    | "/_admin/admin/usage"
-    | "/_admin/admin/"
-    | "/_admin/admin/accounts/$accountId";
+    | "/_authenticated/nanites";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
-  AdminRoute: typeof AdminRouteWithChildren;
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren;
   McpAuthorizeRoute: typeof McpAuthorizeRoute;
-  AdminNotAuthorizedRoute: typeof AdminNotAuthorizedRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -196,25 +86,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AuthenticatedRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/_admin": {
-      id: "/_admin";
-      path: "";
-      fullPath: "/";
-      preLoaderRoute: typeof AdminRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
     "/": {
       id: "/";
       path: "/";
       fullPath: "/";
       preLoaderRoute: typeof IndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/admin/not-authorized": {
-      id: "/admin/not-authorized";
-      path: "/admin/not-authorized";
-      fullPath: "/admin/not-authorized";
-      preLoaderRoute: typeof AdminNotAuthorizedRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/_authenticated/nanites": {
@@ -224,98 +100,8 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AuthenticatedNanitesRouteImport;
       parentRoute: typeof AuthenticatedRoute;
     };
-    "/_admin/admin": {
-      id: "/_admin/admin";
-      path: "/admin";
-      fullPath: "/admin";
-      preLoaderRoute: typeof AdminAdminRouteImport;
-      parentRoute: typeof AdminRoute;
-    };
-    "/_admin/admin/": {
-      id: "/_admin/admin/";
-      path: "/";
-      fullPath: "/admin/";
-      preLoaderRoute: typeof AdminAdminIndexRouteImport;
-      parentRoute: typeof AdminAdminRoute;
-    };
-    "/_admin/admin/usage": {
-      id: "/_admin/admin/usage";
-      path: "/usage";
-      fullPath: "/admin/usage";
-      preLoaderRoute: typeof AdminAdminUsageRouteImport;
-      parentRoute: typeof AdminAdminRoute;
-    };
-    "/_admin/admin/people": {
-      id: "/_admin/admin/people";
-      path: "/people";
-      fullPath: "/admin/people";
-      preLoaderRoute: typeof AdminAdminPeopleRouteImport;
-      parentRoute: typeof AdminAdminRoute;
-    };
-    "/_admin/admin/ai-costs": {
-      id: "/_admin/admin/ai-costs";
-      path: "/ai-costs";
-      fullPath: "/admin/ai-costs";
-      preLoaderRoute: typeof AdminAdminAiCostsRouteImport;
-      parentRoute: typeof AdminAdminRoute;
-    };
-    "/_admin/admin/accounts": {
-      id: "/_admin/admin/accounts";
-      path: "/accounts";
-      fullPath: "/admin/accounts";
-      preLoaderRoute: typeof AdminAdminAccountsRouteImport;
-      parentRoute: typeof AdminAdminRoute;
-    };
-    "/_admin/admin/accounts/$accountId": {
-      id: "/_admin/admin/accounts/$accountId";
-      path: "/$accountId";
-      fullPath: "/admin/accounts/$accountId";
-      preLoaderRoute: typeof AdminAdminAccountsAccountIdRouteImport;
-      parentRoute: typeof AdminAdminAccountsRoute;
-    };
   }
 }
-
-interface AdminAdminAccountsRouteChildren {
-  AdminAdminAccountsAccountIdRoute: typeof AdminAdminAccountsAccountIdRoute;
-}
-
-const AdminAdminAccountsRouteChildren: AdminAdminAccountsRouteChildren = {
-  AdminAdminAccountsAccountIdRoute: AdminAdminAccountsAccountIdRoute,
-};
-
-const AdminAdminAccountsRouteWithChildren =
-  AdminAdminAccountsRoute._addFileChildren(AdminAdminAccountsRouteChildren);
-
-interface AdminAdminRouteChildren {
-  AdminAdminAccountsRoute: typeof AdminAdminAccountsRouteWithChildren;
-  AdminAdminAiCostsRoute: typeof AdminAdminAiCostsRoute;
-  AdminAdminPeopleRoute: typeof AdminAdminPeopleRoute;
-  AdminAdminUsageRoute: typeof AdminAdminUsageRoute;
-  AdminAdminIndexRoute: typeof AdminAdminIndexRoute;
-}
-
-const AdminAdminRouteChildren: AdminAdminRouteChildren = {
-  AdminAdminAccountsRoute: AdminAdminAccountsRouteWithChildren,
-  AdminAdminAiCostsRoute: AdminAdminAiCostsRoute,
-  AdminAdminPeopleRoute: AdminAdminPeopleRoute,
-  AdminAdminUsageRoute: AdminAdminUsageRoute,
-  AdminAdminIndexRoute: AdminAdminIndexRoute,
-};
-
-const AdminAdminRouteWithChildren = AdminAdminRoute._addFileChildren(
-  AdminAdminRouteChildren,
-);
-
-interface AdminRouteChildren {
-  AdminAdminRoute: typeof AdminAdminRouteWithChildren;
-}
-
-const AdminRouteChildren: AdminRouteChildren = {
-  AdminAdminRoute: AdminAdminRouteWithChildren,
-};
-
-const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren);
 
 interface AuthenticatedRouteChildren {
   AuthenticatedNanitesRoute: typeof AuthenticatedNanitesRoute;
@@ -331,10 +117,8 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AdminRoute: AdminRouteWithChildren,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   McpAuthorizeRoute: McpAuthorizeRoute,
-  AdminNotAuthorizedRoute: AdminNotAuthorizedRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

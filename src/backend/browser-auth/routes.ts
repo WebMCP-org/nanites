@@ -1,9 +1,9 @@
-import { createDbClient } from "@nanites/db/client";
+import { createDbClient, type DbClient } from "#/backend/db/client.ts";
 import {
   githubOAuthStateSchema,
   nanitesSessionSchema,
   type GitHubOAuthState,
-} from "@nanites/contracts/auth";
+} from "#/backend/browser-auth/cookies.ts";
 import {
   clearGitHubOAuthStateCookie,
   clearGitHubUserTokenCookie,
@@ -17,10 +17,9 @@ import {
   buildBrowserSessionExpiration,
   buildOAuthStateExpiration,
   GITHUB_OAUTH_CALLBACK_PATH,
-  GITHUB_OAUTH_LOGIN_PATH,
 } from "#/backend/browser-auth/policy.ts";
-import { recordAccountAuthFunnelEvent } from "#/backend/business-data.ts";
-import { toActiveInstallations, toAuthenticatedActor } from "#/backend/browser-auth/session.ts";
+import { recordAuthFunnelFact } from "#/backend/db/business-mutations.ts";
+import { readSessionInstallationSnapshots } from "#/backend/browser-auth/session.ts";
 import {
   exchangeGitHubOAuthCode,
   fetchGitHubViewer,
@@ -40,12 +39,22 @@ class InvalidGitHubOAuthCallbackStateError extends Error {
   }
 }
 
-function encodeBase64Url(value: Uint8Array): string {
-  return Buffer.from(value).toString("base64url");
+async function recordAccountAuthFunnelEvent(
+  db: DbClient,
+  input: Parameters<typeof recordAuthFunnelFact>[1],
+): Promise<void> {
+  try {
+    await recordAuthFunnelFact(db, input);
+  } catch (error) {
+    console.warn("auth_funnel_event.record_failed", {
+      eventType: input.eventType,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
-function normalizeReturnToPath(returnToPath: string | null): string {
-  return normalizeAuthenticatedReturnToPath(returnToPath);
+function encodeBase64Url(value: Uint8Array): string {
+  return Buffer.from(value).toString("base64url");
 }
 
 async function createCodeChallenge(codeVerifier: string): Promise<string> {
@@ -71,7 +80,7 @@ async function buildGitHubAuthorizationUrl({
   const githubOAuthState = githubOAuthStateSchema.parse({
     state: crypto.randomUUID(),
     codeVerifier,
-    returnToPath: normalizeReturnToPath(requestedReturnToPath),
+    returnToPath: normalizeAuthenticatedReturnToPath(requestedReturnToPath),
     expiresAt: buildOAuthStateExpiration(),
   });
   const authorizationUrl = new URL(GITHUB_OAUTH_AUTHORIZE_URL);
@@ -101,7 +110,7 @@ function buildGitHubOAuthCallbackUrl(request: Request): string {
   return new URL(GITHUB_OAUTH_CALLBACK_PATH, canonicalUrl ?? request.url).toString();
 }
 
-async function handleGitHubLoginRequest(request: Request, env: Env): Promise<Response> {
+export async function handleGitHubLoginRequest(request: Request, env: Env): Promise<Response> {
   const canonicalUrl = toCanonicalLocalAuthUrl(request);
   if (canonicalUrl) {
     return Response.redirect(canonicalUrl, 302);
@@ -114,8 +123,7 @@ async function handleGitHubLoginRequest(request: Request, env: Env): Promise<Res
     requestedReturnToPath: url.searchParams.get("returnTo"),
   });
   const db = createDbClient(env.DB);
-  await recordAccountAuthFunnelEvent({
-    db,
+  await recordAccountAuthFunnelEvent(db, {
     eventType: "github_oauth_started",
     metadata: {
       returnToPath: githubOAuthState.returnToPath,
@@ -147,7 +155,7 @@ async function requireGitHubOAuthCallbackState(
   return { code, githubOAuthState };
 }
 
-async function handleGitHubOAuthCallbackRequest({
+export async function handleGitHubOAuthCallbackRequest({
   request,
   env,
 }: {
@@ -158,8 +166,7 @@ async function handleGitHubOAuthCallbackRequest({
   const oauthError = url.searchParams.get("error");
   if (oauthError) {
     const db = createDbClient(env.DB);
-    await recordAccountAuthFunnelEvent({
-      db,
+    await recordAccountAuthFunnelEvent(db, {
       eventType: "github_oauth_callback_failed",
       metadata: {
         error: oauthError,
@@ -182,8 +189,7 @@ async function handleGitHubOAuthCallbackRequest({
     }
 
     const db = createDbClient(env.DB);
-    await recordAccountAuthFunnelEvent({
-      db,
+    await recordAccountAuthFunnelEvent(db, {
       eventType: "github_oauth_callback_failed",
       metadata: {
         error: "invalid_callback_state",
@@ -204,48 +210,44 @@ async function handleGitHubOAuthCallbackRequest({
     redirectUri: buildGitHubOAuthCallbackUrl(request),
     env,
   });
-  const actor = toAuthenticatedActor(await fetchGitHubViewer(githubUserToken.accessToken));
+  const actor = await fetchGitHubViewer(githubUserToken.accessToken);
   const visibleInstallations = await listVisibleInstallations(githubUserToken.accessToken);
-  const activeInstallations = toActiveInstallations(visibleInstallations);
+  const sessionInstallationSnapshots = readSessionInstallationSnapshots(visibleInstallations);
   const db = createDbClient(env.DB);
   const session = nanitesSessionSchema.parse({
-    githubUserId: actor.id,
-    githubLogin: actor.login,
-    activeGithubInstallationId: activeInstallations[0]?.id ?? null,
-    activeInstallationSnapshot: activeInstallations[0] ?? null,
+    githubViewer: actor,
+    activeGithubInstallationId: sessionInstallationSnapshots[0]?.id ?? null,
+    sessionInstallationSnapshot: sessionInstallationSnapshots[0] ?? null,
     expiresAt: buildBrowserSessionExpiration(),
   });
 
-  await recordAccountAuthFunnelEvent({
-    db,
+  await recordAccountAuthFunnelEvent(db, {
     githubUserId: actor.id,
     githubLogin: actor.login,
-    githubInstallationId: activeInstallations[0]?.id ?? null,
+    githubInstallationId: sessionInstallationSnapshots[0]?.id ?? null,
     eventType: "github_oauth_callback_succeeded",
     metadata: {
       visibleInstallationCount: visibleInstallations.length,
-      activeInstallationCount: activeInstallations.length,
+      activeInstallationCount: sessionInstallationSnapshots.length,
     },
   });
-  await recordAccountAuthFunnelEvent({
-    db,
+  await recordAccountAuthFunnelEvent(db, {
     githubUserId: actor.id,
     githubLogin: actor.login,
-    githubInstallationId: activeInstallations[0]?.id ?? null,
+    githubInstallationId: sessionInstallationSnapshots[0]?.id ?? null,
     eventType: "first_session_created",
     metadata: {
       activeGithubInstallationId: session.activeGithubInstallationId,
     },
   });
-  if (activeInstallations[0]) {
-    await recordAccountAuthFunnelEvent({
-      db,
+  if (sessionInstallationSnapshots[0]) {
+    await recordAccountAuthFunnelEvent(db, {
       githubUserId: actor.id,
       githubLogin: actor.login,
-      githubInstallationId: activeInstallations[0].id,
+      githubInstallationId: sessionInstallationSnapshots[0].id,
       eventType: "first_visible_installation_auto_selected",
       metadata: {
-        githubInstallationId: activeInstallations[0].id,
+        githubInstallationId: sessionInstallationSnapshots[0].id,
       },
     });
   }
@@ -262,24 +264,4 @@ async function handleGitHubOAuthCallbackRequest({
     status: 302,
     headers,
   });
-}
-
-export async function handleBrowserAuthRequest({
-  request,
-  env,
-}: {
-  request: Request;
-  env: Env;
-}): Promise<Response | null> {
-  const url = new URL(request.url);
-
-  if (request.method === "GET" && url.pathname === GITHUB_OAUTH_LOGIN_PATH) {
-    return handleGitHubLoginRequest(request, env);
-  }
-
-  if (request.method === "GET" && url.pathname === GITHUB_OAUTH_CALLBACK_PATH) {
-    return handleGitHubOAuthCallbackRequest({ request, env });
-  }
-
-  return null;
 }

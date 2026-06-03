@@ -1,7 +1,8 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
+import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { getAgentByName } from "agents";
 import worker, { ChatSdkStateAgent, SigveloChatIngress } from "#/server.ts";
-import type { SigveloManagerConversationAgent } from "#/backend/manager-conversation-agent.ts";
+import type { SigveloManagerConversationAgent } from "#/backend/nanites/manager-conversation-agent.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/shared/constants/routes.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 
@@ -42,7 +43,9 @@ async function waitForManagerSubmission(
   await expect.poll(isReady, { interval: 10, timeout: timeoutMs }).toBe(true);
 }
 
-function buildIssueCommentPayload() {
+type GitHubIssueCommentCreatedPayload = EmitterWebhookEvent<"issue_comment.created">["payload"];
+
+function buildIssueCommentPayload(): GitHubIssueCommentCreatedPayload {
   const createdAt = "2026-05-23T00:00:00Z";
   return {
     action: "created",
@@ -81,7 +84,7 @@ function buildIssueCommentPayload() {
       login: "alex",
       type: "User",
     },
-  };
+  } as GitHubIssueCommentCreatedPayload;
 }
 
 test("server exports the Chat SDK ingress Agent classes", () => {

@@ -2,7 +2,9 @@ import { type ReactNode, useEffect } from "react";
 import * as Sentry from "@sentry/react";
 import { useQueryClient, useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, Navigate, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
-import { Badge, Button, Card } from "@nanites/ui";
+import { Badge } from "#/frontend/ui/components/Badge.tsx";
+import { Button } from "#/frontend/ui/components/Button.tsx";
+import { Card } from "#/frontend/ui/components/Card.tsx";
 import { ArrowClockwiseIcon, ArrowUUpLeftIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import {
   DEFAULT_AUTH_RETURN_TO,
@@ -12,7 +14,6 @@ import {
   type InstallationAuthErrorDetails,
   resolveAuthReturnTo,
 } from "#/frontend/routes/-auth-client.ts";
-import { useORPC } from "#/frontend/lib/orpc.tsx";
 
 interface StateAction {
   readonly label: string;
@@ -27,14 +28,6 @@ interface PageStateCardProps {
   readonly title: string;
   readonly description: string;
   readonly actions?: readonly StateAction[];
-}
-
-interface InlinePanelErrorStateProps {
-  readonly title: string;
-  readonly description: string;
-  readonly errorMessage?: string | null;
-  readonly onRetry: () => void;
-  readonly secondaryAction?: StateAction;
 }
 
 export function RoutePendingPage() {
@@ -85,46 +78,6 @@ export function RouteErrorBoundary(props: ErrorComponentProps) {
   }
 
   return <GenericRouteErrorPage {...props} />;
-}
-
-export function InlinePanelErrorState({
-  title,
-  description,
-  errorMessage,
-  onRetry,
-  secondaryAction,
-}: InlinePanelErrorStateProps) {
-  return (
-    <Card>
-      <div className="app-stack">
-        <Badge color="destructive" variant="outline">
-          Run Error
-        </Badge>
-        <div className="app-empty-state">
-          <h3>{title}</h3>
-          <p>{description}</p>
-          {errorMessage ? <p>{errorMessage}</p> : null}
-        </div>
-        <div className="app-action-row app-action-row--center">
-          <Button color="primary" size="sm" onClick={onRetry}>
-            <ArrowClockwiseIcon size={14} />
-            <span>Try again</span>
-          </Button>
-          {secondaryAction ? (
-            <Button
-              color="neutral"
-              size="sm"
-              variant={secondaryAction.variant ?? "outline"}
-              onClick={secondaryAction.onClick}
-            >
-              {secondaryAction.icon}
-              <span>{secondaryAction.label}</span>
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </Card>
-  );
 }
 
 function AuthRedirectBoundary() {
@@ -200,7 +153,6 @@ function InstallationRouteErrorPage({
   const router = useRouter();
   const queryClient = useQueryClient();
   const queryErrorResetBoundary = useQueryErrorResetBoundary();
-  const orpc = useORPC();
 
   useResetQueryBoundary(queryErrorResetBoundary);
 
@@ -225,9 +177,7 @@ function InstallationRouteErrorPage({
           onClick: () => {
             queryErrorResetBoundary.reset();
             reset();
-            void invalidateAuthQueries(queryClient, orpc.auth.key()).then(() =>
-              router.navigate({ to: "/nanites" }),
-            );
+            void invalidateAuthQueries(queryClient).then(() => router.navigate({ to: "/nanites" }));
           },
           icon: <ArrowClockwiseIcon size={14} />,
         },

@@ -1,4 +1,4 @@
-import { toActiveInstallations, toAuthenticatedActor } from "#/backend/browser-auth/session.ts";
+import { readSessionInstallationSnapshots } from "#/backend/browser-auth/session.ts";
 import {
   clearGitHubUserTokenCookie,
   clearSessionCookie,
@@ -10,11 +10,11 @@ import {
   buildBrowserSessionExpiration,
   DEFAULT_BROWSER_RETURN_TO_PATH,
 } from "#/backend/browser-auth/policy.ts";
-import { githubUserTokenSchema, nanitesSessionSchema } from "@nanites/contracts/auth";
+import { githubUserTokenSchema, nanitesSessionSchema } from "#/backend/browser-auth/cookies.ts";
 import { z } from "zod";
 import { normalizeAuthenticatedReturnToPath } from "#/shared/auth-return-to.ts";
 
-const TEST_AUTH_MINT_SESSION_PATH = "/auth/test/mint-session";
+export const TEST_AUTH_MINT_SESSION_PATH = "/auth/test/mint-session";
 const TEST_GITHUB_USER_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const TEST_GITHUB_USER_TOKEN_HEADER = "x-github-test-user-token";
 const TEST_AUTH_TOKEN_REQUIRED_MESSAGE =
@@ -31,7 +31,7 @@ const testAuthQuerySchema = z.object({
     .string()
     .min(1)
     .default(DEFAULT_BROWSER_RETURN_TO_PATH)
-    .transform((value) => normalizeReturnToPath(value)),
+    .transform((value) => normalizeAuthenticatedReturnToPath(value)),
   redirect: z.preprocess((value) => {
     if (typeof value !== "string") {
       return true;
@@ -43,10 +43,6 @@ const testAuthQuerySchema = z.object({
     z.string().min(1).optional(),
   ),
 });
-
-function normalizeReturnToPath(returnToPath: string): string {
-  return normalizeAuthenticatedReturnToPath(returnToPath);
-}
 
 function getTestGitHubUserToken(env: Env): string | null {
   const token = env.GITHUB_TEST_USER_TOKEN?.trim();
@@ -103,21 +99,19 @@ export async function handleTestAuthRequest({
 
   const { session, githubUserToken } = await (async () => {
     const viewer = await fetchGitHubViewer(realGitHubUserToken);
-    const actor = toAuthenticatedActor(viewer);
     const visibleInstallations = await listVisibleInstallations(realGitHubUserToken);
-    const activeInstallations = toActiveInstallations(visibleInstallations);
+    const sessionInstallationSnapshots = readSessionInstallationSnapshots(visibleInstallations);
 
     return {
       session: nanitesSessionSchema.parse({
-        githubUserId: actor.id,
-        githubLogin: actor.login,
+        githubViewer: viewer,
         activeGithubInstallationId:
-          params.activeGithubInstallationId ?? activeInstallations[0]?.id ?? null,
-        activeInstallationSnapshot:
-          activeInstallations.find(
+          params.activeGithubInstallationId ?? sessionInstallationSnapshots[0]?.id ?? null,
+        sessionInstallationSnapshot:
+          sessionInstallationSnapshots.find(
             (installation) => installation.id === params.activeGithubInstallationId,
           ) ??
-          activeInstallations[0] ??
+          sessionInstallationSnapshots[0] ??
           null,
         expiresAt: sessionExpiresAt,
       }),
@@ -147,8 +141,8 @@ export async function handleTestAuthRequest({
   return Response.json(
     {
       actor: {
-        githubLogin: session.githubLogin,
-        githubUserId: session.githubUserId,
+        githubLogin: session.githubViewer.login,
+        githubUserId: session.githubViewer.id,
       },
       activeGithubInstallationId: session.activeGithubInstallationId,
       returnTo: params.returnTo,

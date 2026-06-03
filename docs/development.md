@@ -109,13 +109,13 @@ Use the deployed origin for URLs:
 
 - OAuth callback: `https://<origin>/auth/github/callback`
 - Webhook URL: `https://<origin>/api/github/webhook`
-- Webhook events: `push`, `pull_request`
+- Webhook events: select the GitHub events you want the app to receive; Nanites route with
+  Octokit's webhook event names.
 
 Typical permissions:
 
 - `contents`: read/write for branches and file changes
 - `pull_requests`: read/write for PR creation and updates
-- `checks`: write for Nanite check projection
 - `actions`: read for workflow/check investigation
 - `issues`: read/write when issue or PR comment surfaces are needed
 
@@ -179,12 +179,13 @@ mcpjam oauth login \
 
 Generated trigger handlers are Worker-compatible TypeScript.
 
-They receive a normalized event and a small manager intent API:
+They receive a trigger event whose GitHub payload stays in GitHub's webhook shape, plus a small
+manager intent API:
 
 ```ts
 export default {
   async handle(event, ctx) {
-    if (event.type !== "github.push") {
+    if (event.name !== "push") {
       return ctx.noop("Not a push event.");
     }
 

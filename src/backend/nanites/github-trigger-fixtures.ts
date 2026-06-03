@@ -1,8 +1,4 @@
-import type {
-  GitHubPullRequestTriggerAction,
-  GitHubPullRequestWebhookPayload,
-  GitHubPushWebhookPayload,
-} from "#/backend/github-types.ts";
+import type { EmitterWebhookEvent } from "@octokit/webhooks";
 
 type DeepPartial<T> = T extends readonly (infer TItem)[]
   ? readonly DeepPartial<TItem>[]
@@ -11,166 +7,182 @@ type DeepPartial<T> = T extends readonly (infer TItem)[]
     : T;
 
 export type GitHubPullRequestFixtureId =
-  | "github.pull_request.opened"
-  | "github.pull_request.synchronize"
-  | "github.pull_request.reopened"
-  | "github.pull_request.closed";
-export type GitHubPushFixtureId = "github.push";
+  | "pull_request.opened"
+  | "pull_request.synchronize"
+  | "pull_request.reopened"
+  | "pull_request.closed";
+export type GitHubPushFixtureId = "push";
 export type GitHubTriggerFixtureId = GitHubPullRequestFixtureId | GitHubPushFixtureId;
 
-export type GitHubPullRequestFixtureOverrides = DeepPartial<{
-  action: GitHubPullRequestTriggerAction;
-  installation: {
-    id: number;
-  };
-  repository: {
-    id: number;
-    name: string;
-    full_name: string;
-    default_branch: string;
-    private: boolean;
-    owner: {
-      login: string;
-    };
-  };
-  pull_request: {
-    number: number;
-    html_url: string;
-    head: {
-      sha: string;
-      ref: string;
-    };
-    base: {
-      ref: string;
-    };
-  };
-}>;
+export const githubPullRequestFixtureIds = [
+  "pull_request.opened",
+  "pull_request.synchronize",
+  "pull_request.reopened",
+  "pull_request.closed",
+] as const satisfies readonly GitHubPullRequestFixtureId[];
+export const githubPushFixtureIds = ["push"] as const satisfies readonly GitHubPushFixtureId[];
+export const githubTriggerFixtureIds = [
+  ...githubPullRequestFixtureIds,
+  ...githubPushFixtureIds,
+] as const satisfies readonly GitHubTriggerFixtureId[];
 
-export type GitHubPushFixtureOverrides = DeepPartial<{
-  ref: string;
-  after: string;
-  installation: {
-    id: number;
-  };
-  repository: {
-    id: number;
-    name: string;
-    full_name: string;
-    default_branch: string;
-    private: boolean;
-    owner: {
-      login: string;
-    };
-  };
-  commits: Array<{
-    id: string;
-    added: string[];
-    modified: string[];
-    removed: string[];
-  }>;
-}>;
+export type GitHubPullRequestFixtureOverrides = DeepPartial<
+  EmitterWebhookEvent<GitHubPullRequestFixtureId>["payload"]
+>;
 
-function actionFromFixture(fixture: GitHubPullRequestFixtureId): GitHubPullRequestTriggerAction {
+export type GitHubPushFixtureOverrides = DeepPartial<EmitterWebhookEvent<"push">["payload"]>;
+
+export type GitHubTriggerFixtureOverrides =
+  | GitHubPullRequestFixtureOverrides
+  | GitHubPushFixtureOverrides;
+
+const DEFAULT_REPOSITORY_FULL_NAME = "WebMCP-org/nanites";
+const DEFAULT_REPOSITORY_ID = 101;
+const DEFAULT_REPOSITORY_OWNER = "WebMCP-org";
+const DEFAULT_REPOSITORY_NAME = "nanites";
+const DEFAULT_BRANCH = "main";
+const DEFAULT_PULL_REQUEST_NUMBER = 21;
+const DEFAULT_TRIGGER_BRANCH = "sigvelo-trigger-test";
+const EMPTY_SHA = "0000000000000000000000000000000000000000";
+
+function valueOr<T>(value: T | null | undefined, fallback: T): T {
+  return value ?? fallback;
+}
+
+function randomTestSha(): string {
+  return `test${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+}
+
+function buildFixtureRepository(
+  repository?:
+    | GitHubPullRequestFixtureOverrides["repository"]
+    | GitHubPushFixtureOverrides["repository"],
+) {
+  const full_name = valueOr(repository?.full_name, DEFAULT_REPOSITORY_FULL_NAME);
+  return {
+    id: valueOr(repository?.id, DEFAULT_REPOSITORY_ID),
+    name: valueOr(repository?.name, DEFAULT_REPOSITORY_NAME),
+    full_name,
+    default_branch: valueOr(repository?.default_branch, DEFAULT_BRANCH),
+    private: valueOr(repository?.private, true),
+    owner: {
+      login: valueOr(repository?.owner?.login, DEFAULT_REPOSITORY_OWNER),
+    },
+  };
+}
+
+function buildFixtureInstallation(
+  installation:
+    | GitHubPullRequestFixtureOverrides["installation"]
+    | GitHubPushFixtureOverrides["installation"],
+  installationId: number,
+) {
+  return {
+    id: valueOr(installation?.id, installationId),
+  };
+}
+
+function actionFromFixture(
+  fixture: GitHubPullRequestFixtureId,
+): EmitterWebhookEvent<GitHubPullRequestFixtureId>["payload"]["action"] {
   switch (fixture) {
-    case "github.pull_request.opened":
+    case "pull_request.opened":
       return "opened";
-    case "github.pull_request.synchronize":
+    case "pull_request.synchronize":
       return "synchronize";
-    case "github.pull_request.reopened":
+    case "pull_request.reopened":
       return "reopened";
-    case "github.pull_request.closed":
+    case "pull_request.closed":
       return "closed";
   }
 }
 
 export function buildGitHubPullRequestFixture(input: {
   fixture: GitHubPullRequestFixtureId;
+  deliveryId: string;
   installationId: number;
   overrides?: GitHubPullRequestFixtureOverrides;
-}): GitHubPullRequestWebhookPayload {
+}): EmitterWebhookEvent<GitHubPullRequestFixtureId> {
   const overrides = input.overrides ?? {};
-  const repository = overrides.repository ?? {};
-  const repositoryOwner = repository.owner ?? {};
   const pullRequest = overrides.pull_request ?? {};
   const pullRequestHead = pullRequest.head ?? {};
   const pullRequestBase = pullRequest.base ?? {};
-  const installation = overrides.installation ?? {};
-  const repositoryFullName = repository.full_name ?? "WebMCP-org/nanites";
-  const [, fallbackRepoName = "sigvelo"] = repositoryFullName.split("/", 2);
-  const uniqueSha = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const repository = buildFixtureRepository(overrides.repository);
+  const pullRequestNumber = valueOr(pullRequest.number, DEFAULT_PULL_REQUEST_NUMBER);
 
   const payload = {
-    action: overrides.action ?? actionFromFixture(input.fixture),
-    repository: {
-      id: repository.id ?? 101,
-      name: repository.name ?? fallbackRepoName,
-      full_name: repositoryFullName,
-      default_branch: repository.default_branch ?? "main",
-      private: repository.private ?? true,
-      owner: {
-        login: repositoryOwner.login ?? repositoryFullName.split("/", 1)[0] ?? "WebMCP-org",
-      },
-    },
-    installation: {
-      id: installation.id ?? input.installationId,
-    },
+    action: valueOr(overrides.action, actionFromFixture(input.fixture)),
+    repository,
+    installation: buildFixtureInstallation(overrides.installation, input.installationId),
     pull_request: {
-      number: pullRequest.number ?? 21,
+      number: pullRequestNumber,
       html_url:
         pullRequest.html_url ??
-        `https://github.com/${repositoryFullName}/pull/${pullRequest.number ?? 21}`,
+        `https://github.com/${repository.full_name}/pull/${pullRequestNumber}`,
       head: {
-        sha: pullRequestHead.sha ?? `test${uniqueSha}`,
-        ref: pullRequestHead.ref ?? "sigvelo-trigger-test",
+        sha: valueOr(pullRequestHead.sha, randomTestSha()),
+        ref: valueOr(pullRequestHead.ref, DEFAULT_TRIGGER_BRANCH),
       },
       base: {
-        ref: pullRequestBase.ref ?? "main",
+        ref: valueOr(pullRequestBase.ref, DEFAULT_BRANCH),
       },
     },
-  };
+  } satisfies GitHubPullRequestFixtureOverrides;
 
-  return payload as unknown as GitHubPullRequestWebhookPayload;
+  return {
+    id: input.deliveryId,
+    name: "pull_request",
+    payload,
+  } as EmitterWebhookEvent<GitHubPullRequestFixtureId>;
 }
 
 export function buildGitHubPushFixture(input: {
+  deliveryId: string;
   installationId: number;
   overrides?: GitHubPushFixtureOverrides;
-}): GitHubPushWebhookPayload {
+}): EmitterWebhookEvent<"push"> {
   const overrides = input.overrides ?? {};
-  const repository = overrides.repository ?? {};
-  const repositoryOwner = repository.owner ?? {};
-  const installation = overrides.installation ?? {};
-  const repositoryFullName = repository.full_name ?? "WebMCP-org/nanites";
-  const [, fallbackRepoName = "sigvelo"] = repositoryFullName.split("/", 2);
-  const uniqueSha = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
-  const after = overrides.after ?? `test${uniqueSha}`;
+  const after = valueOr(overrides.after, randomTestSha());
 
   const payload = {
-    ref: overrides.ref ?? "refs/heads/main",
-    before: "0000000000000000000000000000000000000000",
+    ref: valueOr(overrides.ref, `refs/heads/${DEFAULT_BRANCH}`),
+    before: EMPTY_SHA,
     after,
-    repository: {
-      id: repository.id ?? 101,
-      name: repository.name ?? fallbackRepoName,
-      full_name: repositoryFullName,
-      default_branch: repository.default_branch ?? "main",
-      private: repository.private ?? true,
-      owner: {
-        login: repositoryOwner.login ?? repositoryFullName.split("/", 1)[0] ?? "WebMCP-org",
-      },
-    },
-    installation: {
-      id: installation.id ?? input.installationId,
-    },
-    commits: overrides.commits ?? [
+    repository: buildFixtureRepository(overrides.repository),
+    installation: buildFixtureInstallation(overrides.installation, input.installationId),
+    commits: valueOr(overrides.commits, [
       {
         id: after,
         added: [],
         modified: ["README.md"],
         removed: [],
       },
-    ],
-  };
+    ]),
+  } satisfies GitHubPushFixtureOverrides;
 
-  return payload as unknown as GitHubPushWebhookPayload;
+  return {
+    id: input.deliveryId,
+    name: "push",
+    payload,
+  } as EmitterWebhookEvent<"push">;
+}
+
+export function buildGitHubTriggerFixture(input: {
+  fixture: GitHubTriggerFixtureId;
+  deliveryId: string;
+  installationId: number;
+  overrides?: GitHubTriggerFixtureOverrides;
+}): EmitterWebhookEvent {
+  return input.fixture === "push"
+    ? buildGitHubPushFixture({
+        deliveryId: input.deliveryId,
+        installationId: input.installationId,
+        overrides: input.overrides as GitHubPushFixtureOverrides | undefined,
+      })
+    : buildGitHubPullRequestFixture({
+        fixture: input.fixture,
+        deliveryId: input.deliveryId,
+        installationId: input.installationId,
+        overrides: input.overrides as GitHubPullRequestFixtureOverrides | undefined,
+      });
 }

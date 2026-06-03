@@ -66,7 +66,6 @@ test("Nanite tool output artifact store writes opaque TTL-backed artifacts", asy
     toolCallId: "call-1",
     size: 18,
     contentType: "text/plain",
-    expired: false,
   });
 
   await expect(

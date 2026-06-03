@@ -132,10 +132,11 @@ Those belong in the control plane, not in the Nanite definition itself.
 
 This matches the current branch direction:
 
-- [NaniteManagerState](/packages/contracts/src/nanites.ts:692) is small and dispatch-oriented.
-- [NaniteLaneState](/packages/contracts/src/nanites.ts:686) is the durable worker-owned state.
+- [NaniteManagerState](/src/backend/nanites/host.ts) is small and dispatch-oriented.
+- [NaniteAgentState](/src/backend/nanites/agent.ts) is the durable worker-owned state.
 - Repo state should resolve through the installation manager plus per-Nanite trigger decisions, not a shared dispatch layer.
-- [repository-manager.ts](/src/backend/nanites/repository-manager.ts) already derives configured Nanites from code and treats each Nanite as the owner of its live snapshot.
+- the manager derives configured Nanites from registered manifests and treats each Nanite as the
+  owner of its live runtime snapshot.
 
 ## How Session should fit
 
@@ -224,7 +225,7 @@ The healthier mental model is:
 
 That is why the current branch feels healthier where it promotes:
 
-- [NaniteLaneSnapshot](/packages/contracts/src/nanites.ts:655)
+- [NaniteAgentState](/src/backend/nanites/agent.ts)
 - code-derived configured Nanites
 - Nanite-owned snapshots
 

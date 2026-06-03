@@ -102,3 +102,4 @@ skills/
 
 # opensrc - source code for packages
 opensrc/
+.agents/

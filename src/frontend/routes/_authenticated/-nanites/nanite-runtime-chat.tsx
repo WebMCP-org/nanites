@@ -17,29 +17,39 @@ import {
   CodeBlock,
   CodeBlockContainer,
   CodeBlockContent,
+} from "#/frontend/ui/components/CodeBlock.tsx";
+import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton,
+} from "#/frontend/ui/components/Conversation.tsx";
+import {
   Message,
   MessageAction,
   MessageActions,
   MessageContent,
+} from "#/frontend/ui/components/Message.tsx";
+import {
   PromptInput,
   PromptInputBody,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+} from "#/frontend/ui/components/PromptInput.tsx";
+import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
+} from "#/frontend/ui/components/Reasoning.tsx";
+import {
   Tool,
   ToolContent,
   ToolHeader,
   ToolInput,
   ToolOutput,
-  formatStructuredCodeDisplay,
-} from "@nanites/ui";
+} from "#/frontend/ui/components/Tool.tsx";
+import { formatStructuredCodeDisplay } from "#/frontend/ui/utils/structured-code.ts";
 import {
   ArrowsClockwiseIcon,
   CheckCircleIcon,
@@ -52,8 +62,8 @@ import {
 import type {
   ManagerBrowserSessionInput,
   SigveloManagerConversationAgent,
-} from "#/backend/manager-conversation-agent.ts";
-import type { NaniteAgent, NaniteAgentState } from "#/backend/nanites/agent.ts";
+} from "#/backend/nanites/manager-conversation-agent.ts";
+import type { SigveloNaniteAgent, NaniteAgentState } from "#/backend/nanites/agent.ts";
 import {
   MANAGER_CONVERSATION_AGENT_NAME,
   NANITE_AGENT_NAME,
@@ -750,7 +760,7 @@ export function NaniteRuntimeChatConnector({
   readonly managerName: string;
   readonly naniteId: string;
 }) {
-  const naniteAgent = useAgent<NaniteAgent, NaniteAgentState>({
+  const naniteAgent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
     agent: NANITE_MANAGER_NAME,
     name: managerName,
     sub: [{ agent: NANITE_AGENT_NAME, name: naniteId }],
@@ -879,7 +889,7 @@ function ManagerRuntimeChatSession({
 function NaniteRuntimeChatSession({
   agent,
 }: {
-  readonly agent: ReturnType<typeof useAgent<NaniteAgent, NaniteAgentState>>;
+  readonly agent: ReturnType<typeof useAgent<SigveloNaniteAgent, NaniteAgentState>>;
 }) {
   const {
     messages: runMessages,

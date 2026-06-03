@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { validateGeneratedTriggerSource } from "#/backend/nanites/trigger-runtime.ts";
-import type { NaniteManager } from "#/backend/nanites/host.ts";
+import type { SigveloNaniteManager } from "#/backend/nanites/host.ts";
 
 function getManager() {
   return getAgentByName(
-    env.SigveloNaniteManager as DurableObjectNamespace<NaniteManager>,
+    env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
     `trigger-validation-${crypto.randomUUID()}`,
   );
 }
@@ -14,10 +14,11 @@ test("generated trigger validation accepts source that bundles and exports the r
   const result = await validateGeneratedTriggerSource({
     loader: env.LOADER,
     cacheKey: `valid-trigger-${crypto.randomUUID()}`,
+    event: null,
     sourceCode: `
 export default {
   async handle(event, ctx) {
-    if (event.type !== "github.push") {
+    if (event.name !== "push") {
       return ctx.noop("Not a push.");
     }
 
@@ -34,6 +35,7 @@ test("generated trigger validation rejects source that does not export handle", 
   const result = await validateGeneratedTriggerSource({
     loader: env.LOADER,
     cacheKey: `missing-handle-${crypto.randomUUID()}`,
+    event: null,
     sourceCode: `export default { notHandle() { return null; } };`,
   });
 
@@ -48,6 +50,7 @@ test("generated trigger validation rejects forbidden dynamic code before bundlin
   const result = await validateGeneratedTriggerSource({
     loader: env.LOADER,
     cacheKey: `dynamic-code-${crypto.randomUUID()}`,
+    event: null,
     sourceCode: `
 export default {
   async handle() {
@@ -74,9 +77,9 @@ test("nanite registration stores generated triggers only after validation passes
       description: "Registers source that satisfies the trigger runtime contract.",
       trigger: {
         type: "github",
-        event: "push",
-        repository: "WebMCP-org/nanites",
-        branch: "main",
+        events: ["push"],
+        repositories: ["WebMCP-org/nanites"],
+        branches: ["main"],
       },
       inboundTrigger: {
         sourceCode: `

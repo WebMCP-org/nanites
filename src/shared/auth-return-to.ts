@@ -6,12 +6,12 @@ export const DEFAULT_AUTH_RETURN_TO_PATH = "/nanites";
 /**
  * Browser login route for the Sigvelo dashboard.
  */
-export const LOGIN_ROUTE_PATH = "/";
+const LOGIN_ROUTE_PATH = "/";
 
 /**
  * All GitHub OAuth browser routes live under this prefix.
  */
-export const GITHUB_AUTH_ROUTE_PREFIX = "/auth/github/";
+const GITHUB_AUTH_ROUTE_PREFIX = "/auth/github/";
 
 /**
  * Query parameter used to preserve a post-auth redirect target.
@@ -24,7 +24,7 @@ function parseRelativeUrl(href: string): URL {
   return new URL(href, RELATIVE_URL_BASE);
 }
 
-export function isAuthRoutePath(pathname: string): boolean {
+function isAuthRoutePath(pathname: string): boolean {
   return pathname === LOGIN_ROUTE_PATH || pathname.startsWith(GITHUB_AUTH_ROUTE_PREFIX);
 }
 

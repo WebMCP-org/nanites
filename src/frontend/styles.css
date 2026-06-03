@@ -1,4 +1,4 @@
-@import "@nanites/ui/styles";
+@import "./ui/styles/index.css";
 @import "./styles/dashboard.css";
 
 html,

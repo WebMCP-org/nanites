@@ -1,16 +1,13 @@
 import {
-  AUTH_ERROR_MESSAGES,
-  activeInstallationSchema,
-  authenticatedActorSchema,
+  sessionInstallationSnapshotSchema,
+  githubUserTokenSchema,
   nanitesSessionSchema,
-  type ActiveInstallation,
-  type AuthenticatedActor,
+  type SessionInstallationSnapshot,
   type BrowserNanitesContext,
-  type GitHubUserToken,
   type NanitesSession,
-} from "@nanites/contracts/auth";
-import type { RestEndpointMethodTypes } from "@octokit/plugin-rest-endpoint-methods";
-import type { GitHubInstallationId } from "@nanites/contracts/ids";
+} from "#/backend/browser-auth/cookies.ts";
+import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods";
+import type { GitHubUserToken, GitHubVisibleInstallation } from "#/backend/github.ts";
 import {
   clearGitHubUserTokenCookie,
   clearSessionCookie,
@@ -19,39 +16,50 @@ import {
   sealGitHubUserTokenCookie,
   sealSessionCookie,
 } from "#/backend/browser-auth/cookies.ts";
-import { refreshGitHubUserToken } from "#/backend/browser-auth/github-user-token.ts";
 import {
   buildBrowserSessionExpiration,
   GITHUB_USER_TOKEN_REFRESH_THRESHOLD_SECONDS,
 } from "#/backend/browser-auth/policy.ts";
-import {
-  toGitHubInstallationAccount,
-  type GitHubVisibleInstallation,
-} from "#/backend/github-installations.ts";
 
-type GitHubViewer = RestEndpointMethodTypes["users"]["getAuthenticated"]["response"]["data"];
+export type { SessionInstallationSnapshot } from "#/backend/browser-auth/cookies.ts";
 
-export type SessionInstallationSelection =
+const AUTH_ERROR_MESSAGES = {
+  authenticationRequired: "Authentication required.",
+  activeInstallationRequired: "An active installation must be selected.",
+} as const;
+
+type SessionInstallationSelection =
   | {
       status: "selected";
-      githubInstallationId: GitHubInstallationId;
+      githubInstallationId: number;
     }
   | {
       status: "unselected";
     };
 
-export type SessionInstallationResolution =
+type SessionInstallationResolution =
   | {
       status: "active";
-      activeInstallation: ActiveInstallation;
+      activeInstallation: SessionInstallationSnapshot;
     }
   | {
       status: "unselected";
     }
   | {
       status: "revoked";
-      githubInstallationId: GitHubInstallationId;
+      githubInstallationId: number;
     };
+
+type SessionInstallationSnapshots = readonly SessionInstallationSnapshot[];
+
+type RevalidationArgs = {
+  req: Request;
+  env: Env;
+  session: NanitesSession;
+  resHeaders: Headers | undefined;
+  sessionInstallationSnapshots: SessionInstallationSnapshots;
+};
+type GitHubVisibleInstallationAccount = NonNullable<GitHubVisibleInstallation["account"]>;
 
 export class AuthenticationRequiredError extends Error {
   constructor() {
@@ -60,10 +68,10 @@ export class AuthenticationRequiredError extends Error {
   }
 }
 
-export class ActiveInstallationRequiredError extends Error {
+export class SessionInstallationSnapshotRequiredError extends Error {
   constructor() {
     super(AUTH_ERROR_MESSAGES.activeInstallationRequired);
-    this.name = "ActiveInstallationRequiredError";
+    this.name = "SessionInstallationSnapshotRequiredError";
   }
 }
 
@@ -131,6 +139,61 @@ function isRefreshTokenUsable(githubUserToken: GitHubUserToken, now = Date.now()
   return refreshTokenExpiresAt === null || refreshTokenExpiresAt > now;
 }
 
+function readInstallationAccountLogin(account: GitHubVisibleInstallationAccount): string | null {
+  if ("login" in account && typeof account.login === "string" && account.login.length > 0) {
+    return account.login;
+  }
+
+  if ("slug" in account && typeof account.slug === "string" && account.slug.length > 0) {
+    return account.slug;
+  }
+
+  if ("name" in account && typeof account.name === "string" && account.name.length > 0) {
+    return account.name;
+  }
+
+  return null;
+}
+
+function readInstallationAccountType(account: GitHubVisibleInstallationAccount): string {
+  if ("type" in account && typeof account.type === "string" && account.type.length > 0) {
+    return account.type;
+  }
+
+  if ("slug" in account) {
+    return "Enterprise";
+  }
+
+  return "Account";
+}
+
+async function refreshGitHubUserToken({
+  githubUserToken,
+  env,
+}: {
+  githubUserToken: GitHubUserToken;
+  env: Env;
+}): Promise<GitHubUserToken> {
+  if (!githubUserToken.refreshToken) {
+    throw new Error("GitHub user token refresh requested without a refresh token.");
+  }
+
+  const { authentication } = await refreshGitHubOAuthToken({
+    clientType: "github-app",
+    clientId: env.GITHUB_CLIENT_ID,
+    clientSecret: env.GITHUB_CLIENT_SECRET,
+    refreshToken: githubUserToken.refreshToken,
+  });
+
+  return githubUserTokenSchema.parse({
+    accessToken: authentication.token,
+    expiresAt: "expiresAt" in authentication ? authentication.expiresAt : null,
+    refreshToken: "refreshToken" in authentication ? authentication.refreshToken : null,
+    refreshTokenExpiresAt:
+      "refreshTokenExpiresAt" in authentication ? authentication.refreshTokenExpiresAt : null,
+  });
+}
+
 export async function extendBrowserSession(
   request: Request,
   env: Env,
@@ -194,44 +257,43 @@ export async function requireGitHubUserToken(
   }
 }
 
-export function getActorFromSession(session: NanitesSession): AuthenticatedActor {
-  return {
-    id: session.githubUserId,
-    login: session.githubLogin,
-  };
-}
-
-export function toAuthenticatedActor(viewer: GitHubViewer): AuthenticatedActor {
-  return authenticatedActorSchema.parse(viewer);
-}
-
-export function toActiveInstallation(
+function readSessionInstallationSnapshot(
   visibleInstallation: GitHubVisibleInstallation,
-): ActiveInstallation | null {
-  if (visibleInstallation.suspended_at) {
+): SessionInstallationSnapshot | null {
+  if (visibleInstallation.suspended_at || !visibleInstallation.account) {
     return null;
   }
 
-  return activeInstallationSchema.parse({
+  const accountLogin = readInstallationAccountLogin(visibleInstallation.account);
+  if (!accountLogin) {
+    return null;
+  }
+
+  return sessionInstallationSnapshotSchema.parse({
     id: visibleInstallation.id,
-    account: toGitHubInstallationAccount(visibleInstallation.account),
+    account: {
+      id: visibleInstallation.account.id,
+      login: accountLogin,
+      type: readInstallationAccountType(visibleInstallation.account),
+      avatar_url: visibleInstallation.account.avatar_url ?? null,
+    },
   });
 }
 
-export function toActiveInstallations(
+export function readSessionInstallationSnapshots(
   visibleInstallations: readonly GitHubVisibleInstallation[],
-): ActiveInstallation[] {
+): SessionInstallationSnapshot[] {
   return visibleInstallations.flatMap((visibleInstallation) => {
-    const activeInstallation = toActiveInstallation(visibleInstallation);
+    const activeInstallation = readSessionInstallationSnapshot(visibleInstallation);
     return activeInstallation ? [activeInstallation] : [];
   });
 }
 
-export function findActiveInstallation(
-  activeInstallations: readonly ActiveInstallation[],
-  githubInstallationId: GitHubInstallationId,
-): ActiveInstallation | null {
-  for (const activeInstallation of activeInstallations) {
+function findSessionInstallationSnapshot(
+  sessionInstallationSnapshots: readonly SessionInstallationSnapshot[],
+  githubInstallationId: number,
+): SessionInstallationSnapshot | null {
+  for (const activeInstallation of sessionInstallationSnapshots) {
     if (activeInstallation.id !== githubInstallationId) {
       continue;
     }
@@ -244,45 +306,39 @@ export function findActiveInstallation(
 
 export function buildBrowserNanitesContext(
   session: NanitesSession,
-  activeInstallation: ActiveInstallation | null,
+  activeInstallation: SessionInstallationSnapshot | null,
 ): BrowserNanitesContext {
   return {
-    actor: getActorFromSession(session),
+    actor: session.githubViewer,
     activeInstallation,
     expiresAt: session.expiresAt,
   };
 }
 
-export function buildCachedBrowserNanitesContext(session: NanitesSession): BrowserNanitesContext {
-  return buildBrowserNanitesContext(session, session.activeInstallationSnapshot ?? null);
-}
-
-export function selectActiveInstallation(
+export function selectSessionInstallationSnapshot(
   session: NanitesSession,
-  githubInstallationId: GitHubInstallationId,
-  activeInstallation?: ActiveInstallation | null,
+  githubInstallationId: number,
+  activeInstallation?: SessionInstallationSnapshot | null,
 ): NanitesSession {
   return nanitesSessionSchema.parse({
     ...session,
     activeGithubInstallationId: githubInstallationId,
-    activeInstallationSnapshot:
+    sessionInstallationSnapshot:
       activeInstallation && activeInstallation.id === githubInstallationId
         ? activeInstallation
         : null,
   });
 }
 
-export function clearActiveInstallationSelection(session: NanitesSession): NanitesSession {
+function clearSessionInstallationSnapshotSelection(session: NanitesSession): NanitesSession {
   return nanitesSessionSchema.parse({
     ...session,
     activeGithubInstallationId: null,
-    activeInstallationSnapshot: null,
+    sessionInstallationSnapshot: null,
   });
 }
 
-export function readSessionInstallationSelection(
-  session: NanitesSession,
-): SessionInstallationSelection {
+function readSessionInstallationSelection(session: NanitesSession): SessionInstallationSelection {
   const activeGithubInstallationId = session.activeGithubInstallationId;
   if (activeGithubInstallationId === null) {
     return { status: "unselected" };
@@ -294,26 +350,26 @@ export function readSessionInstallationSelection(
   };
 }
 
-export function requireActiveGithubInstallationId(session: NanitesSession): GitHubInstallationId {
+export function requireActiveGithubInstallationId(session: NanitesSession): number {
   const selection = readSessionInstallationSelection(session);
   if (selection.status === "unselected") {
-    throw new ActiveInstallationRequiredError();
+    throw new SessionInstallationSnapshotRequiredError();
   }
 
   return selection.githubInstallationId;
 }
 
-export function resolveSessionInstallation(
+function resolveSessionInstallation(
   session: NanitesSession,
-  activeInstallations: readonly ActiveInstallation[],
+  sessionInstallationSnapshots: readonly SessionInstallationSnapshot[],
 ): SessionInstallationResolution {
   const selection = readSessionInstallationSelection(session);
   if (selection.status === "unselected") {
     return { status: "unselected" };
   }
 
-  const activeInstallation = findActiveInstallation(
-    activeInstallations,
+  const activeInstallation = findSessionInstallationSnapshot(
+    sessionInstallationSnapshots,
     selection.githubInstallationId,
   );
   if (activeInstallation) {
@@ -327,6 +383,19 @@ export function resolveSessionInstallation(
     status: "revoked",
     githubInstallationId: selection.githubInstallationId,
   };
+}
+
+export async function clearRevokedSessionSelectionIfNeeded(input: RevalidationArgs): Promise<void> {
+  const resolution = resolveSessionInstallation(input.session, input.sessionInstallationSnapshots);
+  if (resolution.status !== "revoked") {
+    return;
+  }
+
+  const nextSession = clearSessionInstallationSnapshotSelection(input.session);
+  input.resHeaders?.append(
+    "Set-Cookie",
+    await sealSessionCookie(nextSession, input.req, input.env),
+  );
 }
 
 export function appendExpiredAuthCookies(

@@ -8,10 +8,11 @@ Current owners:
   human requests, and terminal status transitions.
 - `agent.ts` owns the stable Think sub-agent runtime: durable chat history, workspace access,
   execution tools, GitHub-aware git auth, and lifecycle tools.
-- `repository-scope.ts` owns GitHub installation repository validation before a Nanite is
-  registered.
+- `manager-conversation-agent.ts` and `chat-ingress.ts` own the manager chat path.
 - `manager-tools.ts` owns the shared MCP-style Nanite manager tool context, schemas, explicit tool
   definitions, and handlers used by MCP and manager chat.
+- `github-mcp-capabilities.ts` owns Nanite-scoped GitHub MCP capability validation.
+- `language-model.ts` owns the Workers AI language-model adapter used by Nanite runtimes.
 - `github-trigger-fixtures.ts` owns the small GitHub event fixture library used by trigger
   acceptance tests.
 - `trigger-runtime.ts` owns generated inbound trigger execution through Worker Loader.

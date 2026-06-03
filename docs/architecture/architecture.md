@@ -127,14 +127,13 @@ errors back during trigger tests:
 ```ts
 export default {
   async handle(event, ctx) {
-    if (event.type !== "github.push") {
+    if (event.name !== "push") {
       return ctx.noop("Not a push event.");
     }
 
-    const [owner, repo] = event.payload.repository.full_name.split("/");
     const comparison = await ctx.octokit.rest.repos.compareCommitsWithBasehead({
-      owner,
-      repo,
+      owner: event.payload.repository.owner.login,
+      repo: event.payload.repository.name,
       basehead: `${event.payload.before}...${event.payload.after}`,
     });
 

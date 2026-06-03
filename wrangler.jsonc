@@ -44,7 +44,7 @@
       "binding": "DB",
       "database_name": "nanites-db",
       "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
-      "migrations_dir": "packages/db/migrations",
+      "migrations_dir": "src/backend/db/migrations",
     },
   ],
   "r2_buckets": [
@@ -262,7 +262,7 @@
           "binding": "DB",
           "database_name": "nanites-db",
           "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
-          "migrations_dir": "packages/db/migrations",
+          "migrations_dir": "src/backend/db/migrations",
         },
       ],
       "r2_buckets": [
@@ -361,7 +361,7 @@
           "binding": "DB",
           "database_name": "nanites-db-staging",
           "database_id": "9d0c356a-8b4c-4f96-a1ab-313204cd0d7f",
-          "migrations_dir": "packages/db/migrations",
+          "migrations_dir": "src/backend/db/migrations",
         },
       ],
       "r2_buckets": [
@@ -460,7 +460,7 @@
           "binding": "DB",
           "database_name": "nanites-db",
           "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
-          "migrations_dir": "packages/db/migrations",
+          "migrations_dir": "src/backend/db/migrations",
         },
       ],
       "r2_buckets": [

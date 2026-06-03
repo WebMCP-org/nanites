@@ -1,32 +1,31 @@
 import { getAgentByName } from "agents";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import { emitterEventNames } from "@octokit/webhooks";
 import { z } from "zod";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/auth-context.ts";
-import {
-  createNaniteInputSchema,
-  optionalNaniteManagerNameSchema,
-  startNaniteRunToolInputSchema,
-  testNaniteTriggerToolInputSchema,
-  type CreateNaniteOutput,
-  type StartNaniteManualRunOutput,
-  type TestNaniteTriggerOutput,
-} from "#/backend/orpc/contracts/nanites.ts";
 import {
   type CancelNaniteRunsOutput,
   type DeprovisionNanitesOutput,
   type InspectNaniteDebugOutput,
+  type ManagedNanite,
+  NANITE_MANUAL_RUN_TIMEOUT_MS,
+  NANITE_TRIGGER_TEST_INSTRUCTION,
+  NANITE_TRIGGER_TEST_TIMEOUT_MS,
   naniteDebugIncludeSections,
   naniteRunStatuses,
   naniteRuntimeActivityStates,
-  type NaniteManager,
   type ResetNaniteDebugOutput,
+  type SigveloNaniteManager,
+  type StartNaniteManualRunOutput,
+  type TestNaniteTriggerOutput,
 } from "#/backend/nanites/host.ts";
+import type { NaniteWorkspaceExploreOutput } from "#/backend/nanites/agent.ts";
+import { naniteCapabilitySpecSchema } from "#/backend/nanites/github-mcp-capabilities.ts";
+import { githubTriggerFixtureIds } from "#/backend/nanites/github-trigger-fixtures.ts";
 import { buildNaniteManagerKey } from "#/shared/nanites.ts";
 
-export type NaniteToolSurface = "mcp" | "manager_chat";
-
 export type NaniteToolContext = {
-  surface: NaniteToolSurface;
+  surface: "mcp";
   actor: {
     kind: "github_user";
     githubUserId: SigveloMcpAuthProps["githubUserId"];
@@ -37,24 +36,12 @@ export type NaniteToolContext = {
   requestId: string;
 };
 
-export type NaniteManagerToolRuntime = Pick<
-  NaniteManager,
-  | "cancelRuns"
-  | "deprovisionNanites"
-  | "exploreNaniteWorkspace"
-  | "inspectNaniteDebug"
-  | "registerNanite"
-  | "resetNaniteDebug"
-  | "startNaniteManualRun"
-  | "testNaniteTrigger"
->;
-
 export type NaniteToolRuntime = {
   context: NaniteToolContext;
-  manager: NaniteManagerToolRuntime;
+  manager: DurableObjectStub<SigveloNaniteManager>;
 };
 
-export type NaniteTool<TInputSchema extends z.ZodType, TOutput> = {
+export type NaniteTool<TInputSchema extends z.ZodType, TOutput extends object> = {
   name: string;
   config: {
     title: string;
@@ -68,7 +55,7 @@ export type NaniteTool<TInputSchema extends z.ZodType, TOutput> = {
 export async function resolveAuthorizedNaniteToolRuntime(input: {
   env: Env;
   props: SigveloMcpAuthProps;
-  surface: NaniteToolContext["surface"];
+  surface: "mcp";
   managerName?: string;
   requestId?: string;
 }): Promise<NaniteToolRuntime> {
@@ -76,7 +63,6 @@ export async function resolveAuthorizedNaniteToolRuntime(input: {
   if (input.managerName && input.managerName !== managerName) {
     throw new Error(`Unknown Nanite manager: ${input.managerName}`);
   }
-
   return {
     context: {
       surface: input.surface,
@@ -89,11 +75,15 @@ export async function resolveAuthorizedNaniteToolRuntime(input: {
       managerName,
       requestId: input.requestId ?? crypto.randomUUID(),
     },
-    manager: await getAgentByName<Env, NaniteManager>(input.env.SigveloNaniteManager, managerName),
+    manager: await getAgentByName<Env, SigveloNaniteManager>(
+      input.env.SigveloNaniteManager,
+      managerName,
+    ),
   };
 }
 
 const nonEmptyStringSchema = z.string().min(1);
+const optionalNaniteManagerNameSchema = nonEmptyStringSchema.optional();
 const naniteRunStatusSchema = z.enum(naniteRunStatuses);
 const naniteActivitySchema = z.enum(naniteRuntimeActivityStates);
 const thinkSubmissionStatusSchema = z.enum([
@@ -105,7 +95,103 @@ const thinkSubmissionStatusSchema = z.enum([
   "error",
 ]);
 
-export const createNaniteToolInputSchema = createNaniteInputSchema.describe(
+const naniteScheduleSpecSchema = z.union([
+  z.object({
+    type: z.literal("scheduled"),
+    date: nonEmptyStringSchema,
+  }),
+  z.object({
+    type: z.literal("delayed"),
+    delayInSeconds: z.number().int().positive(),
+  }),
+  z.object({
+    type: z.literal("cron"),
+    cron: nonEmptyStringSchema,
+  }),
+  z.object({
+    type: z.literal("interval"),
+    intervalSeconds: z.number().int().positive(),
+  }),
+]);
+
+const naniteTriggerSpecSchema = z.union([
+  z.object({
+    type: z.literal("manual"),
+  }),
+  z.object({
+    type: z.literal("schedule"),
+    schedule: naniteScheduleSpecSchema,
+  }),
+  z.object({
+    type: z.literal("github"),
+    events: z.array(z.enum(emitterEventNames)).min(1).optional(),
+    repositories: z.array(nonEmptyStringSchema).min(1).optional(),
+    actions: z.array(nonEmptyStringSchema).min(1).optional(),
+    branches: z.array(nonEmptyStringSchema).min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("webhook"),
+    source: nonEmptyStringSchema,
+  }),
+]);
+
+const nanitePermissionSpecSchema = z
+  .object({
+    github: z
+      .object({
+        repositories: z.array(nonEmptyStringSchema).default([]),
+        appPermissions: z.record(z.string(), z.enum(["read", "write"])).default({}),
+      })
+      .optional(),
+  })
+  .default({});
+
+const createNaniteInputSchema = z.object({
+  managerName: optionalNaniteManagerNameSchema,
+  manifest: z.object({
+    id: nonEmptyStringSchema,
+    name: nonEmptyStringSchema,
+    description: nonEmptyStringSchema,
+    trigger: naniteTriggerSpecSchema,
+    inboundTrigger: z
+      .object({
+        sourceCode: nonEmptyStringSchema,
+      })
+      .optional(),
+    permissions: nanitePermissionSpecSchema,
+    capabilities: naniteCapabilitySpecSchema.optional(),
+  }),
+  enabled: z.boolean().default(true),
+});
+
+const manualRunRequestSchema = z.object({
+  naniteId: nonEmptyStringSchema,
+  message: nonEmptyStringSchema,
+  manualRequestId: nonEmptyStringSchema.optional(),
+  waitForTerminalOutcome: z.boolean().default(false),
+  timeoutMs: z.number().int().min(1_000).max(120_000).default(NANITE_MANUAL_RUN_TIMEOUT_MS),
+});
+
+const startNaniteRunToolInputSchema = manualRunRequestSchema.extend({
+  managerName: optionalNaniteManagerNameSchema,
+});
+
+const testNaniteTriggerRequestSchema = z.object({
+  naniteId: nonEmptyStringSchema,
+  event: z.object({
+    fixture: z.enum(githubTriggerFixtureIds),
+    overrides: z.record(z.string(), z.unknown()).default({}),
+  }),
+  testInstruction: nonEmptyStringSchema.default(NANITE_TRIGGER_TEST_INSTRUCTION),
+  waitForTerminalOutcome: z.boolean().default(true),
+  timeoutMs: z.number().int().min(1_000).max(120_000).default(NANITE_TRIGGER_TEST_TIMEOUT_MS),
+});
+
+const testNaniteTriggerToolInputSchema = testNaniteTriggerRequestSchema.extend({
+  managerName: optionalNaniteManagerNameSchema,
+});
+
+const createNaniteToolInputSchema = createNaniteInputSchema.describe(
   "Create or update a stable Nanite through the authorized installation-scoped manager.",
 );
 
@@ -116,22 +202,15 @@ export const createNaniteTool = {
     description: "Registers a stable Nanite spec with the authorized installation-scoped manager.",
     inputSchema: createNaniteToolInputSchema,
   },
-  async handler(input, { context, manager }) {
-    const nanite = await manager.registerNanite({
+  async handler(input, { manager }) {
+    return manager.registerNanite({
       manifest: input.manifest,
       enabled: input.enabled,
     });
-
-    return {
-      managerName: context.managerName,
-      naniteId: nanite.manifest.id,
-      versionId: nanite.latestVersion.versionId,
-      manifestHash: nanite.latestVersion.manifestHash,
-    };
   },
-} satisfies NaniteTool<typeof createNaniteToolInputSchema, CreateNaniteOutput>;
+} satisfies NaniteTool<typeof createNaniteToolInputSchema, ManagedNanite>;
 
-export const debugNanitesToolInputSchema = z
+const debugNanitesToolInputSchema = z
   .object({
     managerName: optionalNaniteManagerNameSchema,
     naniteId: nonEmptyStringSchema.optional(),
@@ -176,18 +255,13 @@ export const debugNanitesTool = {
   },
 } satisfies NaniteTool<typeof debugNanitesToolInputSchema, InspectNaniteDebugOutput>;
 
-export const deprovisionNanitesToolInputSchema = z
+const deprovisionNanitesToolInputSchema = z
   .object({
     managerName: optionalNaniteManagerNameSchema,
     naniteIds: z.array(nonEmptyStringSchema).min(1).max(100),
     reason: nonEmptyStringSchema,
   })
   .describe("Permanently deprovision registered Nanites and remove their run history.");
-
-type DeprovisionNanitesToolOutput = DeprovisionNanitesOutput & {
-  ok: true;
-  managerName: string;
-};
 
 export const deprovisionNanitesTool = {
   name: "sigvelo_deprovision_nanites",
@@ -197,17 +271,13 @@ export const deprovisionNanitesTool = {
       "Permanently removes registered Nanites, deletes their child agents, clears runtime activity, and removes their run history.",
     inputSchema: deprovisionNanitesToolInputSchema,
   },
-  async handler(input, { context, manager }) {
-    return {
-      ok: true,
-      managerName: context.managerName,
-      ...(await manager.deprovisionNanites({
-        naniteIds: input.naniteIds,
-        reason: input.reason,
-      })),
-    };
+  async handler(input, { manager }) {
+    return manager.deprovisionNanites({
+      naniteIds: input.naniteIds,
+      reason: input.reason,
+    });
   },
-} satisfies NaniteTool<typeof deprovisionNanitesToolInputSchema, DeprovisionNanitesToolOutput>;
+} satisfies NaniteTool<typeof deprovisionNanitesToolInputSchema, DeprovisionNanitesOutput>;
 
 export const startNaniteRunTool = {
   name: "sigvelo_start_nanite_run",
@@ -218,16 +288,18 @@ export const startNaniteRunTool = {
     inputSchema: startNaniteRunToolInputSchema,
   },
   async handler(input, { context, manager }) {
-    const { managerName: _managerName, ...startInput } = input;
     return manager.startNaniteManualRun({
-      ...startInput,
+      naniteId: input.naniteId,
+      message: input.message,
       actorId: `github:${context.actor.githubUserId}`,
       manualRequestId: input.manualRequestId ?? context.requestId,
+      waitForTerminalOutcome: input.waitForTerminalOutcome,
+      timeoutMs: input.timeoutMs,
     });
   },
 } satisfies NaniteTool<typeof startNaniteRunToolInputSchema, StartNaniteManualRunOutput>;
 
-export const cancelNaniteRunsToolInputSchema = z
+const cancelNaniteRunsToolInputSchema = z
   .object({
     managerName: optionalNaniteManagerNameSchema,
     naniteId: nonEmptyStringSchema.optional(),
@@ -238,12 +310,6 @@ export const cancelNaniteRunsToolInputSchema = z
   })
   .describe("Cancel pending or running Nanite runs.");
 
-type CancelNaniteRunsToolOutput = CancelNaniteRunsOutput & {
-  ok: true;
-  managerName: string;
-  naniteId?: string;
-};
-
 export const cancelNaniteRunsTool = {
   name: "sigvelo_cancel_nanite_runs",
   config: {
@@ -251,21 +317,16 @@ export const cancelNaniteRunsTool = {
     description: "Cancels pending or running Nanite runs through the manager cancellation path.",
     inputSchema: cancelNaniteRunsToolInputSchema,
   },
-  async handler(input, { context, manager }) {
-    return {
-      ok: true,
-      managerName: context.managerName,
-      ...(input.naniteId ? { naniteId: input.naniteId } : {}),
-      ...(await manager.cancelRuns({
-        runIds: input.runIds,
-        naniteId: input.naniteId,
-        olderThanIso: input.olderThanIso,
-        limit: input.limit,
-        reason: input.reason,
-      })),
-    };
+  async handler(input, { manager }) {
+    return manager.cancelRuns({
+      runIds: input.runIds,
+      naniteId: input.naniteId,
+      olderThanIso: input.olderThanIso,
+      limit: input.limit,
+      reason: input.reason,
+    });
   },
-} satisfies NaniteTool<typeof cancelNaniteRunsToolInputSchema, CancelNaniteRunsToolOutput>;
+} satisfies NaniteTool<typeof cancelNaniteRunsToolInputSchema, CancelNaniteRunsOutput>;
 
 export const testNaniteTriggerTool = {
   name: "sigvelo_test_nanite_trigger",
@@ -276,16 +337,19 @@ export const testNaniteTriggerTool = {
     inputSchema: testNaniteTriggerToolInputSchema,
   },
   async handler(input, { context, manager }) {
-    const { managerName: _managerName, ...testInput } = input;
     return manager.testNaniteTrigger({
-      ...testInput,
+      naniteId: input.naniteId,
+      event: input.event,
       actorId: `github:${context.actor.githubUserId}`,
+      testInstruction: input.testInstruction,
+      waitForTerminalOutcome: input.waitForTerminalOutcome,
+      timeoutMs: input.timeoutMs,
       requestId: context.requestId,
     });
   },
 } satisfies NaniteTool<typeof testNaniteTriggerToolInputSchema, TestNaniteTriggerOutput>;
 
-export const exploreNaniteWorkspaceToolInputSchema = z
+const exploreNaniteWorkspaceToolInputSchema = z
   .discriminatedUnion("action", [
     z.object({
       action: z.literal("info"),
@@ -318,10 +382,6 @@ export const exploreNaniteWorkspaceToolInputSchema = z
   ])
   .describe("Explore a Nanite's child-owned Think workspace.");
 
-type ExploreNaniteWorkspaceToolOutput = Awaited<
-  ReturnType<NaniteManagerToolRuntime["exploreNaniteWorkspace"]>
->;
-
 export const exploreNaniteWorkspaceTool = {
   name: "sigvelo_explore_nanite_workspace",
   config: {
@@ -333,23 +393,15 @@ export const exploreNaniteWorkspaceTool = {
   async handler(input, { manager }) {
     return manager.exploreNaniteWorkspace(input);
   },
-} satisfies NaniteTool<
-  typeof exploreNaniteWorkspaceToolInputSchema,
-  ExploreNaniteWorkspaceToolOutput
->;
+} satisfies NaniteTool<typeof exploreNaniteWorkspaceToolInputSchema, NaniteWorkspaceExploreOutput>;
 
-export const resetNaniteDebugToolInputSchema = z
+const resetNaniteDebugToolInputSchema = z
   .object({
     managerName: optionalNaniteManagerNameSchema,
     naniteId: nonEmptyStringSchema,
     reason: nonEmptyStringSchema,
   })
   .describe("Reset child-owned Nanite debug state.");
-
-type ResetNaniteDebugToolOutput = ResetNaniteDebugOutput & {
-  ok: true;
-  reason: string;
-};
 
 export const resetNaniteDebugTool = {
   name: "sigvelo_reset_nanite_debug",
@@ -359,13 +411,9 @@ export const resetNaniteDebugTool = {
     inputSchema: resetNaniteDebugToolInputSchema,
   },
   async handler(input, { manager }) {
-    return {
-      ok: true,
-      reason: input.reason,
-      ...(await manager.resetNaniteDebug({ naniteId: input.naniteId })),
-    };
+    return manager.resetNaniteDebug({ naniteId: input.naniteId });
   },
-} satisfies NaniteTool<typeof resetNaniteDebugToolInputSchema, ResetNaniteDebugToolOutput>;
+} satisfies NaniteTool<typeof resetNaniteDebugToolInputSchema, ResetNaniteDebugOutput>;
 
 export const naniteTools = [
   createNaniteTool,
@@ -377,5 +425,3 @@ export const naniteTools = [
   exploreNaniteWorkspaceTool,
   resetNaniteDebugTool,
 ] as const;
-
-export type NaniteToolName = (typeof naniteTools)[number]["name"];

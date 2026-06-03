@@ -1,8 +1,5 @@
-import type { GitHubInstallationId } from "@nanites/contracts/ids";
-import { naniteManagerKeySchema, type NaniteManagerKey } from "@nanites/contracts/nanites";
+export type NaniteManagerKey = `installation:${number}`;
 
-export function buildNaniteManagerKey(
-  githubInstallationId: GitHubInstallationId,
-): NaniteManagerKey {
-  return naniteManagerKeySchema.parse(`installation:${githubInstallationId}`);
+export function buildNaniteManagerKey(githubInstallationId: number): NaniteManagerKey {
+  return `installation:${githubInstallationId}`;
 }

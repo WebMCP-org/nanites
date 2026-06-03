@@ -63,10 +63,10 @@ The manager owns durable state and manager-owned behavior:
 - GitHub feedback surfaces
 - child Nanite sub-agent creation, lookup, schedule sync, cancellation, and deletion
 
-The manager exposes typed callable primitives such as `registerNanite`, `startRun`, `dispatchRun`,
-`cancelRuns`, and `inspectNaniteDebug`. MCP and manager-chat tool handlers compose those primitives.
-The browser can call the primitives it needs through Agents SDK stubs without routing through the
-MCP-style tool handlers.
+The manager exposes typed callable primitives such as `registerNanite`, `startNaniteManualRun`,
+`testNaniteTrigger`, `cancelRuns`, and `inspectNaniteDebug`. MCP and manager-chat tool handlers
+compose those primitives. The browser can call the primitives it needs through Agents SDK stubs
+without routing through the MCP-style tool handlers.
 
 ### `SigveloNaniteAgent`
 
@@ -108,7 +108,7 @@ It defines:
 
 - MCP-compatible name, title, description, annotations, and input schema
 - one handler function per tool
-- TypeScript output types derived from the manager or ORPC contracts that own those shapes
+- TypeScript output types derived from the manager methods that own those shapes
 
 The handler receives parsed input and trusted product context. It composes real manager primitives.
 
@@ -205,18 +205,14 @@ import { z } from "zod";
 
 export type NaniteManagerToolRuntime = Pick<
   NaniteManager,
-  | "registerNanite"
-  | "startRun"
-  | "dispatchRun"
   | "cancelRuns"
   | "deprovisionNanites"
-  | "inspectNaniteDebug"
   | "exploreNaniteWorkspace"
+  | "inspectNaniteDebug"
+  | "registerNanite"
   | "resetNaniteDebug"
-  | "testGeneratedTrigger"
-  | "handleGitHubPullRequestWebhook"
-  | "handleGitHubPushWebhook"
-  | "getSnapshot"
+  | "startNaniteManualRun"
+  | "testNaniteTrigger"
 >;
 
 export type NaniteToolRuntime = {
@@ -237,8 +233,8 @@ export type NaniteTool<TInputSchema extends z.ZodType, TOutput> = {
 ```
 
 The tool definition owns the input schema and handler. The input schema is the runtime boundary for
-agent/tool calls. The output contract is a TypeScript return type derived from the manager or ORPC
-contract that already owns that shape.
+agent/tool calls. The output contract is a TypeScript return type derived from the manager method
+that already owns that shape.
 
 Do not add MCP output schemas for v1. They duplicate the typed manager return contracts and make MCP
 discovery/runtime behavior depend on a second schema copy. If a future external API needs runtime
@@ -267,38 +263,11 @@ export const startNaniteRunTool = {
     inputSchema: startNaniteRunInputSchema,
   },
   async handler(input, { context, manager }) {
-    const run = await manager.startRun({
-      naniteId: input.naniteId,
-      trigger: {
-        type: "manual",
-        requestId: input.manualRequestId ?? context.requestId,
-        actorId: `github:${context.actor.githubUserId}`,
-        message: input.message,
-      },
-    });
-
-    const dispatchedRun = await manager.dispatchRun({ runId: run.runId });
-
-    if (!input.waitForTerminalOutcome) {
-      return {
-        ok: dispatchedRun.dispatchError === null,
-        managerName: context.managerName,
-        naniteId: input.naniteId,
-        runs: [dispatchedRun],
-      };
-    }
-
-    const runs = await waitForTerminalRuns({
-      manager,
-      runIds: [dispatchedRun.runId],
-      timeoutMs: input.timeoutMs,
-    });
-
-    return buildStartNaniteRunOutput({
-      managerName: context.managerName,
-      naniteId: input.naniteId,
-      runs,
-      waitForTerminalOutcome: input.waitForTerminalOutcome,
+    const { managerName: _managerName, ...startInput } = input;
+    return manager.startNaniteManualRun({
+      ...startInput,
+      actorId: `github:${context.actor.githubUserId}`,
+      manualRequestId: input.manualRequestId ?? context.requestId,
     });
   },
 } satisfies NaniteTool<typeof startNaniteRunInputSchema, StartNaniteManualRunOutput>;
@@ -447,9 +416,7 @@ sigvelo_create_nanite
   -> manager.registerNanite(...)
 
 sigvelo_start_nanite_run
-  -> manager.startRun(...)
-  -> manager.dispatchRun(...)
-  -> optional waitForTerminalRuns(...)
+  -> manager.startNaniteManualRun(...)
 
 sigvelo_deprovision_nanites
   -> manager.deprovisionNanites(...)
@@ -463,10 +430,7 @@ sigvelo_explore_nanite_workspace
   -> manager delegates to child Nanite workspace inspection
 
 sigvelo_test_nanite_trigger
-  -> manager.testGeneratedTrigger(...)
-  -> manager.handleGitHubPullRequestWebhook(...) or manager.handleGitHubPushWebhook(...)
-  -> manager.dispatchRun(...)
-  -> optional waitForTerminalRuns(...)
+  -> manager.testNaniteTrigger(...)
 ```
 
 Avoid dynamic dispatch such as:
@@ -592,7 +556,7 @@ Test that child Nanite lifecycle calls do not become public manager tools.
 
 ## Non-goals
 
-Do not introduce oRPC as a control surface for v1. oRPC may remain useful for reads, analytics, OpenAPI docs, or session-backed page data, but manager control should not be implemented there unless a browser workflow genuinely needs it.
+Do not introduce a parallel HTTP control surface for v1. Manager control should stay on Agents SDK callable methods and MCP tools unless a browser workflow genuinely needs a thin route.
 
 Do not make MCP transport the only internal path. The browser should keep Agents SDK stubs and direct Nanite sub-agent chat.
 

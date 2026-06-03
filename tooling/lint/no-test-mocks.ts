@@ -1,25 +1,7 @@
-export const TEST_MOCK_METHOD_MESSAGE =
+const TEST_MOCK_METHOD_MESSAGE =
   "Do not use test mocks/stubs/spies here. If you think you need one, the test lane is probably wrong. Prefer a slice integration test. Mock external HTTP boundaries with MSW only.";
 
-// Native Oxlint in this toolchain can ban the vi/jest entry points in test files,
-// which blocks the mock/stub/spy API surface listed below without a custom plugin.
-export const RESTRICTED_TEST_MOCK_METHODS = [
-  "fn",
-  "spyOn",
-  "mock",
-  "doMock",
-  "mocked",
-  "importMock",
-  "unmock",
-  "doUnmock",
-  "stubEnv",
-  "stubGlobal",
-  "clearAllMocks",
-  "resetAllMocks",
-  "restoreAllMocks",
-] as const;
-
-export const TEST_FILE_GLOBS = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"] as const;
+const TEST_FILE_GLOBS = ["**/*.test.{ts,tsx,js,jsx}", "**/*.spec.{ts,tsx,js,jsx}"] as const;
 
 const restrictedTestMockGlobals = [
   {

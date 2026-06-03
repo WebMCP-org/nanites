@@ -1,11 +1,10 @@
-import type { BrowserNanitesContext, OptionalBrowserNanitesContext } from "@nanites/contracts/auth";
-import { AUTH_ERROR_CODES } from "@nanites/contracts/auth";
-import { ORPCError } from "@orpc/client";
 import type { QueryClient } from "@tanstack/react-query";
 import { redirect } from "@tanstack/react-router";
 import type { AnyRouter } from "@tanstack/react-router";
+import { DetailedError, parseResponse } from "hono/client";
+import type { InferResponseType } from "hono/client";
+import { httpClient } from "#/frontend/http-client.ts";
 import type { NanitesRouterContext } from "#/frontend/router.ts";
-import { setQueryAuthErrorHandler } from "#/frontend/lib/orpc.tsx";
 import {
   AUTH_RETURN_TO_PARAM,
   DEFAULT_AUTH_RETURN_TO_PATH,
@@ -16,28 +15,31 @@ import {
 } from "#/shared/auth-return-to.ts";
 
 export const DEFAULT_AUTH_RETURN_TO = DEFAULT_AUTH_RETURN_TO_PATH;
-export { normalizeReturnToPath, resolveAuthReturnTo };
+export { resolveAuthReturnTo };
 
-interface AuthErrorDataCarrier {
-  readonly code?: unknown;
-}
+type InstallationAuthErrorResponse =
+  | InferResponseType<typeof httpClient.api.auth.installations.active.$post, 403>
+  | InferResponseType<(typeof httpClient.api.nanites.manager)[":managerName"]["$get"], 403>;
 
-interface InstallationAuthErrorDataCarrier extends AuthErrorDataCarrier {
-  readonly githubInstallationId?: unknown;
-}
-
-export interface InstallationAuthErrorDetails {
-  readonly code:
-    | typeof AUTH_ERROR_CODES.activeInstallationRequired
-    | typeof AUTH_ERROR_CODES.installationAccessRevoked;
-  readonly githubInstallationId?: number;
-}
+export type OptionalBrowserNanitesContext = InferResponseType<
+  typeof httpClient.api.auth.session.optional.$get,
+  200
+>;
+export type BrowserNanitesContext = NonNullable<OptionalBrowserNanitesContext>;
+export type SessionInstallationSnapshot = NonNullable<BrowserNanitesContext["activeInstallation"]>;
+export type InstallationAuthErrorDetails = Extract<
+  InstallationAuthErrorResponse,
+  { code: "active_installation_required" | "installation_access_revoked" }
+>;
 
 export interface BrowserLocationLike {
   readonly pathname: string;
   readonly search?: unknown;
   readonly hash?: unknown;
 }
+
+const AUTH_QUERY_KEY = ["auth"] as const;
+export const AUTH_SESSION_QUERY_KEY = ["auth", "session"] as const;
 
 export function buildReturnToPath(location: BrowserLocationLike): string {
   const search = typeof location.search === "string" ? location.search : "";
@@ -53,13 +55,14 @@ export function readRequestedReturnToFromWindow(): string {
   return readRequestedReturnTo(new URLSearchParams(window.location.search));
 }
 
-export async function invalidateAuthQueries(
-  queryClient: QueryClient,
-  authQueryKey: readonly unknown[],
-): Promise<void> {
+export async function invalidateAuthQueries(queryClient: QueryClient): Promise<void> {
   await queryClient.invalidateQueries({
-    queryKey: authQueryKey,
+    queryKey: AUTH_QUERY_KEY,
   });
+}
+
+export async function fetchOptionalSession(): Promise<OptionalBrowserNanitesContext> {
+  return parseResponse(httpClient.api.auth.session.optional.$get());
 }
 
 export async function loadSession(
@@ -68,24 +71,13 @@ export async function loadSession(
     readonly force?: boolean;
   },
 ): Promise<OptionalBrowserNanitesContext> {
-  const sessionQueryOptions = context.orpc.auth.session.get.queryOptions();
-  const session = options?.force
-    ? await context.queryClient.fetchQuery(
-        context.orpc.auth.session.getOptional.queryOptions({
-          staleTime: 0,
-        }),
-      )
-    : await context.queryClient.fetchQuery(context.orpc.auth.session.getOptional.queryOptions());
+  const queryOptions = {
+    queryKey: AUTH_SESSION_QUERY_KEY,
+    queryFn: fetchOptionalSession,
+    staleTime: options?.force ? 0 : undefined,
+  };
 
-  if (session) {
-    context.queryClient.setQueryData(sessionQueryOptions.queryKey, session);
-  } else {
-    context.queryClient.removeQueries({
-      queryKey: sessionQueryOptions.queryKey,
-    });
-  }
-
-  return session;
+  return context.queryClient.fetchQuery(queryOptions);
 }
 
 export async function requireSession(
@@ -104,81 +96,60 @@ export async function requireSession(
   });
 }
 
-function getAuthErrorDataCode(error: ORPCError<string, unknown>): unknown {
-  if (typeof error.data !== "object" || error.data === null) {
+function readDetailedErrorData(error: unknown): unknown {
+  if (!(error instanceof DetailedError)) {
     return undefined;
   }
 
-  return (error.data as AuthErrorDataCarrier).code;
+  const detail = error.detail;
+  return typeof detail === "object" && detail !== null && "data" in detail
+    ? (detail as { data?: unknown }).data
+    : undefined;
+}
+
+function readErrorCode(error: unknown): unknown {
+  const data = readDetailedErrorData(error);
+  if (typeof data !== "object" || data === null || !("code" in data)) {
+    return undefined;
+  }
+
+  return (data as { code?: unknown }).code;
 }
 
 export function isAuthenticationRequiredError(error: unknown): boolean {
-  if (!(error instanceof ORPCError) || error.status !== 401) {
+  if (!(error instanceof DetailedError)) {
     return false;
   }
 
-  const dataCode = getAuthErrorDataCode(error);
-  return (
-    dataCode === undefined ||
-    dataCode === AUTH_ERROR_CODES.authenticationRequired ||
-    error.code === "UNAUTHORIZED"
-  );
+  if (error.statusCode !== 401) {
+    return false;
+  }
+
+  const code = readErrorCode(error);
+  return code === undefined || code === "authentication_required";
 }
 
 export function getInstallationAuthErrorDetails(
   error: unknown,
 ): InstallationAuthErrorDetails | null {
-  if (!(error instanceof ORPCError)) {
+  const code = readErrorCode(error);
+  if (code !== "active_installation_required" && code !== "installation_access_revoked") {
     return null;
   }
 
-  const dataCode = getAuthErrorDataCode(error);
-  if (
-    dataCode !== AUTH_ERROR_CODES.activeInstallationRequired &&
-    dataCode !== AUTH_ERROR_CODES.installationAccessRevoked
-  ) {
-    return null;
+  const data = readDetailedErrorData(error);
+  const githubInstallationId =
+    typeof data === "object" && data !== null && "githubInstallationId" in data
+      ? (data as { githubInstallationId?: unknown }).githubInstallationId
+      : undefined;
+
+  if (code === "active_installation_required") {
+    return { code };
   }
 
-  if (typeof error.data !== "object" || error.data === null) {
-    return { code: dataCode };
-  }
-
-  const githubInstallationId = (error.data as InstallationAuthErrorDataCarrier)
-    .githubInstallationId;
-  return {
-    code: dataCode,
-    githubInstallationId:
-      typeof githubInstallationId === "number" ? githubInstallationId : undefined,
-  };
+  return typeof githubInstallationId === "number" ? { code, githubInstallationId } : null;
 }
 
-export function isActiveInstallationRequiredError(error: unknown): boolean {
-  return (
-    getInstallationAuthErrorDetails(error)?.code === AUTH_ERROR_CODES.activeInstallationRequired
-  );
-}
-
-export function isInstallationAccessRevokedError(error: unknown): boolean {
-  return (
-    getInstallationAuthErrorDetails(error)?.code === AUTH_ERROR_CODES.installationAccessRevoked
-  );
-}
-
-function buildAuthenticationNavigateOptions(router: AnyRouter) {
-  return {
-    to: "/" as const,
-    search: {
-      returnTo: resolveAuthReturnTo(router.state.location.href),
-    },
-    replace: true,
-  } as const;
-}
-
-export function installAuthQueryRedirects(router: AnyRouter): void {
-  setQueryAuthErrorHandler((error) => {
-    if (isAuthenticationRequiredError(error)) {
-      return router.navigate(buildAuthenticationNavigateOptions(router));
-    }
-  });
+export function installAuthQueryRedirects(_router: AnyRouter): void {
+  // Hono fetch helpers will wire auth redirects in the replacement API client.
 }

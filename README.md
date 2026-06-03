@@ -24,12 +24,15 @@ Generated triggers route machine events. They do not edit repositories or own li
 
 ## Repository Layout
 
-- `src` - Cloudflare Worker app with GitHub auth, Nanites runtime, MCP tools, product UI, admin views, and observability.
-- `packages/contracts` - shared schemas, branded IDs, and API contracts.
-- `packages/db` - Drizzle schema, D1 migrations, and database helpers.
-- `packages/domain` - shared domain enums and value contracts.
-- `packages/observability` - logging and OpenTelemetry helpers.
-- `packages/ui` and `packages/design-tokens` - reusable React components and CSS tokens used by the app.
+- `src/backend` - Cloudflare Worker entrypoint support plus the main backend owners below.
+- `src/backend/browser-auth` - browser GitHub OAuth, session cookies, selected installation state, and Agents SDK request auth.
+- `src/backend/db` - D1 client, Drizzle business schema, migrations, and business-data mutations.
+- `src/backend/mcp` - SigVelo MCP OAuth, auth props, and MCP server registration.
+- `src/backend/nanites` - Nanite manager, Think sub-agent runtime, manager chat, trigger execution, and Nanite-owned tool policy.
+- `src/backend/github.ts` - GitHub App/OAuth integration, webhook intake, installation tokens, repository listing, and check-run feedback.
+- `src/backend/business-data.ts` - business telemetry sync, admin account views, and usage read models.
+- `src/frontend` - product UI, browser routes, and app-local UI primitives.
+- `src/shared` - app constants, domain enums, and observability helpers.
 - `plugins/nanites` - model-facing plugin manifests, commands, skills, and examples.
 - `docs/architecture` - architecture notes, roadmap, execution model, and source references.
 

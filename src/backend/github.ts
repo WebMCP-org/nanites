@@ -1,53 +1,23 @@
 import { createAppAuth, type InstallationAccessTokenAuthentication } from "@octokit/auth-app";
 import type { RestEndpointMethodTypes } from "@octokit/plugin-rest-endpoint-methods";
-import { createWebMiddleware, Webhooks } from "@octokit/webhooks";
+import { createWebMiddleware, type EmitterWebhookEvent, Webhooks } from "@octokit/webhooks";
 import { getAgentByName } from "agents";
 import { getLogger } from "@logtape/logtape";
 import { z } from "zod";
 import { Octokit, RequestError } from "octokit";
-import { LOG_EVENTS } from "@nanites/observability/log-events";
-import { LOGGING } from "@nanites/observability/logging";
-import { OTEL_ATTRS } from "@nanites/observability/otel-attrs";
-import {
-  githubUserTokenSchema,
-  installationRepositorySchema,
-  type GitHubUserToken,
-  type InstallationRepository,
-} from "@nanites/contracts/auth";
-import { createDbClient } from "@nanites/db/client";
-import {
-  findAccountIdByInstallationId,
-  recordPlatformUsageFact,
-} from "@nanites/db/mutations/business";
-import {
-  githubInstallationIdSchema,
-  githubRepositoryIdSchema,
-  type GitHubInstallationId,
-  type GitHubRepositoryId,
-} from "@nanites/contracts/ids";
-import {
-  type NaniteGitHubCheckOutput,
-  type NaniteManagerKey,
-  type NaniteRunKey,
-  naniteRunKeySchema,
-} from "@nanites/contracts/nanites";
-import { type GitHubVisibleInstallation } from "#/backend/github-installations.ts";
-import {
-  buildCreateGitHubCheckRunRequest,
-  buildUpdateGitHubCheckRunRequest,
-} from "#/backend/github-checks.ts";
-import {
-  GITHUB_PUSH_EVENT_NAME,
-  type GitHubAppPermissions,
-  SUPPORTED_GITHUB_PULL_REQUEST_EVENT_NAMES,
-  type GitHubPullRequestWebhookEvent,
-  type GitHubPullRequestWebhookPayload,
-  type GitHubPushWebhookEvent,
-  type GitHubPushWebhookPayload,
-} from "#/backend/github-types.ts";
-import type { NaniteManager, NaniteRunRecord } from "#/backend/nanites/host.ts";
-import type { TriggerGitHubCheckSurfaceRequest } from "#/backend/nanites/trigger-runtime.ts";
+import { LOG_EVENTS } from "#/shared/observability/log-events.ts";
+import { LOGGING } from "#/shared/observability/logging.ts";
+import { OTEL_ATTRS } from "#/shared/observability/otel-attrs.ts";
+import { createDbClient } from "#/backend/db/client.ts";
+import { recordPlatformUsageFact } from "#/backend/db/business-mutations.ts";
+import type { SigveloNaniteManager } from "#/backend/nanites/host.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/shared/constants/routes.ts";
+import {
+  getGitHubWebhookAction,
+  getGitHubWebhookInstallationId,
+  getGitHubWebhookRepositoryFullName,
+  getGitHubWebhookRepositoryId,
+} from "#/shared/github-webhook-fields.ts";
 import { buildNaniteManagerKey } from "#/shared/nanites.ts";
 
 export const GITHUB_OAUTH_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
@@ -70,76 +40,28 @@ const githubLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .with({
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
+
+export type GitHubViewer = RestEndpointMethodTypes["users"]["getAuthenticated"]["response"]["data"];
+export type GitHubUserToken = {
+  accessToken: string;
+  expiresAt: string | null;
+  refreshToken: string | null;
+  refreshTokenExpiresAt: string | null;
+};
+type GitHubInstallationTokenPermissions = NonNullable<
+  RestEndpointMethodTypes["apps"]["createInstallationAccessToken"]["parameters"]["permissions"]
+>;
 export type GitHubInstallationRepository =
   RestEndpointMethodTypes["apps"]["listInstallationReposForAuthenticatedUser"]["response"]["data"]["repositories"][number];
-const githubInstallationRepositoryPermissionNames = [
-  "admin",
-  "pull",
-  "push",
-] as const satisfies readonly (keyof NonNullable<GitHubInstallationRepository["permissions"]>)[];
-type GitHubInstallationRepositoryPermissionName =
-  (typeof githubInstallationRepositoryPermissionNames)[number];
-type GitHubViewer = RestEndpointMethodTypes["users"]["getAuthenticated"]["response"]["data"];
-export type GitHubAppInstallation =
-  RestEndpointMethodTypes["apps"]["listInstallations"]["response"]["data"][number];
-type GitHubChecksCreateParameters = RestEndpointMethodTypes["checks"]["create"]["parameters"];
-type GitHubChecksUpdateParameters = RestEndpointMethodTypes["checks"]["update"]["parameters"];
-type GitHubCheckRun = RestEndpointMethodTypes["checks"]["create"]["response"]["data"];
-type GitHubRepositoryName = string;
-type NaniteManagerGitHubCheckClient = Pick<
-  NaniteManager,
-  "attachGitHubCheck" | "claimGitHubCheckCreation" | "recordGitHubCheckFailure"
->;
-type GitHubCheckSurfaceRepositoryPayload = Pick<
-  GitHubPullRequestWebhookPayload["repository"],
-  "full_name" | "name"
-> & {
-  owner: {
-    login: string;
-  };
-};
+export type GitHubVisibleInstallation =
+  RestEndpointMethodTypes["apps"]["listInstallationsForAuthenticatedUser"]["response"]["data"]["installations"][number];
+export type GitHubAppPermissions = GitHubInstallationTokenPermissions;
 type GitHubOperationLogContext = {
   operation: string;
-  githubInstallationId?: GitHubInstallationId;
+  githubInstallationId?: number;
   repository?: string;
   metadata?: Record<string, unknown>;
 };
-
-export type ScopedGitHubInstallationToken = {
-  installationId: GitHubInstallationId;
-  token: InstallationAccessTokenAuthentication["token"];
-  expiresAt: InstallationAccessTokenAuthentication["expiresAt"];
-  repositorySelection: InstallationAccessTokenAuthentication["repositorySelection"];
-  repositoryNames: GitHubRepositoryName[];
-  permissions: GitHubAppPermissions;
-};
-
-function inspectGitHubAppEnv(env: Env) {
-  const privateKey =
-    typeof env.GITHUB_APP_PRIVATE_KEY === "string" ? env.GITHUB_APP_PRIVATE_KEY.trim() : "";
-
-  return {
-    appIdPresent:
-      typeof env.GITHUB_APP_ID === "string" && String(env.GITHUB_APP_ID).trim().length > 0,
-    clientIdPresent:
-      typeof env.GITHUB_CLIENT_ID === "string" && env.GITHUB_CLIENT_ID.trim().length > 0,
-    clientSecretPresent:
-      typeof env.GITHUB_CLIENT_SECRET === "string" && env.GITHUB_CLIENT_SECRET.trim().length > 0,
-    privateKeyPresent: privateKey.length > 0,
-    privateKeyHasPemMarkers: privateKey.includes("-----BEGIN") && privateKey.includes("-----END"),
-  };
-}
-
-function formatGitHubAppEnvState(env: Env): string {
-  const state = inspectGitHubAppEnv(env);
-  return [
-    `appId=${state.appIdPresent ? "present" : "missing"}`,
-    `clientId=${state.clientIdPresent ? "present" : "missing"}`,
-    `clientSecret=${state.clientSecretPresent ? "present" : "missing"}`,
-    `privateKey=${state.privateKeyPresent ? "present" : "missing"}`,
-    `privateKeyPem=${state.privateKeyHasPemMarkers ? "yes" : "no"}`,
-  ].join(", ");
-}
 
 function classifyGitHubFailure(error: unknown): string {
   if (error instanceof RequestError) {
@@ -222,31 +144,6 @@ async function observeGitHubOperation<T>(
   }
 }
 
-function rethrowGitHubInstallationRequestError(
-  error: unknown,
-  context: {
-    operation: string;
-    env: Env;
-    githubInstallationId: GitHubInstallationId;
-    owner: string;
-    repo: string;
-  },
-): never {
-  if (error instanceof RequestError) {
-    const repoTarget = `${context.owner}/${context.repo}`;
-    throw new Error(
-      [
-        `${context.operation} failed for ${repoTarget} (installation ${context.githubInstallationId}) with GitHub ${error.status}: ${error.message}.`,
-        `GitHub app env state: ${formatGitHubAppEnvState(context.env)}.`,
-        "This usually means the deployed GitHub App credentials are stale, malformed, or do not match the installation being used.",
-      ].join(" "),
-      { cause: error },
-    );
-  }
-
-  throw error;
-}
-
 function requireGitHubAppPrivateKey(env: Env): string {
   const privateKey = env.GITHUB_APP_PRIVATE_KEY;
   if (typeof privateKey !== "string" || privateKey.trim().length === 0) {
@@ -265,48 +162,6 @@ function createGitHubAppAuth(env: Env) {
   });
 }
 
-async function recordGitHubPlatformUsage(input: {
-  env: Env;
-  githubInstallationId: GitHubInstallationId;
-  githubRepositoryId?: GitHubRepositoryId | null;
-  eventKey: string;
-  status: string;
-  durationMs: number;
-  metadata?: Record<string, unknown>;
-}): Promise<void> {
-  const db = createDbClient(input.env.DB);
-  const accountId = await findAccountIdByInstallationId(db, input.githubInstallationId);
-  await recordPlatformUsageFact(db, {
-    accountId,
-    githubInstallationId: accountId ? input.githubInstallationId : null,
-    githubRepositoryId: input.githubRepositoryId ?? null,
-    category: "github-api",
-    eventKey: input.eventKey,
-    status: input.status,
-    durationMs: input.durationMs,
-    metadata: accountId
-      ? input.metadata
-      : {
-          ...input.metadata,
-          unresolvedGithubInstallationId: input.githubInstallationId,
-        },
-  });
-}
-
-function toGitHubUserToken(input: {
-  token: string;
-  expiresAt?: string;
-  refreshToken?: string;
-  refreshTokenExpiresAt?: string;
-}): GitHubUserToken {
-  return githubUserTokenSchema.parse({
-    accessToken: input.token,
-    expiresAt: input.expiresAt ?? null,
-    refreshToken: input.refreshToken ?? null,
-    refreshTokenExpiresAt: input.refreshTokenExpiresAt ?? null,
-  });
-}
-
 const githubOAuthTokenResponseSchema = z.union([
   z.object({
     access_token: z.string().min(1),
@@ -322,12 +177,12 @@ const githubOAuthTokenResponseSchema = z.union([
   }),
 ]);
 
-export function createGitHubInstallationOctokit({
+function createGitHubInstallationOctokit({
   env,
   installationId,
 }: {
   env: Env;
-  installationId: GitHubInstallationId;
+  installationId: number;
 }): Octokit {
   return new Octokit({
     auth: {
@@ -350,33 +205,9 @@ export function createGitHubInstallationOctokit({
   });
 }
 
-export async function getGitHubInstallationAccessToken({
-  env,
-  installationId,
-}: {
-  env: Env;
-  installationId: GitHubInstallationId;
-}): Promise<InstallationAccessTokenAuthentication["token"]> {
-  return observeGitHubOperation(
-    {
-      operation: "app.installation_token.issue",
-      githubInstallationId: installationId,
-    },
-    async () => {
-      const auth = createGitHubAppAuth(env);
-      const result: InstallationAccessTokenAuthentication = await auth({
-        installationId,
-        type: "installation",
-      });
-
-      return result.token;
-    },
-  );
-}
-
-function toGitHubRepositoryName(repository: string): GitHubRepositoryName {
-  const [, repo] = repository.split("/", 2);
-  return repo ?? repository;
+function readGitHubInstallationTokenRepositoryName(repositoryFullName: string): string {
+  const [, repo] = repositoryFullName.split("/", 2);
+  return repo ?? repositoryFullName;
 }
 
 export async function issueScopedGitHubInstallationToken({
@@ -386,12 +217,14 @@ export async function issueScopedGitHubInstallationToken({
   permissions,
 }: {
   env: Env;
-  installationId: GitHubInstallationId;
+  installationId: number;
   repositories: readonly string[];
   permissions?: GitHubAppPermissions;
-}): Promise<ScopedGitHubInstallationToken> {
+}): Promise<InstallationAccessTokenAuthentication> {
   const repositoryNames = [
-    ...new Set(repositories.map((repository) => toGitHubRepositoryName(repository))),
+    ...new Set(
+      repositories.map((repository) => readGitHubInstallationTokenRepositoryName(repository)),
+    ),
   ]
     .filter((repository) => repository.length > 0)
     .sort();
@@ -409,132 +242,16 @@ export async function issueScopedGitHubInstallationToken({
     },
     async () => {
       const auth = createGitHubAppAuth(env);
-      const requestedPermissions =
-        permissions === undefined
-          ? undefined
-          : (Object.fromEntries(
-              Object.entries(permissions).filter(([, permission]) => permission !== undefined),
-            ) as GitHubAppPermissions);
-      const result: InstallationAccessTokenAuthentication = await auth({
+      return auth({
         installationId,
         type: "installation",
         repositoryNames,
-        ...(requestedPermissions === undefined ? {} : { permissions: requestedPermissions }),
+        ...(permissions === undefined ? {} : { permissions }),
       });
-
-      return {
-        installationId,
-        token: result.token,
-        expiresAt: result.expiresAt,
-        repositorySelection: result.repositorySelection,
-        repositoryNames: result.repositoryNames ?? repositoryNames,
-        permissions:
-          result.permissions ?? requestedPermissions ?? ({} satisfies GitHubAppPermissions),
-      };
     },
   );
 }
 
-export async function inspectGitHubAppInstallationAuth({
-  env,
-  githubInstallationId,
-  owner,
-  repo,
-}: {
-  env: Env;
-  githubInstallationId: GitHubInstallationId;
-  owner?: string;
-  repo?: string;
-}): Promise<{
-  env: ReturnType<typeof inspectGitHubAppEnv>;
-  app: {
-    id: number;
-    slug: string;
-  };
-  installation: {
-    id: GitHubInstallationId;
-    tokenExpiresAt: string;
-  };
-  repository: {
-    owner: string;
-    repo: string;
-    defaultBranch: string;
-    private: boolean;
-  } | null;
-}> {
-  return observeGitHubOperation(
-    {
-      operation: "app.installation_auth.inspect",
-      githubInstallationId,
-      repository: owner && repo ? `${owner}/${repo}` : undefined,
-    },
-    async () => {
-      const auth = createGitHubAppAuth(env);
-      const appAuthentication = await auth({ type: "app" });
-      const appOctokit = new Octokit({
-        auth: appAuthentication.token,
-        baseUrl: GITHUB_REST_API_BASE_URL,
-        request: {
-          headers: {
-            accept: GITHUB_REST_API_ACCEPT_HEADER,
-            "x-github-api-version": GITHUB_REST_API_VERSION,
-          },
-          timeout: GITHUB_API_TIMEOUT_MS,
-        },
-        userAgent: GITHUB_INSTALLATION_USER_AGENT,
-      });
-      const appResponse = await appOctokit.rest.apps.getAuthenticated();
-      if (
-        !appResponse.data ||
-        typeof appResponse.data.id !== "number" ||
-        typeof appResponse.data.slug !== "string" ||
-        appResponse.data.slug.length === 0
-      ) {
-        throw new Error("GitHub app authentication succeeded but no app identity was returned.");
-      }
-      const installationAuthentication = await auth({
-        installationId: githubInstallationId,
-        type: "installation",
-      });
-
-      let repositoryResult: {
-        owner: string;
-        repo: string;
-        defaultBranch: string;
-        private: boolean;
-      } | null = null;
-      if (owner && repo) {
-        const installationOctokit = createGitHubInstallationOctokit({
-          env,
-          installationId: githubInstallationId,
-        });
-        const repositoryResponse = await installationOctokit.rest.repos.get({
-          owner,
-          repo,
-        });
-        repositoryResult = {
-          owner: repositoryResponse.data.owner.login,
-          repo: repositoryResponse.data.name,
-          defaultBranch: repositoryResponse.data.default_branch,
-          private: repositoryResponse.data.private,
-        };
-      }
-
-      return {
-        env: inspectGitHubAppEnv(env),
-        app: {
-          id: appResponse.data.id,
-          slug: appResponse.data.slug,
-        },
-        installation: {
-          id: githubInstallationId,
-          tokenExpiresAt: installationAuthentication.expiresAt,
-        },
-        repository: repositoryResult,
-      };
-    },
-  );
-}
 function createGitHubUserOctokit(accessToken: string): Octokit {
   return new Octokit({
     auth: accessToken,
@@ -550,24 +267,6 @@ function createGitHubUserOctokit(accessToken: string): Octokit {
       enabled: false,
     },
     userAgent: GITHUB_USER_USER_AGENT,
-  });
-}
-
-async function createGitHubAppOctokit(env: Env): Promise<Octokit> {
-  const auth = createGitHubAppAuth(env);
-  const authentication = await auth({ type: "app" });
-
-  return new Octokit({
-    auth: authentication.token,
-    baseUrl: GITHUB_REST_API_BASE_URL,
-    request: {
-      headers: {
-        accept: GITHUB_REST_API_ACCEPT_HEADER,
-        "x-github-api-version": GITHUB_REST_API_VERSION,
-      },
-      timeout: GITHUB_API_TIMEOUT_MS,
-    },
-    userAgent: GITHUB_INSTALLATION_USER_AGENT,
   });
 }
 
@@ -644,12 +343,12 @@ export async function exchangeGitHubOAuthCode({
         ? new Date(apiTimeMs + responseData.refresh_token_expires_in * 1000).toISOString()
         : undefined;
 
-    return toGitHubUserToken({
-      token: responseData.access_token,
-      expiresAt,
-      refreshToken: responseData.refresh_token,
-      refreshTokenExpiresAt,
-    });
+    return {
+      accessToken: responseData.access_token,
+      expiresAt: expiresAt ?? null,
+      refreshToken: responseData.refresh_token ?? null,
+      refreshTokenExpiresAt: refreshTokenExpiresAt ?? null,
+    };
   });
 }
 export async function fetchGitHubViewer(accessToken: string): Promise<GitHubViewer> {
@@ -683,29 +382,9 @@ export async function listVisibleInstallations(accessToken: string) {
   });
 }
 
-export async function listGitHubAppInstallations(env: Env): Promise<GitHubAppInstallation[]> {
-  return observeGitHubOperation({ operation: "app.installations.list" }, async () => {
-    const octokit = await createGitHubAppOctokit(env);
-    const installations: GitHubAppInstallation[] = [];
-    let pageCount = 0;
-
-    for await (const response of octokit.paginate.iterator(octokit.rest.apps.listInstallations, {
-      per_page: GITHUB_API_PAGE_SIZE,
-    })) {
-      installations.push(...response.data);
-      pageCount += 1;
-      if (pageCount >= GITHUB_MAX_PAGINATION_PAGES) {
-        break;
-      }
-    }
-
-    return installations;
-  });
-}
-
 export async function listInstallationRepositories(
   accessToken: string,
-  githubInstallationId: GitHubInstallationId,
+  githubInstallationId: number,
 ) {
   return observeGitHubOperation(
     {
@@ -738,7 +417,7 @@ export async function listInstallationRepositories(
 
 export async function listReposAccessibleToInstallation(input: {
   env: Env;
-  githubInstallationId: GitHubInstallationId;
+  githubInstallationId: number;
 }) {
   return observeGitHubOperation(
     {
@@ -767,9 +446,9 @@ export async function listReposAccessibleToInstallation(input: {
         }
       }
 
-      await recordGitHubPlatformUsage({
-        env: input.env,
+      await recordPlatformUsageFact(createDbClient(input.env.DB), {
         githubInstallationId: input.githubInstallationId,
+        category: "github-api",
         eventKey: "app.installation_repositories.list",
         status: "success",
         durationMs: Date.now() - startedAt,
@@ -783,455 +462,11 @@ export async function listReposAccessibleToInstallation(input: {
   );
 }
 
-export function toInstallationRepository(
-  repository: GitHubInstallationRepository,
-): InstallationRepository {
-  const permissions = {
-    admin: repository.permissions?.admin ?? false,
-    pull: repository.permissions?.pull ?? false,
-    push: repository.permissions?.push ?? false,
-  } satisfies Record<GitHubInstallationRepositoryPermissionName, boolean>;
-
-  return installationRepositorySchema.parse({
-    default_branch: repository.default_branch,
-    full_name: repository.full_name,
-    id: repository.id,
-    name: repository.name,
-    owner: {
-      login: repository.owner.login,
-    },
-    permissions,
-    private: repository.private,
-  });
-}
-
-export function toInstallationRepositories(
-  repositories: readonly GitHubInstallationRepository[],
-): InstallationRepository[] {
-  return repositories.map((repository) => toInstallationRepository(repository));
-}
-
-export async function findInstallationRepository(
-  accessToken: string,
-  githubInstallationId: GitHubInstallationId,
-  githubRepositoryId: GitHubRepositoryId,
-): Promise<InstallationRepository | null> {
-  const repositories = toInstallationRepositories(
-    await listInstallationRepositories(accessToken, githubInstallationId),
-  );
-  return repositories.find((repository) => repository.id === githubRepositoryId) ?? null;
-}
-
-export async function listGitHubPullRequestChangedFiles({
-  env,
-  githubInstallationId,
-  owner,
-  repo,
-  pullRequestNumber,
-}: {
-  env: Env;
-  githubInstallationId: GitHubInstallationId;
-  owner: string;
-  repo: string;
-  pullRequestNumber: number;
-}): Promise<string[]> {
-  const octokit = createGitHubInstallationOctokit({
-    env,
-    installationId: githubInstallationId,
-  });
-
-  const changedFiles: string[] = [];
-  let pageCount = 0;
-
-  for (let page = 1; page <= GITHUB_MAX_PAGINATION_PAGES; page += 1) {
-    const response = await octokit.rest.pulls.listFiles({
-      owner,
-      repo,
-      page,
-      pull_number: pullRequestNumber,
-      per_page: GITHUB_API_PAGE_SIZE,
-    });
-    changedFiles.push(...response.data.map((file) => file.filename));
-    pageCount += 1;
-
-    if (response.data.length < GITHUB_API_PAGE_SIZE) {
-      break;
-    }
-  }
-
-  return changedFiles;
-}
-
-export async function listGitHubChangedFilesBetweenRefs({
-  env,
-  githubInstallationId,
-  owner,
-  repo,
-  baseRef,
-  headRef,
-}: {
-  env: Env;
-  githubInstallationId: GitHubInstallationId;
-  owner: string;
-  repo: string;
-  baseRef: string;
-  headRef: string;
-}): Promise<string[]> {
-  const startedAt = Date.now();
-  const octokit = createGitHubInstallationOctokit({
-    env,
-    installationId: githubInstallationId,
-  });
-
-  const changedFiles: string[] = [];
-  let pageCount = 0;
-
-  for (let page = 1; page <= GITHUB_MAX_PAGINATION_PAGES; page += 1) {
-    let response: Awaited<ReturnType<typeof octokit.rest.repos.compareCommitsWithBasehead>>;
-    try {
-      response = await octokit.rest.repos.compareCommitsWithBasehead({
-        owner,
-        repo,
-        basehead: `${baseRef}...${headRef}`,
-        page,
-        per_page: GITHUB_API_PAGE_SIZE,
-      });
-    } catch (error) {
-      rethrowGitHubInstallationRequestError(error, {
-        operation: `Comparing refs ${baseRef}...${headRef}`,
-        env,
-        githubInstallationId,
-        owner,
-        repo,
-      });
-    }
-
-    changedFiles.push(...(response.data.files ?? []).map((file) => file.filename));
-    pageCount += 1;
-
-    if ((response.data.files?.length ?? 0) < GITHUB_API_PAGE_SIZE) {
-      break;
-    }
-  }
-
-  await recordGitHubPlatformUsage({
-    env,
-    githubInstallationId,
-    eventKey: "repos.compare_commits",
-    status: "success",
-    durationMs: Date.now() - startedAt,
-    metadata: {
-      owner,
-      repo,
-      baseRef,
-      headRef,
-      pageCount,
-      changedFileCount: changedFiles.length,
-    },
-  });
-
-  return [...new Set(changedFiles)];
-}
-
-export async function createGitHubCheckRun({
-  env,
-  githubInstallationId,
-  owner,
-  repo,
-  name,
-  headSha,
-  runKey,
-  startedAt,
-  detailsUrl,
-  output,
-  status,
-}: {
-  env: Env;
-  githubInstallationId: GitHubInstallationId;
-  owner: string;
-  repo: string;
-  name: string;
-  headSha: string;
-  runKey: NaniteRunKey;
-  startedAt: string;
-  detailsUrl: string | null;
-  output: NaniteGitHubCheckOutput;
-  status: NonNullable<GitHubChecksCreateParameters["status"]>;
-}): Promise<GitHubCheckRun> {
-  const requestStartedAt = Date.now();
-  const response = await observeGitHubOperation(
-    {
-      operation: "checks.create",
-      githubInstallationId,
-      repository: `${owner}/${repo}`,
-      metadata: { runKey },
-    },
-    async () => {
-      const octokit = createGitHubInstallationOctokit({
-        env,
-        installationId: githubInstallationId,
-      });
-
-      return octokit.rest.checks.create(
-        buildCreateGitHubCheckRunRequest({
-          owner,
-          repo,
-          name,
-          headSha,
-          runKey,
-          startedAt,
-          detailsUrl,
-          output,
-          status,
-        }),
-      );
-    },
-  );
-
-  await recordGitHubPlatformUsage({
-    env,
-    githubInstallationId,
-    eventKey: "checks.create",
-    status: "success",
-    durationMs: Date.now() - requestStartedAt,
-    metadata: {
-      owner,
-      repo,
-      headSha,
-      runKey,
-    },
-  });
-  return response.data;
-}
-
-export async function createCompletedGitHubCheckRun({
-  env,
-  githubInstallationId,
-  owner,
-  repo,
-  name,
-  headSha,
-  runKey,
-  startedAt,
-  detailsUrl,
-  output,
-  conclusion,
-}: {
-  env: Env;
-  githubInstallationId: GitHubInstallationId;
-  owner: string;
-  repo: string;
-  name: string;
-  headSha: string;
-  runKey: NaniteRunKey;
-  startedAt: string;
-  detailsUrl: string | null;
-  output: NaniteGitHubCheckOutput;
-  conclusion: NonNullable<GitHubChecksUpdateParameters["conclusion"]>;
-}): Promise<GitHubCheckRun> {
-  const createdCheckRun = await createGitHubCheckRun({
-    env,
-    githubInstallationId,
-    owner,
-    repo,
-    name,
-    headSha,
-    runKey,
-    startedAt,
-    detailsUrl,
-    output,
-    status: "in_progress",
-  });
-
-  return updateGitHubCheckRun({
-    env,
-    githubInstallationId,
-    owner,
-    repo,
-    checkRunId: createdCheckRun.id,
-    output,
-    status: "completed",
-    conclusion,
-    detailsUrl,
-    completedAt: new Date().toISOString(),
-  });
-}
-
-function getNaniteManagerAgent(env: Env, managerKey: NaniteManagerKey) {
-  return getAgentByName<Env, NaniteManager>(env.SigveloNaniteManager, managerKey);
-}
-
-function buildNaniteRunDetailsUrl(input: {
-  origin: string;
-  githubInstallationId: GitHubInstallationId;
-  naniteId: string;
-  runId: string;
-}): string {
-  const url = new URL("/nanites", input.origin);
-  url.searchParams.set("installationId", String(input.githubInstallationId));
-  url.searchParams.set("naniteId", input.naniteId);
-  url.searchParams.set("runId", input.runId);
-  return url.toString();
-}
-
-function buildStartedNaniteCheckOutput(input: {
-  naniteId: string;
-  detailsUrl: string;
-}): NaniteGitHubCheckOutput {
-  return {
-    title: `${input.naniteId} started`,
-    summary: "Sigvelo accepted the GitHub trigger and is running the Nanite.",
-    text: [
-      "Sigvelo started a fresh Nanite run for this GitHub event.",
-      "",
-      `Live run: ${input.detailsUrl}`,
-    ].join("\n"),
-  };
-}
-
-async function createGitHubCheckForNaniteRun(input: {
-  env: Env;
-  manager: NaniteManagerGitHubCheckClient;
-  githubInstallationId: GitHubInstallationId;
-  origin: string;
-  repository: GitHubCheckSurfaceRepositoryPayload;
-  run: NaniteRunRecord;
-  githubCheckSurface: TriggerGitHubCheckSurfaceRequest;
-}): Promise<void> {
-  const owner = input.repository.owner.login;
-  const repo = input.repository.name;
-  const detailsUrl = buildNaniteRunDetailsUrl({
-    origin: input.origin,
-    githubInstallationId: input.githubInstallationId,
-    naniteId: input.run.naniteId,
-    runId: input.run.runId,
-  });
-  const output = buildStartedNaniteCheckOutput({
-    naniteId: input.githubCheckSurface.name ?? input.run.naniteId,
-    detailsUrl,
-  });
-  const claim = await input.manager.claimGitHubCheckCreation({
-    runId: input.run.runId,
-    installationId: input.githubInstallationId,
-    repository: input.githubCheckSurface.repository,
-    owner,
-    repo,
-    name: input.githubCheckSurface.name ?? input.run.naniteId,
-    headSha: input.githubCheckSurface.headSha,
-    detailsUrl,
-  });
-
-  if (!claim.shouldCreate) {
-    return;
-  }
-
-  try {
-    const checkRun = await createGitHubCheckRun({
-      env: input.env,
-      githubInstallationId: input.githubInstallationId,
-      owner,
-      repo,
-      name: input.githubCheckSurface.name ?? input.run.naniteId,
-      headSha: input.githubCheckSurface.headSha,
-      runKey: naniteRunKeySchema.parse(input.run.runId),
-      startedAt: input.run.startedAt,
-      detailsUrl,
-      output,
-      status: "in_progress",
-    });
-
-    await input.manager.attachGitHubCheck({
-      runId: input.run.runId,
-      checkRunId: checkRun.id,
-      detailsUrl,
-      outputTitle: output.title,
-      outputSummary: output.summary,
-      outputText: output.text,
-    });
-  } catch (error) {
-    await input.manager.recordGitHubCheckFailure({
-      runId: input.run.runId,
-      status: "create_failed",
-      summary: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-export async function updateGitHubCheckRun({
-  env,
-  githubInstallationId,
-  owner,
-  repo,
-  checkRunId,
-  output,
-  status,
-  conclusion,
-  detailsUrl,
-  completedAt,
-}: {
-  env: Env;
-  githubInstallationId: GitHubInstallationId;
-  owner: string;
-  repo: string;
-  checkRunId: number;
-  output: NaniteGitHubCheckOutput;
-  status: NonNullable<GitHubChecksUpdateParameters["status"]>;
-  conclusion?: NonNullable<GitHubChecksUpdateParameters["conclusion"]> | null;
-  detailsUrl: string | null;
-  completedAt?: string | null;
-}) {
-  const startedAt = Date.now();
-  const response = await observeGitHubOperation(
-    {
-      operation: "checks.update",
-      githubInstallationId,
-      repository: `${owner}/${repo}`,
-      metadata: { checkRunId, status, conclusion },
-    },
-    async () => {
-      const octokit = createGitHubInstallationOctokit({
-        env,
-        installationId: githubInstallationId,
-      });
-
-      return octokit.rest.checks.update(
-        buildUpdateGitHubCheckRunRequest({
-          owner,
-          repo,
-          checkRunId,
-          status,
-          conclusion,
-          completedAt,
-          detailsUrl,
-          output,
-        }),
-      );
-    },
-  );
-
-  await recordGitHubPlatformUsage({
-    env,
-    githubInstallationId,
-    eventKey: "checks.update",
-    status: "success",
-    durationMs: Date.now() - startedAt,
-    metadata: {
-      owner,
-      repo,
-      checkRunId,
-      status,
-      conclusion,
-    },
-  });
-  return response.data;
-}
-
 /**
  * Workers-compatible GitHub webhook receiver built on Octokit's own web middleware.
  *
  * Octokit already owns signature verification, JSON parsing, and webhook event dispatch. This
- * boundary only registers the GitHub events SigVelo cares about, then translates the typed
- * payload into internal Nanites inputs.
+ * boundary only logs cheap metadata and forwards Octokit's event object to the Nanite manager.
  *
  * @see ../../../../opensrc/repos/github.com/octokit/webhooks.js/README.md
  * @see ../../../../opensrc/repos/github.com/octokit/webhooks.js/src/middleware/web/index.ts
@@ -1240,70 +475,25 @@ function handleGitHubWebhookRequest({
   request,
   env,
   executionContext,
-  dispatchPullRequestEvent,
-  dispatchPushEvent,
+  dispatchWebhookEvent,
 }: {
   request: Request;
   env: Env;
   executionContext: ExecutionContext;
-  dispatchPullRequestEvent: (event: {
-    payload: GitHubPullRequestWebhookPayload;
-    origin: string;
-    deliveryId: string | null;
-    repositoryId: GitHubRepositoryId;
-  }) => Promise<void>;
-  dispatchPushEvent: (event: {
-    payload: GitHubPushWebhookPayload;
-    origin: string;
-    deliveryId: string | null;
-    repositoryId: GitHubRepositoryId;
-  }) => Promise<void>;
+  dispatchWebhookEvent: (event: EmitterWebhookEvent) => Promise<void>;
 }): Response | Promise<Response> {
   const webhooks = new Webhooks({ secret: env.GITHUB_WEBHOOK_SECRET });
-  const deliveryId = request.headers.get("x-github-delivery");
-  const handleSupportedPullRequestEvent = async ({
-    payload,
-  }: GitHubPullRequestWebhookEvent): Promise<void> => {
-    const repositoryId = githubRepositoryIdSchema.parse(payload.repository.id);
+  webhooks.onAny((event) => {
     githubLogger.info(LOG_EVENTS.GITHUB_WEBHOOK_RECEIVED, {
-      [OTEL_ATTRS.GITHUB_INSTALLATION_ID]: payload.installation?.id,
-      [OTEL_ATTRS.GITHUB_REPOSITORY_FULL_NAME]: payload.repository.full_name,
-      [OTEL_ATTRS.GITHUB_WEBHOOK_DELIVERY_ID]: deliveryId,
-      [OTEL_ATTRS.GITHUB_WEBHOOK_EVENT_NAME]: "pull_request",
-      [OTEL_ATTRS.GITHUB_WEBHOOK_EVENT_ACTION]: payload.action,
-      repositoryId,
+      [OTEL_ATTRS.GITHUB_INSTALLATION_ID]: getGitHubWebhookInstallationId(event),
+      [OTEL_ATTRS.GITHUB_REPOSITORY_FULL_NAME]: getGitHubWebhookRepositoryFullName(event),
+      [OTEL_ATTRS.GITHUB_WEBHOOK_DELIVERY_ID]: event.id,
+      [OTEL_ATTRS.GITHUB_WEBHOOK_EVENT_NAME]: event.name,
+      [OTEL_ATTRS.GITHUB_WEBHOOK_EVENT_ACTION]: getGitHubWebhookAction(event),
+      repositoryId: getGitHubWebhookRepositoryId(event),
     });
-    executionContext.waitUntil(
-      dispatchPullRequestEvent({
-        payload,
-        origin: new URL(request.url).origin,
-        deliveryId,
-        repositoryId,
-      }),
-    );
-  };
-  const handlePushEvent = async ({ payload }: GitHubPushWebhookEvent): Promise<void> => {
-    const repositoryId = githubRepositoryIdSchema.parse(payload.repository.id);
-    githubLogger.info(LOG_EVENTS.GITHUB_WEBHOOK_RECEIVED, {
-      [OTEL_ATTRS.GITHUB_INSTALLATION_ID]: payload.installation?.id,
-      [OTEL_ATTRS.GITHUB_REPOSITORY_FULL_NAME]: payload.repository.full_name,
-      [OTEL_ATTRS.GITHUB_WEBHOOK_DELIVERY_ID]: deliveryId,
-      [OTEL_ATTRS.GITHUB_WEBHOOK_EVENT_NAME]: "push",
-      repositoryId,
-    });
-    executionContext.waitUntil(
-      dispatchPushEvent({
-        payload,
-        origin: new URL(request.url).origin,
-        deliveryId,
-        repositoryId,
-      }),
-    );
-  };
-  for (const eventName of SUPPORTED_GITHUB_PULL_REQUEST_EVENT_NAMES) {
-    webhooks.on(eventName, handleSupportedPullRequestEvent);
-  }
-  webhooks.on(GITHUB_PUSH_EVENT_NAME, handlePushEvent);
+    executionContext.waitUntil(dispatchWebhookEvent(event));
+  });
 
   return createWebMiddleware(webhooks, { path: GITHUB_WEBHOOK_PATH })(request);
 }
@@ -1317,14 +507,19 @@ export async function handleGitHubWebhook(
     request,
     env,
     executionContext,
-    dispatchPullRequestEvent: async ({ payload, deliveryId }) => {
-      const githubInstallationId = githubInstallationIdSchema.parse(payload.installation?.id);
+    dispatchWebhookEvent: async (event) => {
+      const githubInstallationId = getGitHubWebhookInstallationId(event);
+      if (typeof githubInstallationId !== "number") {
+        throw new Error(`GitHub ${event.name} webhook is missing installation.id.`);
+      }
       const managerKey = buildNaniteManagerKey(githubInstallationId);
-      const manager = await getNaniteManagerAgent(env, managerKey);
-      const dispatches = await manager.handleGitHubPullRequestWebhook({
+      const manager = await getAgentByName<Env, SigveloNaniteManager>(
+        env.SigveloNaniteManager,
+        managerKey,
+      );
+      const dispatches = await manager.handleGitHubWebhook({
         githubInstallationId,
-        deliveryId,
-        payload,
+        event,
       });
 
       for (const dispatch of dispatches) {
@@ -1332,60 +527,7 @@ export async function handleGitHubWebhook(
           continue;
         }
 
-        if (dispatch.githubCheckSurface) {
-          await createGitHubCheckForNaniteRun({
-            env,
-            manager,
-            githubInstallationId,
-            origin: new URL(request.url).origin,
-            repository: {
-              full_name: payload.repository.full_name,
-              name: payload.repository.name,
-              owner: {
-                login: payload.repository.owner.login,
-              },
-            },
-            run: dispatch.run,
-            githubCheckSurface: dispatch.githubCheckSurface,
-          });
-        }
-
         await manager.dispatchRun({ runId: dispatch.run.runId });
-      }
-    },
-    dispatchPushEvent: async ({ payload, deliveryId }) => {
-      const githubInstallationId = githubInstallationIdSchema.parse(payload.installation?.id);
-      const managerKey = buildNaniteManagerKey(githubInstallationId);
-      const manager = await getNaniteManagerAgent(env, managerKey);
-      const dispatches = await manager.handleGitHubPushWebhook({
-        githubInstallationId,
-        deliveryId,
-        payload,
-      });
-
-      for (const dispatch of dispatches) {
-        if (dispatch.created) {
-          if (dispatch.githubCheckSurface) {
-            await createGitHubCheckForNaniteRun({
-              env,
-              manager,
-              githubInstallationId,
-              origin: new URL(request.url).origin,
-              repository: {
-                full_name: payload.repository.full_name,
-                name: payload.repository.name,
-                owner: {
-                  login:
-                    payload.repository.owner?.login ?? payload.repository.full_name.split("/")[0],
-                },
-              },
-              run: dispatch.run,
-              githubCheckSurface: dispatch.githubCheckSurface,
-            });
-          }
-
-          await manager.dispatchRun({ runId: dispatch.run.runId });
-        }
       }
     },
   });

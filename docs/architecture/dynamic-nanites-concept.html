@@ -1329,9 +1329,10 @@ await worker.getEntrypoint("Nanite").run();</code></pre>
   "id": "docs-syncer",
   "job": "After repo A changes on main, update repo B docs.",
   "trigger": {
-    "type": "github.push",
-    "repository": "WebMCP-org/repo-a",
-    "branch": "main"
+    "type": "github",
+    "events": ["push"],
+    "repositories": ["WebMCP-org/repo-a"],
+    "branches": ["main"]
   },
   "execution": {
     "mode": "think_extension",

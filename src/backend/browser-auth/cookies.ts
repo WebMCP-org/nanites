@@ -1,14 +1,7 @@
 import { parse, serialize, type SerializeOptions } from "cookie";
 import { EncryptJWT, jwtDecrypt, errors as joseErrors, type JWTPayload } from "jose";
 import { z } from "zod";
-import {
-  githubOAuthStateSchema,
-  githubUserTokenSchema,
-  nanitesSessionSchema,
-  type GitHubOAuthState,
-  type GitHubUserToken,
-  type NanitesSession,
-} from "@nanites/contracts/auth";
+import type { GitHubUserToken } from "#/backend/github.ts";
 import {
   BROWSER_AUTH_COOKIE_NAMES,
   BROWSER_AUTH_COOKIE_PATH,
@@ -21,6 +14,73 @@ import {
   NANITES_BROWSER_AUTH_JWE_ENC,
   NANITES_BROWSER_AUTH_JWE_ISSUER,
 } from "#/backend/browser-auth/policy.ts";
+
+const isoDateTimeSchema = z.string();
+const githubIdSchema = z.number().int().positive();
+const githubLoginSchema = z.string().min(1);
+
+export type BrowserAuthenticatedActor = {
+  id: number;
+  login: string;
+} & Record<string, unknown>;
+
+export type SessionInstallationAccountSnapshot = {
+  id: number;
+  login: string;
+  type: string;
+  avatar_url: string | null;
+};
+
+export type SessionInstallationSnapshot = {
+  id: number;
+  account: SessionInstallationAccountSnapshot;
+};
+
+// Cookie boundary check: preserve GitHub's authenticated user object, but require the fields the app reads.
+export const authenticatedActorSchema: z.ZodType<BrowserAuthenticatedActor> = z
+  .object({
+    id: githubIdSchema,
+    login: githubLoginSchema,
+  })
+  .passthrough();
+const sessionInstallationAccountSchema: z.ZodType<SessionInstallationAccountSnapshot> = z.object({
+  id: githubIdSchema,
+  login: githubLoginSchema,
+  type: z.string().min(1),
+  avatar_url: z.string().nullable(),
+});
+
+export const sessionInstallationSnapshotSchema: z.ZodType<SessionInstallationSnapshot> = z.object({
+  id: githubIdSchema,
+  account: sessionInstallationAccountSchema,
+});
+export const nanitesSessionSchema = z.object({
+  githubViewer: authenticatedActorSchema,
+  activeGithubInstallationId: githubIdSchema.nullable(),
+  sessionInstallationSnapshot: sessionInstallationSnapshotSchema.nullable().optional(),
+  expiresAt: isoDateTimeSchema,
+});
+const browserNanitesContextSchema = z.object({
+  actor: authenticatedActorSchema,
+  activeInstallation: sessionInstallationSnapshotSchema.nullable(),
+  expiresAt: isoDateTimeSchema,
+});
+export const githubUserTokenSchema: z.ZodType<GitHubUserToken> = z.object({
+  accessToken: z.string().min(1),
+  expiresAt: isoDateTimeSchema.nullable(),
+  refreshToken: z.string().min(1).nullable(),
+  refreshTokenExpiresAt: isoDateTimeSchema.nullable(),
+});
+export const githubOAuthStateSchema = z.object({
+  state: z.string().min(1),
+  codeVerifier: z.string().min(43).max(128),
+  returnToPath: z.string().min(1),
+  expiresAt: isoDateTimeSchema,
+});
+
+export type BrowserNanitesContext = z.infer<typeof browserNanitesContextSchema>;
+export type NanitesSession = z.infer<typeof nanitesSessionSchema>;
+export type GitHubOAuthState = z.infer<typeof githubOAuthStateSchema>;
 
 const textEncoder = new TextEncoder();
 

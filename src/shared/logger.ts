@@ -4,7 +4,7 @@ import {
   type ConsoleFormatter,
   type LogRecord,
 } from "@logtape/logtape";
-import { LOGGING } from "@nanites/observability/logging";
+import { LOGGING } from "#/shared/observability/logging.ts";
 
 let configured = false;
 

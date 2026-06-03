@@ -1,10 +1,14 @@
+import type { ToolProvider } from "@cloudflare/codemode";
+import { gitTools } from "@cloudflare/shell/git";
+import { wrapGitToolProviderWithLazyAuth } from "#/backend/nanites/git-tools-with-lazy-auth.ts";
+
 const gitHubHttpsRepoPattern =
   /^https:\/\/github\.com\/(?<owner>[^/\s]+)\/(?<repo>[^/\s]+?)(?:\.git)?\/?$/i;
 const gitHubSshRepoPattern =
   /^(?:git@github\.com:|ssh:\/\/git@github\.com\/)(?<owner>[^/\s]+)\/(?<repo>[^/\s]+?)(?:\.git)?\/?$/i;
-export const GITHUB_INSTALLATION_GIT_USERNAME = "x-access-token";
+const GITHUB_INSTALLATION_GIT_USERNAME = "x-access-token";
 
-export function parseGitHubRepositoryFromGitUrl(url: unknown): string | null {
+function parseGitHubRepositoryFromGitUrl(url: unknown): string | null {
   if (typeof url !== "string") {
     return null;
   }
@@ -16,7 +20,7 @@ export function parseGitHubRepositoryFromGitUrl(url: unknown): string | null {
   return owner && repo ? `${owner}/${repo}` : null;
 }
 
-export function parseGitHubRepositoryFromGitConfig(input: {
+function parseGitHubRepositoryFromGitConfig(input: {
   config: string | null;
   remote?: unknown;
 }): string | null {
@@ -48,7 +52,7 @@ export function parseGitHubRepositoryFromGitConfig(input: {
   return null;
 }
 
-export function isAllowedGitHubRepository(input: {
+function isAllowedGitHubRepository(input: {
   repository: string | null;
   repositories: readonly string[];
 }): boolean {
@@ -62,7 +66,7 @@ export function isAllowedGitHubRepository(input: {
   return allowedRepositories.has(input.repository.toLowerCase());
 }
 
-export function shouldInjectGitHubInstallationToken(input: {
+function shouldInjectGitHubInstallationToken(input: {
   options: Record<string, unknown>;
   repository: string | null;
   repositories: readonly string[];
@@ -77,7 +81,7 @@ export function shouldInjectGitHubInstallationToken(input: {
   });
 }
 
-export function createGitHubInstallationGitCredentials(token: string): {
+function createGitHubInstallationGitCredentials(token: string): {
   username: string;
   password: string;
 } {
@@ -88,7 +92,67 @@ export function createGitHubInstallationGitCredentials(token: string): {
   };
 }
 
-export function isGitHubAuthRejection(error: unknown): boolean {
+function isGitHubAuthRejection(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /\b(?:401|403)\b/.test(message) && /unauthori[sz]ed|forbidden/i.test(message);
+}
+
+type GitHubInstallationGitToolsOptions = {
+  getAllowedRepositories: () => Promise<readonly string[]> | readonly string[];
+  issueToken: (input: { repository: string }) => Promise<string | null>;
+};
+
+export function gitToolsWithGitHubInstallationAuth(
+  workspace: Parameters<typeof gitTools>[0],
+  options: GitHubInstallationGitToolsOptions,
+): ToolProvider {
+  return wrapGitToolProviderWithLazyAuth(gitTools(workspace), {
+    isAuthRejection: isGitHubAuthRejection,
+    resolveAuth: async ({ command, options: gitOptions }) => {
+      const repository = await resolveGitCommandRepository({
+        workspace,
+        command,
+        options: gitOptions,
+      });
+      if (!repository) {
+        return null;
+      }
+
+      const repositories = await options.getAllowedRepositories();
+      if (
+        !shouldInjectGitHubInstallationToken({
+          options: gitOptions,
+          repository,
+          repositories,
+        })
+      ) {
+        return null;
+      }
+
+      const token = await options.issueToken({ repository });
+      return token ? createGitHubInstallationGitCredentials(token) : null;
+    },
+  });
+}
+
+async function resolveGitCommandRepository({
+  workspace,
+  command,
+  options,
+}: {
+  workspace: Parameters<typeof gitTools>[0];
+  command: string;
+  options: Record<string, unknown>;
+}): Promise<string | null> {
+  if (command === "clone") {
+    return parseGitHubRepositoryFromGitUrl(options.url);
+  }
+
+  const dir = typeof options.dir === "string" && options.dir.trim() ? options.dir.trim() : "/";
+  const configPath = `${dir.replace(/\/+$/, "") || ""}/.git/config`;
+  const config = await workspace.readFile(configPath);
+  return parseGitHubRepositoryFromGitConfig({
+    config,
+    remote: options.remote,
+  });
 }

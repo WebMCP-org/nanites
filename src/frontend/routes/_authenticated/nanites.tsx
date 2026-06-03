@@ -12,20 +12,21 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { useAgent } from "agents/react";
+import { DetailedError, parseResponse } from "hono/client";
+import type { InferRequestType, InferResponseType } from "hono/client";
 import { z } from "zod";
+import { httpClient } from "#/frontend/http-client.ts";
+import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
+import { Button } from "#/frontend/ui/components/Button.tsx";
+import { Card } from "#/frontend/ui/components/Card.tsx";
 import {
-  Avatar,
-  Button,
-  Card,
   CodeBlock,
   CodeBlockContainer,
   CodeBlockContent,
-  FileTree,
-  FileTreeFile,
-  FileTreeFolder,
-  Popover,
   type CodeBlockLanguage,
-} from "@nanites/ui";
+} from "#/frontend/ui/components/CodeBlock.tsx";
+import { FileTree, FileTreeFile, FileTreeFolder } from "#/frontend/ui/components/FileTree.tsx";
+import { Popover } from "#/frontend/ui/components/Popover.tsx";
 import {
   ArrowClockwiseIcon,
   ArrowSquareOutIcon,
@@ -47,21 +48,27 @@ import {
   SignOutIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
-import type { ActiveInstallation } from "@nanites/contracts/auth";
 import type {
-  NaniteAgent,
+  BrowserNanitesContext,
+  SessionInstallationSnapshot,
+} from "#/frontend/routes/-auth-client.ts";
+import type {
+  SigveloNaniteAgent,
   NaniteAgentState,
-  NaniteWorkspaceFileInfo,
   NaniteWorkspaceInfo,
 } from "#/backend/nanites/agent.ts";
+import type { FileInfo } from "@cloudflare/shell";
 import type {
+  DeprovisionNanitesOutput,
   ManagedNanite,
-  NaniteManager,
+  SigveloNaniteManager,
   NaniteManagerState,
   NaniteManifest,
   NaniteRuntimeActivity,
   NaniteRunRecord,
   NaniteRunStatus,
+  TestNaniteTriggerInput,
+  TestNaniteTriggerOutput,
 } from "#/backend/nanites/host.ts";
 import {
   ManagerRuntimeChatConnector,
@@ -70,16 +77,27 @@ import {
   NaniteRuntimeChatPlaceholder,
 } from "#/frontend/routes/_authenticated/-nanites/nanite-runtime-chat.tsx";
 import { RoutePendingPage } from "#/frontend/routes/-route-state.tsx";
-import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/routes/-auth-client.ts";
-import { useORPC } from "#/frontend/lib/orpc.tsx";
+import {
+  AUTH_SESSION_QUERY_KEY,
+  buildReturnToPath,
+  fetchOptionalSession,
+  invalidateAuthQueries,
+} from "#/frontend/routes/-auth-client.ts";
 import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/shared/constants/nanites.ts";
-import { API_DOCS_PATH } from "#/shared/constants/openapi-document.ts";
 import { buildNaniteManagerKey } from "#/shared/nanites.ts";
 import {
   buildGitHubAppInstallOnAnotherOwnerHref,
   buildGitHubAppManageAccessHref,
   SIGVELO_GITHUB_APP_URL,
 } from "#/shared/github-app.ts";
+import {
+  getGitHubWebhookAction,
+  getGitHubWebhookBranch,
+  getGitHubWebhookEventName,
+  getGitHubWebhookHeadSha,
+  getGitHubWebhookPullRequestNumber,
+  getGitHubWebhookRepositoryFullName,
+} from "#/shared/github-webhook-fields.ts";
 
 const emptyState: NaniteManagerState = {
   nanites: {},
@@ -88,6 +106,62 @@ const emptyState: NaniteManagerState = {
   runtimeActivityByNanite: {},
   updatedAt: null,
 };
+const visibleInstallationsQueryKey = ["auth", "installations", "visible"] as const;
+
+type VisibleInstallationsResponse = InferResponseType<
+  typeof httpClient.api.auth.installations.visible.$get,
+  200
+>;
+type SetActiveInstallationInput = InferRequestType<
+  typeof httpClient.api.auth.installations.active.$post
+>["json"];
+type ManagerStateResponse = {
+  managerName: string;
+  state: NaniteManagerState;
+};
+
+async function fetchVisibleInstallations(): Promise<VisibleInstallationsResponse> {
+  return parseResponse(httpClient.api.auth.installations.visible.$get());
+}
+
+async function setActiveInstallation(
+  input: SetActiveInstallationInput,
+): Promise<InferResponseType<typeof httpClient.api.auth.installations.active.$post, 200>> {
+  return parseResponse(httpClient.api.auth.installations.active.$post({ json: input }));
+}
+
+async function logoutSession(): Promise<void> {
+  await parseResponse(httpClient.api.auth.session.logout.$post());
+}
+
+async function fetchManagerState(managerName: string): Promise<ManagerStateResponse> {
+  const response = await httpClient.api.nanites.manager[":managerName"].$get({
+    param: { managerName },
+  });
+  if (!response.ok) {
+    throw new DetailedError(`${response.status} ${response.statusText}`, {
+      statusCode: response.status,
+      detail: {
+        data: await response.json().catch(() => undefined),
+        statusText: response.statusText,
+      },
+    });
+  }
+
+  const data: unknown = await response.json();
+  if (
+    !isRecord(data) ||
+    typeof data.managerName !== "string" ||
+    !isNaniteManagerState(data.state)
+  ) {
+    throw new Error("Nanite manager state response was malformed.");
+  }
+
+  return {
+    managerName: data.managerName,
+    state: data.state,
+  };
+}
 
 const naniteMobileViews: readonly NaniteMobileView[] = ["nanites", "chat", "files", "details"];
 const naniteMobileSwipeThreshold = 64;
@@ -138,7 +212,7 @@ type NaniteRepositoryGroup = {
 };
 
 type NaniteMobileView = "nanites" | "chat" | "files" | "details";
-type BrowserTriggerTestEvent = Parameters<NaniteManager["testNaniteTrigger"]>[0]["event"];
+type BrowserTriggerTestEvent = TestNaniteTriggerInput["event"];
 
 export const Route = createFileRoute("/_authenticated/nanites")({
   validateSearch: z.object({
@@ -336,8 +410,8 @@ function getRunActivityKind(
 }
 
 function getRunSourceIcon(run: NaniteRunRecord | null) {
-  if (run?.githubCheck || run?.trigger.type === "github") {
-    if (run.trigger.type === "github" && run.trigger.event === "pull_request") {
+  if (run?.trigger.type === "github") {
+    if (run.trigger.event.name === "pull_request") {
       return <GitPullRequestIcon size={14} aria-hidden="true" />;
     }
     return <GitBranchIcon size={14} aria-hidden="true" />;
@@ -346,67 +420,65 @@ function getRunSourceIcon(run: NaniteRunRecord | null) {
   return <GitBranchIcon size={14} aria-hidden="true" />;
 }
 
-function withAvatarSize(avatarUrl: string | null, size: number): string | undefined {
-  if (!avatarUrl) {
+function withAvatarSize(avatar_url: string | null, size: number): string | undefined {
+  if (!avatar_url) {
     return undefined;
   }
 
   try {
-    const url = new URL(avatarUrl);
+    const url = new URL(avatar_url);
     url.searchParams.set("s", String(size));
     return url.toString();
   } catch {
-    return avatarUrl;
+    return avatar_url;
   }
 }
 
 function InstallationPicker({
   activeInstallation,
 }: {
-  readonly activeInstallation: ActiveInstallation;
+  readonly activeInstallation: SessionInstallationSnapshot;
 }) {
   const navigate = Route.useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const orpc = useORPC();
   const installationsQuery = useQuery({
-    ...orpc.auth.installations.listVisible.queryOptions(),
+    queryKey: visibleInstallationsQueryKey,
+    queryFn: fetchVisibleInstallations,
     enabled: false,
     throwOnError: true,
   });
-  const changeInstallation = useMutation(
-    orpc.auth.installations.setActive.mutationOptions({
-      onSuccess: async (_data, variables) => {
-        await invalidateAuthQueries(queryClient, orpc.auth.key());
-        const installation = installationsQuery.data?.installations.find(
-          (candidate) => candidate.id === variables.githubInstallationId,
-        );
-        await navigate({
-          search: (previous) => ({
-            ...previous,
-            account: installation?.account.login,
-            installationId: installation?.id,
-            naniteId: undefined,
-          }),
-          replace: true,
-        });
-      },
-    }),
-  );
-  const logout = useMutation(
-    orpc.auth.session.logout.mutationOptions({
-      onSuccess: async () => {
-        await invalidateAuthQueries(queryClient, orpc.auth.key());
-        await navigate({
-          to: "/",
-          search: {
-            returnTo: "/nanites",
-          },
-          replace: true,
-        });
-      },
-    }),
-  );
+  const changeInstallation = useMutation({
+    mutationFn: setActiveInstallation,
+    onSuccess: async (_data, variables) => {
+      await invalidateAuthQueries(queryClient);
+      const installation = installationsQuery.data?.installations.find(
+        (candidate) => candidate.id === variables.githubInstallationId,
+      );
+      await navigate({
+        search: (previous) => ({
+          ...previous,
+          account: installation?.account?.login,
+          installationId: installation?.id,
+          naniteId: undefined,
+        }),
+        replace: true,
+      });
+    },
+  });
+  const logout = useMutation({
+    mutationFn: logoutSession,
+    onSuccess: async () => {
+      await invalidateAuthQueries(queryClient);
+      await navigate({
+        to: "/",
+        search: {
+          returnTo: "/nanites",
+        },
+        replace: true,
+      });
+    },
+  });
 
   const installations = installationsQuery.data?.installations ?? [];
   const otherInstallations = installations.filter(
@@ -471,7 +543,9 @@ function InstallationPicker({
                 <div className="account-menu__section-label">Switch accounts</div>
                 <ul className="account-menu__list">
                   {otherInstallations.map((installation) => {
-                    const rowAvatarSrc = withAvatarSize(installation.account.avatar_url, 56);
+                    const account = installation.account;
+                    const accountLogin = account?.login ?? "Unknown account";
+                    const rowAvatarSrc = withAvatarSize(account?.avatar_url ?? null, 56);
                     return (
                       <li key={installation.id}>
                         <button
@@ -487,15 +561,13 @@ function InstallationPicker({
                           <Avatar.Root className="account-menu__row-avatar">
                             {rowAvatarSrc ? <Avatar.Image src={rowAvatarSrc} alt="" /> : null}
                             <Avatar.Fallback>
-                              {installation.account.login.slice(0, 2).toUpperCase()}
+                              {accountLogin.slice(0, 2).toUpperCase()}
                             </Avatar.Fallback>
                           </Avatar.Root>
                           <div className="account-menu__row-info">
-                            <span className="account-menu__row-login">
-                              {installation.account.login}
-                            </span>
+                            <span className="account-menu__row-login">{accountLogin}</span>
                             <span className="account-menu__row-type">
-                              {installation.account.type}
+                              {account?.type ?? "Account"}
                             </span>
                           </div>
                         </button>
@@ -544,7 +616,7 @@ function InstallationPicker({
               type="button"
               className="account-menu__action"
               disabled={logout.isPending}
-              onClick={() => logout.mutate({})}
+              onClick={() => logout.mutate()}
             >
               <SignOutIcon size={14} aria-hidden="true" />
               <span>{logout.isPending ? "Signing out..." : "Sign out"}</span>
@@ -561,36 +633,21 @@ function getTriggerRepositories(trigger: NaniteManifest["trigger"]): string[] {
     return [];
   }
 
-  switch (trigger.event) {
-    case "pull_request":
-      return trigger.repositories;
-    case "push":
-      return [trigger.repository];
-  }
+  return trigger.repositories ?? [];
 }
 
 function getRunRepository(run: NaniteRunRecord): string | null {
-  if (run.githubCheck?.repository) {
-    return run.githubCheck.repository;
-  }
-
   if (run.trigger.type !== "github") {
     return null;
   }
 
-  return run.trigger.repository;
+  return getGitHubWebhookRepositoryFullName(run.trigger.event);
 }
 
-function formatGitHubCheck(run: NaniteRunRecord | null): string {
-  if (!run?.githubCheck) {
-    return "No check";
-  }
-
-  if (run.githubCheck.conclusion) {
-    return run.githubCheck.conclusion.replaceAll("_", " ");
-  }
-
-  return run.githubCheck.status.replaceAll("_", " ");
+function getRunGitHubBranch(
+  trigger: Extract<NaniteRunRecord["trigger"], { type: "github" }>,
+): string {
+  return getGitHubWebhookBranch(trigger.event) ?? "unknown";
 }
 
 function formatScheduleSpec(
@@ -615,10 +672,7 @@ function formatTriggerSpec(trigger: NaniteManifest["trigger"]): string {
     case "schedule":
       return formatScheduleSpec(trigger.schedule);
     case "github":
-      if (trigger.event === "pull_request") {
-        return `pull request: ${trigger.actions.join(", ")}`;
-      }
-      return `push: ${trigger.branch}`;
+      return `github: ${trigger.events?.join(", ") ?? "all events"}`;
     case "webhook":
       return `webhook: ${trigger.source}`;
   }
@@ -630,17 +684,22 @@ function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTest
     return null;
   }
 
-  if (trigger.event === "push") {
-    const [owner = trigger.repository, name = trigger.repository] = trigger.repository.split(
-      "/",
-      2,
-    );
+  const events = trigger.events ?? [];
+  const repository =
+    trigger.repositories?.[0] ?? nanite.manifest.permissions.github?.repositories[0];
+  if (!repository) {
+    return null;
+  }
+
+  const [owner = repository, name = repository] = repository.split("/", 2);
+  if (events.length === 0 || events.includes("push")) {
+    const branch = trigger.branches?.[0] ?? "main";
     return {
-      fixture: "github.push",
+      fixture: "push",
       overrides: {
-        ref: `refs/heads/${trigger.branch}`,
+        ref: `refs/heads/${branch}`,
         repository: {
-          full_name: trigger.repository,
+          full_name: repository,
           name,
           owner: { login: owner },
         },
@@ -648,22 +707,18 @@ function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTest
     };
   }
 
-  const repository =
-    trigger.repositories[0] ?? nanite.manifest.permissions.github?.repositories[0] ?? null;
-  if (!repository) {
+  const pullRequestEvents = events.filter((event) => event.startsWith("pull_request"));
+  if (pullRequestEvents.length === 0) {
     return null;
   }
 
-  const [owner = repository, name = repository] = repository.split("/", 2);
-  let fixture: BrowserTriggerTestEvent["fixture"] = "github.pull_request.opened";
-  if (trigger.actions.includes("opened")) {
-    fixture = "github.pull_request.opened";
-  } else if (trigger.actions.includes("synchronize")) {
-    fixture = "github.pull_request.synchronize";
-  } else if (trigger.actions.includes("reopened")) {
-    fixture = "github.pull_request.reopened";
-  } else if (trigger.actions.includes("closed")) {
-    fixture = "github.pull_request.closed";
+  let fixture: BrowserTriggerTestEvent["fixture"] = "pull_request.opened";
+  if (events.includes("pull_request.synchronize") || trigger.actions?.includes("synchronize")) {
+    fixture = "pull_request.synchronize";
+  } else if (events.includes("pull_request.reopened") || trigger.actions?.includes("reopened")) {
+    fixture = "pull_request.reopened";
+  } else if (events.includes("pull_request.closed") || trigger.actions?.includes("closed")) {
+    fixture = "pull_request.closed";
   }
 
   return {
@@ -685,10 +740,17 @@ function formatTriggerEvent(trigger: NaniteRunRecord["trigger"]): string {
     case "schedule":
       return `schedule: ${formatScheduleSpec(trigger.schedule)}`;
     case "github":
-      if (trigger.event === "pull_request") {
-        return `PR #${trigger.pullNumber}: ${trigger.action}`;
+      if (trigger.event.name === "pull_request") {
+        const pullRequestNumber = getGitHubWebhookPullRequestNumber(trigger.event);
+        const action = getGitHubWebhookAction(trigger.event);
+        return pullRequestNumber
+          ? `PR #${pullRequestNumber}: ${action ?? "event"}`
+          : getGitHubWebhookEventName(trigger.event);
       }
-      return `push: ${trigger.branch}`;
+      if (trigger.event.name === "push") {
+        return `push: ${getRunGitHubBranch(trigger)}`;
+      }
+      return getGitHubWebhookEventName(trigger.event);
     case "webhook":
       return `webhook: ${trigger.source}`;
   }
@@ -741,48 +803,52 @@ function getGitInfoLinks({
     });
   }
 
-  if (repositoryUrl && run?.trigger.type === "github" && run.trigger.event === "push") {
+  if (repositoryUrl && run?.trigger.type === "github" && run.trigger.event.name === "push") {
+    const branch = getRunGitHubBranch(run.trigger);
+    const headSha = getGitHubWebhookHeadSha(run.trigger.event);
     links.push({
       key: "ref",
       label: "Ref",
-      value: run.trigger.branch,
-      href: `${repositoryUrl}/tree/${encodeURIComponent(run.trigger.branch)}`,
+      value: branch,
+      href: `${repositoryUrl}/tree/${encodeURIComponent(branch)}`,
       icon: <GitBranchIcon size={15} aria-hidden="true" />,
     });
-    links.push({
-      key: "trigger",
-      label: "Trigger",
-      value: formatShortId(run.trigger.afterSha),
-      href: `${repositoryUrl}/commit/${run.trigger.afterSha}`,
-      icon: <GitBranchIcon size={15} aria-hidden="true" />,
-    });
+    if (headSha) {
+      links.push({
+        key: "trigger",
+        label: "Trigger",
+        value: formatShortId(headSha),
+        href: `${repositoryUrl}/commit/${headSha}`,
+        icon: <GitBranchIcon size={15} aria-hidden="true" />,
+      });
+    }
   }
 
-  if (repositoryUrl && run?.trigger.type === "github" && run.trigger.event === "pull_request") {
-    links.push({
-      key: "ref",
-      label: "Ref",
-      value: formatShortId(run.trigger.headSha),
-      href: `${repositoryUrl}/commit/${run.trigger.headSha}`,
-      icon: <GitBranchIcon size={15} aria-hidden="true" />,
-    });
-    links.push({
-      key: "trigger",
-      label: "Trigger",
-      value: `PR #${run.trigger.pullNumber}`,
-      href: `${repositoryUrl}/pull/${run.trigger.pullNumber}`,
-      icon: <GitPullRequestIcon size={15} aria-hidden="true" />,
-    });
-  }
-
-  if (run?.githubCheck?.detailsUrl) {
-    links.push({
-      key: "check",
-      label: "Check",
-      value: formatGitHubCheck(run),
-      href: run.githubCheck.detailsUrl,
-      icon: <CheckCircleIcon size={15} aria-hidden="true" />,
-    });
+  if (
+    repositoryUrl &&
+    run?.trigger.type === "github" &&
+    run.trigger.event.name === "pull_request"
+  ) {
+    const headSha = getGitHubWebhookHeadSha(run.trigger.event);
+    const pullRequestNumber = getGitHubWebhookPullRequestNumber(run.trigger.event);
+    if (headSha) {
+      links.push({
+        key: "ref",
+        label: "Ref",
+        value: formatShortId(headSha),
+        href: `${repositoryUrl}/commit/${headSha}`,
+        icon: <GitBranchIcon size={15} aria-hidden="true" />,
+      });
+    }
+    if (pullRequestNumber) {
+      links.push({
+        key: "trigger",
+        label: "Trigger",
+        value: `PR #${pullRequestNumber}`,
+        href: `${repositoryUrl}/pull/${pullRequestNumber}`,
+        icon: <GitPullRequestIcon size={15} aria-hidden="true" />,
+      });
+    }
   }
 
   return links;
@@ -949,7 +1015,7 @@ function ManagerInfoPanel({
   naniteCount,
   runCount,
 }: {
-  readonly activeInstallation: ActiveInstallation;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly naniteCount: number;
   readonly runCount: number;
 }) {
@@ -1031,7 +1097,7 @@ function NaniteRunInfoPanel({
   run,
   testTriggerError,
 }: {
-  readonly activeInstallation: ActiveInstallation;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly deleteError: unknown;
   readonly isDeleting: boolean;
   readonly isTestingTrigger: boolean;
@@ -1319,7 +1385,7 @@ type NaniteWorkspaceReviewFile = {
 type NaniteWorkspaceTreeEntry = {
   readonly path: string;
   readonly name: string;
-  readonly type: NaniteWorkspaceFileInfo["type"];
+  readonly type: FileInfo["type"];
 };
 
 function formatWorkspaceJson(value: unknown): string {
@@ -1355,7 +1421,7 @@ function buildNaniteDefinitionFiles(nanite: ManagedNanite | null): NaniteWorkspa
   return files;
 }
 
-function toWorkspaceTreeEntry(entry: NaniteWorkspaceFileInfo): NaniteWorkspaceTreeEntry {
+function toWorkspaceTreeEntry(entry: FileInfo): NaniteWorkspaceTreeEntry {
   return {
     path: entry.path,
     name: entry.name,
@@ -1443,7 +1509,7 @@ function NaniteWorkspaceReview({
   readonly naniteId: string;
   readonly refreshKey: string;
 }) {
-  const naniteAgent = useAgent<NaniteAgent, NaniteAgentState>({
+  const naniteAgent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
     agent: NANITE_MANAGER_NAME,
     name: managerName,
     sub: [{ agent: NANITE_AGENT_NAME, name: naniteId }],
@@ -1913,11 +1979,11 @@ function NaniteWorkspaceReview({
 }
 
 function NanitesRoute() {
-  const orpc = useORPC();
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
   const sessionQuery = useQuery({
-    ...orpc.auth.session.getOptional.queryOptions(),
+    queryKey: AUTH_SESSION_QUERY_KEY,
+    queryFn: fetchOptionalSession,
     throwOnError: true,
   });
   const session = sessionQuery.data;
@@ -1925,7 +1991,8 @@ function NanitesRoute() {
   const actor = session?.actor ?? null;
   const shouldLoadInstallations = !sessionQuery.isPending && !activeInstallation;
   const installationsQuery = useQuery({
-    ...orpc.auth.installations.listVisible.queryOptions(),
+    queryKey: visibleInstallationsQueryKey,
+    queryFn: fetchVisibleInstallations,
     enabled: shouldLoadInstallations,
     throwOnError: true,
   });
@@ -2035,33 +2102,31 @@ function NanitesZeroInstallState() {
 function NanitesChooseInstallationState({
   installations,
 }: {
-  readonly installations: readonly ActiveInstallation[];
+  readonly installations: VisibleInstallationsResponse["installations"];
 }) {
   const location = useLocation();
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
-  const orpc = useORPC();
   const returnToPath = buildReturnToPath(location);
   const installHref = buildGitHubAppInstallOnAnotherOwnerHref(returnToPath);
-  const changeInstallation = useMutation(
-    orpc.auth.installations.setActive.mutationOptions({
-      onSuccess: async (_data, variables) => {
-        await invalidateAuthQueries(queryClient, orpc.auth.key());
-        const installation = installations.find(
-          (candidate) => candidate.id === variables.githubInstallationId,
-        );
-        await navigate({
-          to: "/nanites",
-          search: installation
-            ? {
-                account: installation.account.login,
-                installationId: installation.id,
-              }
-            : {},
-        });
-      },
-    }),
-  );
+  const changeInstallation = useMutation({
+    mutationFn: setActiveInstallation,
+    onSuccess: async (_data, variables) => {
+      await invalidateAuthQueries(queryClient);
+      const installation = installations.find(
+        (candidate) => candidate.id === variables.githubInstallationId,
+      );
+      await navigate({
+        to: "/nanites",
+        search: installation
+          ? {
+              account: installation.account?.login ?? "unknown",
+              installationId: installation.id,
+            }
+          : {},
+      });
+    },
+  });
 
   return (
     <div className="dashboard">
@@ -2077,40 +2142,40 @@ function NanitesChooseInstallationState({
             to connect.
           </p>
           <ul className="dashboard__installation-list" aria-label="Available GitHub installations">
-            {installations.map((installation) => (
-              <li key={installation.id}>
-                <button
-                  type="button"
-                  className="dashboard__installation-option"
-                  disabled={changeInstallation.isPending}
-                  onClick={() =>
-                    changeInstallation.mutate({
-                      githubInstallationId: installation.id,
-                    })
-                  }
-                >
-                  <Avatar.Root className="dashboard__installation-avatar">
-                    {installation.account.avatar_url ? (
-                      <Avatar.Image src={installation.account.avatar_url} alt="" />
-                    ) : null}
-                    <Avatar.Fallback>
-                      {installation.account.login.slice(0, 2).toUpperCase()}
-                    </Avatar.Fallback>
-                  </Avatar.Root>
-                  <span className="dashboard__installation-copy">
-                    <span className="dashboard__installation-login">
-                      {installation.account.login}
+            {installations.map((installation) => {
+              const account = installation.account;
+              const accountLogin = account?.login ?? "Unknown account";
+              return (
+                <li key={installation.id}>
+                  <button
+                    type="button"
+                    className="dashboard__installation-option"
+                    disabled={changeInstallation.isPending}
+                    onClick={() =>
+                      changeInstallation.mutate({
+                        githubInstallationId: installation.id,
+                      })
+                    }
+                  >
+                    <Avatar.Root className="dashboard__installation-avatar">
+                      {account?.avatar_url ? (
+                        <Avatar.Image src={account.avatar_url} alt="" />
+                      ) : null}
+                      <Avatar.Fallback>{accountLogin.slice(0, 2).toUpperCase()}</Avatar.Fallback>
+                    </Avatar.Root>
+                    <span className="dashboard__installation-copy">
+                      <span className="dashboard__installation-login">{accountLogin}</span>
+                      <span className="dashboard__installation-type">
+                        {account?.type ?? "Account"}
+                      </span>
                     </span>
-                    <span className="dashboard__installation-type">
-                      {installation.account.type}
+                    <span className="dashboard__installation-cta">
+                      {changeInstallation.isPending ? "Selecting..." : "Use account"}
                     </span>
-                  </span>
-                  <span className="dashboard__installation-cta">
-                    {changeInstallation.isPending ? "Selecting..." : "Use account"}
-                  </span>
-                </button>
-              </li>
-            ))}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
           <div className="dashboard__zero-install-actions">
             <a
@@ -2128,7 +2193,7 @@ function NanitesChooseInstallationState({
               size="md"
               variant="outline"
               onClick={() => {
-                void invalidateAuthQueries(queryClient, orpc.auth.key());
+                void invalidateAuthQueries(queryClient);
               }}
             >
               <ArrowClockwiseIcon size={16} aria-hidden="true" />
@@ -2150,11 +2215,8 @@ function NanitesRuntimeSurface({
   selectedSurface,
   setSelection,
 }: {
-  readonly activeInstallation: ActiveInstallation;
-  readonly actor: {
-    readonly id: number;
-    readonly login: string;
-  };
+  readonly activeInstallation: SessionInstallationSnapshot;
+  readonly actor: BrowserNanitesContext["actor"];
   readonly managerName: string;
   readonly selectedNaniteId: string | null;
   readonly selectedRunId: string | null;
@@ -2166,7 +2228,6 @@ function NanitesRuntimeSurface({
   ) => void;
 }) {
   const navigate = Route.useNavigate();
-  const orpc = useORPC();
   const [mobileView, setMobileView] = useState<NaniteMobileView>("chat");
   const [desktopPanel, setDesktopPanel] = useState<NaniteDesktopPanel>("details");
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set());
@@ -2189,14 +2250,11 @@ function NanitesRuntimeSurface({
   const setAsideWidth = desktopPanel === "files" ? setFilesWidth : setDetailsWidth;
   const mobileTouchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
   const managerStateQuery = useQuery({
-    ...orpc.nanites.manager.get.queryOptions({
-      input: {
-        managerName,
-      },
-    }),
+    queryKey: ["nanites", "manager", managerName],
+    queryFn: () => fetchManagerState(managerName),
     throwOnError: true,
   });
-  const manager = useAgent<NaniteManager, NaniteManagerState>({
+  const manager = useAgent<SigveloNaniteManager, NaniteManagerState>({
     agent: NANITE_MANAGER_NAME,
     name: managerName,
   });
@@ -2258,10 +2316,13 @@ function NanitesRuntimeSurface({
   const selectedNaniteAgentId = activeNaniteItem?.id ?? null;
   const deleteNanite = useMutation({
     mutationFn: async (input: { readonly naniteId: string }) => {
-      const output = await manager.stub.deprovisionNanites({
+      // The Agents SDK can infer this from the full manager interface, but expanding
+      // this RPC method hits TS2589 in this route.
+      // @ts-expect-error Type instantiation is excessively deep for the full manager stub.
+      const output = (await manager.stub.deprovisionNanites({
         naniteIds: [input.naniteId],
         reason: `Deleted from the Nanites UI for ${activeInstallation.account.login}.`,
-      });
+      })) as DeprovisionNanitesOutput;
       if (!output.deprovisionedNaniteIds.includes(input.naniteId)) {
         const skipped = output.skippedNaniteIds.find(
           (candidate) => candidate.naniteId === input.naniteId,
@@ -2293,13 +2354,13 @@ function NanitesRuntimeSurface({
         throw new Error("Only GitHub-triggered Nanites can run trigger tests from the browser.");
       }
 
-      const output = await manager.stub.testNaniteTrigger({
+      const output = (await manager.stub.testNaniteTrigger({
         naniteId: input.nanite.manifest.id,
         actorId: `github:${actor.id}`,
         requestId: crypto.randomUUID(),
         event,
         waitForTerminalOutcome: false,
-      });
+      })) as TestNaniteTriggerOutput;
       if (!output.ok) {
         throw new Error(output.error ?? "Trigger test did not start a Nanite run.");
       }
@@ -2621,16 +2682,6 @@ function NanitesRuntimeSurface({
             </button>
           </div>
           <div className="nanites-workspace__aside-actions">
-            <a
-              className="nanites-workspace__aside-icon"
-              href={API_DOCS_PATH}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="API reference"
-              title="API reference"
-            >
-              <ArrowSquareOutIcon size={14} aria-hidden="true" />
-            </a>
             <button
               type="button"
               className="nanites-workspace__aside-collapse"

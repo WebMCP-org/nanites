@@ -1,9 +1,7 @@
 import { z } from "zod";
-import { githubInstallationIdSchema, githubUserIdSchema } from "@nanites/contracts/ids";
-import { githubLoginSchema } from "@nanites/contracts/auth";
 import { MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/shared/constants/mcp.ts";
 
-export type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
+type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
 
 export class UnsupportedMcpScopeError extends Error {
   constructor(readonly scopes: readonly string[]) {
@@ -14,25 +12,15 @@ export class UnsupportedMcpScopeError extends Error {
 
 export const sigveloMcpAuthPropsSchema = z.object({
   authKind: z.literal("mcp"),
-  githubUserId: githubUserIdSchema,
-  githubLogin: githubLoginSchema,
-  githubInstallationId: githubInstallationIdSchema,
+  githubUserId: z.number().int().positive(),
+  githubLogin: z.string().min(1),
+  githubInstallationId: z.number().int().positive(),
   clientId: z.string().min(1),
   scopes: z.array(z.enum(SUPPORTED_MCP_SCOPES)),
   authorizedAt: z.string().datetime({ offset: true }),
 });
 
 export type SigveloMcpAuthProps = z.infer<typeof sigveloMcpAuthPropsSchema>;
-
-export function hasMcpScope(props: SigveloMcpAuthProps, scope: SigveloMcpScope): boolean {
-  return props.scopes.includes(scope);
-}
-
-export function requireMcpScope(props: SigveloMcpAuthProps, scope: SigveloMcpScope): void {
-  if (!hasMcpScope(props, scope)) {
-    throw new Error(`MCP token is missing required scope: ${scope}`);
-  }
-}
 
 export function resolveGrantedMcpScopes(requestedScopes: readonly string[]): SigveloMcpScope[] {
   const unsupportedScopes = requestedScopes.filter(
@@ -68,7 +56,12 @@ export function downscopeMcpAuthPropsForToken({
   );
 
   return {
-    ...props,
+    authKind: props.authKind,
+    githubUserId: props.githubUserId,
+    githubLogin: props.githubLogin,
+    githubInstallationId: props.githubInstallationId,
+    clientId: props.clientId,
+    authorizedAt: props.authorizedAt,
     scopes: [...new Set(tokenScopes)],
   };
 }

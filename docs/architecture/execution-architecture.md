@@ -39,9 +39,9 @@ Use these rules when changing Nanites:
   Dynamic Workers, Durable Object facets, Wrangler, and Cloudflare MCP before inventing Sigvelo
   wrappers. Add a wrapper only when it owns policy, auth, lifecycle, retries, or cleanup.
 - **Use Octokit at GitHub boundaries.** Constrain GitHub event names, permission names, check
-  statuses, deployment states, and request payloads with Octokit types and `satisfies`. Normalize
-  immediately into small Sigvelo-owned runtime types. Do not pull Octokit types into shared frontend
-  contracts just to keep an internal UI typed.
+  statuses, deployment states, and request payloads with Octokit types and `satisfies`. Keep
+  GitHub-owned data in Octokit/webhook shapes until a concrete non-GitHub boundary requires a
+  projection. Do not create Sigvelo DTOs that rename, subset, or normalize standard GitHub facts.
 - **Validate untrusted boundaries, then trust internal owners.** Validate MCP `create_nanite`
   inputs, generated Nanite lifecycle tool calls, webhooks, external API responses, and browser
   route/search input. Do not make the manager re-parse state it owns, mirror TypeScript types with
@@ -61,9 +61,8 @@ Use these rules when changing Nanites:
   and real browser journeys when UI is under test. The only allowed substitution is an explicit
   deterministic LLM provider shim, currently the CopilotKit LLM mock if model output must be
   controlled.
-- **Do not grow prototype contracts.** `packages/contracts/src/nanites.ts` is old runtime surface
-  while the current UI is still wired to the prototype. New manager UI should use Agents SDK typed
-  RPC, manager state, and Nanite sub-agent chat directly.
+- **Do not recreate prototype contracts.** The old shared contracts package has been removed. New
+  manager UI should use Agents SDK typed RPC, manager state, and Nanite sub-agent chat directly.
 
 ## Runtime Shape
 
@@ -188,11 +187,11 @@ through validated lifecycle and result-surface operations.
 Example push trigger:
 
 ```ts
-import type { PushEvent } from "@octokit/webhooks-types";
+import type { EmitterWebhookEvent } from "@octokit/webhooks";
 
 export default {
-  async handle(event: { type: string; payload: PushEvent }, ctx: TriggerContext) {
-    if (event.type !== "github.push") {
+  async handle(event: EmitterWebhookEvent<"push">, ctx: TriggerContext) {
+    if (event.name !== "push") {
       return ctx.noop("Not a push event");
     }
 
@@ -200,10 +199,9 @@ export default {
       return ctx.noop("Different repository");
     }
 
-    const [owner, repo] = event.payload.repository.full_name.split("/");
     const comparison = await ctx.octokit.rest.repos.compareCommitsWithBasehead({
-      owner,
-      repo,
+      owner: event.payload.repository.owner.login,
+      repo: event.payload.repository.name,
       basehead: `${event.payload.before}...${event.payload.after}`,
     });
 
@@ -294,7 +292,11 @@ The manager should immediately publish or update the GitHub check with a `detail
 
 Add explicit repo-shape handling before a Nanite attempts work that is likely to exceed Workspace limits.
 
-The current installation repository contract in [packages/contracts/src/auth.ts](/packages/contracts/src/auth.ts:54) and the GitHub mapping in [src/backend/github.ts](/src/backend/github.ts:653) do not yet expose enough metadata to do this well.
+Installation repository data now stays Octokit-shaped. [src/backend/github.ts](/src/backend/github.ts)
+returns the full GitHub installation repository objects, and
+[src/backend/db/business-schema.ts](/src/backend/db/business-schema.ts) persists the full repository
+JSON alongside relational indexes. Future routing should read GitHub-owned metadata from those
+provider-shaped objects instead of extending a Sigvelo repository DTO.
 
 Add:
 
@@ -411,11 +413,9 @@ Do not try to solve every future runtime problem in the same pass.
 - [src/backend/nanites/agent.ts](/src/backend/nanites/agent.ts)
 - [src/backend/nanites/trigger-runtime.ts](/src/backend/nanites/trigger-runtime.ts)
 - [src/backend/nanites/github-mcp-capabilities.ts](/src/backend/nanites/github-mcp-capabilities.ts)
-- [packages/contracts/src/nanites.ts](/packages/contracts/src/nanites.ts)
-  old prototype UI surface
-- [packages/contracts/src/auth.ts](/packages/contracts/src/auth.ts)
 - [src/backend/github.ts](/src/backend/github.ts)
-- [src/frontend/routes/\_authenticated/repos.$repoId.tsx](/src/frontend/routes/_authenticated/repos.$repoId.tsx)
+- [src/backend/db/business-schema.ts](/src/backend/db/business-schema.ts)
+- [src/frontend/routes/\_authenticated/nanites.tsx](/src/frontend/routes/_authenticated/nanites.tsx)
 
 ### Sibling working repos
 
@@ -446,7 +446,8 @@ Do not try to solve every future runtime problem in the same pass.
 
 Before Sprint 2 lands, keep these inputs explicit:
 
-- extend the installation repository contract with GitHub `repository.size` and related repo-shape data instead of routing from incomplete metadata
+- use GitHub `repository.size` and related metadata from the stored Octokit repository object
+  instead of routing from incomplete local DTOs
 - decide the default WebMCP patch lane per target repo:
   CDN `@mcp-b/global`,
   package install,

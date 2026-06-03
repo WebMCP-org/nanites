@@ -56,10 +56,9 @@ Runtime-owned trust surfaces:
 Contracts and persisted product shape:
 
 - `src/backend/nanites/host.ts`
-- `packages/contracts/src/nanites.ts` (old prototype UI surface; do not grow for the rewrite)
-- `packages/contracts/src/auth.ts`
-- `packages/domain/src/business.ts`
-- `packages/db/src/schema/business.ts`
+- `src/backend/github.ts`
+- `src/backend/db/business-schema.ts`
+- `src/shared/domain/business.ts`
 
 Canonical Nanites docs:
 
@@ -287,7 +286,8 @@ Browser rendering:
 
 These are the extra inputs still missing or still worth making explicit before more runtime work lands:
 
-- Add GitHub repository size and related repo-shape metadata to the installation repository contract instead of inferring executor choice from partial data.
+- Use GitHub repository size and related metadata from Octokit-shaped installation
+  repository objects instead of inferring executor choice from partial local DTOs.
 - Decide the default browser-side WebMCP patch lane per repo shape:
   `@mcp-b/global` CDN tag,
   package install with `@mcp-b/global`,

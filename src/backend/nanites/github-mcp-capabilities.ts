@@ -1,4 +1,4 @@
-import type { GitHubAppPermissions } from "#/backend/github-types.ts";
+import type { GitHubAppPermissions } from "#/backend/github.ts";
 import { z } from "zod";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
@@ -9,7 +9,7 @@ const naniteGitHubMcpCapabilityTiers = [
   "github_ci_reader",
 ] as const;
 
-export type NaniteGitHubMcpCapabilityTier = (typeof naniteGitHubMcpCapabilityTiers)[number];
+type NaniteGitHubMcpCapabilityTier = (typeof naniteGitHubMcpCapabilityTiers)[number];
 
 export const naniteCapabilitySpecSchema = z
   .object({
@@ -52,14 +52,7 @@ export const naniteCapabilitySpecSchema = z
   .describe("External tool capabilities granted to a Nanite.");
 
 export type NaniteCapabilitySpec = z.infer<typeof naniteCapabilitySpecSchema>;
-export type NaniteGitHubMcpCapability = NonNullable<NaniteCapabilitySpec["githubMcp"]>;
-
-export type EffectiveNaniteGitHubMcpCapability = {
-  tools: string[];
-  deniedTools: string[];
-  readonly: boolean;
-  appPermissions: GitHubAppPermissions;
-};
+type NaniteGitHubMcpCapability = NonNullable<NaniteCapabilitySpec["githubMcp"]>;
 
 const githubMcpTierTools = {
   github_pr_read: ["get_me", "list_pull_requests", "search_pull_requests", "pull_request_read"],
@@ -107,9 +100,17 @@ const defaultDeniedGitHubMcpTools = [
 ] as const;
 
 type RequiredGitHubMcpToolPermission = {
-  permission: keyof GitHubAppPermissions;
+  permission: RequiredGitHubAppPermissionKey;
   level: "read" | "write";
 };
+type RequiredGitHubAppPermissionKey = "actions" | "contents" | "issues" | "pull_requests";
+
+const requiredGitHubAppPermissionKeys: RequiredGitHubAppPermissionKey[] = [
+  "actions",
+  "contents",
+  "issues",
+  "pull_requests",
+];
 
 const requiredGitHubAppPermissionsByTool: Record<string, RequiredGitHubMcpToolPermission> = {
   get_file_contents: { permission: "contents", level: "read" },
@@ -142,20 +143,23 @@ function mergeGitHubAppPermissionLevel(
 
 function mergeGitHubAppPermissions(
   base: GitHubAppPermissions,
-  inferred: GitHubAppPermissions,
+  inferred: Partial<Record<RequiredGitHubAppPermissionKey, "read" | "write">>,
 ): GitHubAppPermissions {
-  const merged: GitHubAppPermissions = { ...base };
-  for (const [permission, level] of Object.entries(inferred) as [
-    keyof GitHubAppPermissions,
-    "read" | "write",
-  ][]) {
+  let merged: GitHubAppPermissions = { ...base };
+  for (const permission of requiredGitHubAppPermissionKeys) {
+    const level = inferred[permission];
+    if (!level) {
+      continue;
+    }
     merged[permission] = mergeGitHubAppPermissionLevel(merged[permission], level);
   }
   return merged;
 }
 
-function inferGitHubAppPermissionsForMcpTools(tools: string[]): GitHubAppPermissions {
-  const permissions: GitHubAppPermissions = {};
+function inferGitHubAppPermissionsForMcpTools(
+  tools: string[],
+): Partial<Record<RequiredGitHubAppPermissionKey, "read" | "write">> {
+  const permissions: Partial<Record<RequiredGitHubAppPermissionKey, "read" | "write">> = {};
   for (const tool of tools) {
     const required = requiredGitHubAppPermissionsByTool[tool];
     if (!required) {
@@ -178,7 +182,7 @@ function inferGitHubAppPermissionsForMcpTools(tools: string[]): GitHubAppPermiss
 export function resolveNaniteGitHubMcpCapability(input: {
   capability: NaniteGitHubMcpCapability | undefined;
   appPermissions?: GitHubAppPermissions;
-}): EffectiveNaniteGitHubMcpCapability | null {
+}) {
   if (!input.capability) {
     return null;
   }
@@ -192,21 +196,19 @@ export function resolveNaniteGitHubMcpCapability(input: {
     ...(input.capability.deniedTools ?? []),
   ]);
   const deniedToolSet = new Set(deniedTools);
-  const capability = {
-    tools: uniqueSorted(requestedTools).filter((toolName) => !deniedToolSet.has(toolName)),
-    deniedTools,
-    readonly: input.capability.readonly ?? false,
-  };
+  const tools = uniqueSorted(requestedTools).filter((toolName) => !deniedToolSet.has(toolName));
 
-  if (capability.tools.length === 0) {
+  if (tools.length === 0) {
     throw new Error("GitHub MCP capability must expose at least one allowed tool.");
   }
 
   return {
-    ...capability,
+    tools,
+    deniedTools,
+    readonly: input.capability.readonly ?? false,
     appPermissions: mergeGitHubAppPermissions(
       input.appPermissions ?? {},
-      inferGitHubAppPermissionsForMcpTools(capability.tools),
+      inferGitHubAppPermissionsForMcpTools(tools),
     ),
   };
 }

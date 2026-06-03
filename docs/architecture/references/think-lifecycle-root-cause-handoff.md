@@ -591,7 +591,7 @@ Reference:
 - `/src/backend/nanites/git-tools-with-lazy-auth.ts`
 - `/src/backend/nanites/tool-output-budget.ts`
 - `/src/backend/nanites/tool-output-artifacts.ts`
-- `/src/backend/workers-ai.ts`
+- `/src/backend/nanites/language-model.ts`
 - `/src/backend/mcp/server.ts`
 
 ### Canonical Nanites Docs

@@ -1,29 +1,21 @@
 import { Agent, callable } from "agents";
-import { githubInstallationIdSchema, type GitHubInstallationId } from "@nanites/contracts/ids";
 import type { GitHubRawMessage } from "@chat-adapter/github";
+import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webhooks";
 import type { Author, Message, Thread } from "chat";
 import { getLogger } from "@logtape/logtape";
-import { LOG_EVENTS } from "@nanites/observability/log-events";
-import { LOGGING } from "@nanites/observability/logging";
-import { OTEL_ATTRS } from "@nanites/observability/otel-attrs";
-import type { GitHubCheckRunConclusion } from "#/backend/github-checks.ts";
-import type {
-  GitHubAppPermissions,
-  GitHubPullRequestTriggerAction,
-  GitHubPullRequestWebhookPayload,
-  GitHubPushWebhookPayload,
-} from "#/backend/github-types.ts";
-import { updateGitHubCheckRun } from "#/backend/github.ts";
+import { LOG_EVENTS } from "#/shared/observability/log-events.ts";
+import { LOGGING } from "#/shared/observability/logging.ts";
+import { OTEL_ATTRS } from "#/shared/observability/otel-attrs.ts";
+import type { GitHubAppPermissions } from "#/backend/github.ts";
+import { listReposAccessibleToInstallation } from "#/backend/github.ts";
 import {
   SigveloNaniteAgent,
-  type NaniteAgentMaintenanceInput,
   type NaniteAgentMaintenanceOutput,
   type NaniteDebugInspectInput,
   type NaniteDebugInspectOutput,
   type NaniteDebugResetOutput,
   type NaniteWorkspaceExploreInput,
   type NaniteWorkspaceExploreOutput,
-  type StartNaniteAgentInput,
 } from "#/backend/nanites/agent.ts";
 import {
   resolveNaniteGitHubMcpCapability,
@@ -35,31 +27,33 @@ import {
   validateGeneratedTriggerSource,
 } from "#/backend/nanites/trigger-runtime.ts";
 import {
-  buildGitHubPullRequestFixture,
-  buildGitHubPushFixture,
+  buildGitHubTriggerFixture,
+  type GitHubPullRequestFixtureId,
+  type GitHubPullRequestFixtureOverrides,
+  type GitHubPushFixtureId,
+  type GitHubPushFixtureOverrides,
 } from "#/backend/nanites/github-trigger-fixtures.ts";
-import { assertNaniteRepositoriesBelongToInstallation } from "#/backend/nanites/repository-scope.ts";
-import type {
-  TriggerDispatchInput,
-  TriggerGitHubCheckSurfaceRequest,
-} from "#/backend/nanites/trigger-runtime.ts";
-import {
-  NANITE_MANUAL_RUN_TIMEOUT_MS,
-  NANITE_TRIGGER_TEST_INSTRUCTION,
-  NANITE_TRIGGER_TEST_TIMEOUT_MS,
-  type StartNaniteManualRunInput,
-  type StartNaniteManualRunOutput,
-  type TestNaniteTriggerInput,
-  type TestNaniteTriggerOutput,
-} from "#/backend/orpc/contracts/nanites.ts";
+import type { TriggerDispatchInput } from "#/backend/nanites/trigger-runtime.ts";
 import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/shared/constants/nanites.ts";
-export {
-  githubAppPermissionNames,
-  githubPullRequestTriggerActions,
-  type GitHubAppPermissionName,
-  type GitHubAppPermissions,
-  type GitHubPullRequestTriggerAction,
-} from "#/backend/github-types.ts";
+import {
+  type GitHubWebhookEventSnapshot,
+  getGitHubWebhookAction,
+  getGitHubWebhookBranch,
+  getGitHubWebhookEventName,
+  getGitHubWebhookHeadSha,
+  getGitHubWebhookPullRequestNumber,
+  getGitHubWebhookRepositoryFullName,
+  snapshotGitHubWebhookEvent,
+} from "#/shared/github-webhook-fields.ts";
+
+export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
+export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
+export const NANITE_TRIGGER_TEST_INSTRUCTION = [
+  "This is a trigger acceptance test.",
+  "Do not modify GitHub.",
+  "Inspect the trigger payload and runtime context.",
+  "If the trigger and context look correct, call complete with a short summary and agentFeedback for the authoring agent.",
+].join(" ");
 
 const MAX_RUNS_IN_STATE = 100;
 const MAX_TRIGGER_DISPATCHES_PER_EVENT = 25;
@@ -110,6 +104,54 @@ export type NaniteRuntimeActivity = {
   lastActivityAt: string | null;
   error: string | null;
 };
+export type StartNaniteManualRunInput = {
+  naniteId: string;
+  message: string;
+  manualRequestId?: string;
+  actorId: string | null;
+  waitForTerminalOutcome?: boolean;
+  timeoutMs?: number;
+};
+export type StartNaniteManualRunOutput = {
+  ok: boolean;
+  managerName: string;
+  naniteId: string;
+  runs: NaniteRunRecord[];
+};
+export type TestNaniteTriggerInput = {
+  naniteId: string;
+  event:
+    | {
+        fixture: GitHubPullRequestFixtureId;
+        overrides?: GitHubPullRequestFixtureOverrides;
+      }
+    | {
+        fixture: GitHubPushFixtureId;
+        overrides?: GitHubPushFixtureOverrides;
+      };
+  testInstruction?: string;
+  actorId: string | null;
+  requestId?: string;
+  waitForTerminalOutcome?: boolean;
+  timeoutMs?: number;
+};
+export type TestNaniteTriggerOutput = {
+  ok: boolean;
+  managerName: string;
+  naniteId: string;
+  fixture: GitHubPullRequestFixtureId | GitHubPushFixtureId;
+  event: GitHubWebhookEventSnapshot;
+  acceptance: {
+    fixtureBuilt: boolean;
+    triggerAcceptedEvent: boolean;
+    runCreated: boolean;
+    modelDispatched: boolean;
+    terminalOutcomeReached: boolean;
+  };
+  runs: NaniteRunRecord[];
+  agentFeedback: NaniteRunRecord["agentFeedback"] | null;
+  error: string | null;
+};
 export type UnreportedThinkSubmissionStatus = "completed" | "aborted" | "skipped" | "error";
 export type TerminalNaniteRunStatus = Extract<
   NaniteRunStatus,
@@ -145,15 +187,10 @@ export type NaniteTriggerSpec =
     }
   | {
       type: "github";
-      event: "pull_request";
-      repositories: Array<GitHubPullRequestWebhookPayload["repository"]["full_name"]>;
-      actions: GitHubPullRequestTriggerAction[];
-    }
-  | {
-      type: "github";
-      event: "push";
-      repository: GitHubPushWebhookPayload["repository"]["full_name"];
-      branch: string;
+      events?: EmitterWebhookEventName[];
+      repositories?: string[];
+      actions?: string[];
+      branches?: string[];
     }
   | {
       type: "webhook";
@@ -175,21 +212,7 @@ export type NaniteTriggerEvent =
     }
   | {
       type: "github";
-      event: "pull_request";
-      deliveryId: string;
-      repository: GitHubPullRequestWebhookPayload["repository"]["full_name"];
-      action: GitHubPullRequestTriggerAction;
-      pullNumber: GitHubPullRequestWebhookPayload["pull_request"]["number"];
-      headSha: GitHubPullRequestWebhookPayload["pull_request"]["head"]["sha"];
-      input?: TriggerDispatchInput;
-    }
-  | {
-      type: "github";
-      event: "push";
-      deliveryId: string;
-      repository: GitHubPushWebhookPayload["repository"]["full_name"];
-      branch: string;
-      afterSha: GitHubPushWebhookPayload["after"];
+      event: GitHubWebhookEventSnapshot;
       input?: TriggerDispatchInput;
     }
   | {
@@ -216,6 +239,18 @@ export type NaniteManifest = {
   permissions: NanitePermissionSpec;
   capabilities?: NaniteCapabilitySpec;
 };
+
+class NaniteRepositoryScopeError extends Error {
+  constructor(
+    readonly githubInstallationId: number,
+    readonly repositories: readonly string[],
+  ) {
+    super(
+      `GitHub installation ${githubInstallationId} cannot access Nanite repositories: ${repositories.join(", ")}`,
+    );
+    this.name = "NaniteRepositoryScopeError";
+  }
+}
 
 export type NaniteSourceVersion = {
   versionId: string;
@@ -245,31 +280,6 @@ export type NaniteAgentFeedback = {
   suggestions?: string[];
 };
 
-export type NaniteGitHubCheckStatus =
-  | "creating"
-  | "in_progress"
-  | "completed"
-  | "create_failed"
-  | "update_failed";
-
-export type NaniteGitHubCheckSurface = {
-  installationId: GitHubInstallationId;
-  repository: GitHubPullRequestWebhookPayload["repository"]["full_name"];
-  owner: string;
-  repo: string;
-  name: string;
-  headSha: string;
-  checkRunId: number | null;
-  status: NaniteGitHubCheckStatus;
-  conclusion: GitHubCheckRunConclusion | null;
-  detailsUrl: string | null;
-  outputTitle: string | null;
-  outputSummary: string | null;
-  outputText: string | null;
-  startedAt: string;
-  updatedAt: string;
-};
-
 export type NaniteRunRecord = {
   runId: string;
   naniteId: string;
@@ -281,7 +291,6 @@ export type NaniteRunRecord = {
   outputUrl: string | null;
   agentFeedback: NaniteAgentFeedback | null;
   humanRequest: HumanRequest | null;
-  githubCheck: NaniteGitHubCheckSurface | null;
   chatUrl: string;
   startedAt: string;
   dispatchError: string | null;
@@ -307,39 +316,17 @@ export type StartNaniteRunInput = {
   trigger: NaniteTriggerEvent;
 };
 
-export type HandleGitHubPullRequestWebhookInput = {
-  githubInstallationId: GitHubInstallationId;
-  deliveryId: string | null;
-  payload: GitHubPullRequestWebhookPayload;
+export type HandleGitHubWebhookInput = {
+  githubInstallationId: number;
+  event: EmitterWebhookEvent;
   dispatchInput?: TriggerDispatchInput;
   onlyNaniteId?: string;
 };
 
-export type HandleGitHubPushWebhookInput = {
-  githubInstallationId: GitHubInstallationId;
-  deliveryId: string | null;
-  payload: GitHubPushWebhookPayload;
-  dispatchInput?: TriggerDispatchInput;
-  onlyNaniteId?: string;
+export type TestGeneratedTriggerInput = {
+  naniteId: string;
+  event: EmitterWebhookEvent;
 };
-
-export type TestGeneratedTriggerInput =
-  | {
-      naniteId: string;
-      event: {
-        type: "github.pull_request";
-        deliveryId: string | null;
-        payload: GitHubPullRequestWebhookPayload;
-      };
-    }
-  | {
-      naniteId: string;
-      event: {
-        type: "github.push";
-        deliveryId: string | null;
-        payload: GitHubPushWebhookPayload;
-      };
-    };
 
 export type TestGeneratedTriggerOutput = {
   ok: boolean;
@@ -348,34 +335,28 @@ export type TestGeneratedTriggerOutput = {
   error: string | null;
 };
 
-export type GitHubPullRequestWebhookRunDispatch = {
+export type GitHubWebhookRunDispatch = {
   run: NaniteRunRecord;
   created: boolean;
-  githubCheckSurface: TriggerGitHubCheckSurfaceRequest | null;
 };
 
 export type DispatchNaniteRunInput = {
   runId: string;
 };
 
-export type GitHubManagerChatThread = Thread<Record<string, unknown>, GitHubRawMessage>;
-export type GitHubManagerChatMessage = Message<GitHubRawMessage>;
-export type GitHubManagerChatAuthor = Pick<Author, "isBot" | "userId" | "userName">;
 export type GitHubManagerThreadType =
   | NonNullable<Extract<GitHubRawMessage, { type: "issue_comment" }>["threadType"]>
   | "review_comment";
 
 export type HandleManagerChatMessageInput = {
-  installationId: GitHubInstallationId;
+  installationId: number;
   surface: {
     type: "github";
-    threadId: GitHubManagerChatThread["id"];
-    messageId: GitHubManagerChatMessage["id"];
-    repository: GitHubRawMessage["repository"]["full_name"];
-    prNumber: GitHubRawMessage["prNumber"];
-    threadType: GitHubManagerThreadType;
+    threadId: Thread<Record<string, unknown>, GitHubRawMessage>["id"];
+    messageId: Message<GitHubRawMessage>["id"];
+    raw: GitHubRawMessage;
   };
-  author: GitHubManagerChatAuthor;
+  author: Author;
   text: string;
 };
 
@@ -383,18 +364,13 @@ export type HandleManagerChatMessageOutput = {
   replyMarkdown: string;
 };
 
-type NaniteAgentDispatchClient = {
-  enqueueFromManager(input: StartNaniteAgentInput): Promise<void>;
-  cancelRunFromManager(input: { runId: string; reason: string }): Promise<void>;
-  syncScheduleFromManager(input: { managerName: string; nanite: ManagedNanite }): Promise<void>;
-  maintainFromManager(input: NaniteAgentMaintenanceInput): Promise<NaniteAgentMaintenanceOutput>;
-};
+export function getGitHubManagerChatThreadType(raw: GitHubRawMessage): GitHubManagerThreadType {
+  if (raw.type === "review_comment") {
+    return "review_comment";
+  }
 
-type NaniteAgentDebugClient = {
-  inspectDebug(input?: NaniteDebugInspectInput): Promise<NaniteDebugInspectOutput>;
-  exploreWorkspace(input: NaniteWorkspaceExploreInput): Promise<NaniteWorkspaceExploreOutput>;
-  resetDebugState(): Promise<NaniteDebugResetOutput>;
-};
+  return raw.threadType ?? "pr";
+}
 
 export type InspectNaniteDebugInput = {
   naniteId?: string;
@@ -494,32 +470,6 @@ export type DeprovisionNanitesOutput = {
   }>;
 };
 
-export type ClaimGitHubCheckCreationInput = {
-  runId: string;
-  installationId: GitHubInstallationId;
-  repository: GitHubPullRequestWebhookPayload["repository"]["full_name"];
-  owner: string;
-  repo: string;
-  name: string;
-  headSha: string;
-  detailsUrl: string | null;
-};
-
-export type AttachGitHubCheckInput = {
-  runId: string;
-  checkRunId: number;
-  detailsUrl: string | null;
-  outputTitle: string;
-  outputSummary: string;
-  outputText: string;
-};
-
-export type RecordGitHubCheckFailureInput = {
-  runId: string;
-  status: Extract<NaniteGitHubCheckStatus, "create_failed" | "update_failed">;
-  summary: string;
-};
-
 export type CompleteNaniteRunInput = {
   runId: string;
   status: CompletableNaniteRunStatus;
@@ -571,7 +521,55 @@ function isTerminalNaniteRunStatus(status: NaniteRunStatus): status is TerminalN
   return terminalRunStatuses.has(status);
 }
 
-export function createInitialNaniteManagerState(): NaniteManagerState {
+function collectManifestRepositories(manifest: NaniteManifest): string[] {
+  const repositories = new Set<string>();
+
+  for (const repository of manifest.permissions.github?.repositories ?? []) {
+    repositories.add(repository);
+  }
+
+  const trigger = manifest.trigger;
+  if (trigger.type === "github") {
+    for (const repository of trigger.repositories ?? []) {
+      repositories.add(repository);
+    }
+  }
+
+  return [...repositories].sort();
+}
+
+async function assertNaniteRepositoriesBelongToInstallation({
+  env,
+  githubInstallationId,
+  manifest,
+}: {
+  env: Env;
+  githubInstallationId: number;
+  manifest: NaniteManifest;
+}): Promise<void> {
+  const requestedRepositories = collectManifestRepositories(manifest);
+  if (requestedRepositories.length === 0) {
+    return;
+  }
+
+  const accessibleRepositories = new Set(
+    (
+      await listReposAccessibleToInstallation({
+        env,
+        githubInstallationId,
+      })
+    ).map((repository) => repository.full_name),
+  );
+  const inaccessibleRepositories = requestedRepositories.filter(
+    (repository) => !accessibleRepositories.has(repository),
+  );
+
+  if (inaccessibleRepositories.length > 0) {
+    throw new NaniteRepositoryScopeError(githubInstallationId, inaccessibleRepositories);
+  }
+}
+
+function createInitialNaniteManagerState(): NaniteManagerState {
   return {
     nanites: {},
     runs: {},
@@ -581,7 +579,7 @@ export function createInitialNaniteManagerState(): NaniteManagerState {
   };
 }
 
-export function assertNaniteRunStatusTransition(
+function assertNaniteRunStatusTransition(
   currentStatus: NaniteRunStatus,
   nextStatus: NaniteRunStatus,
 ): void {
@@ -598,13 +596,16 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function getGitHubInstallationIdFromManagerName(managerName: string): GitHubInstallationId | null {
+function getGitHubInstallationIdFromManagerName(managerName: string): number | null {
   const [, rawInstallationId] = /^installation:(\d+)$/.exec(managerName) ?? [];
   if (!rawInstallationId) {
     return null;
   }
 
-  return githubInstallationIdSchema.parse(Number(rawInstallationId));
+  const githubInstallationId = Number(rawInstallationId);
+  return Number.isInteger(githubInstallationId) && githubInstallationId > 0
+    ? githubInstallationId
+    : null;
 }
 
 function parseIsoDate(value: string, fieldName: string): Date {
@@ -716,7 +717,7 @@ function formatCompactError(error: unknown): string {
 
 function getTriggerEventName(trigger: NaniteTriggerEvent): string {
   if (trigger.type === "github") {
-    return trigger.event;
+    return getGitHubWebhookEventName(trigger.event);
   }
 
   return trigger.type;
@@ -753,89 +754,66 @@ function buildTriggerKey(input: StartNaniteRunInput): string {
     case "schedule":
       return `${input.naniteId}:schedule:${JSON.stringify(trigger.schedule)}:${trigger.scheduledAt}`;
     case "github":
-      switch (trigger.event) {
-        case "pull_request":
-          return [
-            input.naniteId,
-            "github",
-            trigger.event,
-            trigger.repository,
-            trigger.pullNumber,
-            trigger.action,
-            trigger.headSha,
-          ].join(":");
-        case "push":
-          return [
-            input.naniteId,
-            "github",
-            trigger.event,
-            trigger.repository,
-            trigger.branch,
-            trigger.afterSha,
-          ].join(":");
-      }
+      return [
+        input.naniteId,
+        "github",
+        getGitHubWebhookEventName(trigger.event),
+        getGitHubWebhookRepositoryFullName(trigger.event) ?? "no-repository",
+        getGitHubWebhookBranch(trigger.event) ?? "no-branch",
+        getGitHubWebhookPullRequestNumber(trigger.event) ?? "no-pull-request",
+        getGitHubWebhookHeadSha(trigger.event) ?? "no-head-sha",
+        trigger.event.id,
+      ].join(":");
     case "webhook":
       return `${input.naniteId}:webhook:${trigger.source}:${trigger.deliveryId}`;
   }
 }
 
-function githubPullRequestTriggerMatches(
-  trigger: NaniteTriggerSpec,
-  payload: GitHubPullRequestWebhookPayload,
-): boolean {
-  return (
-    trigger.type === "github" &&
-    trigger.event === "pull_request" &&
-    trigger.repositories.includes(payload.repository.full_name) &&
-    trigger.actions.includes(payload.action)
-  );
+function githubTriggerMatches(nanite: ManagedNanite, event: EmitterWebhookEvent): boolean {
+  const trigger = nanite.manifest.trigger;
+  if (trigger.type !== "github") {
+    return false;
+  }
+
+  const eventName = getGitHubWebhookEventName(event);
+  if (
+    trigger.events &&
+    !trigger.events.includes(event.name) &&
+    !trigger.events.includes(eventName)
+  ) {
+    return false;
+  }
+
+  const repository = getGitHubWebhookRepositoryFullName(event);
+  const allowedRepositories =
+    trigger.repositories ?? nanite.manifest.permissions.github?.repositories ?? [];
+  if (
+    allowedRepositories.length > 0 &&
+    (!repository || !allowedRepositories.includes(repository))
+  ) {
+    return false;
+  }
+
+  const action = getGitHubWebhookAction(event);
+  if (trigger.actions && (!action || !trigger.actions.includes(action))) {
+    return false;
+  }
+
+  const branch = getGitHubWebhookBranch(event);
+  if (trigger.branches && (!branch || !trigger.branches.includes(branch))) {
+    return false;
+  }
+
+  return true;
 }
 
-function githubPushBranch(payload: GitHubPushWebhookPayload): string {
-  return payload.ref.replace(/^refs\/heads\//, "");
-}
-
-function githubPushTriggerMatches(
-  trigger: NaniteTriggerSpec,
-  payload: GitHubPushWebhookPayload,
-): boolean {
-  return (
-    trigger.type === "github" &&
-    trigger.event === "push" &&
-    trigger.repository === payload.repository.full_name &&
-    trigger.branch === githubPushBranch(payload)
-  );
-}
-
-function buildGitHubPullRequestTriggerEvent(input: {
-  deliveryId: string | null;
-  payload: GitHubPullRequestWebhookPayload;
+function buildGitHubTriggerEvent(input: {
+  event: EmitterWebhookEvent;
   dispatchInput?: TriggerDispatchInput;
-}): Extract<NaniteTriggerEvent, { type: "github"; event: "pull_request" }> {
+}): Extract<NaniteTriggerEvent, { type: "github" }> {
   return {
     type: "github",
-    event: "pull_request",
-    deliveryId: input.deliveryId ?? crypto.randomUUID(),
-    repository: input.payload.repository.full_name,
-    action: input.payload.action,
-    pullNumber: input.payload.pull_request.number,
-    headSha: input.payload.pull_request.head.sha,
-    ...(input.dispatchInput === undefined ? {} : { input: input.dispatchInput }),
-  };
-}
-
-function buildGitHubPushTriggerEvent(input: {
-  deliveryId: string | null;
-  payload: GitHubPushWebhookPayload;
-  dispatchInput?: TriggerDispatchInput;
-}): Extract<NaniteTriggerEvent, { type: "github"; event: "push" }> {
-  return {
-    type: "github",
-    event: "push",
-    deliveryId: input.deliveryId ?? crypto.randomUUID(),
-    repository: input.payload.repository.full_name,
-    branch: githubPushBranch(input.payload),
-    afterSha: input.payload.after,
+    event: snapshotGitHubWebhookEvent(input.event),
     ...(input.dispatchInput === undefined ? {} : { input: input.dispatchInput }),
   };
 }
@@ -852,61 +830,6 @@ function getExistingRunByTriggerKey(
   }
 
   return null;
-}
-
-function naniteShouldCreateGitHubCheck(nanite: ManagedNanite): boolean {
-  return nanite.manifest.permissions.github?.appPermissions?.checks === "write";
-}
-
-function buildDefaultGitHubCheckName(nanite: ManagedNanite): string {
-  return nanite.manifest.name.trim() || nanite.manifest.id;
-}
-
-function buildGitHubCheckName(input: { surfaceName?: string; nanite: ManagedNanite }): string {
-  const requestedName = input.surfaceName?.trim();
-  return (requestedName || buildDefaultGitHubCheckName(input.nanite)).slice(0, 100);
-}
-
-function resolveRequestedGitHubCheckSurface(input: {
-  nanite: ManagedNanite;
-  requestedSurfaces?: readonly TriggerGitHubCheckSurfaceRequest[];
-  repository: string;
-  headSha: string;
-}): TriggerGitHubCheckSurfaceRequest | null {
-  if (input.requestedSurfaces === undefined) {
-    return naniteShouldCreateGitHubCheck(input.nanite)
-      ? {
-          type: "github_check",
-          repository: input.repository,
-          headSha: input.headSha,
-          name: buildDefaultGitHubCheckName(input.nanite),
-        }
-      : null;
-  }
-
-  const requestedCheck = input.requestedSurfaces.find((surface) => surface.type === "github_check");
-  if (!requestedCheck || !naniteShouldCreateGitHubCheck(input.nanite)) {
-    return null;
-  }
-
-  const allowedRepositories = input.nanite.manifest.permissions.github?.repositories ?? [];
-  if (
-    requestedCheck.repository !== input.repository ||
-    requestedCheck.headSha !== input.headSha ||
-    !allowedRepositories.includes(requestedCheck.repository)
-  ) {
-    return null;
-  }
-
-  return {
-    type: "github_check",
-    repository: requestedCheck.repository,
-    headSha: requestedCheck.headSha,
-    name: buildGitHubCheckName({
-      surfaceName: requestedCheck.name,
-      nanite: input.nanite,
-    }),
-  };
 }
 
 function countActiveRunsForNanite(state: NaniteManagerState, naniteId: string): number {
@@ -970,34 +893,6 @@ function buildNaniteChatUrl(input: { managerName: string; naniteId: string }): s
   return `/agents/${NANITE_MANAGER_NAME}/${encodeURIComponent(input.managerName)}/sub/${encodeURIComponent(NANITE_AGENT_NAME)}/${encodeURIComponent(input.naniteId)}`;
 }
 
-function buildTerminalGitHubCheckConclusion(
-  status: TerminalNaniteRunStatus,
-): GitHubCheckRunConclusion {
-  switch (status) {
-    case "complete":
-      return "success";
-    case "no_change":
-      return "neutral";
-    case "fail":
-      return "failure";
-    case "canceled":
-      return "cancelled";
-  }
-}
-
-function buildTerminalGitHubCheckOutput(run: NaniteRunRecord) {
-  const summary = run.summary ?? "Nanite run finished.";
-  const detailsLine = run.githubCheck?.detailsUrl
-    ? `Live Sigvelo run: ${run.githubCheck.detailsUrl}`
-    : `Live Sigvelo Nanite chat: ${run.chatUrl}`;
-
-  return {
-    title: `${run.naniteId}: ${run.status}`,
-    summary,
-    text: [summary, "", detailsLine].join("\n"),
-  };
-}
-
 function updateRun(
   state: NaniteManagerState,
   runId: string,
@@ -1036,14 +931,15 @@ function renderManagerChatReply(input: {
   state: NaniteManagerState;
 }): string {
   const nanites = Object.values(input.state.nanites);
+  const repository = input.message.surface.raw.repository.full_name;
   const repositoryNanites = nanites.filter((nanite) =>
-    nanite.manifest.permissions.github?.repositories.includes(input.message.surface.repository),
+    nanite.manifest.permissions.github?.repositories.includes(repository),
   );
   const activeRuns = input.state.runOrder
     .map((runId) => input.state.runs[runId])
     .filter((run) => run && !isTerminalNaniteRunStatus(run.status))
     .slice(0, 5);
-  const lines = [`Sigvelo manager received this in \`${input.message.surface.repository}\`.`, ""];
+  const lines = [`Sigvelo manager received this in \`${repository}\`.`, ""];
 
   if (repositoryNanites.length === 0) {
     lines.push("No Nanites are currently scoped to this repository.");
@@ -1154,10 +1050,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     for (const nanite of registeredNanites) {
       const naniteId = nanite.manifest.id;
-      let agent: NaniteAgentDispatchClient;
+      const resolveAgent = async () => this.subAgent(SigveloNaniteAgent, naniteId);
+      let agent: Awaited<ReturnType<typeof resolveAgent>>;
 
       try {
-        agent = await this.subAgent(SigveloNaniteAgent, naniteId);
+        agent = await resolveAgent();
       } catch (error) {
         failedNaniteAgentMaintenance.push({
           naniteId,
@@ -1265,7 +1162,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         output.think = null;
       } else {
         const agent = await this.subAgent(SigveloNaniteAgent, selectedNaniteId);
-        output.think = await (agent as NaniteAgentDebugClient).inspectDebug({
+        output.think = await agent.inspectDebug({
           transcript: include.has("transcript") ? input.transcript : false,
           submissions: include.has("submissions") ? input.submissions : false,
         });
@@ -1285,8 +1182,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     }
 
     const agent = await this.subAgent(SigveloNaniteAgent, input.naniteId);
-    const { naniteId: _naniteId, ...workspaceInput } = input;
-    return (agent as NaniteAgentDebugClient).exploreWorkspace(workspaceInput);
+    return agent.exploreWorkspace(input);
   }
 
   @callable()
@@ -1300,7 +1196,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     return {
       managerName: this.name,
       naniteId: input.naniteId,
-      reset: await (agent as NaniteAgentDebugClient).resetDebugState(),
+      reset: await agent.resetDebugState(),
     };
   }
 
@@ -1315,6 +1211,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     }
 
     const triggerSource = nanite.manifest.inboundTrigger?.sourceCode;
+    const eventType = getGitHubWebhookEventName(input.event);
     if (!triggerSource) {
       naniteManagerLogger.info(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
         ...createManagerLogContext(this.name, { naniteId: input.naniteId }),
@@ -1322,7 +1219,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: 1,
         hasGeneratedTrigger: false,
         test: true,
-        eventType: input.event.type,
+        eventType,
       });
       return { ok: true, hasGeneratedTrigger: false, accepted: true, error: null };
     }
@@ -1330,7 +1227,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     const triggerResult = await runGeneratedTrigger({
       loader: this.env.LOADER,
       sourceCode: triggerSource,
-      cacheKey: `${this.name}:${nanite.manifest.id}:${nanite.latestVersion.manifestHash}:${input.event.type}:test`,
+      cacheKey: `${this.name}:${nanite.manifest.id}:${nanite.latestVersion.manifestHash}:${eventType}:test`,
       event: input.event,
     });
 
@@ -1341,7 +1238,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: 0,
         hasGeneratedTrigger: true,
         test: true,
-        eventType: input.event.type,
+        eventType,
         error: triggerResult.error,
       });
       return {
@@ -1360,7 +1257,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       dispatchIntentCount,
       hasGeneratedTrigger: true,
       test: true,
-      eventType: input.event.type,
+      eventType,
     });
 
     return {
@@ -1384,84 +1281,36 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       sigveloTestInstruction: input.testInstruction ?? NANITE_TRIGGER_TEST_INSTRUCTION,
       sigveloTestActor: input.actorId ?? "unknown",
     };
-
-    let event: TestNaniteTriggerOutput["event"];
+    const event = buildGitHubTriggerFixture({
+      fixture: input.event.fixture,
+      deliveryId,
+      installationId: githubInstallationId,
+      overrides: input.event.overrides,
+    });
+    const eventSnapshot = snapshotGitHubWebhookEvent(event);
     let generatedTrigger: TestGeneratedTriggerOutput;
-    let dispatches: GitHubPullRequestWebhookRunDispatch[];
+    let dispatches: GitHubWebhookRunDispatch[];
 
-    if (input.event.fixture === "github.push") {
-      const payload = buildGitHubPushFixture({
-        installationId: githubInstallationId,
-        overrides: input.event.overrides,
-      });
-      event = {
-        fixture: input.event.fixture,
-        deliveryId,
-        repository: payload.repository.full_name,
-        pullNumber: null,
-        action: null,
-        headSha: null,
-        branch: payload.ref.replace(/^refs\/heads\//, ""),
-        afterSha: payload.after,
-      };
-      generatedTrigger = await this.testGeneratedTrigger({
-        naniteId: input.naniteId,
-        event: {
-          type: "github.push",
-          deliveryId,
-          payload,
-        },
-      });
-      dispatches = generatedTrigger.ok
-        ? await this.handleGitHubPushWebhook({
-            githubInstallationId,
-            deliveryId,
-            payload,
-            onlyNaniteId: input.naniteId,
-            dispatchInput: commonDispatchInput,
-          })
-        : [];
-    } else {
-      const payload = buildGitHubPullRequestFixture({
-        fixture: input.event.fixture,
-        installationId: githubInstallationId,
-        overrides: input.event.overrides,
-      });
-      event = {
-        fixture: input.event.fixture,
-        deliveryId,
-        repository: payload.repository.full_name,
-        pullNumber: payload.pull_request.number,
-        action: payload.action,
-        headSha: payload.pull_request.head.sha,
-        branch: null,
-        afterSha: null,
-      };
-      generatedTrigger = await this.testGeneratedTrigger({
-        naniteId: input.naniteId,
-        event: {
-          type: "github.pull_request",
-          deliveryId,
-          payload,
-        },
-      });
-      dispatches = generatedTrigger.ok
-        ? await this.handleGitHubPullRequestWebhook({
-            githubInstallationId,
-            deliveryId,
-            payload,
-            onlyNaniteId: input.naniteId,
-            dispatchInput: commonDispatchInput,
-          })
-        : [];
-    }
+    generatedTrigger = await this.testGeneratedTrigger({
+      naniteId: input.naniteId,
+      event,
+    });
+    dispatches = generatedTrigger.ok
+      ? await this.handleGitHubWebhook({
+          githubInstallationId,
+          event,
+          onlyNaniteId: input.naniteId,
+          dispatchInput: commonDispatchInput,
+        })
+      : [];
 
     if (!generatedTrigger.ok) {
       return {
         ok: false,
         managerName: this.name,
         naniteId: input.naniteId,
-        event,
+        fixture: input.event.fixture,
+        event: eventSnapshot,
         acceptance: {
           fixtureBuilt: true,
           triggerAcceptedEvent: false,
@@ -1503,7 +1352,8 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         (input.waitForTerminalOutcome ? successfulTerminalOutcome : successfulDispatch),
       managerName: this.name,
       naniteId: input.naniteId,
-      event,
+      fixture: input.event.fixture,
+      event: eventSnapshot,
       acceptance: {
         fixtureBuilt: true,
         triggerAcceptedEvent: dispatches.length > 0,
@@ -1566,7 +1416,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       }
 
       const agent = await this.subAgent(SigveloNaniteAgent, run.naniteId);
-      await (agent as NaniteAgentDispatchClient).cancelRunFromManager({
+      await agent.cancelRunFromManager({
         runId,
         reason: input.reason,
       });
@@ -1621,7 +1471,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       }
 
       const agent = await this.subAgent(SigveloNaniteAgent, naniteId);
-      await (agent as NaniteAgentDebugClient).resetDebugState();
+      await agent.resetDebugState();
       await this.deleteSubAgent(SigveloNaniteAgent, naniteId);
       delete nextNanites[naniteId];
       delete nextRuntimeActivityByNanite[naniteId];
@@ -1724,6 +1574,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       const validationResult = await validateGeneratedTriggerSource({
         loader: this.env.LOADER,
         sourceCode: triggerSource,
+        event: null,
         cacheKey: `${this.name}:${manifest.id}:registration-validation`,
       });
       if (!validationResult.ok) {
@@ -1755,7 +1606,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       existing?.manifest.trigger.type === "schedule"
     ) {
       const agent = await this.subAgent(SigveloNaniteAgent, nanite.manifest.id);
-      await (agent as NaniteAgentDispatchClient).syncScheduleFromManager({
+      await agent.syncScheduleFromManager({
         managerName: this.name,
         nanite,
       });
@@ -1802,7 +1653,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       outputUrl: null,
       agentFeedback: null,
       humanRequest: null,
-      githubCheck: null,
       chatUrl: buildNaniteChatUrl({
         managerName: this.name,
         naniteId: input.naniteId,
@@ -1864,9 +1714,10 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       ...createManagerLogContext(this.name, { run }),
     });
 
-    let agent: NaniteAgentDispatchClient;
+    const resolveAgent = async () => this.subAgent(SigveloNaniteAgent, run.naniteId);
+    let agent: Awaited<ReturnType<typeof resolveAgent>>;
     try {
-      agent = await this.subAgent(SigveloNaniteAgent, run.naniteId);
+      agent = await resolveAgent();
     } catch (error) {
       naniteManagerLogger.error(LOG_EVENTS.NANITE_RUN_DISPATCH_FAILED, {
         ...createManagerLogContext(this.name, { run }),
@@ -2009,9 +1860,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       error: input.error ?? undefined,
     });
 
-    if (run.githubCheck?.checkRunId && isTerminalNaniteRunStatus(run.status)) {
-      this.ctx.waitUntil(this.updateGitHubCheckForTerminalRun(run));
-    }
     return run;
   }
 
@@ -2049,37 +1897,29 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   }
 
   @callable()
-  async handleGitHubPullRequestWebhook(
-    input: HandleGitHubPullRequestWebhookInput,
-  ): Promise<GitHubPullRequestWebhookRunDispatch[]> {
+  async handleGitHubWebhook(input: HandleGitHubWebhookInput): Promise<GitHubWebhookRunDispatch[]> {
     const snapshot = await this.getSnapshot();
-    const startedRuns: GitHubPullRequestWebhookRunDispatch[] = [];
+    const startedRuns: GitHubWebhookRunDispatch[] = [];
+    const eventType = getGitHubWebhookEventName(input.event);
 
     for (const nanite of Object.values(snapshot.nanites)) {
       if (
         !nanite.enabled ||
         (input.onlyNaniteId && nanite.manifest.id !== input.onlyNaniteId) ||
-        !githubPullRequestTriggerMatches(nanite.manifest.trigger, input.payload)
+        !githubTriggerMatches(nanite, input.event)
       ) {
         continue;
       }
 
       const triggerSource = nanite.manifest.inboundTrigger?.sourceCode;
-      const dispatches: Array<{
-        input: TriggerDispatchInput | undefined;
-        githubCheckSurface: TriggerGitHubCheckSurfaceRequest | null;
-      }> = [];
+      const dispatches: Array<{ input: TriggerDispatchInput | undefined }> = [];
 
       if (triggerSource) {
         const triggerResult = await runGeneratedTrigger({
           loader: this.env.LOADER,
           sourceCode: triggerSource,
-          cacheKey: `${this.name}:${nanite.manifest.id}:${nanite.latestVersion.manifestHash}:github-pull-request`,
-          event: {
-            type: "github.pull_request",
-            deliveryId: input.deliveryId,
-            payload: input.payload,
-          },
+          cacheKey: `${this.name}:${nanite.manifest.id}:${nanite.latestVersion.manifestHash}:${eventType}`,
+          event: input.event,
         });
 
         if (!triggerResult.ok) {
@@ -2087,15 +1927,14 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
             ...createManagerLogContext(this.name, { naniteId: nanite.manifest.id }),
             [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: false,
             [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: 0,
-            eventType: "github.pull_request",
+            eventType,
             error: triggerResult.error,
           });
 
           const run = await this.startRun({
             naniteId: nanite.manifest.id,
-            trigger: buildGitHubPullRequestTriggerEvent({
-              deliveryId: input.deliveryId,
-              payload: input.payload,
+            trigger: buildGitHubTriggerEvent({
+              event: input.event,
               dispatchInput: {
                 triggerError: triggerResult.error,
               },
@@ -2108,7 +1947,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
               error: `Trigger failed before model dispatch: ${triggerResult.error}`,
             }),
             created: true,
-            githubCheckSurface: null,
           });
           continue;
         }
@@ -2119,7 +1957,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
           [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: dispatchIntents.length > 0,
           [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: triggerResult.intents.length,
           dispatchIntentCount: dispatchIntents.length,
-          eventType: "github.pull_request",
+          eventType,
         });
 
         for (const intent of dispatchIntents) {
@@ -2128,12 +1966,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
               ...intent.input,
               ...input.dispatchInput,
             },
-            githubCheckSurface: resolveRequestedGitHubCheckSurface({
-              nanite,
-              requestedSurfaces: intent.surfaces,
-              repository: input.payload.repository.full_name,
-              headSha: input.payload.pull_request.head.sha,
-            }),
           });
         }
       } else {
@@ -2142,16 +1974,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
           [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: true,
           [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: 1,
           dispatchIntentCount: 1,
-          eventType: "github.pull_request",
+          eventType,
           hasGeneratedTrigger: false,
         });
         dispatches.push({
           input: input.dispatchInput,
-          githubCheckSurface: resolveRequestedGitHubCheckSurface({
-            nanite,
-            repository: input.payload.repository.full_name,
-            headSha: input.payload.pull_request.head.sha,
-          }),
         });
       }
 
@@ -2170,260 +1997,23 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
         const startInput: StartNaniteRunInput = {
           naniteId: nanite.manifest.id,
-          trigger: buildGitHubPullRequestTriggerEvent({
-            deliveryId: input.deliveryId,
-            payload: input.payload,
+          trigger: buildGitHubTriggerEvent({
+            event: input.event,
             dispatchInput: dispatch.input,
           }),
         };
-        const created = getExistingRunByTriggerKey(snapshot, buildTriggerKey(startInput)) === null;
+        const created =
+          getExistingRunByTriggerKey(await this.getSnapshot(), buildTriggerKey(startInput)) ===
+          null;
         const run = await this.startRun(startInput);
         startedRuns.push({
           run,
           created,
-          githubCheckSurface: dispatch.githubCheckSurface,
         });
       }
     }
 
     return startedRuns;
-  }
-
-  @callable()
-  async handleGitHubPushWebhook(
-    input: HandleGitHubPushWebhookInput,
-  ): Promise<GitHubPullRequestWebhookRunDispatch[]> {
-    const snapshot = await this.getSnapshot();
-    const startedRuns: GitHubPullRequestWebhookRunDispatch[] = [];
-
-    for (const nanite of Object.values(snapshot.nanites)) {
-      if (
-        !nanite.enabled ||
-        (input.onlyNaniteId && nanite.manifest.id !== input.onlyNaniteId) ||
-        !githubPushTriggerMatches(nanite.manifest.trigger, input.payload)
-      ) {
-        continue;
-      }
-
-      const triggerSource = nanite.manifest.inboundTrigger?.sourceCode;
-      const dispatches: Array<{
-        input: TriggerDispatchInput | undefined;
-        githubCheckSurface: TriggerGitHubCheckSurfaceRequest | null;
-      }> = [];
-
-      if (triggerSource) {
-        const triggerResult = await runGeneratedTrigger({
-          loader: this.env.LOADER,
-          sourceCode: triggerSource,
-          cacheKey: `${this.name}:${nanite.manifest.id}:${nanite.latestVersion.manifestHash}:github-push`,
-          event: {
-            type: "github.push",
-            deliveryId: input.deliveryId,
-            payload: input.payload,
-          },
-        });
-
-        if (!triggerResult.ok) {
-          naniteManagerLogger.error(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
-            ...createManagerLogContext(this.name, { naniteId: nanite.manifest.id }),
-            [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: false,
-            [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: 0,
-            eventType: "github.push",
-            error: triggerResult.error,
-          });
-
-          const run = await this.startRun({
-            naniteId: nanite.manifest.id,
-            trigger: buildGitHubPushTriggerEvent({
-              deliveryId: input.deliveryId,
-              payload: input.payload,
-              dispatchInput: {
-                triggerError: triggerResult.error,
-              },
-            }),
-          });
-          startedRuns.push({
-            run: await this.recordUnreportedRunCompletion({
-              runId: run.runId,
-              status: "error",
-              error: `Trigger failed before model dispatch: ${triggerResult.error}`,
-            }),
-            created: true,
-            githubCheckSurface: null,
-          });
-          continue;
-        }
-
-        const dispatchIntents = getDispatchIntents(triggerResult.intents);
-        naniteManagerLogger.info(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
-          ...createManagerLogContext(this.name, { naniteId: nanite.manifest.id }),
-          [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: dispatchIntents.length > 0,
-          [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: triggerResult.intents.length,
-          dispatchIntentCount: dispatchIntents.length,
-          eventType: "github.push",
-        });
-
-        for (const intent of dispatchIntents) {
-          dispatches.push({
-            input: {
-              ...intent.input,
-              ...input.dispatchInput,
-            },
-            githubCheckSurface: resolveRequestedGitHubCheckSurface({
-              nanite,
-              requestedSurfaces: intent.surfaces ?? [],
-              repository: input.payload.repository.full_name,
-              headSha: input.payload.after,
-            }),
-          });
-        }
-      } else {
-        naniteManagerLogger.info(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
-          ...createManagerLogContext(this.name, { naniteId: nanite.manifest.id }),
-          [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: true,
-          [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: 1,
-          dispatchIntentCount: 1,
-          eventType: "github.push",
-          hasGeneratedTrigger: false,
-        });
-        dispatches.push({
-          input: input.dispatchInput,
-          githubCheckSurface: null,
-        });
-      }
-
-      if (startedRuns.length >= MAX_TRIGGER_DISPATCHES_PER_EVENT) {
-        break;
-      }
-
-      for (const dispatch of dispatches) {
-        if (startedRuns.length >= MAX_TRIGGER_DISPATCHES_PER_EVENT) {
-          break;
-        }
-
-        if (countActiveRunsForNanite(await this.getSnapshot(), nanite.manifest.id) > 0) {
-          continue;
-        }
-
-        const startInput: StartNaniteRunInput = {
-          naniteId: nanite.manifest.id,
-          trigger: buildGitHubPushTriggerEvent({
-            deliveryId: input.deliveryId,
-            payload: input.payload,
-            dispatchInput: dispatch.input,
-          }),
-        };
-        const created = getExistingRunByTriggerKey(snapshot, buildTriggerKey(startInput)) === null;
-        const run = await this.startRun(startInput);
-        startedRuns.push({
-          run,
-          created,
-          githubCheckSurface: dispatch.githubCheckSurface,
-        });
-      }
-    }
-
-    return startedRuns;
-  }
-
-  @callable()
-  async claimGitHubCheckCreation(input: ClaimGitHubCheckCreationInput): Promise<{
-    run: NaniteRunRecord;
-    shouldCreate: boolean;
-  }> {
-    const current = await this.getSnapshot();
-    const run = getRunOrThrow(current, input.runId);
-    if (
-      run.githubCheck &&
-      (run.githubCheck.status === "creating" ||
-        run.githubCheck.status === "in_progress" ||
-        run.githubCheck.status === "completed")
-    ) {
-      return { run, shouldCreate: false };
-    }
-
-    const startedAt = nowIso();
-    const nextState = updateRun(current, input.runId, (currentRun) => ({
-      ...currentRun,
-      githubCheck: {
-        installationId: input.installationId,
-        repository: input.repository,
-        owner: input.owner,
-        repo: input.repo,
-        name: input.name,
-        headSha: input.headSha,
-        checkRunId: null,
-        status: "creating",
-        conclusion: null,
-        detailsUrl: input.detailsUrl,
-        outputTitle: "Nanite run started",
-        outputSummary: "Sigvelo accepted the GitHub trigger and is starting the Nanite.",
-        outputText: input.detailsUrl
-          ? `Live Sigvelo run: ${input.detailsUrl}`
-          : "Sigvelo accepted the GitHub trigger.",
-        startedAt,
-        updatedAt: startedAt,
-      },
-      updatedAt: startedAt,
-    }));
-
-    this.setState(nextState);
-    return { run: getRunOrThrow(nextState, input.runId), shouldCreate: true };
-  }
-
-  @callable()
-  async attachGitHubCheck(input: AttachGitHubCheckInput): Promise<NaniteRunRecord> {
-    const current = await this.getSnapshot();
-    const attachedAt = nowIso();
-    const nextState = updateRun(current, input.runId, (run) => {
-      if (!run.githubCheck) {
-        throw new Error(`Cannot attach GitHub check before creation is claimed: ${input.runId}`);
-      }
-
-      if (run.githubCheck?.checkRunId === input.checkRunId) {
-        return run;
-      }
-
-      return {
-        ...run,
-        githubCheck: {
-          ...run.githubCheck,
-          checkRunId: input.checkRunId,
-          status: "in_progress",
-          conclusion: null,
-          detailsUrl: input.detailsUrl,
-          outputTitle: input.outputTitle,
-          outputSummary: input.outputSummary,
-          outputText: input.outputText,
-          updatedAt: attachedAt,
-        },
-        updatedAt: attachedAt,
-      };
-    });
-
-    this.setState(nextState);
-    return getRunOrThrow(nextState, input.runId);
-  }
-
-  @callable()
-  async recordGitHubCheckFailure(input: RecordGitHubCheckFailureInput): Promise<NaniteRunRecord> {
-    const current = await this.getSnapshot();
-    const failedAt = nowIso();
-    const nextState = updateRun(current, input.runId, (run) => ({
-      ...run,
-      githubCheck: run.githubCheck
-        ? {
-            ...run.githubCheck,
-            status: input.status,
-            outputSummary: input.summary,
-            updatedAt: failedAt,
-          }
-        : null,
-      updatedAt: failedAt,
-    }));
-
-    this.setState(nextState);
-    return getRunOrThrow(nextState, input.runId);
   }
 
   @callable()
@@ -2549,9 +2139,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       hasAgentFeedback: completedRun.agentFeedback !== null,
     });
 
-    if (completedRun.githubCheck?.checkRunId) {
-      this.ctx.waitUntil(this.updateGitHubCheckForTerminalRun(completedRun));
-    }
     return completedRun;
   }
 
@@ -2591,65 +2178,4 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       return run ? [run] : [];
     });
   }
-
-  private async updateGitHubCheckForTerminalRun(run: NaniteRunRecord): Promise<void> {
-    const githubCheck = run.githubCheck;
-    if (!githubCheck?.checkRunId || !isTerminalNaniteRunStatus(run.status)) {
-      return;
-    }
-
-    const conclusion = buildTerminalGitHubCheckConclusion(run.status);
-    const output = buildTerminalGitHubCheckOutput(run);
-    try {
-      await updateGitHubCheckRun({
-        env: this.env,
-        githubInstallationId: githubCheck.installationId,
-        owner: githubCheck.owner,
-        repo: githubCheck.repo,
-        checkRunId: githubCheck.checkRunId,
-        output,
-        status: "completed",
-        conclusion,
-        detailsUrl: githubCheck.detailsUrl,
-        completedAt: run.completedAt,
-      });
-
-      const current = await this.getSnapshot();
-      const updatedAt = nowIso();
-      const nextState = updateRun(current, run.runId, (currentRun) => ({
-        ...currentRun,
-        githubCheck: currentRun.githubCheck
-          ? {
-              ...currentRun.githubCheck,
-              status: "completed",
-              conclusion,
-              outputTitle: output.title,
-              outputSummary: output.summary,
-              outputText: output.text,
-              updatedAt,
-            }
-          : null,
-        updatedAt,
-      }));
-      this.setState(nextState);
-      naniteManagerLogger.info(LOG_EVENTS.NANITE_GITHUB_CHECK_UPDATED, {
-        ...createManagerLogContext(this.name, { run: getRunOrThrow(nextState, run.runId) }),
-        conclusion,
-        checkRunId: githubCheck.checkRunId,
-      });
-    } catch (error) {
-      naniteManagerLogger.error(LOG_EVENTS.NANITE_GITHUB_CHECK_UPDATE_FAILED, {
-        ...createManagerLogContext(this.name, { run }),
-        checkRunId: githubCheck.checkRunId,
-        error: formatCompactError(error),
-      });
-      await this.recordGitHubCheckFailure({
-        runId: run.runId,
-        status: "update_failed",
-        summary: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 }
-
-export type NaniteManager = SigveloNaniteManager;

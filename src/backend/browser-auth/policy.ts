@@ -7,14 +7,14 @@ import { DEFAULT_AUTH_RETURN_TO_PATH } from "#/shared/auth-return-to.ts";
  * Arbitrary Nanites app policy: ten minutes is long enough for a normal GitHub
  * round-trip without leaving abandoned login state in the browser for too long.
  */
-export const GITHUB_OAUTH_STATE_TTL_SECONDS = 10 * 60;
+const GITHUB_OAUTH_STATE_TTL_SECONDS = 10 * 60;
 
 /**
  * Nanites-owned browser session lifetime in seconds.
  *
  * This is intentionally decoupled from the GitHub user access-token lifetime.
  */
-export const BROWSER_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const BROWSER_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /**
  * Refresh the GitHub user token shortly before expiry to avoid mid-request 401s.

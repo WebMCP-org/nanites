@@ -64,6 +64,12 @@ sequenceDiagram
 
 ## Philosophy
 
+### Keep GitHub data GitHub-shaped
+
+Use Octokit and GitHub API shapes directly for GitHub-owned facts. Sigvelo should not rename,
+compress, or recreate GitHub data unless a real boundary requires it. See
+[GitHub Shape Doctrine](./github-shape-doctrine.md).
+
 ### Keep Nanites small and numerous
 
 A GitHub organization should be able to have many Nanites because each one is cheap, durable, and narrowly scoped. A docs repo might have one Nanite per package area. A frontend repo might have separate Nanites for smoke paths, accessibility regressions, and WebMCP instrumentation. The point is not one large autonomous agent. The point is many small maintainers that can be inspected, paused, redirected, or deleted independently.
@@ -166,9 +172,9 @@ The generated trigger handles machine-originated events only.
     description: "Keeps React WebMCP docs aligned with package changes.",
     trigger: {
       type: "github",
-      event: "push",
-      repository: "WebMCP-org/npm-packages",
-      branch: "main",
+      events: ["push"],
+      repositories: ["WebMCP-org/npm-packages"],
+      branches: ["main"],
     },
     permissions: {
       github: {
@@ -177,7 +183,6 @@ The generated trigger handles machine-originated events only.
           contents: "write",
           pull_requests: "write",
           actions: "read",
-          checks: "write",
         },
       },
     },
@@ -202,18 +207,17 @@ Generated trigger code is ordinary Worker-compatible TypeScript. It routes event
 the Nanite runtime.
 
 ```ts
-import type { PushEvent } from "@octokit/webhooks-types";
+import type { EmitterWebhookEvent } from "@octokit/webhooks";
 
 export default {
-  async handle(event: { type: string; payload: PushEvent }, ctx: TriggerContext) {
-    if (event.type !== "github.push") {
+  async handle(event: EmitterWebhookEvent<"push">, ctx: TriggerContext) {
+    if (event.name !== "push") {
       return ctx.noop("Not a push event.");
     }
 
-    const [owner, repo] = event.payload.repository.full_name.split("/");
     const comparison = await ctx.octokit.rest.repos.compareCommitsWithBasehead({
-      owner,
-      repo,
+      owner: event.payload.repository.owner.login,
+      repo: event.payload.repository.name,
       basehead: `${event.payload.before}...${event.payload.after}`,
     });
 

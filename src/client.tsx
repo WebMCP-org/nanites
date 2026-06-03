@@ -3,9 +3,9 @@ import "./frontend/styles.css";
 import * as Sentry from "@sentry/react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
-import { ORPCProvider } from "#/frontend/lib/orpc.tsx";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { installAuthQueryRedirects } from "#/frontend/routes/-auth-client.ts";
-import { router } from "#/frontend/router.ts";
+import { queryClient, router } from "#/frontend/router.ts";
 
 installAuthQueryRedirects(router);
 
@@ -20,7 +20,7 @@ const root = createRoot(rootElement, {
   onRecoverableError: Sentry.reactErrorHandler(),
 });
 root.render(
-  <ORPCProvider>
+  <QueryClientProvider client={queryClient}>
     <RouterProvider router={router} />
-  </ORPCProvider>,
+  </QueryClientProvider>,
 );

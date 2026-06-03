@@ -49,7 +49,8 @@ Capabilities should come primarily from the pulled repo, configured MCP servers,
 
 Generated Dynamic Worker code should be used for each Nanite's inbound trigger handler:
 
-- normalize unusual webhook payloads
+- interpret GitHub webhook payloads in their provider shape, and adapt only non-GitHub external
+  webhooks when their source requires it
 - evaluate custom schedule or environment predicates
 - decide whether an event should start the owning Nanite
 - propose Nanite creation intents
@@ -102,7 +103,7 @@ Make generated inbound triggers and GitHub MCP capability feel routine rather th
 - generated-code authoring guidance for raw Octokit, fixtures, and manager intents
 - pre-bundled Octokit runtime for generated Worker Loader handlers, if not already bundled in the target environment
 - manager validation and rate limits around trigger output
-- repo-shape metadata on installation repositories where it affects routing
+- GitHub repository metadata from installation repository objects where it affects routing
 - hydration telemetry and failure history
 - pre-work escalation policy based on repo size, prior behavior, and task needs
 - workspace bootstrap that layers Sigvelo identity over repo-local `AGENTS.md` / `.codex` / `.agents`

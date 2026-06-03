@@ -1,9 +1,8 @@
 import type { ToolProvider } from "@cloudflare/codemode";
-import { gitTools } from "@cloudflare/shell/git";
 
-export const lazyGitAuthCommandNames = new Set(["clone", "fetch", "pull", "push"] as const);
+const lazyGitAuthCommandNames = new Set(["clone", "fetch", "pull", "push"] as const);
 
-export type LazyGitAuthCommand =
+type LazyGitAuthCommand =
   typeof lazyGitAuthCommandNames extends Set<infer Command> ? Command : never;
 
 const lazyGitAuthRetryWithoutAuthCommandNames: ReadonlySet<LazyGitAuthCommand> = new Set([
@@ -12,7 +11,7 @@ const lazyGitAuthRetryWithoutAuthCommandNames: ReadonlySet<LazyGitAuthCommand> =
   "pull",
 ]);
 
-export type LazyGitAuthCredentials =
+type LazyGitAuthCredentials =
   | {
       token: string;
     }
@@ -20,20 +19,6 @@ export type LazyGitAuthCredentials =
       username: string;
       password?: string;
     };
-
-export type LazyGitAuthResolverInput = {
-  command: LazyGitAuthCommand;
-  options: Record<string, unknown>;
-};
-
-export type LazyGitAuthResolver = (
-  input: LazyGitAuthResolverInput,
-) => Promise<LazyGitAuthCredentials | null>;
-
-export type GitToolsWithLazyAuthOptions = {
-  resolveAuth: LazyGitAuthResolver;
-  isAuthRejection: (error: unknown) => boolean;
-};
 
 type ExecutableGitTool = {
   description?: string;
@@ -55,7 +40,10 @@ function isLazyGitAuthCommand(command: string): command is LazyGitAuthCommand {
 async function resolveOptionsWithLazyAuth(input: {
   command: LazyGitAuthCommand;
   options: Record<string, unknown>;
-  resolveAuth: LazyGitAuthResolver;
+  resolveAuth: (input: {
+    command: LazyGitAuthCommand;
+    options: Record<string, unknown>;
+  }) => Promise<LazyGitAuthCredentials | null>;
 }): Promise<Record<string, unknown>> {
   if (hasExplicitAuth(input.options)) {
     return input.options;
@@ -70,7 +58,13 @@ async function resolveOptionsWithLazyAuth(input: {
 
 export function wrapGitToolProviderWithLazyAuth(
   provider: ToolProvider,
-  options: GitToolsWithLazyAuthOptions,
+  options: {
+    resolveAuth: (input: {
+      command: LazyGitAuthCommand;
+      options: Record<string, unknown>;
+    }) => Promise<LazyGitAuthCredentials | null>;
+    isAuthRejection: (error: unknown) => boolean;
+  },
 ): ToolProvider {
   const tools = provider.tools as Record<string, ExecutableGitTool>;
 
@@ -111,11 +105,4 @@ export function wrapGitToolProviderWithLazyAuth(
       ]),
     ),
   };
-}
-
-export function gitToolsWithLazyAuth(
-  workspace: Parameters<typeof gitTools>[0],
-  options: GitToolsWithLazyAuthOptions,
-): ToolProvider {
-  return wrapGitToolProviderWithLazyAuth(gitTools(workspace), options);
 }

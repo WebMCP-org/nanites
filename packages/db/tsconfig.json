@@ -1,9 +1,0 @@
-{
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "lib": ["ES2024"],
-    "skipLibCheck": true,
-    "types": ["@cloudflare/workers-types", "node"]
-  },
-  "include": ["src/**/*.ts", "drizzle.config.ts"]
-}

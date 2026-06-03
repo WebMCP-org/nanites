@@ -204,7 +204,7 @@ Example:
 }
 ```
 
-The manager should normalize this into an effective capability assignment:
+The manager should resolve this into an effective capability assignment:
 
 ```ts
 {

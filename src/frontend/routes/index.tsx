@@ -1,4 +1,4 @@
-import { Button } from "@nanites/ui";
+import { Button } from "#/frontend/ui/components/Button.tsx";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { GithubLogoIcon } from "@phosphor-icons/react";
 import {

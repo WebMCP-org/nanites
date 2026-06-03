@@ -6,20 +6,20 @@ The short version:
 
 - we test the application, not isolated helpers
 - we mock only the external systems we do not control
-- when we fake an external boundary, we fake it with contract-validated payloads
+- when we fake an external boundary, we fake it with provider-shaped payloads
 - durable assertions target user-visible behavior, response shapes, and persisted artifacts
 
 ## Context
 
-Nanites is a Cloudflare Worker backend with a React + TanStack Router frontend and an oRPC/OpenAPI surface.
+Nanites is a Cloudflare Worker backend with a React + TanStack Router frontend, MCP surface, and Agents SDK runtime.
 
 That stack gives us clear product boundaries:
 
 - browser UI routes
 - Worker HTTP routes
 - GitHub webhooks at `POST /api/github/webhook`
-- typed RPC transport under `/rpc`
-- OpenAPI routes under `/api`
+- MCP routes
+- Agents SDK routes
 
 Those boundaries should own our durable regressions.
 
@@ -27,13 +27,13 @@ Those boundaries should own our durable regressions.
 
 The current repo already points toward the right testing doctrine:
 
-- the Worker entrypoint routes real webhook traffic, then OpenAPI and RPC handlers
+- the Worker entrypoint routes real webhook traffic, MCP traffic, and Agents SDK traffic
 - the lint configuration bans `vi`/`jest` mock APIs in tests
 - browser tests run in Vitest Browser Mode with Playwright
 - backend tests run in the Workers runtime with `@cloudflare/vitest-pool-workers`
 - browser tests use MSW only at the HTTP boundary
-- shared route and RPC constants live in app code under `src/shared/constants`
-- synthetic GitHub payloads and GitHub API fixtures are contract-gated before tests inject them
+- shared route constants live in app code under `src/shared/constants`
+- synthetic GitHub payloads and GitHub API fixtures stay provider-shaped before tests inject them
 
 This is the correct direction for this app.
 
@@ -63,7 +63,7 @@ Durable tests should execute real app code paths.
 
 The one acceptable place to fake behavior is at an external boundary we do not control, such as GitHub HTTP traffic.
 
-## 3. Schema-first contracts at every synthetic edge
+## 3. Boundary validation at every synthetic edge
 
 Any payload invented by a test should be runtime-validated before the app consumes it.
 
@@ -73,9 +73,7 @@ That includes:
 - signed GitHub webhook payloads
 - mocked GitHub REST responses in backend tests
 
-For internal app contracts, prefer schemas from `@nanites/contracts/*`.
-
-For external provider payloads that are not part of `@nanites/contracts`, prefer the provider's canonical types and keep fixture shaping local to the tests that need it. Add a runtime schema only when raw external JSON is immediately consumed structurally by the app.
+For GitHub payloads, prefer Octokit types and keep fixture shaping local to the tests that need it. Add runtime checks only when raw external JSON is immediately consumed structurally by the app.
 
 The important rule is not where the schema lives. The important rule is that durable fixtures are not unchecked JSON blobs.
 
@@ -102,7 +100,7 @@ GitHub webhooks should be signed exactly as GitHub signs them.
 
 Real backend and e2e lanes should not bypass signature verification except for explicit negative tests.
 
-If a durable test needs a webhook, it should build a contract-validated payload, serialize it, sign it, and send it through the real route.
+If a durable test needs a webhook, it should build a provider-shaped payload, serialize it, sign it, and send it through the real route.
 
 ## 6. Exact LLM prose is not a durable assertion target
 
@@ -133,7 +131,7 @@ Allowed:
 
 - MSW browser worker handlers
 - per-test handler overrides
-- contract-validated response payloads
+- provider-shaped response payloads
 - production-faithful router mounting
 
 Disallowed:
@@ -147,8 +145,7 @@ Current implementation in this repo:
 - `tests/helpers/browser-test.ts`
 - `tests/helpers/browser-msw-setup.ts`
 - `tests/helpers/msw-browser-worker.ts`
-- `tests/helpers/render-app.tsx`
-- `tests/browser/repositories.browser.test.tsx`
+- `tests/browser/nanite-runtime-chat.browser.test.tsx`
 
 The standard for this lane is: mount a real app surface, keep MSW at the HTTP edge, and assert rendered outcomes.
 
@@ -179,9 +176,7 @@ Disallowed:
 Current implementation in this repo:
 
 - `tests/backend/vitest.config.ts`
-- `tests/backend/github-webhook-boundary.test.ts`
-- `tests/contracts/github-webhooks.ts`
-- `tests/contracts/github-rest.ts`
+- `tests/backend/chat-sdk-ingress.test.ts`
 - `tests/helpers/github-api-mock.ts`
 
 The standard for this lane is: send a real request in, then prove a real downstream outcome.
@@ -223,9 +218,9 @@ The repo currently has the following durable foundation in place:
 - lane-specific Vitest configs for browser and backend tests
 - fail-fast MSW browser worker lifecycle management in Browser Mode setup
 - a real route-tree browser harness over the app dashboard
-- app-owned route and RPC constants
-- contract-validated GitHub webhook fixture builders
-- contract-validated mocked GitHub REST responses
+- app-owned route constants
+- Octokit-shaped GitHub webhook fixture builders
+- Octokit-shaped mocked GitHub REST responses
 - a signed backend webhook test that warms real manager state
 
 Representative files:
@@ -234,13 +229,8 @@ Representative files:
 - `tests/browser/vitest.config.ts`
 - `tests/backend/vitest.config.ts`
 - `tests/helpers/browser-msw-setup.ts`
-- `tests/browser/repositories.browser.test.tsx`
-- `tests/backend/github-webhook-boundary.test.ts`
-- `tests/helpers/render-app.tsx`
-- `tests/contracts/github-webhooks.ts`
-- `tests/contracts/github-rest.ts`
+- `tests/backend/chat-sdk-ingress.test.ts`
 - `src/shared/constants/routes.ts`
-- `src/shared/constants/rpc.ts`
 
 ## What still needs to happen
 
@@ -265,7 +255,7 @@ Every critical surface should have an explicit durable lane owner.
 | GitHub webhook ingestion          | Backend + E2E     | signed contract handling plus full progression |
 | Nanite runtime transitions        | Backend           | request-driven state correctness               |
 | Support PR/check output           | Backend + E2E     | output correctness plus user-visible result    |
-| RPC/OpenAPI auth and error shapes | Backend           | contract and status-shape correctness          |
+| Browser API auth and error shapes | Backend           | status-shape correctness                       |
 
 ## Practical opinions for this app
 
@@ -284,13 +274,13 @@ When asking an agent to write or revise tests for the repository root app, inclu
 - the source file or route being tested, including imports and relevant types
 - the matching lane config: `vite.config.ts`, `tests/browser/vitest.config.ts`, `tests/backend/vitest.config.ts`, or `tests/e2e/vitest.config.ts`
 - one nearby test from the same lane
-- any contract schemas or fixture builders used at the boundary
+- any boundary schemas or provider-shaped fixture builders used at the edge
 - this document and `tests/README.md`
 
 Tell the agent which lane owns the behavior:
 
 - Browser route behavior belongs in `tests/browser` with Browser Mode and MSW handlers at the HTTP boundary.
-- Worker route, auth, oRPC, webhook, and state behavior belongs in `tests/backend` with `@cloudflare/vitest-pool-workers`.
+- Worker route, auth, webhook, and state behavior belongs in `tests/backend` with `@cloudflare/vitest-pool-workers`.
 - Nanites full-flow behavior belongs in `tests/e2e` and should not use MSW or app-internal mocks.
 
 Be explicit about what not to do. Durable tests must not use `vi.mock`, `vi.fn`, `spyOn`, fake stores, or mocked app modules. If a fake is needed, it should sit at an external boundary such as GitHub REST or Browser Mode HTTP.
@@ -308,7 +298,7 @@ Review generated tests before keeping them:
 
 - Do they assert an observable outcome such as rendered UI, status code, response body, persisted state, run progression, or published GitHub artifact?
 - Would the test still pass if the implementation changed but the behavior stayed correct?
-- Are synthetic payloads parsed through canonical schemas or typed fixture builders?
+- Are synthetic payloads parsed through boundary schemas or provider-shaped fixture builders?
 - Are MSW handlers registered through the browser worker and reset by setup, not by ad hoc local lifecycle code?
 - Does the command exit? Use `vp test`, `vp run test`, or `vp run test:e2e`, not watch mode.
 
@@ -317,15 +307,13 @@ Common fixes for AI output:
 - Replace Jest APIs with the repo's Vitest/Vite+ APIs.
 - Remove app-internal mocks and assert through a product boundary instead.
 - Shorten verbose test names to the behavior under test.
-- Replace unchecked JSON fixtures with schema-validated builders.
+- Replace unchecked JSON fixtures with boundary-validated or provider-shaped builders.
 - Move setup into lane helpers only when more than one test needs it.
 
 ## Research sources
 
 - Vitest Browser Mode guide: https://vitest.dev/guide/browser/
 - MSW Vitest Browser Mode recipe: https://mswjs.io/docs/recipes/vitest-browser-mode
-- OpenAPI TypeScript testing with MSW: https://openapi-ts.dev/openapi-fetch/testing
 - Cloudflare Workers Vitest integration: https://developers.cloudflare.com/workers/testing/vitest-integration/
 - GitHub webhook signature validation: https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
 - Playwright best practices: https://playwright.dev/docs/best-practices
-- oRPC OpenAPI getting started: https://orpc.dev/docs/openapi/getting-started

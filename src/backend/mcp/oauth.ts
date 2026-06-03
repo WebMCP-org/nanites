@@ -1,14 +1,12 @@
 import { parse, serialize, type SerializeOptions } from "cookie";
 import { z } from "zod";
 import type { AuthRequest, ClientInfo, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import type { ActiveInstallation } from "@nanites/contracts/auth";
-import { githubInstallationIdSchema } from "@nanites/contracts/ids";
 import { listInstallationRepositories, listVisibleInstallations } from "#/backend/github.ts";
 import {
   AuthenticationRequiredError,
-  getActorFromSession,
   requireGitHubUserToken,
-  toActiveInstallations,
+  readSessionInstallationSnapshots,
+  type SessionInstallationSnapshot,
 } from "#/backend/browser-auth/session.ts";
 import { readSessionCookie } from "#/backend/browser-auth/cookies.ts";
 import { GITHUB_OAUTH_LOGIN_PATH } from "#/backend/browser-auth/policy.ts";
@@ -42,11 +40,42 @@ type EnvWithOAuthHelpers = Env & {
   OAUTH_PROVIDER?: OAuthHelpers;
 };
 
-interface InstallationRepositoryOption {
-  readonly installation: ActiveInstallation;
+export interface McpAuthorizeInstallationOption {
+  readonly installation: SessionInstallationSnapshot;
   readonly repositoryCount: number;
   readonly manageAccessHref: string;
 }
+
+export type McpAuthorizeContext =
+  | {
+      status: "login";
+      clientName: string;
+      loginHref: string;
+    }
+  | {
+      status: "no_installations";
+      clientName: string;
+      installHref: string;
+    }
+  | {
+      status: "no_repositories";
+      clientName: string;
+      installHref: string;
+      installations: McpAuthorizeInstallationOption[];
+    }
+  | {
+      status: "consent";
+      clientName: string;
+      requestedScopes: string[];
+      authorizeAction: string;
+      csrfToken: string;
+      activeGithubInstallationId: number | null;
+      installations: McpAuthorizeInstallationOption[];
+    }
+  | {
+      status: "invalid";
+      message: string;
+    };
 
 function nowIso(offsetMs = 0): string {
   return new Date(Date.now() + offsetMs).toISOString();
@@ -263,20 +292,6 @@ function buildAuthorizeReturnToPath(request: Request): string {
   return `${MCP_AUTHORIZE_UI_ROUTE}${url.search}`;
 }
 
-function toAuthorizeInstallationOption(option: InstallationRepositoryOption) {
-  return {
-    id: option.installation.id,
-    repositoryCount: option.repositoryCount,
-    manageAccessHref: option.manageAccessHref,
-    account: {
-      id: option.installation.account.id,
-      login: option.installation.account.login,
-      type: option.installation.account.type,
-      avatar_url: option.installation.account.avatar_url,
-    },
-  };
-}
-
 function buildOAuthErrorRedirectLocation({
   authRequest,
   error,
@@ -303,15 +318,15 @@ async function resolveAuthenticatedAuthorizeContext(request: Request, env: Env, 
     const githubUserToken = await requireGitHubUserToken(request, env, {
       responseHeaders: headers,
     });
-    const activeInstallations = toActiveInstallations(
+    const sessionInstallationSnapshots = readSessionInstallationSnapshots(
       await listVisibleInstallations(githubUserToken.accessToken),
     );
 
     return {
       session,
-      actor: getActorFromSession(session),
+      actor: session.githubViewer,
       githubUserToken,
-      activeInstallations,
+      sessionInstallationSnapshots,
     };
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
@@ -322,12 +337,12 @@ async function resolveAuthenticatedAuthorizeContext(request: Request, env: Env, 
   }
 }
 
-async function resolveInstallationRepositoryOptions(
+async function resolveMcpAuthorizeInstallationOptions(
   authContext: NonNullable<Awaited<ReturnType<typeof resolveAuthenticatedAuthorizeContext>>>,
   returnToPath: string,
-): Promise<InstallationRepositoryOption[]> {
+): Promise<McpAuthorizeInstallationOption[]> {
   return Promise.all(
-    authContext.activeInstallations.map(async (installation) => {
+    authContext.sessionInstallationSnapshots.map(async (installation) => {
       const repositories = await listInstallationRepositories(
         authContext.githubUserToken.accessToken,
         installation.id,
@@ -413,7 +428,7 @@ export async function handleMcpOAuthAuthorizeContextRequest({
     );
   }
 
-  if (authContext.activeInstallations.length === 0) {
+  if (authContext.sessionInstallationSnapshots.length === 0) {
     headers.append("Set-Cookie", buildExpiredConsentCookie(authorizeRequest));
     return jsonResponse(
       {
@@ -427,11 +442,11 @@ export async function handleMcpOAuthAuthorizeContextRequest({
     );
   }
 
-  const installationRepositoryOptions = await resolveInstallationRepositoryOptions(
+  const mcpAuthorizeInstallationOptions = await resolveMcpAuthorizeInstallationOptions(
     authContext,
     authorizeReturnToPath,
   );
-  const repositoryReadyInstallations = installationRepositoryOptions.filter(
+  const repositoryReadyInstallations = mcpAuthorizeInstallationOptions.filter(
     (option) => option.repositoryCount > 0,
   );
 
@@ -442,7 +457,7 @@ export async function handleMcpOAuthAuthorizeContextRequest({
         status: "no_repositories",
         clientName,
         installHref: buildGitHubAppInstallOnAnotherOwnerHref(authorizeReturnToPath),
-        installations: installationRepositoryOptions.map(toAuthorizeInstallationOption),
+        installations: mcpAuthorizeInstallationOptions,
       },
       {
         headers,
@@ -474,7 +489,7 @@ export async function handleMcpOAuthAuthorizeContextRequest({
       authorizeAction: buildAuthorizeActionPath(authorizeRequest),
       csrfToken,
       activeGithubInstallationId: authContext.session.activeGithubInstallationId,
-      installations: repositoryReadyInstallations.map(toAuthorizeInstallationOption),
+      installations: repositoryReadyInstallations,
     },
     { headers },
   );
@@ -517,7 +532,7 @@ export async function handleMcpOAuthAuthorizeRequest({
   const headers = new Headers();
   const authContext = await resolveAuthenticatedAuthorizeContext(request, env, headers);
 
-  if (!authContext || authContext.activeInstallations.length === 0) {
+  if (!authContext || authContext.sessionInstallationSnapshots.length === 0) {
     return new Response("MCP authorization requires an authenticated GitHub installation.", {
       status: 401,
       headers: buildTextHeaders(headers),
@@ -557,13 +572,12 @@ export async function handleMcpOAuthAuthorizeRequest({
     });
   }
 
-  const selectedInstallation = githubInstallationIdSchema.safeParse(
-    Number(formData.get("github_installation_id")),
-  );
+  const selectedInstallationId = Number(formData.get("github_installation_id"));
   const activeInstallation =
-    selectedInstallation.success &&
-    authContext.activeInstallations.find(
-      (installation) => installation.id === selectedInstallation.data,
+    Number.isInteger(selectedInstallationId) &&
+    selectedInstallationId > 0 &&
+    authContext.sessionInstallationSnapshots.find(
+      (installation) => installation.id === selectedInstallationId,
     );
 
   if (!activeInstallation) {

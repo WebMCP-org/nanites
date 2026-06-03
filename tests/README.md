@@ -8,8 +8,7 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 
 - `tests/browser`: Vitest Browser Mode tests that mount real app surfaces and mock only HTTP with MSW.
 - `tests/backend`: Workers runtime integration tests that send real requests through the Worker and mock only external providers we do not control.
-- `tests/contracts`: Test-local fixture builders for durable synthetic edges, typed from the same provider and runtime surfaces the app uses.
-- `tests/helpers`: Shared lane helpers such as browser worker setup, route-tree rendering, and external HTTP mocking.
+- `tests/helpers`: Shared lane helpers such as browser worker setup and external HTTP mocking.
 - `tests/e2e`: Nanites product e2e through real Worker, Agent, webhook, GitHub, and browser
   boundaries as needed.
 
@@ -17,7 +16,7 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 
 1. Durable tests exercise real product boundaries.
 2. Durable tests do not mock app-internal modules, functions, or stores.
-3. Synthetic payloads should use canonical app or provider types, and any raw external JSON the app immediately decodes should still pass through a runtime schema at that boundary.
+3. Synthetic payloads should use canonical app or provider types, and any raw external JSON the app immediately decodes should still pass through validation at that boundary.
 4. Shared endpoint and transport paths should come from app-owned constants under `src/shared/constants`.
 5. Assertions should target rendered output, HTTP behavior, persisted state, or published artifacts.
 6. Nanites e2e is stricter than the lower lanes: no mocks anywhere except the explicit deterministic
@@ -26,17 +25,16 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 ## Current foundation
 
 - Browser lane:
-  - real route-tree harness in `tests/helpers/render-app.tsx`
   - fail-fast MSW lifecycle in `tests/helpers/browser-msw-setup.ts`
   - typed MSW worker access through `tests/helpers/browser-test.ts`
-  - dashboard route slice in `tests/browser/repositories.browser.test.tsx`
+  - Nanite runtime chat route slice in `tests/browser/nanite-runtime-chat.browser.test.tsx`
   - local authenticated browsing is separate from this lane; browser tests stay MSW-backed and do not require a GitHub user token
 - Backend lane:
   - Worker runtime via `@cloudflare/vitest-pool-workers`
-  - signed webhook boundary test in `tests/backend/github-webhook-boundary.test.ts`
-  - GitHub external-boundary fixture builders in `tests/contracts`
+  - signed GitHub Chat SDK ingress coverage in `tests/backend/chat-sdk-ingress.test.ts`
+  - GitHub external-boundary HTTP mocking in `tests/helpers/github-api-mock.ts`
 - E2E lane:
-  - real Worker smoke test in `tests/e2e/nanites-runtime.e2e.test.ts`
+  - lane config and stricter no-mock guidance are in `tests/e2e`
   - Nanites-specific no-mock rules in `tests/e2e/README.md`
   - next tests should replace todos one vertical behavior at a time
 

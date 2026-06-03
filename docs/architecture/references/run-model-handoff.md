@@ -124,7 +124,8 @@ Recommended secondary details:
 
 ## Contract and naming follow-up
 
-The current contracts in [packages/contracts/src/nanites.ts](/packages/contracts/src/nanites.ts) still encode `lane` as a primary noun:
+The old shared contracts package has been removed. Do not reintroduce `lane` as a primary product
+noun in new manager or Nanite runtime surfaces:
 
 - `naniteLaneSnapshot`
 - `naniteLaneState`

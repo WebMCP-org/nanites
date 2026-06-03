@@ -1,10 +1,10 @@
-export const SIGVELO_GITHUB_APP_SLUG = "sigvelo";
+const SIGVELO_GITHUB_APP_SLUG = "sigvelo";
 export const SIGVELO_GITHUB_APP_URL = `https://github.com/apps/${SIGVELO_GITHUB_APP_SLUG}`;
 
 const SIGVELO_GITHUB_APP_INSTALL_PATH = "/installations/new";
 const SIGVELO_GITHUB_APP_PERMISSIONS_PATH = `${SIGVELO_GITHUB_APP_INSTALL_PATH}/permissions`;
 
-export interface BuildGitHubAppInstallHrefOptions {
+interface BuildGitHubAppInstallHrefOptions {
   readonly state?: string | null;
   readonly suggestedTargetId?: number | null;
   readonly repositoryIds?: readonly number[];
@@ -15,7 +15,7 @@ export interface BuildGitHubAppManageAccessHrefOptions {
   readonly suggestedTargetId?: number | null;
 }
 
-export function buildGitHubAppInstallHref({
+function buildGitHubAppInstallHref({
   state,
   suggestedTargetId,
   repositoryIds = [],

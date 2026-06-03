@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/react";
-import { parseSamplingRate } from "@nanites/observability/sampling";
+import { parseSamplingRate } from "#/shared/observability/sampling.ts";
 import { router } from "#/frontend/router.ts";
 
 const DEFAULT_DEV_TRACES_SAMPLE_RATE = 1;

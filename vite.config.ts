@@ -104,7 +104,7 @@ export default defineConfig({
         },
       ],
     },
-    ignorePatterns: ["**/env.d.ts", "src/frontend/routeTree.gen.ts", "packages/ui/**"],
+    ignorePatterns: ["**/env.d.ts", "src/frontend/routeTree.gen.ts"],
   },
   test: {
     projects: ["./tests/backend/vitest.config.ts", "./tests/browser/vitest.config.ts"],
