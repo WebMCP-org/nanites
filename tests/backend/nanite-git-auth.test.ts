@@ -3,6 +3,7 @@ import { wrapGitToolProviderWithLazyAuth } from "#/backend/nanites/git-auth.ts";
 
 function createFakeGitProvider(input?: {
   cloneImplementation?: (...args: unknown[]) => Promise<unknown>;
+  pullImplementation?: (...args: unknown[]) => Promise<unknown>;
 }): ToolProvider {
   return {
     name: "git",
@@ -13,6 +14,15 @@ function createFakeGitProvider(input?: {
           input?.cloneImplementation ??
           (async (options: unknown) => ({
             cloned: true,
+            options,
+          })),
+      },
+      pull: {
+        description: "git.pull",
+        execute:
+          input?.pullImplementation ??
+          (async (options: unknown) => ({
+            pulled: true,
             options,
           })),
       },
@@ -58,6 +68,8 @@ test("lazy git auth injects credentials for auth-capable commands", async () => 
   expect(receivedInput).toEqual({
     url: "https://github.com/WebMCP-org/nanites.git",
     token: "fresh-token",
+    depth: 1,
+    singleBranch: true,
   });
 });
 
@@ -90,6 +102,38 @@ test("lazy git auth preserves explicit model-provided auth", async () => {
   expect(receivedInput).toEqual({
     url: "https://github.com/WebMCP-org/nanites.git",
     token: "explicit-token",
+    depth: 1,
+    singleBranch: true,
+  });
+});
+
+test("lazy git auth enforces shallow clone policy over model-provided clone depth", async () => {
+  let receivedInput: unknown = null;
+  const provider = createFakeGitProvider({
+    cloneImplementation: async (options) => {
+      receivedInput = options;
+      return { ok: true };
+    },
+  });
+
+  const wrapped = wrapGitToolProviderWithLazyAuth(provider, {
+    isAuthRejection: () => false,
+    resolveAuth: async () => ({ token: "fresh-token" }),
+  });
+
+  await expect(
+    (wrapped.tools.clone as ExecutableTool).execute({
+      url: "https://github.com/WebMCP-org/nanites.git",
+      depth: 50,
+      singleBranch: false,
+    }),
+  ).resolves.toEqual({ ok: true });
+
+  expect(receivedInput).toEqual({
+    url: "https://github.com/WebMCP-org/nanites.git",
+    token: "fresh-token",
+    depth: 1,
+    singleBranch: true,
   });
 });
 
@@ -121,11 +165,35 @@ test("lazy git auth retries read operations without injected credentials after a
     {
       url: "https://github.com/WebMCP-org/nanites.git",
       token: "fresh-token",
+      depth: 1,
+      singleBranch: true,
     },
     {
       url: "https://github.com/WebMCP-org/nanites.git",
+      depth: 1,
+      singleBranch: true,
     },
   ]);
+});
+
+test("lazy git auth disables pull because it cannot be shallow", async () => {
+  let pullCalled = false;
+  const provider = createFakeGitProvider({
+    pullImplementation: async () => {
+      pullCalled = true;
+      return { ok: true };
+    },
+  });
+
+  const wrapped = wrapGitToolProviderWithLazyAuth(provider, {
+    isAuthRejection: () => false,
+    resolveAuth: async () => ({ token: "fresh-token" }),
+  });
+
+  await expect((wrapped.tools.pull as ExecutableTool).execute({ dir: "/repo" })).rejects.toThrow(
+    /git\.pull is disabled/,
+  );
+  expect(pullCalled).toBe(false);
 });
 
 test("lazy git auth does not resolve credentials for non-auth commands", async () => {

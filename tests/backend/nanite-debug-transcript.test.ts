@@ -57,7 +57,12 @@ test("Nanite lifecycle detection recognizes terminal tool calls", () => {
         type: "tool-call",
         toolCallId: "call-1",
         toolName: "fail",
-        input: { summary: "Repeated deterministic checkout failure." },
+        input: {
+          args: {
+            summary: "Repeated deterministic checkout failure.",
+          },
+          reason: "Report the terminal failure after checkout retries.",
+        },
       },
     ],
   } as unknown as UIMessage;
@@ -74,7 +79,12 @@ test("Nanite lifecycle detection recognizes AI SDK tool part names", () => {
         type: "tool-fail",
         toolCallId: "call-1",
         state: "input-available",
-        input: { summary: "Repeated deterministic checkout failure." },
+        input: {
+          args: {
+            summary: "Repeated deterministic checkout failure.",
+          },
+          reason: "Report the terminal failure through the AI SDK lifecycle part shape.",
+        },
       },
     ],
   } as unknown as UIMessage;
@@ -150,6 +160,8 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
 
   expect(prompt).toContain("First classify the task's execution plane");
   expect(prompt).toContain("Do not hydrate or repair workspace git for API-only tasks.");
+  expect(prompt).toContain("Every top-level tool call must use { args, reason }");
+  expect(prompt).toContain("state.readFile(path, reason)");
   expect(prompt).toContain("assume the Nanite may be misconfigured");
 });
 
@@ -191,4 +203,6 @@ export default {
   expect(prompt).toContain("- WebMCP-org/npm-packages");
   expect(prompt).toContain("- WebMCP-org/docs");
   expect(prompt).toContain("Operate only inside the declared repository and permission scope.");
+  expect(prompt).toContain("Every top-level tool call must use { args, reason }");
+  expect(prompt).toContain("artifact.read(args, reason)");
 });

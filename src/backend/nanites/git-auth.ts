@@ -2,6 +2,9 @@ import type { ToolProvider } from "@cloudflare/codemode";
 import { gitTools } from "@cloudflare/shell/git";
 
 const lazyGitAuthCommandNames = new Set(["clone", "fetch", "pull", "push"] as const);
+const SHALLOW_GIT_HISTORY_DEPTH = 1;
+const GIT_PULL_DISABLED_MESSAGE =
+  "git.pull is disabled in Nanite workspaces because @cloudflare/shell does not expose shallow pull options. Use git.fetch; clone and fetch are runtime-enforced with depth: 1.";
 
 type LazyGitAuthCommand =
   typeof lazyGitAuthCommandNames extends Set<infer Command> ? Command : never;
@@ -9,7 +12,6 @@ type LazyGitAuthCommand =
 const lazyGitAuthRetryWithoutAuthCommandNames: ReadonlySet<LazyGitAuthCommand> = new Set([
   "clone",
   "fetch",
-  "pull",
 ]);
 
 type LazyGitAuthCredentials =
@@ -36,6 +38,32 @@ function hasExplicitAuth(options: Record<string, unknown>): boolean {
 
 function isLazyGitAuthCommand(command: string): command is LazyGitAuthCommand {
   return lazyGitAuthCommandNames.has(command as LazyGitAuthCommand);
+}
+
+function enforceShallowGitHistory(
+  command: LazyGitAuthCommand,
+  options: Record<string, unknown>,
+): Record<string, unknown> {
+  if (command === "clone") {
+    return {
+      ...options,
+      depth: SHALLOW_GIT_HISTORY_DEPTH,
+      singleBranch: true,
+    };
+  }
+
+  if (command === "fetch") {
+    return {
+      ...options,
+      depth: SHALLOW_GIT_HISTORY_DEPTH,
+    };
+  }
+
+  if (command === "pull") {
+    throw new Error(GIT_PULL_DISABLED_MESSAGE);
+  }
+
+  return options;
 }
 
 async function resolveOptionsWithLazyAuth(input: {
@@ -88,16 +116,21 @@ export function wrapGitToolProviderWithLazyAuth(
               options: explicitOptions,
               resolveAuth: options.resolveAuth,
             });
+            const injectedAuth = optionsWithAuth !== explicitOptions;
+            const enforcedOptions = enforceShallowGitHistory(command, optionsWithAuth);
 
             try {
-              return await gitTool.execute(optionsWithAuth, ...restArgs);
+              return await gitTool.execute(enforcedOptions, ...restArgs);
             } catch (error) {
               if (
                 lazyGitAuthRetryWithoutAuthCommandNames.has(command) &&
-                optionsWithAuth !== explicitOptions &&
+                injectedAuth &&
                 options.isAuthRejection(error)
               ) {
-                return gitTool.execute(explicitOptions, ...restArgs);
+                return gitTool.execute(
+                  enforceShallowGitHistory(command, explicitOptions),
+                  ...restArgs,
+                );
               }
               throw error;
             }

@@ -1,5 +1,6 @@
 import { createRoot, type Root } from "react-dom/client";
 import {
+  getNaniteLifecycleOutcome,
   NaniteLifecycleToolCard,
   type NaniteLifecycleOutcome,
 } from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
@@ -76,4 +77,23 @@ test("Nanite runtime chat renders custom lifecycle cards for all ending tools", 
   } finally {
     app.cleanup();
   }
+});
+
+test("Nanite lifecycle outcome reads fallback fields from reasoned args", () => {
+  expect(
+    getNaniteLifecycleOutcome("ask_human", {
+      state: "input-available",
+      input: {
+        args: {
+          summary: "Need approval for broader access.",
+          requestedScopes: ["contents:write"],
+        },
+        reason: "Pause because the Nanite lacks the required permission.",
+      },
+    }),
+  ).toMatchObject({
+    statusLabel: "Reporting",
+    summary: "Need approval for broader access.",
+    requestedScopes: ["contents:write"],
+  });
 });

@@ -4,6 +4,9 @@ import { createWorkersAI } from "workers-ai-provider";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 
+const DEFAULT_NANITES_LLM_MODEL = "deepseek/deepseek-v4-pro";
+const DEFAULT_NANITES_LLM_GATEWAY_ID = "default";
+
 interface PromptCachedWorkersAIModelInput {
   binding: WorkersAIBinding;
   model: string;
@@ -13,7 +16,13 @@ interface PromptCachedWorkersAIModelInput {
 function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput) {
   // Workers AI maps sessionAffinity to the x-session-affinity header so
   // repeated turns for the same durable agent instance can reuse prefix-cache state.
-  return createWorkersAI({ binding: input.binding })(input.model, {
+  return createWorkersAI({
+    binding: input.binding,
+    gateway: {
+      id: DEFAULT_NANITES_LLM_GATEWAY_ID,
+      skipCache: true,
+    },
+  })(input.model, {
     sessionAffinity: input.sessionAffinity,
   });
 }
@@ -53,7 +62,7 @@ export function createSigveloAgentLanguageModel(
 
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,
-    model: "@cf/moonshotai/kimi-k2.6",
+    model: DEFAULT_NANITES_LLM_MODEL,
     sessionAffinity: input.sessionAffinity,
   });
 }
@@ -135,10 +144,13 @@ function buildToolOutputBudgetFixtureChunks(
         id: "call_budget_execute",
         name: "execute",
         arguments: JSON.stringify({
-          code: "() => 'SIGVELO_TOOL_OUTPUT_BUDGET_START\\n' + 'x'.repeat(5000) + '\\nSIGVELO_TOOL_OUTPUT_BUDGET_END'",
-          _sigvelo: {
-            maxResponseChars: 1200,
+          args: {
+            code: "() => 'SIGVELO_TOOL_OUTPUT_BUDGET_START\\n' + 'x'.repeat(5000) + '\\nSIGVELO_TOOL_OUTPUT_BUDGET_END'",
+            _sigvelo: {
+              maxResponseChars: 1200,
+            },
           },
+          reason: "Run a bounded output probe to verify large execute results become artifacts.",
         }),
       },
     });
@@ -156,9 +168,12 @@ function buildToolOutputBudgetFixtureChunks(
           id: "call_budget_artifact_read",
           name: "artifact_read",
           arguments: JSON.stringify({
-            artifactId,
-            pattern: "SIGVELO_TOOL_OUTPUT_BUDGET_END",
-            matchLimit: 10,
+            args: {
+              artifactId,
+              pattern: "SIGVELO_TOOL_OUTPUT_BUDGET_END",
+              matchLimit: 10,
+            },
+            reason: "Confirm the saved large execute output is searchable through artifact_read.",
           }),
         },
       });
@@ -175,8 +190,12 @@ function buildToolOutputBudgetFixtureChunks(
         id: "call_budget_no_change",
         name: "no_change",
         arguments: JSON.stringify({
-          summary:
-            "Verified large tool output was capped inline and preserved as a temporary KV artifact.",
+          args: {
+            summary:
+              "Verified large tool output was capped inline and preserved as a temporary KV artifact.",
+          },
+          reason:
+            "Report that the output-budget probe completed without requiring product changes.",
         }),
       },
     });
@@ -220,7 +239,10 @@ function buildFixtureToolCall(fixture: Exclude<NaniteLlmFixture, "no_lifecycle">
     return {
       name: "no_change",
       arguments: JSON.stringify({
-        summary: "Docs sync inspected the trigger and found no documentation changes needed.",
+        args: {
+          summary: "Docs sync inspected the trigger and found no documentation changes needed.",
+        },
+        reason: "Report that the trigger payload does not require a documentation update.",
       }),
     };
   }
@@ -229,8 +251,11 @@ function buildFixtureToolCall(fixture: Exclude<NaniteLlmFixture, "no_lifecycle">
     return {
       name: "ask_human",
       arguments: JSON.stringify({
-        summary: "Need contents:write before opening the documentation PR.",
-        requestedScopes: ["contents:write"],
+        args: {
+          summary: "Need contents:write before opening the documentation PR.",
+          requestedScopes: ["contents:write"],
+        },
+        reason: "Pause because the Nanite lacks the GitHub permission needed to open the PR.",
       }),
     };
   }
@@ -238,13 +263,16 @@ function buildFixtureToolCall(fixture: Exclude<NaniteLlmFixture, "no_lifecycle">
   return {
     name: "complete",
     arguments: JSON.stringify({
-      summary: "Docs sync completed through the mocked provider layer.",
-      outputUrl: "https://example.com/runs/docs-syncer",
-      agentFeedback: {
-        severity: "info",
-        message: "The trigger reached the Nanite model with usable runtime context.",
-        suggestions: ["Keep repository, pull number, and head SHA in trigger input."],
+      args: {
+        summary: "Docs sync completed through the mocked provider layer.",
+        outputUrl: "https://example.com/runs/docs-syncer",
+        agentFeedback: {
+          severity: "info",
+          message: "The trigger reached the Nanite model with usable runtime context.",
+          suggestions: ["Keep repository, pull number, and head SHA in trigger input."],
+        },
       },
+      reason: "Report the completed mocked docs sync outcome.",
     }),
   };
 }

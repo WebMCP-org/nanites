@@ -57,6 +57,7 @@ import {
   HandPalmIcon,
   TrashIcon,
   WarningCircleIcon,
+  WrenchIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
 import type {
@@ -88,6 +89,8 @@ type RuntimeConversationProps = {
   readonly onClearConversation?: () => void;
   readonly placeholder?: string;
 };
+
+type RuntimeChatViewMode = "default" | "debug";
 
 const DATA_URL_BASE64_RE = /^\s*data:([^;,]+(?:;[^;,=]+=[^;,]+)*)?;base64,/i;
 const BARE_BASE64_RE = /^[A-Za-z0-9+/=]+$/;
@@ -176,6 +179,15 @@ function getToolInputForDisplay(part: {
   return part.input;
 }
 
+function getToolReason(input: unknown): string | null {
+  if (!isRecord(input)) {
+    return null;
+  }
+
+  const reason = input.reason;
+  return typeof reason === "string" && reason.trim() ? reason.trim() : null;
+}
+
 function getErrorText(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -215,6 +227,10 @@ function getStringArrayField(value: unknown, field: string): readonly string[] {
   return value[field].filter((entry): entry is string => typeof entry === "string");
 }
 
+function getNaniteToolArgs(input: unknown): unknown {
+  return isRecord(input) ? input.args : null;
+}
+
 function getLifecycleBaseOutcome(toolName: NaniteLifecycleToolName): {
   readonly title: string;
   readonly statusLabel: string;
@@ -248,7 +264,7 @@ function getLifecycleBaseOutcome(toolName: NaniteLifecycleToolName): {
   }
 }
 
-function getNaniteLifecycleOutcome(
+export function getNaniteLifecycleOutcome(
   toolName: NaniteLifecycleToolName,
   part: {
     readonly input?: unknown;
@@ -258,8 +274,9 @@ function getNaniteLifecycleOutcome(
 ): NaniteLifecycleOutcome {
   const base = getLifecycleBaseOutcome(toolName);
   const output = isRecord(part.output) ? part.output : null;
+  const inputArgs = getNaniteToolArgs(part.input);
   const outputScopes = getStringArrayField(output, "requestedScopes");
-  const inputScopes = getStringArrayField(part.input, "requestedScopes");
+  const inputScopes = getStringArrayField(inputArgs, "requestedScopes");
   const active = part.state === "input-streaming" || part.state === "input-available";
 
   return {
@@ -268,9 +285,9 @@ function getNaniteLifecycleOutcome(
     statusLabel: active ? "Reporting" : base.statusLabel,
     summary:
       getStringField(output, "summary") ??
-      getStringField(part.input, "summary") ??
+      getStringField(inputArgs, "summary") ??
       (part.state === "output-available" ? "The Nanite reported this outcome." : null),
-    outputUrl: getStringField(output, "outputUrl") ?? getStringField(part.input, "outputUrl"),
+    outputUrl: getStringField(output, "outputUrl") ?? getStringField(inputArgs, "outputUrl"),
     requestedScopes: outputScopes.length > 0 ? outputScopes : inputScopes,
   };
 }
@@ -321,6 +338,17 @@ export function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteL
         ) : null}
       </div>
     </section>
+  );
+}
+
+function ToolReason({ input, toolName }: { readonly input: unknown; readonly toolName: string }) {
+  const reason = getToolReason(input) ?? `Using ${toolName}.`;
+
+  return (
+    <div className="app__tool-reason" aria-label={`${toolName} tool call`}>
+      <WrenchIcon size={14} aria-hidden="true" />
+      <span>{reason}</span>
+    </div>
   );
 }
 
@@ -420,16 +448,35 @@ function RuntimeConversation({
   placeholder = "Ask for follow-up changes",
 }: RuntimeConversationProps) {
   const [openToolIds, setOpenToolIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<RuntimeChatViewMode>("default");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const promptStatus = error ? "error" : isStreaming ? "streaming" : "ready";
   const normalizedMessages = useMemo(() => normalizeMessages(agentMessages), [agentMessages]);
+  const debugView = viewMode === "debug";
   const conversationResetKey = useMemo(
     () => getConversationResetKey(normalizedMessages, isStreaming),
     [isStreaming, normalizedMessages],
   );
 
   return (
-    <div className="nanites-workspace__chat-inner nanites-workspace__chat-inner--enter">
+    <div className="nanites-workspace__chat-inner nanites-workspace__chat-inner--enter nanites-workspace__chat-inner--with-masthead">
+      <div className="app__chat-masthead">
+        <div
+          className="nanites-workspace__panel-toggle app__chat-mode-toggle"
+          aria-label="Chat display mode"
+        >
+          <button
+            type="button"
+            data-selected={viewMode === "default"}
+            onClick={() => setViewMode("default")}
+          >
+            Default
+          </button>
+          <button type="button" data-selected={debugView} onClick={() => setViewMode("debug")}>
+            Debug
+          </button>
+        </div>
+      </div>
       <div className="app__messages-list" data-testid="messages-list">
         <ChatRenderBoundary resetKey={conversationResetKey}>
           <Conversation className="app__conversation">
@@ -506,7 +553,8 @@ function RuntimeConversation({
                         }
 
                         const toolActive = isLastAssistant && isStreaming && isLastPart;
-                        const toolOpen = toolActive || openToolIds.has(part.toolCallId);
+                        const toolOpen =
+                          debugView || toolActive || openToolIds.has(part.toolCallId);
                         const handleToolOpenChange = (next: boolean) => {
                           if (toolActive) return;
                           setOpenToolIds((previous) => {
@@ -519,6 +567,16 @@ function RuntimeConversation({
                             return updated;
                           });
                         };
+
+                        if (!debugView) {
+                          return (
+                            <ToolReason
+                              key={part.toolCallId}
+                              input={getToolInputForDisplay(part)}
+                              toolName={toolName}
+                            />
+                          );
+                        }
 
                         if (part.state === "output-available") {
                           const formattedOutput = formatStructuredCodeDisplay(

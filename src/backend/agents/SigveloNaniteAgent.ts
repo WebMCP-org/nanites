@@ -1,9 +1,11 @@
 import { Think, Workspace } from "@cloudflare/think";
 import type { Session, ThinkSubmissionInspection } from "@cloudflare/think";
-import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createExtensionTools } from "@cloudflare/think/tools/extensions";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
+import { DynamicWorkerExecutor } from "@cloudflare/codemode";
+import { createCodeTool } from "@cloudflare/codemode/ai";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
+import { stateToolsFromBackend } from "@cloudflare/shell/workers";
 import type { FileInfo } from "@cloudflare/shell";
 import type { ToolProvider } from "@cloudflare/codemode";
 import { getLogger } from "@logtape/logtape";
@@ -19,6 +21,11 @@ import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.t
 import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabilities.ts";
 import { NaniteToolOutputArtifactStore } from "#/backend/nanites/tool-output.ts";
 import { wrapToolSetForNaniteOutputBudget } from "#/backend/nanites/tool-output.ts";
+import {
+  wrapToolProviderForNaniteCallReasons,
+  wrapToolSetForNaniteCallReasons,
+} from "#/backend/nanites/tool-reason.ts";
+import { hydrateRepositoryIntoWorkspace } from "#/backend/nanites/repository-hydration.ts";
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
 import type {
   AskHumanInput,
@@ -492,9 +499,11 @@ export function buildRunPrompt(input: StartNaniteAgentInput): string {
     "First classify the task's execution plane: GitHub API/MCP, workspace files/git, trigger/routing, or human/product decision.",
     "Do not hydrate or repair workspace git for API-only tasks. Use workspace checkout only when local file inspection or file edits are needed.",
     "Use the workspace, git, MCP, and code execution tools as needed for the chosen execution plane.",
+    "Every top-level tool call must use { args, reason }: args contains the tool's normal input, and reason is a concise explanation of why you are calling that tool and what you are doing.",
     "Use Workspace read/list/grep/find for repository file review. Use execute with state.* and git.* for coordinated filesystem and git work.",
-    "For GitHub triggers that require repository inspection or edits, hydrate the durable workspace idempotently: if no matching .git/config exists, clone the trigger repository once into an explicit safe directory; otherwise fetch or pull the relevant branch/ref instead of cloning again.",
+    "The primary run workspace may already contain trigger-relevant file snapshots prepared by Sigvelo. Use them for fast reading/context. For repository edits, commits, or pushes, work from a real git checkout with .git/config.",
     "The execute tool runs Worker-compatible JavaScript, not a Node.js shell: do not use require(), child_process, or subprocess commands. Use state.* and git.* inside execute instead.",
+    "Inside execute, every helper call must pass a final reason string, such as state.readFile(path, reason), git.clone(options, reason), or artifact.read(args, reason).",
     "Do not use GitHub MCP to read repository files, list commits, or list branches; reserve GitHub MCP for pull requests, metadata, comments, checks, and workflow status.",
     "Use Workspace git tools for repository changes and branch pushes.",
     "Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata, reading PR details, and reading check or workflow status.",
@@ -517,8 +526,10 @@ export function buildNaniteSystemPrompt(manifest: NaniteManifest | null): string
     "First classify each run's execution plane: GitHub API/MCP, workspace files/git, trigger/routing, or human/product decision.",
     "Do not hydrate or repair workspace git for API-only tasks. Use workspace checkout only when local file inspection or file edits are needed.",
     "Use the built-in workspace tools for repository file work: read, list, grep, find, write, edit, delete, and git operations through execute.",
-    "For GitHub repositories that require workspace inspection or edits, keep workspace hydration idempotent: clone a missing repository once into an explicit safe directory, then use fetch/pull against the existing checkout on later runs.",
+    "Every top-level tool call must use { args, reason }: args contains the tool's normal input, and reason is a concise explanation of why you are calling that tool and what you are doing.",
+    "The primary run workspace may already contain trigger-relevant file snapshots prepared by Sigvelo. Use them for fast reading/context. For repository edits, commits, or pushes, work from a real git checkout with .git/config.",
     "execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, and shell subprocesses are unavailable. Use state.* and git.* APIs inside execute.",
+    "Inside execute, every helper call must pass a final reason string, such as state.readFile(path, reason), git.clone(options, reason), or artifact.read(args, reason).",
     "Use GitHub MCP for GitHub API tasks such as finding existing PRs, creating PRs, updating PR metadata, and reading PR/check/workflow status.",
     "Do not use GitHub MCP to inspect repository file contents, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
     "Use Workspace git tools for repository edits, branches, commits, and pushes. Do not use GitHub MCP file-write tools unless they were explicitly granted.",
@@ -678,12 +689,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return {
       ...workspaceTools,
-      execute: createExecuteTool({
-        tools: workspaceTools,
-        state: createWorkspaceStateBackend(this.workspace),
-        providers: [this.createGitToolProvider(), artifactStore.provider()],
-        loader: this.env.LOADER,
-      }),
+      execute: this.createExecuteTool(workspaceTools, artifactStore),
       ...extensionTools,
       artifact_read: tool({
         description:
@@ -798,13 +804,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         inputSchema: z.object({
           name: z.string().min(1),
           description: z.string().min(1),
-          reason: z.string().min(1),
         }),
-        execute: async ({ name, description, reason }) => ({
+        execute: async ({ name, description }) => ({
           recorded: true,
           name,
           description,
-          reason,
           message:
             "Child Nanite creation is manager-governed. This proposal is now visible in the transcript.",
         }),
@@ -839,7 +843,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       maxSteps: this.maxSteps,
       model: this.getModel(),
       sendReasoning: true,
-      tools: this.wrapTurnToolsForOutputBudget(ctx.tools),
+      tools: this.wrapTurnTools(ctx.tools),
       stopWhen: naniteLifecycleTools.map((toolName) => hasToolCall(toolName)),
     };
   }
@@ -957,6 +961,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     }
 
     try {
+      await this.prepareWorkspaceFromManager(input);
       await this.submitRunFromManager(input);
     } catch (error) {
       throw new AppError("naniteAgentRunSubmitFailed", {
@@ -1348,6 +1353,62 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     });
   }
 
+  private async prepareWorkspaceFromManager(input: StartNaniteAgentInput): Promise<void> {
+    const plans = input.run.workspaceHydration ?? [];
+    if (plans.length === 0) {
+      return;
+    }
+
+    const githubInstallationId = parseManagerInstallationId(getParentManagerName(this));
+    if (!githubInstallationId) {
+      throw new AppError("naniteAgentGithubMcpInstallationRequired");
+    }
+
+    for (const plan of plans) {
+      const startedAt = Date.now();
+      naniteLogger.info(LOG_EVENTS.NANITE_WORKSPACE_HYDRATION_STARTED, {
+        ...createRunLogContext(this, input.run.runId),
+        [OTEL_ATTRS.GITHUB_REPOSITORY_FULL_NAME]: plan.repository,
+        ref: plan.ref,
+        destination: plan.destination,
+      });
+
+      try {
+        const scopedToken = await issueScopedGitHubInstallationToken({
+          env: this.env,
+          installationId: githubInstallationId,
+          repositories: [plan.repository],
+          permissions: { contents: "read" },
+        });
+        const result = await hydrateRepositoryIntoWorkspace({
+          workspace: this.workspace,
+          token: scopedToken.token,
+          plan,
+        });
+        naniteLogger.info(LOG_EVENTS.NANITE_WORKSPACE_HYDRATION_COMPLETED, {
+          ...createRunLogContext(this, input.run.runId),
+          [OTEL_ATTRS.GITHUB_REPOSITORY_FULL_NAME]: plan.repository,
+          [OTEL_ATTRS.NANITE_WORKSPACE_HYDRATION_ELAPSED_MS]: Date.now() - startedAt,
+          ref: plan.ref,
+          destination: plan.destination,
+          metadataPath: result.metadataPath,
+          writtenFileCount: result.writtenFiles.length,
+          missingFileCount: result.missingFiles.length,
+        });
+      } catch (error) {
+        naniteLogger.error(LOG_EVENTS.NANITE_WORKSPACE_HYDRATION_FAILED, {
+          ...createRunLogContext(this, input.run.runId),
+          [OTEL_ATTRS.GITHUB_REPOSITORY_FULL_NAME]: plan.repository,
+          [OTEL_ATTRS.NANITE_WORKSPACE_HYDRATION_ELAPSED_MS]: Date.now() - startedAt,
+          ref: plan.ref,
+          destination: plan.destination,
+          error: formatCompactError(error),
+        });
+        throw error;
+      }
+    }
+  }
+
   protected override async onSubmissionStatus(
     submission: ThinkSubmissionInspection,
   ): Promise<void> {
@@ -1718,6 +1779,25 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     });
   }
 
+  private createExecuteTool(
+    workspaceTools: ToolSet,
+    artifactStore: NaniteToolOutputArtifactStore,
+  ): ToolSet[string] {
+    return createCodeTool({
+      tools: [
+        wrapToolProviderForNaniteCallReasons({ tools: workspaceTools }),
+        wrapToolProviderForNaniteCallReasons(this.createGitToolProvider()),
+        wrapToolProviderForNaniteCallReasons(artifactStore.provider()),
+        wrapToolProviderForNaniteCallReasons(
+          stateToolsFromBackend(createWorkspaceStateBackend(this.workspace)),
+        ),
+      ],
+      executor: new DynamicWorkerExecutor({
+        loader: this.env.LOADER,
+      }),
+    });
+  }
+
   private createToolOutputArtifactStore(): NaniteToolOutputArtifactStore {
     return new NaniteToolOutputArtifactStore({
       kv: this.env.TOOL_OUTPUTS,
@@ -1744,6 +1824,10 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         });
       },
     });
+  }
+
+  private wrapTurnTools(tools: ToolSet): ToolSet {
+    return wrapToolSetForNaniteCallReasons(this.wrapTurnToolsForOutputBudget(tools));
   }
 
   private async issueGitToolToken(): Promise<string | null> {

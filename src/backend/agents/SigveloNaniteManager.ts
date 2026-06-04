@@ -25,6 +25,10 @@ import {
   validateGeneratedTriggerSource,
 } from "#/backend/nanites/triggers.ts";
 import {
+  buildDefaultRepositoryHydrationPlans,
+  type RepositoryHydrationPlan,
+} from "#/backend/nanites/repository-hydration.ts";
+import {
   buildGitHubTriggerFixture,
   type GitHubPullRequestFixtureId,
   type GitHubPullRequestFixtureOverrides,
@@ -291,6 +295,7 @@ export type NaniteRunRecord = {
   versionId: string;
   triggerKey: string;
   trigger: NaniteTriggerEvent;
+  workspaceHydration?: RepositoryHydrationPlan[];
   status: NaniteRunStatus;
   summary: string | null;
   outputUrl: string | null;
@@ -1733,12 +1738,17 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     const startedAt = nowIso();
     const runId = crypto.randomUUID();
+    const workspaceHydration = buildDefaultRepositoryHydrationPlans({
+      manifest: nanite.manifest,
+      trigger: input.trigger,
+    });
     const run: NaniteRunRecord = {
       runId,
       naniteId: input.naniteId,
       versionId: nanite.latestVersion.versionId,
       triggerKey,
       trigger: input.trigger,
+      workspaceHydration,
       status: "running",
       summary: null,
       outputUrl: null,

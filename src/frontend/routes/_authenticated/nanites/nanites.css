@@ -529,6 +529,10 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   overflow: hidden;
 }
 
+.nanites-workspace__chat-inner--with-masthead {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 /* The real conversation fades up into place when a sub-agent connection
    resolves, so the swap from the loading shell reads as a smooth reveal. */
 .nanites-workspace__chat-inner--enter {
@@ -745,12 +749,20 @@ body.is-resizing-columns .nanites-workspace__review-grid {
 .app__chat-masthead {
   min-block-size: var(--app-header-rail-height);
   box-sizing: border-box;
-  padding: 0.75rem 1.25rem 0.4375rem;
+  padding: 0.5rem clamp(0.75rem, 2vw, 1.25rem) 0.375rem;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.75rem;
   border-block-end: 1px solid color-mix(in srgb, var(--app-sidebar-border) 72%, white);
+}
+
+.app__chat-mode-toggle button {
+  min-inline-size: auto;
+  padding-inline: 0.5rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
 }
 
 .app__messages-list {
@@ -954,6 +966,29 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   font-weight: 650;
   letter-spacing: 0.02em;
   text-transform: none;
+}
+
+.app__tool-reason {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  max-inline-size: 42rem;
+  margin-block: 0.25rem;
+  color: var(--app-chat-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.app__tool-reason svg {
+  flex: 0 0 auto;
+  margin-block-start: 0.125rem;
+  color: var(--app-control-dark);
+}
+
+.app__tool-reason span {
+  min-width: 0;
+  color: var(--app-chat-text);
+  overflow-wrap: anywhere;
 }
 
 .nanite-lifecycle-tool {
