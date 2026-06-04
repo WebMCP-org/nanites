@@ -16,7 +16,7 @@ import { hasToolCall, tool, type LanguageModel, type ToolSet, type UIMessage } f
 import { z } from "zod";
 import { issueScopedGitHubInstallationToken } from "#/backend/github/index.ts";
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
-import { resolveNaniteGitHubMcpCapability } from "#/backend/nanites/github-mcp-capabilities.ts";
+import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabilities.ts";
 import { NaniteToolOutputArtifactStore } from "#/backend/nanites/tool-output.ts";
 import { wrapToolSetForNaniteOutputBudget } from "#/backend/nanites/tool-output.ts";
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
@@ -590,7 +590,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return session
       .withContext("nanite_identity", {
         description:
-          "Current Sigvelo Nanite identity, scope, permissions, capabilities, and operating rules.",
+          "Current Sigvelo Nanite identity, scope, permission grants, and operating rules.",
         maxTokens: 4000,
         provider: {
           get: async () => this.getSystemPrompt(),
@@ -633,14 +633,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
             "",
             "Declared permissions:",
             JSON.stringify(manifest.permissions, null, 2),
-            "",
-            "Declared capabilities:",
-            JSON.stringify(manifest.capabilities ?? {}, null, 2),
           ].join("\n")
         : "No Nanite manifest has been attached yet.",
       "",
       "Do not claim success until you have enough evidence. Use ask_human when missing permission, approval, ambiguous target branch/repo, branch protection policy, destructive/risky action confirmation, or likely environment/configuration mismatch blocks the run.",
-      "Use fail when the target state is impossible, a requested API/tool path is unavailable, a deterministic tool/API error repeats, or the task cannot be completed within granted capabilities.",
+      "Use fail when the target state is impossible, a requested API/tool path is unavailable, a deterministic tool/API error repeats, or the task cannot be completed within the granted permissions.",
       "If you hit roadblocks immediately or repeat materially similar failures, assume the Nanite may be misconfigured. Stop debugging and call ask_human or fail with the clearest blocker.",
       "Finish exactly once with complete, no_change, or fail unless you need a human decision first.",
     ].join("\n");
@@ -730,7 +727,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       }),
       fail: tool({
         description:
-          "Mark the active Nanite work attempt failed when the target state is impossible, the requested API/tool path is unavailable, a deterministic tool/API error repeats, or the task cannot be completed within granted capabilities. After two materially similar failures, stop debugging and use fail or ask_human.",
+          "Mark the active Nanite work attempt failed when the target state is impossible, the requested API/tool path is unavailable, a deterministic tool/API error repeats, or the task cannot be completed within the granted permissions. After two materially similar failures, stop debugging and use fail or ask_human.",
         inputSchema: z.object({
           summary: z.string().min(1),
           agentFeedback: agentFeedbackSchema.optional(),
@@ -1751,8 +1748,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       return;
     }
 
-    const capability = resolveNaniteGitHubMcpCapability({
-      capability: manifest.capabilities?.githubMcp,
+    const capability = deriveNaniteGitHubMcpAccess({
       appPermissions: githubPermissions.appPermissions,
     });
     if (!capability) {

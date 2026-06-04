@@ -142,11 +142,28 @@ Core tools:
 | ---------------------------------- | ------------------------------------------------------------------ |
 | `sigvelo_whoami`                   | Verify actor, installation, client, and scopes.                    |
 | `sigvelo_create_nanite`            | Create or update a Nanite manifest.                                |
+| `sigvelo_deprovision_nanite`       | Delete one Nanite and its run history.                             |
 | `sigvelo_start_nanite_run`         | Start a manual Nanite run.                                         |
 | `sigvelo_cancel_nanite_runs`       | Cancel pending or running Nanite runs.                             |
 | `sigvelo_test_nanite_trigger`      | Build a fixture event, test a trigger, and dispatch accepted runs. |
 | `sigvelo_debug_nanites`            | Inspect manager state and optional Think transcript/submissions.   |
 | `sigvelo_explore_nanite_workspace` | Inspect child-owned workspace files.                               |
+
+MCP tool calls are already bound to the authorized GitHub installation. Do not pass a manager name.
+For `sigvelo_create_nanite`, keep the manifest to id, name, description, `eventSource`,
+`triggerSource` for machine sources, and `permissions.github`. GitHub MCP tools are derived from
+`permissions.github.appPermissions`; do not include MCP tiers, tool allowlists, or runtime
+capability blocks.
+
+Create and test Nanites one at a time. For related Nanite fleets, call `sigvelo_create_nanite` for
+one Nanite, run `sigvelo_test_nanite_trigger` for that Nanite, then move to the next Nanite. Do not
+try to call Sigvelo tools from inside `execute`; `execute` is Worker-compatible JavaScript for
+workspace and git provider work, and it does not expose Sigvelo control-plane tools as top-level
+functions.
+
+For `sigvelo_test_nanite_trigger`, fixture overrides may use provider-shaped nested objects such as
+`{ "repository": { "full_name": "WebMCP-org/npm-packages" } }` or dotted keys such as
+`{ "repository.full_name": "WebMCP-org/npm-packages" }`.
 
 Minimal MCP config:
 

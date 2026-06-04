@@ -805,6 +805,41 @@ function valueOr<T>(value: T | null | undefined, fallback: T): T {
   return value ?? fallback;
 }
 
+function normalizeDottedFixtureOverrides<T extends object>(rawOverrides: T): T {
+  const directOverrides: Record<string, unknown> = {};
+  const dottedOverrides: Array<[string, unknown]> = [];
+
+  for (const [key, value] of Object.entries(rawOverrides as Record<string, unknown>)) {
+    if (key.includes(".")) {
+      dottedOverrides.push([key, value]);
+    } else {
+      directOverrides[key] = value;
+    }
+  }
+
+  for (const [key, value] of dottedOverrides) {
+    const path = key.split(".").filter(Boolean);
+    if (
+      path.length === 0 ||
+      path.some((segment) => ["__proto__", "prototype", "constructor"].includes(segment))
+    ) {
+      continue;
+    }
+
+    let target = directOverrides;
+    for (const segment of path.slice(0, -1)) {
+      const existing = target[segment];
+      if (typeof existing !== "object" || existing === null || Array.isArray(existing)) {
+        target[segment] = {};
+      }
+      target = target[segment] as Record<string, unknown>;
+    }
+    target[path.at(-1) as string] = value;
+  }
+
+  return directOverrides as T;
+}
+
 function randomTestSha(): string {
   return `test${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 }
@@ -859,7 +894,7 @@ export function buildGitHubPullRequestFixture(input: {
   installationId: number;
   overrides?: GitHubPullRequestFixtureOverrides;
 }): EmitterWebhookEvent<GitHubPullRequestFixtureId> {
-  const overrides = input.overrides ?? {};
+  const overrides = normalizeDottedFixtureOverrides(input.overrides ?? {});
   const pullRequest = overrides.pull_request ?? {};
   const pullRequestHead = pullRequest.head ?? {};
   const pullRequestBase = pullRequest.base ?? {};
@@ -897,7 +932,7 @@ export function buildGitHubPushFixture(input: {
   installationId: number;
   overrides?: GitHubPushFixtureOverrides;
 }): EmitterWebhookEvent<"push"> {
-  const overrides = input.overrides ?? {};
+  const overrides = normalizeDottedFixtureOverrides(input.overrides ?? {});
   const after = valueOr(overrides.after, randomTestSha());
 
   const payload = {

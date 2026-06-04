@@ -1,12 +1,10 @@
 import { emitterEventNames } from "@octokit/webhooks";
 import { z } from "zod";
-import { naniteCapabilitySpecSchema } from "#/backend/nanites/github-mcp-capabilities.ts";
 import type { ManagedNanite } from "#/backend/agents/SigveloNaniteManager.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
-  optionalNaniteManagerNameSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 
@@ -67,7 +65,6 @@ const naniteManifestBaseSchema = z.object({
   name: nonEmptyStringSchema,
   description: nonEmptyStringSchema,
   permissions: nanitePermissionSpecSchema,
-  capabilities: naniteCapabilitySpecSchema.optional(),
 });
 
 const naniteManifestSchema = z.union([
@@ -88,7 +85,6 @@ const naniteManifestSchema = z.union([
 
 const createNaniteToolInputSchema = z
   .object({
-    managerName: optionalNaniteManagerNameSchema,
     manifest: naniteManifestSchema,
     enabled: z.boolean().default(true),
   })

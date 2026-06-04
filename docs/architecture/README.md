@@ -157,11 +157,16 @@ Within that GitHub-first path, keep authority scoped. Generated trigger handlers
 interpret events with scoped Octokit when useful. The Nanite Think agent does the work. The manager
 owns policy and GitHub feedback. GitHub remains the artifact and CI truth surface.
 
-## What gets authored
+## What Gets Authored
 
 Nanite creation authors a thin manifest and generated trigger source for machine-originated event
-sources. The manifest describes identity, coarse event intake, repo scope, permissions, and external
-capabilities. The generated trigger source handles machine-originated behavior.
+sources. The manifest describes identity, coarse event intake, and repository/token permission
+scope. The generated trigger source handles machine-originated behavior.
+
+Do not give the authoring model a manager name, MCP tier, tool allowlist, factory topology, or
+cross-Nanite routing plan. The active installation already selects the manager. GitHub MCP tools are
+derived from `permissions.github.appPermissions`. Package-specific routing, release handling,
+path filters, debounce rules, and other behavior belong in `triggerSource` code.
 
 ```ts
 {
@@ -185,12 +190,6 @@ capabilities. The generated trigger source handles machine-originated behavior.
         },
       },
     },
-    capabilities: {
-      githubMcp: {
-        tier: "github_pr_author",
-        extraTools: ["actions_list", "actions_get"],
-      },
-    },
     triggerSource: "...",
   },
   enabled: true,
@@ -198,7 +197,9 @@ capabilities. The generated trigger source handles machine-originated behavior.
 ```
 
 The `eventSource` block above is just the candidate filter. The root `triggerSource` block owns the
-package-specific decision.
+package-specific decision. The `permissions.github` block is the token boundary for the Nanite's
+workspace git operations and derived GitHub MCP PR/status tools; it is not a separate behavior
+language.
 
 Generated trigger code is ordinary Worker-compatible TypeScript. It routes events; it does not own
 the Nanite runtime. Prefer the virtual `@sigvelo/nanite-trigger` authoring package so validation can

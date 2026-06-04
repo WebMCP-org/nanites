@@ -61,7 +61,9 @@ A Nanite is primarily:
 
 That is the durable product identity.
 
-Capabilities should not be hand-authored into giant Nanite manifests unless they materially affect trust or user-facing behavior.
+Runtime topology should not be hand-authored into giant Nanite manifests unless it materially affects
+trust or user-facing behavior. The authoring surface should not ask for a manager name, MCP tier,
+tool allowlist, generated factory, or cross-Nanite architecture.
 
 Default capability sources should be:
 
@@ -181,8 +183,8 @@ Examples:
 For GitHub API capability, the manager should issue scoped GitHub App installation tokens and attach
 a constrained GitHub MCP inventory to the Nanite. A GitHub installation cannot mint classic PATs, and
 the official GitHub MCP server cannot automatically scope-filter GitHub App installation tokens. The
-model that creates a Nanite may request a GitHub MCP capability tier or specific tools, but the
-installation manager validates the effective repositories, app permissions, and MCP tools.
+model that creates a Nanite declares repository scope and GitHub App permission grants; Sigvelo
+derives the effective MCP tool inventory from those grants.
 
 The default split should be:
 

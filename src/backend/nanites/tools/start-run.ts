@@ -7,21 +7,16 @@ import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
-  optionalNaniteManagerNameSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 
-const startNaniteRunToolInputSchema = z
-  .object({
-    naniteId: nonEmptyStringSchema,
-    message: nonEmptyStringSchema,
-    manualRequestId: nonEmptyStringSchema.optional(),
-    waitForTerminalOutcome: z.boolean().default(false),
-    timeoutMs: z.number().int().min(1_000).max(120_000).default(NANITE_MANUAL_RUN_TIMEOUT_MS),
-  })
-  .extend({
-    managerName: optionalNaniteManagerNameSchema,
-  });
+const startNaniteRunToolInputSchema = z.object({
+  naniteId: nonEmptyStringSchema,
+  message: nonEmptyStringSchema,
+  manualRequestId: nonEmptyStringSchema.optional(),
+  waitForTerminalOutcome: z.boolean().default(false),
+  timeoutMs: z.number().int().min(1_000).max(120_000).default(NANITE_MANUAL_RUN_TIMEOUT_MS),
+});
 
 export const startNaniteRunTool = defineSigveloMcpTool({
   name: "sigvelo_start_nanite_run",

@@ -4,13 +4,11 @@ import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
-  optionalNaniteManagerNameSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 
 const resetDebugToolInputSchema = z
   .object({
-    managerName: optionalNaniteManagerNameSchema,
     naniteId: nonEmptyStringSchema,
     reason: nonEmptyStringSchema,
   })
@@ -29,6 +27,8 @@ export const resetDebugTool = defineSigveloMcpTool({
     openWorldHint: false,
   },
   async execute(input, { manager }) {
-    return manager.resetNaniteDebug({ naniteId: input.naniteId });
+    return manager.resetNaniteDebug({
+      naniteId: input.naniteId,
+    });
   },
 } satisfies SigveloMcpToolDefinition<typeof resetDebugToolInputSchema, ResetNaniteDebugOutput>);

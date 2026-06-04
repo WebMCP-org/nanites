@@ -45,7 +45,9 @@ Nanite definitions should stay thin:
 - soul
 - stop conditions
 
-Capabilities should come primarily from the pulled repo, configured MCP servers, and runtime-owned CLI surfaces rather than an ever-growing Sigvelo-authored tool manifest.
+Capabilities should come primarily from the pulled repo, configured MCP servers, permission-derived
+tool inventory, and runtime-owned CLI surfaces rather than an ever-growing Sigvelo-authored tool
+manifest.
 
 Generated Dynamic Worker code should be used for each Nanite's inbound trigger handler:
 
@@ -82,7 +84,7 @@ Human prompts are not trigger events. Manual chats and manual run prompts go dir
 - GitHub webhook normalization happens in stable manager-owned code before generated trigger execution
 - generated trigger examples use the typed trigger facade and manager intents
 - MCP authoring/debug tools can create, start, test, inspect, cancel, deprovision, and explore Nanites
-- GitHub MCP capability is assigned per Nanite and validated against GitHub App permissions
+- GitHub MCP tool inventory is derived per Nanite from validated GitHub App permissions
 
 ### Release validation still required
 

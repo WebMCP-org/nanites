@@ -1,6 +1,9 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { validateGeneratedTriggerSource } from "#/backend/nanites/triggers.ts";
+import {
+  validateGeneratedTriggerSource,
+  type GitHubPushFixtureOverrides,
+} from "#/backend/nanites/triggers.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 
 function getManager() {
@@ -22,6 +25,36 @@ export default {
   async handle(event, ctx) {
     if (event.name !== "push") {
       return ctx.noop("Not a push event.");
+    }
+
+    const changed = event.payload.commits?.flatMap((commit) => [
+      ...(commit.added ?? []),
+      ...(commit.modified ?? []),
+      ...(commit.removed ?? []),
+    ]) ?? [];
+    const relevant = changed.filter((file) => file.startsWith("packages/react-webmcp/"));
+
+    if (relevant.length === 0) {
+      return ctx.noop("No React WebMCP package files changed.");
+    }
+
+    return ctx.dispatchSelf({
+      reason: "React WebMCP package changed",
+      files: relevant,
+    });
+  },
+};
+`;
+
+const repoFilteredPackageDocsTriggerSource = `
+export default {
+  async handle(event, ctx) {
+    if (event.name !== "push") {
+      return ctx.noop("Not a push event.");
+    }
+
+    if (event.payload.repository.full_name !== "WebMCP-org/npm-packages") {
+      return ctx.noop("Not npm-packages repo");
     }
 
     const changed = event.payload.commits?.flatMap((commit) => [
@@ -218,8 +251,8 @@ test("trigger tests return generated noop reasons when fixtures do not dispatch"
         ref: "refs/heads/main",
       },
     },
-    waitForTerminalOutcome: false,
-    timeoutMs: 1_000,
+    waitForTerminalOutcome: true,
+    timeoutMs: 10_000,
   });
 
   expect(output.ok).toBe(false);
@@ -274,8 +307,8 @@ test("trigger tests dispatch when fixture overrides satisfy generated filters", 
         ],
       },
     },
-    waitForTerminalOutcome: false,
-    timeoutMs: 1_000,
+    waitForTerminalOutcome: true,
+    timeoutMs: 10_000,
   });
 
   expect(output.ok).toBe(true);
@@ -285,11 +318,69 @@ test("trigger tests dispatch when fixture overrides satisfy generated filters", 
     triggerAcceptedEvent: true,
     runCreated: true,
     modelDispatched: true,
-    terminalOutcomeReached: false,
+    terminalOutcomeReached: true,
     triggerRejectionReason: null,
   });
   expect(output.runs[0]).toMatchObject({
     naniteId: "package-docs-syncer",
-    status: "running",
+    status: "complete",
+  });
+});
+
+test("trigger tests apply dotted fixture override keys before generated filters run", async () => {
+  const manager = await getInstallationManager();
+
+  await manager.registerNanite({
+    manifest: {
+      id: "package-docs-syncer-dotted-overrides",
+      name: "Package docs syncer dotted overrides",
+      description: "Keeps package docs aligned with package changes.",
+      eventSource: {
+        type: "github",
+      },
+      triggerSource: repoFilteredPackageDocsTriggerSource,
+      permissions: {},
+    },
+  });
+
+  const output = await manager.testNaniteTrigger({
+    naniteId: "package-docs-syncer-dotted-overrides",
+    actorId: "github:1",
+    requestId: crypto.randomUUID(),
+    event: {
+      fixture: "push",
+      overrides: {
+        "repository.full_name": "WebMCP-org/npm-packages",
+        "repository.name": "npm-packages",
+        "repository.owner.login": "WebMCP-org",
+        ref: "refs/heads/main",
+        commits: [
+          {
+            id: "test000000000001",
+            added: [],
+            modified: ["packages/react-webmcp/README.md"],
+            removed: [],
+          },
+        ],
+      } as unknown as GitHubPushFixtureOverrides,
+    },
+    waitForTerminalOutcome: true,
+    timeoutMs: 10_000,
+  });
+
+  expect(output.ok).toBe(true);
+  expect(output.event.payload.repository.full_name).toBe("WebMCP-org/npm-packages");
+  expect(output.runs).toHaveLength(1);
+  expect(output.acceptance).toMatchObject({
+    fixtureBuilt: true,
+    triggerAcceptedEvent: true,
+    runCreated: true,
+    modelDispatched: true,
+    terminalOutcomeReached: true,
+    triggerRejectionReason: null,
+  });
+  expect(output.runs[0]).toMatchObject({
+    naniteId: "package-docs-syncer-dotted-overrides",
+    status: "complete",
   });
 });

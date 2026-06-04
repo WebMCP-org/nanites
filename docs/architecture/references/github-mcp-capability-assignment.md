@@ -1,8 +1,9 @@
-# GitHub MCP capability assignment
+# GitHub MCP tool inventory assignment
 
 Nanites should get GitHub API capability through scoped installation tokens plus an explicit MCP
-tool inventory chosen for that Nanite. The model that creates a Nanite can choose that inventory as
-part of the Nanite definition, but Sigvelo should still validate it against installation policy.
+tool inventory derived for that Nanite. The model that creates a Nanite declares repositories and
+GitHub App permission grants; Sigvelo derives the MCP inventory from those grants and runtime
+policy.
 
 This keeps the runtime shape simple:
 
@@ -27,7 +28,7 @@ App permissions when they are issued.
 That is the right trust shape for Nanites:
 
 - the installation manager already owns the GitHub App installation boundary
-- the Nanite manifest already names repository scope and requested app permissions
+- the Nanite manifest already names repository scope and GitHub App permission grants
 - the manager can issue a fresh downscoped token for a work attempt
 - GitHub remains the final API enforcement layer
 
@@ -51,66 +52,31 @@ The official GitHub MCP server supports the controls we need:
 - `X-MCP-Readonly` for read-only mode
 
 For Nanites, prefer `X-MCP-Tools` over broad toolsets. Toolsets are convenient for humans, but
-Nanites are vertical. A docs-sync Nanite usually needs a small set of PR and repo metadata tools,
-not every issue, project, notification, gist, and repository mutation surface.
+Nanites are vertical. A docs-sync Nanite usually needs PR and status tools derived from its token
+grants, not every issue, project, notification, gist, and repository mutation surface.
 
 Cloudflare Think can connect to MCP servers through the Agents SDK. Think automatically merges MCP
 tools into each turn, and `waitForMcpConnections` can make the inference loop wait for MCP discovery
 before the model starts. That means GitHub MCP capability can be attached to the Nanite sub-agent
 without adding another Sigvelo-specific tool registry.
 
-## Capability tiers
+## Permission-Derived Inventory
 
-Start with small named capability tiers. The model creating the Nanite can request a tier or a
-specific tool list; the manager validates and stores the resulting capability assignment.
+Do not ask the authoring model to choose a named tier or a specific MCP tool list. Derive the
+inventory from `permissions.github.appPermissions`.
 
-### `github_pr_read`
+Default mapping:
 
-Use for Nanites that only inspect GitHub state.
+| GitHub App permission    | Derived GitHub MCP tools                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| `pull_requests: "read"`  | `list_pull_requests`, `search_pull_requests`, `pull_request_read`                          |
+| `pull_requests: "write"` | read tools plus `create_pull_request`, `update_pull_request`, `update_pull_request_branch` |
+| `actions: "read"`        | `actions_list`, `actions_get`                                                              |
+| `issues: "write"`        | `add_issue_comment`                                                                        |
 
-```text
-get_me
-get_file_contents
-list_commits
-list_branches
-list_pull_requests
-search_pull_requests
-pull_request_read
-```
-
-### `github_pr_author`
-
-Use for Nanites that can create or maintain review surfaces after pushing branches through
-Workspace git tools.
-
-```text
-get_me
-get_file_contents
-list_commits
-list_branches
-create_branch
-list_pull_requests
-search_pull_requests
-pull_request_read
-create_pull_request
-update_pull_request
-update_pull_request_branch
-```
-
-Request `add_issue_comment` explicitly when a Nanite should leave one canonical PR comment. This
-requires `issues: write` because GitHub models pull request conversation comments as issue comments.
-
-### `github_ci_reader`
-
-Use when a Nanite needs to reason about checks and workflow failures.
-
-```text
-pull_request_read
-actions_list
-actions_get
-```
-
-This tier should stay read-oriented by default. Running workflows is a separate capability.
+Always include `get_me` when any GitHub MCP inventory is attached. Do not attach GitHub MCP for a
+Nanite whose permissions only support workspace git, such as `contents: "write"` with no PR, status,
+or comment permissions.
 
 ## Tools to avoid by default
 
@@ -145,7 +111,7 @@ The Nanite system prompt should make the division explicit:
 Use Workspace git tools for repository changes and branch pushes.
 Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata,
 reading PR details, and reading check or workflow status.
-Do not use GitHub MCP file-write tools unless this Nanite was explicitly granted them.
+Do not use GitHub MCP file-write tools.
 Do not merge pull requests unless this Nanite was explicitly granted merge authority.
 For stacked PRs:
 - push branches with git
@@ -165,7 +131,7 @@ installation tokens inside durable MCP connection options.
 ```text
 Think Nanite
   -> addMcpServer("github", "https://app.sigvelo.com/internal/nanites/{naniteId}/github-mcp")
-  -> Sigvelo validates Nanite identity and capability assignment
+  -> Sigvelo validates Nanite identity and permission-derived inventory
   -> Sigvelo issues a fresh installation token for the Nanite's repo and permission scope
   -> Sigvelo forwards to official GitHub MCP with locked MCP headers
 ```
@@ -174,7 +140,7 @@ Reasons:
 
 - GitHub App installation tokens expire.
 - The official GitHub MCP server does not scope-filter `ghs_` tokens.
-- Sigvelo already knows the Nanite id, installation id, repositories, and requested capability tier.
+- Sigvelo already knows the Nanite id, installation id, repositories, and GitHub App permissions.
 - A proxy can enforce a hard upper bound even if the model tries to request additional tools.
 - The Nanite still gets first-party GitHub MCP tool semantics.
 
@@ -182,29 +148,29 @@ For a pre-production shortcut, the Nanite agent can connect directly to the remo
 with fresh headers when it starts a run. If that path stores a token across hibernation, it should be
 treated as temporary.
 
-## Nanite definition impact
+## Nanite Definition Impact
 
-The generated Nanite authoring model can parameterize GitHub MCP capability the same way it
-parameterizes trigger source, scope, soul, and stop conditions.
+The generated Nanite authoring model should not parameterize GitHub MCP separately. It declares
+repository scope and GitHub App permission grants. Sigvelo derives the MCP tool inventory.
 
 Example:
 
 ```ts
 {
-  scope: {
-    repositories: ["WebMCP-org/docs", "WebMCP-org/npm-packages"],
-  },
-  capabilities: {
-    githubMcp: {
-      tier: "github_pr_author",
-      extraTools: ["actions_get"],
-      deniedTools: ["merge_pull_request"],
+  permissions: {
+    github: {
+      repositories: ["WebMCP-org/docs", "WebMCP-org/npm-packages"],
+      appPermissions: {
+        contents: "write",
+        pull_requests: "write",
+        actions: "read",
+      },
     },
   },
 }
 ```
 
-The manager should resolve this into an effective capability assignment:
+The manager should resolve this into an effective MCP attachment:
 
 ```ts
 {
@@ -212,36 +178,30 @@ The manager should resolve this into an effective capability assignment:
   appPermissions: {
     contents: "write",
     pull_requests: "write",
-    checks: "read",
-    metadata: "read",
+    actions: "read",
   },
   mcpTools: [
     "get_me",
-    "get_file_contents",
-    "list_commits",
-    "list_branches",
-    "create_branch",
     "list_pull_requests",
     "search_pull_requests",
     "pull_request_read",
     "create_pull_request",
     "update_pull_request",
     "update_pull_request_branch",
+    "actions_list",
     "actions_get",
   ],
-  deniedTools: ["merge_pull_request"],
+  deniedTools: ["merge_pull_request", "create_or_update_file", "push_files", "..."],
 }
 ```
 
-The model can propose capability. The manager owns validation.
+The model can request permission grants. The manager owns validation and tool derivation.
 
 ## First slice
 
-Start with one capability tier: `github_pr_author`.
-
-Wire it to Nanites that are expected to create documentation or maintenance PRs. Keep code changes
-in Workspace git, use GitHub MCP for PR search/create/update/status, and keep lifecycle outcome in
-Think.
+Start with permission-derived PR authoring: `contents: "write"` for workspace git pushes,
+`pull_requests: "write"` for PR search/create/update, and `actions: "read"` when status or workflow
+inspection is part of the Nanite's job.
 
 This gives Nanites the missing GitHub API surface for stacked PRs without reintroducing support-lane
 state or a one-PR manager harness.

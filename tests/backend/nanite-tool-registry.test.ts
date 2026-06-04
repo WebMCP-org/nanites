@@ -9,7 +9,7 @@ test("Nanite tool registry declares the canonical manager tools explicitly", () 
     "sigvelo_whoami",
     "sigvelo_create_nanite",
     "sigvelo_debug_nanites",
-    "sigvelo_deprovision_nanites",
+    "sigvelo_deprovision_nanite",
     "sigvelo_start_nanite_run",
     "sigvelo_cancel_nanite_runs",
     "sigvelo_test_nanite_trigger",
@@ -142,6 +142,56 @@ test("Nanite create schema requires triggerSource for machine event sources", ()
   }
 });
 
+test("Nanite create schema rejects model-authored runtime capabilities", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const result = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "capability-config",
+      name: "Capability config",
+      description: "Should fail because runtime tool inventory is derived from permissions.",
+      eventSource: { type: "manual" },
+      permissions: {
+        github: {
+          repositories: ["WebMCP-org/docs"],
+          appPermissions: { contents: "write", pull_requests: "write" },
+        },
+      },
+      capabilities: {
+        githubMcp: {
+          tier: "github_pr_author",
+        },
+      },
+    },
+  });
+
+  expect(result?.success).toBe(false);
+  if (result && !result.success) {
+    expect(JSON.stringify(result.error.issues)).toContain("capabilities");
+  }
+});
+
+test("Nanite deprovision schema accepts only one Nanite id", () => {
+  const deprovisionTool = naniteTools.find((tool) => tool.name === "sigvelo_deprovision_nanite");
+
+  expect(
+    deprovisionTool?.inputSchema.safeParse({
+      naniteId: "docs-syncer",
+      reason: "No longer needed.",
+    }).success,
+  ).toBe(true);
+
+  const result = deprovisionTool?.inputSchema.safeParse({
+    naniteIds: ["docs-syncer", "release-helper"],
+    reason: "No longer needed.",
+  });
+
+  expect(result?.success).toBe(false);
+  if (result && !result.success) {
+    expect(JSON.stringify(result.error.issues)).toContain("naniteId");
+    expect(JSON.stringify(result.error.issues)).toContain("naniteIds");
+  }
+});
+
 test("Nanite create schema accepts Cloudflare schedule event source language", () => {
   const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
   const triggerSource =
@@ -251,6 +301,9 @@ test("MCP tools/list exposes schemas, output schemas, and annotations", async ()
   expect(whoami?.outputSchema).toMatchObject({ type: "object" });
   expect(createNanite?.inputSchema).toMatchObject({ type: "object" });
   expect(createNanite?.outputSchema).toMatchObject({ type: "object" });
+  for (const listedTool of listedTools.tools) {
+    expect(JSON.stringify(listedTool.inputSchema)).not.toContain("managerName");
+  }
 
   await client.close();
   await server.close();

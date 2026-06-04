@@ -1,73 +1,4 @@
 import type { GitHubAppPermissions } from "#/backend/github/index.ts";
-import { APP_ERRORS, AppError } from "#/backend/errors.ts";
-import { z } from "zod";
-
-const nonEmptyStringSchema = z.string().trim().min(1);
-
-const naniteGitHubMcpCapabilityTiers = [
-  "github_pr_read",
-  "github_pr_author",
-  "github_ci_reader",
-] as const;
-
-type NaniteGitHubMcpCapabilityTier = (typeof naniteGitHubMcpCapabilityTiers)[number];
-
-export const naniteCapabilitySpecSchema = z
-  .object({
-    githubMcp: z
-      .union([
-        z.object({
-          tier: z
-            .enum(naniteGitHubMcpCapabilityTiers)
-            .describe(
-              "Named GitHub MCP tool tier granted to the Nanite. The manager infers the GitHub App permissions required by the tier.",
-            ),
-          extraTools: z
-            .array(nonEmptyStringSchema)
-            .optional()
-            .describe("Additional GitHub MCP tools requested for this Nanite."),
-          deniedTools: z
-            .array(nonEmptyStringSchema)
-            .optional()
-            .describe("GitHub MCP tools explicitly denied even if a tier would include them."),
-          readonly: z.boolean().optional().describe("Force GitHub MCP read-only mode."),
-        }),
-        z.object({
-          tools: z
-            .array(nonEmptyStringSchema)
-            .min(1)
-            .describe(
-              "Explicit GitHub MCP tool allowlist for this Nanite. The manager infers the GitHub App permissions required by the tools.",
-            ),
-          deniedTools: z
-            .array(nonEmptyStringSchema)
-            .optional()
-            .describe("GitHub MCP tools explicitly denied."),
-          readonly: z.boolean().optional().describe("Force GitHub MCP read-only mode."),
-        }),
-      ])
-      .optional()
-      .describe("Constrained GitHub MCP capability attached to the Think Nanite."),
-  })
-  .default({})
-  .describe("External tool capabilities granted to a Nanite.");
-
-export type NaniteCapabilitySpec = z.infer<typeof naniteCapabilitySpecSchema>;
-type NaniteGitHubMcpCapability = NonNullable<NaniteCapabilitySpec["githubMcp"]>;
-
-const githubMcpTierTools = {
-  github_pr_read: ["get_me", "list_pull_requests", "search_pull_requests", "pull_request_read"],
-  github_pr_author: [
-    "get_me",
-    "list_pull_requests",
-    "search_pull_requests",
-    "pull_request_read",
-    "create_pull_request",
-    "update_pull_request",
-    "update_pull_request_branch",
-  ],
-  github_ci_reader: ["pull_request_read", "actions_list", "actions_get"],
-} as const satisfies Record<NaniteGitHubMcpCapabilityTier, readonly string[]>;
 
 const defaultDeniedGitHubMcpTools = [
   "merge_pull_request",
@@ -100,117 +31,71 @@ const defaultDeniedGitHubMcpTools = [
   "unstar_repository",
 ] as const;
 
-type RequiredGitHubMcpToolPermission = {
-  permission: RequiredGitHubAppPermissionKey;
-  level: "read" | "write";
+type GitHubAppPermissionName = "actions" | "issues" | "pull_requests";
+type GitHubAppPermissionLevel = "read" | "write";
+
+export type NaniteGitHubMcpAccess = {
+  tools: string[];
+  deniedTools: string[];
+  readonly: boolean;
+  appPermissions: GitHubAppPermissions;
 };
-type RequiredGitHubAppPermissionKey = "actions" | "contents" | "issues" | "pull_requests";
-
-const requiredGitHubAppPermissionKeys: RequiredGitHubAppPermissionKey[] = [
-  "actions",
-  "contents",
-  "issues",
-  "pull_requests",
-];
-
-const requiredGitHubAppPermissionsByTool: Record<string, RequiredGitHubMcpToolPermission> = {
-  get_file_contents: { permission: "contents", level: "read" },
-  list_commits: { permission: "contents", level: "read" },
-  list_branches: { permission: "contents", level: "read" },
-  create_branch: { permission: "contents", level: "write" },
-  pull_request_read: { permission: "pull_requests", level: "read" },
-  list_pull_requests: { permission: "pull_requests", level: "read" },
-  search_pull_requests: { permission: "pull_requests", level: "read" },
-  create_pull_request: { permission: "pull_requests", level: "write" },
-  update_pull_request: { permission: "pull_requests", level: "write" },
-  update_pull_request_branch: { permission: "pull_requests", level: "write" },
-  add_issue_comment: { permission: "issues", level: "write" },
-  actions_list: { permission: "actions", level: "read" },
-  actions_get: { permission: "actions", level: "read" },
-};
-
-const githubMcpToolsWithoutAppPermissions = new Set(["get_me"]);
 
 function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set([...values].map((value) => value.trim()).filter(Boolean))].sort();
 }
 
-function mergeGitHubAppPermissionLevel(
-  current: GitHubAppPermissions[keyof GitHubAppPermissions] | undefined,
-  required: "read" | "write",
-): "read" | "write" {
-  return current === "write" || required === "write" ? "write" : "read";
-}
-
-function mergeGitHubAppPermissions(
-  base: GitHubAppPermissions,
-  inferred: Partial<Record<RequiredGitHubAppPermissionKey, "read" | "write">>,
-): GitHubAppPermissions {
-  let merged: GitHubAppPermissions = { ...base };
-  for (const permission of requiredGitHubAppPermissionKeys) {
-    const level = inferred[permission];
-    if (!level) {
-      continue;
-    }
-    merged[permission] = mergeGitHubAppPermissionLevel(merged[permission], level);
-  }
-  return merged;
-}
-
-function inferGitHubAppPermissionsForMcpTools(
-  tools: string[],
-): Partial<Record<RequiredGitHubAppPermissionKey, "read" | "write">> {
-  const permissions: Partial<Record<RequiredGitHubAppPermissionKey, "read" | "write">> = {};
-  for (const tool of tools) {
-    const required = requiredGitHubAppPermissionsByTool[tool];
-    if (!required) {
-      if (githubMcpToolsWithoutAppPermissions.has(tool)) {
-        continue;
-      }
-      throw new AppError("githubMcpToolPermissionMappingRequired", {
-        details: { toolName: tool },
-        message: `${APP_ERRORS.githubMcpToolPermissionMappingRequired.message}: ${tool}`,
-      });
-    }
-    permissions[required.permission] = mergeGitHubAppPermissionLevel(
-      permissions[required.permission],
-      required.level,
-    );
+function grantsAtLeast(
+  appPermissions: GitHubAppPermissions,
+  permission: GitHubAppPermissionName,
+  minimum: GitHubAppPermissionLevel,
+): boolean {
+  const granted = appPermissions[permission];
+  if (!granted) {
+    return false;
   }
 
-  return permissions;
+  return minimum === "read" || granted === "write";
 }
 
-export function resolveNaniteGitHubMcpCapability(input: {
-  capability: NaniteGitHubMcpCapability | undefined;
+function hasWritableGitHubPermission(appPermissions: GitHubAppPermissions): boolean {
+  return Object.values(appPermissions).some((level) => level === "write");
+}
+
+export function deriveNaniteGitHubMcpAccess(input: {
   appPermissions?: GitHubAppPermissions;
-}) {
-  if (!input.capability) {
+}): NaniteGitHubMcpAccess | null {
+  const appPermissions = input.appPermissions ?? {};
+  const tools = new Set(["get_me"]);
+
+  if (grantsAtLeast(appPermissions, "pull_requests", "read")) {
+    tools.add("list_pull_requests");
+    tools.add("search_pull_requests");
+    tools.add("pull_request_read");
+  }
+  if (grantsAtLeast(appPermissions, "pull_requests", "write")) {
+    tools.add("create_pull_request");
+    tools.add("update_pull_request");
+    tools.add("update_pull_request_branch");
+  }
+
+  if (grantsAtLeast(appPermissions, "actions", "read")) {
+    tools.add("actions_list");
+    tools.add("actions_get");
+  }
+
+  if (grantsAtLeast(appPermissions, "issues", "write")) {
+    tools.add("add_issue_comment");
+  }
+
+  if (tools.size === 1) {
     return null;
   }
 
-  const requestedTools =
-    "tools" in input.capability
-      ? input.capability.tools
-      : [...githubMcpTierTools[input.capability.tier], ...(input.capability.extraTools ?? [])];
-  const deniedTools = uniqueSorted([
-    ...defaultDeniedGitHubMcpTools,
-    ...(input.capability.deniedTools ?? []),
-  ]);
-  const deniedToolSet = new Set(deniedTools);
-  const tools = uniqueSorted(requestedTools).filter((toolName) => !deniedToolSet.has(toolName));
-
-  if (tools.length === 0) {
-    throw new AppError("githubMcpAllowedToolRequired");
-  }
-
   return {
-    tools,
-    deniedTools,
-    readonly: input.capability.readonly ?? false,
-    appPermissions: mergeGitHubAppPermissions(
-      input.appPermissions ?? {},
-      inferGitHubAppPermissionsForMcpTools(tools),
-    ),
+    tools: uniqueSorted(tools),
+    deniedTools: uniqueSorted(defaultDeniedGitHubMcpTools),
+    readonly: !hasWritableGitHubPermission(appPermissions),
+    appPermissions,
   };
 }

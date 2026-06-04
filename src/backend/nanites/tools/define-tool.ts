@@ -3,7 +3,7 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { getAgentByName } from "agents";
 import { tool, type FlexibleSchema, type ToolExecutionOptions } from "ai";
 import { z } from "zod";
-import { APP_ERRORS, AppError } from "#/backend/errors.ts";
+import { AppError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
@@ -61,13 +61,11 @@ export function createObjectOutputSchema(description: string): z.ZodType {
 }
 
 export const nonEmptyStringSchema = z.string().min(1);
-export const optionalNaniteManagerNameSchema = nonEmptyStringSchema.optional();
 
 type SigveloNaniteToolInvocation = {
   env: Env;
   props: SigveloMcpAuthProps;
   surface: SigveloNaniteToolSurface;
-  managerName?: string;
   requestId?: string;
 };
 
@@ -80,16 +78,9 @@ async function resolveAuthorizedNaniteToolRuntime(input: {
   env: Env;
   props: SigveloMcpAuthProps;
   surface: SigveloNaniteToolSurface;
-  managerName?: string;
   requestId?: string;
 }): Promise<NaniteToolRuntime> {
   const managerName = buildNaniteManagerKey(input.props.githubInstallationId);
-  if (input.managerName && input.managerName !== managerName) {
-    throw new AppError("naniteManagerNotFound", {
-      details: { managerName: input.managerName },
-      message: `${APP_ERRORS.naniteManagerNotFound.message}: ${input.managerName}`,
-    });
-  }
 
   return {
     context: {
@@ -121,13 +112,18 @@ function getErrorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-function readOptionalManagerName(input: unknown): string | undefined {
-  return typeof input === "object" &&
-    input !== null &&
-    "managerName" in input &&
-    typeof input.managerName === "string"
-    ? input.managerName
-    : undefined;
+function redactInternalToolOutput(output: object): object {
+  if (!("managerName" in output)) {
+    return output;
+  }
+
+  const publicOutput: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(output)) {
+    if (key !== "managerName") {
+      publicOutput[key] = value;
+    }
+  }
+  return publicOutput;
 }
 
 function readOptionalToolCallId(input: unknown): string | undefined {
@@ -182,7 +178,6 @@ export async function executeSigveloNaniteTool(input: {
       env: invocation.env,
       props: invocation.props,
       surface: invocation.surface,
-      managerName: invocation.managerName ?? readOptionalManagerName(input.toolInput),
       requestId: invocation.requestId,
     });
     const telemetry = createToolTelemetryContext({
@@ -196,7 +191,7 @@ export async function executeSigveloNaniteTool(input: {
       ...telemetry,
       [OTEL_ATTRS.REQUEST_DURATION_MS]: Math.round(performance.now() - startedAt),
     });
-    return output;
+    return redactInternalToolOutput(output);
   } catch (error) {
     naniteToolLogger.error(LOG_EVENTS.SIGVELO_TOOL_CALL_FAILED, {
       ...createToolTelemetryContext({

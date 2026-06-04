@@ -174,6 +174,9 @@ export type NaniteToolContext = {
 
 `surface` is mandatory. It is telemetry and provenance, not authorization.
 
+`managerName` is internal routing context derived from the GitHub installation. Do not expose it in
+public tool input schemas or model-facing tool outputs.
+
 `actor` is mandatory. User-initiated manager work always acts as the prompting GitHub user. If the
 user tags `@sigvelo` in GitHub chat, that GitHub author becomes the actor. If the user calls the MCP
 server, the MCP token's GitHub user becomes the actor. Browser calls use the existing browser
@@ -189,8 +192,9 @@ The user-facing manager tool surface is limited by these checks:
 
 1. The actor is an authenticated GitHub user.
 2. The actor is allowed to operate the selected GitHub installation.
-3. The requested manager name equals `installation:{githubInstallationId}`.
-4. Nanite manifests and generated runtime capabilities stay inside that installation boundary.
+3. The selected manager is derived from `githubInstallationId`; public tool inputs do not accept a
+   manager name.
+4. Nanite manifests and generated runtime permissions stay inside that installation boundary.
 5. Nanite runtime GitHub/MCP/workspace authority is constrained by the validated Nanite manifest.
 
 MCP OAuth may still advertise existing scopes for compatibility. The v1 tool model should not branch behavior by per-tool scope unless a real product boundary appears.
@@ -206,7 +210,7 @@ import { z } from "zod";
 export type NaniteManagerToolRuntime = Pick<
   NaniteManager,
   | "cancelRuns"
-  | "deprovisionNanites"
+  | "deprovisionNanite"
   | "exploreNaniteWorkspace"
   | "inspectNaniteDebug"
   | "registerNanite"
@@ -263,9 +267,9 @@ export const startNaniteRunTool = {
     inputSchema: startNaniteRunInputSchema,
   },
   async handler(input, { context, manager }) {
-    const { managerName: _managerName, ...startInput } = input;
     return manager.startNaniteManualRun({
-      ...startInput,
+      naniteId: input.naniteId,
+      message: input.message,
       actorId: `github:${context.actor.githubUserId}`,
       manualRequestId: input.manualRequestId ?? context.requestId,
     });
@@ -291,7 +295,7 @@ registration assertions.
 export const naniteTools = [
   createNaniteTool,
   debugNanitesTool,
-  deprovisionNanitesTool,
+  deprovisionNaniteTool,
   startNaniteRunTool,
   cancelNaniteRunsTool,
   testNaniteTriggerTool,
@@ -325,9 +329,9 @@ server.registerTool(startNaniteRunTool.name, startNaniteRunTool.config, async (i
   };
 });
 
-server.registerTool(deprovisionNanitesTool.name, deprovisionNanitesTool.config, async (input) => {
+server.registerTool(deprovisionNaniteTool.name, deprovisionNaniteTool.config, async (input) => {
   const runtime = await buildMcpNaniteToolRuntime();
-  const output = await deprovisionNanitesTool.handler(input, runtime);
+  const output = await deprovisionNaniteTool.handler(input, runtime);
 
   return {
     structuredContent: output,
@@ -360,9 +364,9 @@ forwarding methods that exist only for symmetry.
 export async function deleteNaniteFromUi(
   manager: NaniteManager["stub"],
   input: { naniteId: string; accountLogin: string },
-): Promise<DeprovisionNanitesOutput> {
-  return manager.deprovisionNanites({
-    naniteIds: [input.naniteId],
+): Promise<DeprovisionNaniteOutput> {
+  return manager.deprovisionNanite({
+    naniteId: input.naniteId,
     reason: `Deleted from the Nanites UI for ${input.accountLogin}.`,
   });
 }
@@ -418,8 +422,8 @@ sigvelo_create_nanite
 sigvelo_start_nanite_run
   -> manager.startNaniteManualRun(...)
 
-sigvelo_deprovision_nanites
-  -> manager.deprovisionNanites(...)
+sigvelo_deprovision_nanite
+  -> manager.deprovisionNanite(...)
 
 sigvelo_debug_nanites
   -> manager.inspectNaniteDebug(...)
@@ -450,7 +454,7 @@ The initial public tool surface should be:
 | `sigvelo_whoami`                   | Show the current actor and installation context.              | May be adapter-local or context-only.                               |
 | `sigvelo_create_nanite`            | Create or update one Nanite manifest.                         | Validate repository scope, then register on manager.                |
 | `sigvelo_debug_nanites`            | Inspect manager state and optional child Think runtime state. | Read manager state and delegate child debug when requested.         |
-| `sigvelo_deprovision_nanites`      | Remove registered Nanites and their child agents.             | Call manager deprovision flow.                                      |
+| `sigvelo_deprovision_nanite`       | Remove one registered Nanite and its child agent.             | Call manager deprovision flow.                                      |
 | `sigvelo_start_nanite_run`         | Start a manual Nanite run.                                    | Create run, dispatch to child Think Nanite, optionally wait.        |
 | `sigvelo_cancel_nanite_runs`       | Cancel pending or running runs.                               | Call manager cancellation flow and child cancellation where needed. |
 | `sigvelo_test_nanite_trigger`      | Exercise generated trigger acceptance path.                   | Build fixture, test generated trigger, dispatch accepted runs.      |
@@ -468,7 +472,6 @@ Prefer this:
 ```ts
 {
   ok: true,
-  managerName,
   naniteId,
   runs,
 }
@@ -530,7 +533,7 @@ Use MCP `tools/call` for representative tools:
 - `sigvelo_whoami`
 - `sigvelo_create_nanite`
 - `sigvelo_debug_nanites`
-- `sigvelo_deprovision_nanites`
+- `sigvelo_deprovision_nanite`
 - `sigvelo_start_nanite_run`
 
 Assert that outputs include `structuredContent`.

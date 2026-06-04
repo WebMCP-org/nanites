@@ -4,13 +4,11 @@ import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
-  optionalNaniteManagerNameSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 
 const cancelRunsToolInputSchema = z
   .object({
-    managerName: optionalNaniteManagerNameSchema,
     naniteId: nonEmptyStringSchema.optional(),
     runIds: z.array(nonEmptyStringSchema).min(1).max(100).optional(),
     olderThanIso: z.string().datetime().optional(),

@@ -19,10 +19,6 @@ import {
   type NaniteWorkspaceExploreOutput,
 } from "#/backend/agents/SigveloNaniteAgent.ts";
 import {
-  resolveNaniteGitHubMcpCapability,
-  type NaniteCapabilitySpec,
-} from "#/backend/nanites/github-mcp-capabilities.ts";
-import {
   getDispatchIntents,
   getNoopIntents,
   runGeneratedTrigger,
@@ -249,7 +245,6 @@ type NaniteManifestBase = {
   name: string;
   description: string;
   permissions: NanitePermissionSpec;
-  capabilities?: NaniteCapabilitySpec;
 };
 
 export type NaniteManifest =
@@ -467,18 +462,18 @@ export type NaniteManagerMaintenanceOutput = {
   }>;
 };
 
-export type DeprovisionNanitesInput = {
-  naniteIds: string[];
+export type DeprovisionNaniteInput = {
+  naniteId: string;
   reason: string;
 };
 
-export type DeprovisionNanitesOutput = {
-  deprovisionedNaniteIds: string[];
+export type DeprovisionNaniteOutput = {
+  deprovisionedNaniteId: string | null;
   removedRunIds: string[];
-  skippedNaniteIds: Array<{
+  skippedNanite: {
     naniteId: string;
     reason: string;
-  }>;
+  } | null;
 };
 
 export type CompleteNaniteRunInput = {
@@ -1557,33 +1552,37 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   }
 
   @callable()
-  async deprovisionNanites(input: DeprovisionNanitesInput): Promise<DeprovisionNanitesOutput> {
+  async deprovisionNanite(input: DeprovisionNaniteInput): Promise<DeprovisionNaniteOutput> {
     const current = await this.getSnapshot();
-    const naniteIds = new Set(input.naniteIds);
-    const deprovisionedNaniteIds: string[] = [];
-    const skippedNaniteIds: DeprovisionNanitesOutput["skippedNaniteIds"] = [];
+    const skippedNanite: DeprovisionNaniteOutput["skippedNanite"] = current.nanites[input.naniteId]
+      ? null
+      : { naniteId: input.naniteId, reason: "unknown_nanite" };
+
+    if (skippedNanite) {
+      naniteManagerLogger.info(LOG_EVENTS.NANITE_DEPROVISIONED, {
+        ...createManagerLogContext(this.name),
+        reason: input.reason,
+        deprovisionedNaniteId: null,
+        removedRunIds: [],
+        skippedNanite,
+      });
+      return { deprovisionedNaniteId: null, removedRunIds: [], skippedNanite };
+    }
+
     const nextNanites = { ...current.nanites };
     const nextRuntimeActivityByNanite = { ...current.runtimeActivityByNanite };
 
-    for (const naniteId of naniteIds) {
-      if (!current.nanites[naniteId]) {
-        skippedNaniteIds.push({ naniteId, reason: "unknown_nanite" });
-        continue;
-      }
-
-      const agent = await this.subAgent(SigveloNaniteAgent, naniteId);
-      await agent.resetDebugState();
-      await this.deleteSubAgent(SigveloNaniteAgent, naniteId);
-      delete nextNanites[naniteId];
-      delete nextRuntimeActivityByNanite[naniteId];
-      deprovisionedNaniteIds.push(naniteId);
-    }
+    const agent = await this.subAgent(SigveloNaniteAgent, input.naniteId);
+    await agent.resetDebugState();
+    await this.deleteSubAgent(SigveloNaniteAgent, input.naniteId);
+    delete nextNanites[input.naniteId];
+    delete nextRuntimeActivityByNanite[input.naniteId];
 
     const removedRunIds: string[] = [];
     const nextRuns = { ...current.runs };
     const nextRunOrder = current.runOrder.filter((runId) => {
       const run = current.runs[runId];
-      if (run && naniteIds.has(run.naniteId)) {
+      if (run?.naniteId === input.naniteId) {
         delete nextRuns[runId];
         removedRunIds.push(runId);
         return false;
@@ -1592,26 +1591,24 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       return true;
     });
 
-    if (deprovisionedNaniteIds.length > 0) {
-      this.setState({
-        ...current,
-        nanites: nextNanites,
-        runs: nextRuns,
-        runOrder: nextRunOrder,
-        runtimeActivityByNanite: nextRuntimeActivityByNanite,
-        updatedAt: nowIso(),
-      });
-    }
+    this.setState({
+      ...current,
+      nanites: nextNanites,
+      runs: nextRuns,
+      runOrder: nextRunOrder,
+      runtimeActivityByNanite: nextRuntimeActivityByNanite,
+      updatedAt: nowIso(),
+    });
 
     naniteManagerLogger.info(LOG_EVENTS.NANITE_DEPROVISIONED, {
       ...createManagerLogContext(this.name),
       reason: input.reason,
-      deprovisionedNaniteIds,
+      deprovisionedNaniteId: input.naniteId,
       removedRunIds,
-      skippedNaniteIds,
+      skippedNanite: null,
     });
 
-    return { deprovisionedNaniteIds, removedRunIds, skippedNaniteIds };
+    return { deprovisionedNaniteId: input.naniteId, removedRunIds, skippedNanite: null };
   }
 
   override async onBeforeSubAgent(
@@ -1634,31 +1631,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   @callable()
   async registerNanite(input: RegisterNaniteInput): Promise<ManagedNanite> {
     const current = await this.getSnapshot();
-    const requestedGitHubPermissions = input.manifest.permissions.github;
-    if (
-      input.manifest.capabilities?.githubMcp &&
-      !requestedGitHubPermissions?.repositories.length
-    ) {
-      throw new AppError("naniteGitHubRepositoryPermissionsRequired");
-    }
-
-    const githubMcpCapability = resolveNaniteGitHubMcpCapability({
-      capability: input.manifest.capabilities?.githubMcp,
-      appPermissions: requestedGitHubPermissions?.appPermissions,
-    });
-    const githubPermissions = requestedGitHubPermissions
-      ? {
-          repositories: requestedGitHubPermissions.repositories,
-          appPermissions:
-            githubMcpCapability?.appPermissions ?? requestedGitHubPermissions.appPermissions,
-        }
-      : undefined;
-    const manifest: NaniteManifest = githubPermissions
-      ? {
-          ...input.manifest,
-          permissions: { github: githubPermissions },
-        }
-      : input.manifest;
+    const manifest = input.manifest;
 
     const githubInstallationId = getGitHubInstallationIdFromManagerName(this.name);
     if (githubInstallationId) {

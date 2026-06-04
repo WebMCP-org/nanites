@@ -9,7 +9,6 @@ import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
-  optionalNaniteManagerNameSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 
@@ -26,7 +25,6 @@ const thinkSubmissionStatusSchema = z.enum([
 
 const inspectDebugToolInputSchema = z
   .object({
-    managerName: optionalNaniteManagerNameSchema,
     naniteId: nonEmptyStringSchema.optional(),
     runId: nonEmptyStringSchema.optional(),
     status: z.union([naniteRunStatusSchema, z.array(naniteRunStatusSchema)]).optional(),

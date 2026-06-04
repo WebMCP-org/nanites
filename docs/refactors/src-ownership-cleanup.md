@@ -248,7 +248,7 @@ src/
 |           |-- inspect-debug.ts       <- sigvelo_debug_nanites
 |           |-- reset-debug.ts         <- sigvelo_reset_nanite_debug
 |           |-- cancel-runs.ts         <- sigvelo_cancel_nanite_runs
-|           |-- deprovision.ts         <- sigvelo_deprovision_nanites
+|           |-- deprovision.ts         <- sigvelo_deprovision_nanite
 |           `-- explore-workspace.ts   <- sigvelo_explore_nanite_workspace
 `-- frontend/
     |-- instrument.ts

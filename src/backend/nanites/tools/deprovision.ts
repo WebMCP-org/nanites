@@ -1,26 +1,25 @@
 import { z } from "zod";
-import type { DeprovisionNanitesOutput } from "#/backend/agents/SigveloNaniteManager.ts";
+import type { DeprovisionNaniteOutput } from "#/backend/agents/SigveloNaniteManager.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
-  optionalNaniteManagerNameSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 
 const deprovisionToolInputSchema = z
   .object({
-    managerName: optionalNaniteManagerNameSchema,
-    naniteIds: z.array(nonEmptyStringSchema).min(1).max(100),
+    naniteId: nonEmptyStringSchema,
     reason: nonEmptyStringSchema,
   })
-  .describe("Permanently deprovision registered Nanites and remove their run history.");
+  .strict()
+  .describe("Permanently deprovision one registered Nanite and remove its run history.");
 
 export const deprovisionTool = defineSigveloMcpTool({
-  name: "sigvelo_deprovision_nanites",
-  title: "Deprovision Sigvelo Nanites",
+  name: "sigvelo_deprovision_nanite",
+  title: "Deprovision a Sigvelo Nanite",
   description:
-    "Permanently removes registered Nanites, deletes their child agents, clears runtime activity, and removes their run history.",
+    "Permanently removes one registered Nanite, deletes its child agent, clears runtime activity, and removes its run history.",
   inputSchema: deprovisionToolInputSchema,
   outputSchema: createObjectOutputSchema("Sigvelo Nanite deprovisioning result."),
   annotations: {
@@ -30,9 +29,9 @@ export const deprovisionTool = defineSigveloMcpTool({
     openWorldHint: true,
   },
   async execute(input, { manager }) {
-    return manager.deprovisionNanites({
-      naniteIds: input.naniteIds,
+    return manager.deprovisionNanite({
+      naniteId: input.naniteId,
       reason: input.reason,
     });
   },
-} satisfies SigveloMcpToolDefinition<typeof deprovisionToolInputSchema, DeprovisionNanitesOutput>);
+} satisfies SigveloMcpToolDefinition<typeof deprovisionToolInputSchema, DeprovisionNaniteOutput>);

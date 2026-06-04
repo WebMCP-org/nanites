@@ -47,9 +47,10 @@ Use these rules when changing Nanites:
   route/search input. Do not make the manager re-parse state it owns, mirror TypeScript types with
   Zod, add `schemaVersion` fields before a migration exists, or accept caller-supplied timestamps
   and ids for manager-owned events.
-- **Model capability, not tool micromanagement.** A permission spec should describe scoped GitHub
-  permissions, Cloudflare resources, network policy, and MCP server attachment. Do not model every
-  individual MCP tool unless a real authorization boundary requires it.
+- **Model permission boundaries, not tool micromanagement.** A permission spec should describe
+  scoped GitHub repositories, GitHub App grants, Cloudflare resources, and network policy. Do not ask
+  the authoring model for MCP tiers or tool allowlists; derive runtime tool inventory from the
+  granted permissions.
 - **Keep the work model small.** A Run is `running`, `waiting_for_human`, `complete`,
   `no_change`, `fail`, or `canceled`. The Think transcript is the detailed execution record.
   Manager state is a lookup and summary index, not a phase machine.
@@ -253,8 +254,8 @@ This keeps Sigvelo on the code-intelligence layer and avoids carrying a containe
 GitHub MCP should be assigned per Nanite, not enabled globally.
 
 The manager should derive an effective GitHub capability assignment from the Nanite's repositories,
-requested GitHub App permissions, and requested MCP tools. The model creating the Nanite may choose a
-minimal tool tier, but the manager validates it before attachment.
+requested GitHub App permissions, and runtime policy. The model creating the Nanite should not choose
+an MCP tier or individual MCP tools.
 
 Use GitHub App installation tokens, not classic PATs. Installation tokens can be downscoped to the
 Nanite's repositories and app permissions. The official GitHub MCP server accepts app tokens, but it

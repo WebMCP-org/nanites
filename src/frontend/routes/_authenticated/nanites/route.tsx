@@ -51,7 +51,7 @@ import {
 } from "@phosphor-icons/react";
 import type { BrowserNanitesContext, SessionInstallationSnapshot } from "#/frontend/lib/auth.ts";
 import type {
-  DeprovisionNanitesOutput,
+  DeprovisionNaniteOutput,
   ManagedNanite,
   NaniteManagerState,
   NaniteManifest,
@@ -2370,14 +2370,12 @@ function NanitesRuntimeSurface({
       // The Agents SDK can infer this from the full manager interface, but expanding
       // this RPC method hits TS2589 in this route.
       // @ts-expect-error Type instantiation is excessively deep for the full manager stub.
-      const output = (await manager.stub.deprovisionNanites({
-        naniteIds: [input.naniteId],
+      const output = (await manager.stub.deprovisionNanite({
+        naniteId: input.naniteId,
         reason: `Deleted from the Nanites UI for ${activeInstallation.account.login}.`,
-      })) as DeprovisionNanitesOutput;
-      if (!output.deprovisionedNaniteIds.includes(input.naniteId)) {
-        const skipped = output.skippedNaniteIds.find(
-          (candidate) => candidate.naniteId === input.naniteId,
-        );
+      })) as DeprovisionNaniteOutput;
+      if (output.deprovisionedNaniteId !== input.naniteId) {
+        const skipped = output.skippedNanite;
         throw new Error(skipped ? `Delete skipped: ${skipped.reason}.` : "Delete did not apply.");
       }
       return output;
