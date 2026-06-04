@@ -132,8 +132,8 @@ Those belong in the control plane, not in the Nanite definition itself.
 
 This matches the current branch direction:
 
-- [NaniteManagerState](/src/backend/nanites/host.ts) is small and dispatch-oriented.
-- [NaniteAgentState](/src/backend/nanites/agent.ts) is the durable worker-owned state.
+- [NaniteManagerState](/src/backend/nanites/manager.ts) is small and dispatch-oriented.
+- [NaniteAgentState](/src/backend/nanites/nanite-agent.ts) is the durable worker-owned state.
 - Repo state should resolve through the installation manager plus per-Nanite trigger decisions, not a shared dispatch layer.
 - the manager derives configured Nanites from registered manifests and treats each Nanite as the
   owner of its live runtime snapshot.
@@ -225,7 +225,7 @@ The healthier mental model is:
 
 That is why the current branch feels healthier where it promotes:
 
-- [NaniteAgentState](/src/backend/nanites/agent.ts)
+- [NaniteAgentState](/src/backend/nanites/nanite-agent.ts)
 - code-derived configured Nanites
 - Nanite-owned snapshots
 

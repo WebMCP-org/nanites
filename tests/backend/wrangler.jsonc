@@ -64,10 +64,6 @@
         "name": "SigveloManagerConversationAgent",
       },
       {
-        "class_name": "SigveloMcpAgent",
-        "name": "SigveloMcpAgent",
-      },
-      {
         "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
       },
@@ -78,7 +74,6 @@
       "new_sqlite_classes": [
         "SigveloChatIngress",
         "SigveloManagerConversationAgent",
-        "SigveloMcpAgent",
         "SigveloNaniteManager",
         "SigveloNaniteAgent",
       ],

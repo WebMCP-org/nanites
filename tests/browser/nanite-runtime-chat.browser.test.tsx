@@ -2,7 +2,7 @@ import { createRoot, type Root } from "react-dom/client";
 import {
   NaniteLifecycleToolCard,
   type NaniteLifecycleOutcome,
-} from "#/frontend/routes/_authenticated/-nanites/nanite-runtime-chat.tsx";
+} from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
 import { expect, page, test } from "../helpers/browser-test.ts";
 
 function renderLifecycleCards(outcomes: readonly NaniteLifecycleOutcome[]) {

@@ -38,9 +38,9 @@ Current runtime entrypoints:
 
 - `src/server.ts`
 - `wrangler.jsonc`
-- `src/backend/nanites/host.ts`
-- `src/backend/nanites/agent.ts`
-- `src/backend/nanites/trigger-runtime.ts`
+- `src/backend/nanites/manager.ts`
+- `src/backend/nanites/nanite-agent.ts`
+- `src/backend/nanites/triggers.ts`
 - `src/backend/nanites/github-mcp-capabilities.ts`
 
 Historical hybrid execution seams:
@@ -51,14 +51,14 @@ Historical hybrid execution seams:
 Runtime-owned trust surfaces:
 
 - `src/backend/nanites/github-mcp-capabilities.ts`
-- `src/backend/github.ts`
+- `src/backend/github/index.ts`
 
 Contracts and persisted product shape:
 
-- `src/backend/nanites/host.ts`
-- `src/backend/github.ts`
-- `src/backend/db/business-schema.ts`
-- `src/shared/domain/business.ts`
+- `src/backend/nanites/manager.ts`
+- `src/backend/github/index.ts`
+- `src/backend/db/schema.ts`
+- `src/backend/db/schema.ts`
 
 Canonical Nanites docs:
 
@@ -307,8 +307,8 @@ These are the extra inputs still missing or still worth making explicit before m
 
 If I had to hand someone only five starting files right now, I would choose:
 
-- `src/backend/nanites/host.ts`
-- `src/backend/nanites/agent.ts`
-- `src/backend/nanites/trigger-runtime.ts`
+- `src/backend/nanites/manager.ts`
+- `src/backend/nanites/nanite-agent.ts`
+- `src/backend/nanites/triggers.ts`
 - `../char-ai-saas/apps/char-ai-saas/worker/chat/thread-agent/chat-orchestrator.ts`
 - `docs/architecture/references/github-mcp-capability-assignment.md`

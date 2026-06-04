@@ -4,10 +4,7 @@ import * as Sentry from "@sentry/react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { installAuthQueryRedirects } from "#/frontend/routes/-auth-client.ts";
-import { queryClient, router } from "#/frontend/router.ts";
-
-installAuthQueryRedirects(router);
+import { queryClient, router } from "#/frontend/lib/router.ts";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

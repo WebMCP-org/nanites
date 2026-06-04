@@ -1,4 +1,5 @@
-import type { GitHubAppPermissions } from "#/backend/github.ts";
+import type { GitHubAppPermissions } from "#/backend/github/index.ts";
+import { APP_ERRORS, AppError } from "#/backend/errors.ts";
 import { z } from "zod";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
@@ -166,9 +167,10 @@ function inferGitHubAppPermissionsForMcpTools(
       if (githubMcpToolsWithoutAppPermissions.has(tool)) {
         continue;
       }
-      throw new Error(
-        `GitHub MCP tool ${tool} is not mapped to GitHub App permissions. Add its permission mapping before allowing it on a Nanite.`,
-      );
+      throw new AppError("githubMcpToolPermissionMappingRequired", {
+        details: { toolName: tool },
+        message: `${APP_ERRORS.githubMcpToolPermissionMappingRequired.message}: ${tool}`,
+      });
     }
     permissions[required.permission] = mergeGitHubAppPermissionLevel(
       permissions[required.permission],
@@ -199,7 +201,7 @@ export function resolveNaniteGitHubMcpCapability(input: {
   const tools = uniqueSorted(requestedTools).filter((toolName) => !deniedToolSet.has(toolName));
 
   if (tools.length === 0) {
-    throw new Error("GitHub MCP capability must expose at least one allowed tool.");
+    throw new AppError("githubMcpAllowedToolRequired");
   }
 
   return {

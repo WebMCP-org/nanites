@@ -96,10 +96,6 @@
         "name": "SigveloManagerConversationAgent",
       },
       {
-        "class_name": "SigveloMcpAgent",
-        "name": "SigveloMcpAgent",
-      },
-      {
         "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
       },
@@ -180,6 +176,18 @@
     {
       "new_sqlite_classes": ["SigveloManagerConversationAgent", "SigveloMcpAgent"],
       "tag": "v13",
+    },
+    {
+      "deleted_classes": [
+        "LegacyNaniteManager20260518",
+        "LegacyGeneratedNanite20260518",
+        "Sandbox",
+        "NaniteManager",
+        "GeneratedNanite",
+        "NaniteAgent",
+        "SigveloMcpAgent",
+      ],
+      "tag": "v14",
     },
   ],
   "secrets": {
@@ -294,10 +302,6 @@
             "name": "SigveloManagerConversationAgent",
           },
           {
-            "class_name": "SigveloMcpAgent",
-            "name": "SigveloMcpAgent",
-          },
-          {
             "class_name": "SigveloNaniteManager",
             "name": "SigveloNaniteManager",
           },
@@ -393,10 +397,6 @@
             "name": "SigveloManagerConversationAgent",
           },
           {
-            "class_name": "SigveloMcpAgent",
-            "name": "SigveloMcpAgent",
-          },
-          {
             "class_name": "SigveloNaniteManager",
             "name": "SigveloNaniteManager",
           },
@@ -490,10 +490,6 @@
           {
             "class_name": "SigveloManagerConversationAgent",
             "name": "SigveloManagerConversationAgent",
-          },
-          {
-            "class_name": "SigveloMcpAgent",
-            "name": "SigveloMcpAgent",
           },
           {
             "class_name": "SigveloNaniteManager",

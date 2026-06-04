@@ -4,18 +4,18 @@ This directory is the new Nanites control-plane home.
 
 Current owners:
 
-- `host.ts` owns the manager agent state machine: registered Nanites, runs, trigger dedupe,
+- `manager.ts` owns the manager agent state machine: registered Nanites, runs, trigger dedupe,
   human requests, and terminal status transitions.
-- `agent.ts` owns the stable Think sub-agent runtime: durable chat history, workspace access,
+- `nanite-agent.ts` owns the stable Think sub-agent runtime: durable chat history, workspace access,
   execution tools, GitHub-aware git auth, and lifecycle tools.
-- `manager-conversation-agent.ts` and `chat-ingress.ts` own the manager chat path.
-- `manager-tools.ts` owns the shared MCP-style Nanite manager tool context, schemas, explicit tool
-  definitions, and handlers used by MCP and manager chat.
+- `manager-chat.ts` owns the manager chat path and Chat SDK ingress.
+- `tools/` owns the public Nanites manager tools with one file per public tool and shared
+  definition/telemetry mechanics in `tools/define-tool.ts`.
 - `github-mcp-capabilities.ts` owns Nanite-scoped GitHub MCP capability validation.
 - `language-model.ts` owns the Workers AI language-model adapter used by Nanite runtimes.
-- `github-trigger-fixtures.ts` owns the small GitHub event fixture library used by trigger
-  acceptance tests.
-- `trigger-runtime.ts` owns generated inbound trigger execution through Worker Loader.
+- `triggers.ts` owns generated inbound trigger execution through Worker Loader and the small GitHub
+  event fixture library used by trigger acceptance tests.
+- `tool-output.ts` owns temporary output artifacts and inline output budgeting.
 
 The manager `testNaniteTrigger` callable is the authoring-agent acceptance loop. It builds a
 fixture event, runs the Nanite's generated inbound trigger, dispatches the real Think sub-agent,

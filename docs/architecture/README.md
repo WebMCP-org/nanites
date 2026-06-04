@@ -20,7 +20,7 @@ Everything else is implementation detail unless it changes trust, timing, cost, 
 
 ```mermaid
 flowchart LR
-  GitHub["GitHub webhooks<br/>PRs, pushes, checks"] --> Manager["Installation manager<br/>policy, registry, routing"]
+  GitHub["GitHub webhooks<br/>PRs, pushes, issues"] --> Manager["Installation manager<br/>policy, registry, routing"]
   Schedule["Schedules / external webhooks"] --> Manager
   Human["Human chat / MCP tools"] --> Nanite["Think Nanite<br/>durable sub-agent"]
   Manager --> Trigger["Generated trigger handler<br/>Worker Loader"]
@@ -30,7 +30,7 @@ flowchart LR
   Nanite --> GitHubMcp["Scoped GitHub MCP<br/>PRs, checks, search"]
   Nanite --> Lifecycle["Lifecycle tools<br/>complete, no_change, fail, ask_human"]
   Lifecycle --> Manager
-  Manager --> Surface["GitHub feedback<br/>check run + output URL"]
+  Manager --> Surface["GitHub feedback<br/>run link + native surfaces"]
   Nanite --> UI["UI connects directly<br/>useAgent + useAgentChat"]
 ```
 

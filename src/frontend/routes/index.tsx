@@ -1,12 +1,14 @@
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { GithubLogoIcon } from "@phosphor-icons/react";
+import { loadSession } from "#/frontend/lib/auth.ts";
 import {
-  buildLoginHref,
-  loadSession,
-  readRequestedReturnToFromWindow,
+  AUTH_RETURN_TO_PARAM,
+  GITHUB_OAUTH_LOGIN_PATH,
+  normalizeAuthenticatedReturnToPath,
+  readRequestedReturnTo,
   resolveAuthReturnTo,
-} from "#/frontend/routes/-auth-client.ts";
+} from "#/auth.ts";
 
 export const Route = createFileRoute("/")({
   loader: async ({ context, location }) => {
@@ -19,7 +21,7 @@ export const Route = createFileRoute("/")({
 });
 
 function LoginPage() {
-  const returnTo = readRequestedReturnToFromWindow();
+  const returnTo = readRequestedReturnTo(new URLSearchParams(window.location.search));
 
   return (
     <div className="login-split">
@@ -37,7 +39,12 @@ function LoginPage() {
             color="primary"
             size="lg"
             onClick={() => {
-              window.location.href = buildLoginHref(returnTo);
+              const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
+              loginUrl.searchParams.set(
+                AUTH_RETURN_TO_PARAM,
+                normalizeAuthenticatedReturnToPath(returnTo),
+              );
+              window.location.href = loginUrl.toString();
             }}
           >
             <GithubLogoIcon size={18} />

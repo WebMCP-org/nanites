@@ -2,8 +2,8 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { getAgentByName } from "agents";
 import worker, { ChatSdkStateAgent, SigveloChatIngress } from "#/server.ts";
-import type { SigveloManagerConversationAgent } from "#/backend/nanites/manager-conversation-agent.ts";
-import { GITHUB_WEBHOOK_PATH } from "#/shared/constants/routes.ts";
+import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
+import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 
 const textEncoder = new TextEncoder();

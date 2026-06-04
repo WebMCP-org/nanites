@@ -277,7 +277,7 @@ Start from:
 Then adapt to Sigvelo:
 
 - [Worker entrypoint](/src/server.ts)
-- [Current GitHub webhook path](/src/backend/github.ts)
+- [Current GitHub webhook path](/src/backend/github/index.ts)
 - [Worker config](/wrangler.jsonc)
 - [Agent package manifest](/package.json)
 
@@ -523,8 +523,8 @@ Sigvelo Nanites:
 - [Nanites architecture](/docs/architecture/architecture.md)
 - [Nanites execution architecture](/docs/architecture/execution-architecture.md)
 - [Worker entrypoint](/src/server.ts)
-- [GitHub webhook handler](/src/backend/github.ts)
-- [Nanite manager](/src/backend/nanites/host.ts)
+- [GitHub webhook handler](/src/backend/github/index.ts)
+- [Nanite manager](/src/backend/nanites/manager.ts)
 
 ## Bottom Line
 

@@ -248,7 +248,7 @@ Important local code points:
 
 - `src/server.ts`
 - `src/backend/mcp/oauth.ts`
-- `src/backend/mcp/auth-context.ts`
+- `src/backend/mcp/index.ts`
 
 Missing pieces for this direction:
 

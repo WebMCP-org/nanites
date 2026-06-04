@@ -32,7 +32,7 @@ The current repo already points toward the right testing doctrine:
 - browser tests run in Vitest Browser Mode with Playwright
 - backend tests run in the Workers runtime with `@cloudflare/vitest-pool-workers`
 - browser tests use MSW only at the HTTP boundary
-- shared route constants live in app code under `src/shared/constants`
+- shared route constants live in app code under owner modules such as `src/mcp.ts` and `src/github.ts`
 - synthetic GitHub payloads and GitHub API fixtures stay provider-shaped before tests inject them
 
 This is the correct direction for this app.
@@ -230,7 +230,7 @@ Representative files:
 - `tests/backend/vitest.config.ts`
 - `tests/helpers/browser-msw-setup.ts`
 - `tests/backend/chat-sdk-ingress.test.ts`
-- `src/shared/constants/routes.ts`
+- `src/github.ts`
 
 ## What still needs to happen
 

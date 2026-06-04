@@ -2,7 +2,7 @@ import * as React from "react";
 import { Button } from "./Button.js";
 import { cx } from "./_internal/class-names.js";
 import { ArrowDownIcon, DownloadIcon } from "./_internal/icons.js";
-import { useStickToBottom } from "./useStickToBottom.js";
+import { useStickToBottom } from "#/frontend/hooks/use-stick-to-bottom.ts";
 
 /**
  * Minimum message shape accepted by {@link ConversationDownload} and

@@ -26,7 +26,7 @@ The intended long-term shape is:
 - **Workspace** owns durable file inspection and edits
 - **GitHub CI** owns command reproduction, build, typecheck, and test truth
 
-The required GitHub check should be bounded and deterministic: dispatch the Nanite, point reviewers at the live Nanite chat, and update the check from the final outcome.
+GitHub feedback should be bounded and deterministic: dispatch the Nanite, point reviewers at the live Nanite chat, and publish only the native GitHub surface that fits the run outcome.
 
 ## Engineering posture
 
@@ -284,17 +284,17 @@ for the source-backed capability model.
 
 ### Phase 1
 
-Route active required-check work to the Nanite Think sub-agent and its Workspace.
+Route active GitHub-triggered work to the Nanite Think sub-agent and its Workspace.
 
-The manager should immediately publish or update the GitHub check with a `details_url` pointing at the live Nanite sub-agent chat. Intermediate runtime detail belongs in the transcript, not in GitHub phase copy.
+When the run has a GitHub feedback surface, the manager should point it at the live Nanite sub-agent chat. Intermediate runtime detail belongs in the transcript, not in GitHub phase copy.
 
 ### Phase 2
 
 Add explicit repo-shape handling before a Nanite attempts work that is likely to exceed Workspace limits.
 
-Installation repository data now stays Octokit-shaped. [src/backend/github.ts](/src/backend/github.ts)
+Installation repository data now stays Octokit-shaped. [src/backend/github/index.ts](/src/backend/github/index.ts)
 returns the full GitHub installation repository objects, and
-[src/backend/db/business-schema.ts](/src/backend/db/business-schema.ts) persists the full repository
+[src/backend/db/schema.ts](/src/backend/db/schema.ts) persists the full repository
 JSON alongside relational indexes. Future routing should read GitHub-owned metadata from those
 provider-shaped objects instead of extending a Sigvelo repository DTO.
 
@@ -368,10 +368,10 @@ Release baseline:
 
 - old unreleased manager/run prototype code has been removed or quarantined outside the active
   runtime path
-- [src/backend/nanites/host.ts](/src/backend/nanites/host.ts)
+- [src/backend/nanites/manager.ts](/src/backend/nanites/manager.ts)
   owns the installation manager state machine: registered Nanites, source versions, runs,
   trigger dedupe, human requests, and terminal transitions
-- [src/backend/nanites/trigger-runtime.ts](/src/backend/nanites/trigger-runtime.ts)
+- [src/backend/nanites/triggers.ts](/src/backend/nanites/triggers.ts)
   loads per-Nanite generated inbound trigger source through Worker Loader and returns JSON intents
   for the manager to validate
 - [src/backend/nanites/github-mcp-capabilities.ts](/src/backend/nanites/github-mcp-capabilities.ts)
@@ -396,7 +396,7 @@ Deliver:
 
 - production smoke coverage for chat-first Nanite surfaces
 - production smoke coverage for manual run, generated trigger, and GitHub MCP paths
-- GitHub check output that consistently points at the live chat instead of narrating internal phases
+- GitHub feedback surfaces that consistently point at the live chat instead of narrating internal phases
 - final outcome handling for success, failure, no-change, and human checkpoint
 - generated trigger handler examples and fixtures for arbitrary event routing
 - removal or demotion of stale phase-heavy state from product-facing surfaces
@@ -409,12 +409,12 @@ Do not try to solve every future runtime problem in the same pass.
 
 - [docs/architecture/architecture.md](/docs/architecture/architecture.md)
 - [docs/architecture/roadmap.md](/docs/architecture/roadmap.md)
-- [src/backend/nanites/host.ts](/src/backend/nanites/host.ts)
-- [src/backend/nanites/agent.ts](/src/backend/nanites/agent.ts)
-- [src/backend/nanites/trigger-runtime.ts](/src/backend/nanites/trigger-runtime.ts)
+- [src/backend/nanites/manager.ts](/src/backend/nanites/manager.ts)
+- [src/backend/nanites/nanite-agent.ts](/src/backend/nanites/nanite-agent.ts)
+- [src/backend/nanites/triggers.ts](/src/backend/nanites/triggers.ts)
 - [src/backend/nanites/github-mcp-capabilities.ts](/src/backend/nanites/github-mcp-capabilities.ts)
-- [src/backend/github.ts](/src/backend/github.ts)
-- [src/backend/db/business-schema.ts](/src/backend/db/business-schema.ts)
+- [src/backend/github/index.ts](/src/backend/github/index.ts)
+- [src/backend/db/schema.ts](/src/backend/db/schema.ts)
 - [src/frontend/routes/\_authenticated/nanites.tsx](/src/frontend/routes/_authenticated/nanites.tsx)
 
 ### Sibling working repos

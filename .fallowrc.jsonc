@@ -1,4 +1,14 @@
 {
   // Rolldown's Babel integration resolves this plugin by package name during build.
   "ignoreDependencies": ["@babel/plugin-proposal-decorators"],
+  "overrides": [
+    {
+      // Shared UI primitives intentionally expose a library-style surface.
+      "files": ["src/frontend/ui/**"],
+      "rules": {
+        "unused-exports": "off",
+        "unused-types": "off",
+      },
+    },
+  ],
 }

@@ -18,12 +18,14 @@ function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput
   });
 }
 
-interface NaniteLanguageModelInput {
+interface SigveloAgentLanguageModelInput {
   env: Env;
   sessionAffinity: string;
 }
 
-export function createNaniteLanguageModel(input: NaniteLanguageModelInput): LanguageModel {
+export function createSigveloAgentLanguageModel(
+  input: SigveloAgentLanguageModelInput,
+): LanguageModel {
   const testFixture = String(input.env.NANITES_LLM_FIXTURE);
   if (
     testFixture === "complete" ||

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { validateGeneratedTriggerSource } from "#/backend/nanites/trigger-runtime.ts";
-import type { SigveloNaniteManager } from "#/backend/nanites/host.ts";
+import { validateGeneratedTriggerSource } from "#/backend/nanites/triggers.ts";
+import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 
 function getManager() {
   return getAgentByName(

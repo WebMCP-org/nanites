@@ -3,7 +3,7 @@ import {
   buildRunPrompt,
   inspectTranscript,
   messageHasLifecycleToolCall,
-} from "#/backend/nanites/agent.ts";
+} from "#/backend/agents/SigveloNaniteAgent.ts";
 
 test("Nanite debug transcript caps oversized includeParts payloads", () => {
   const messages = [

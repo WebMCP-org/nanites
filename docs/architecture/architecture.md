@@ -396,7 +396,7 @@ GitHub should be treated as the external feedback layer, not the primary observa
 
 That surface should stay intentionally small:
 
-- one check run
+- an optional commit check when the run has a commit target
 - optional one canonical PR comment
 - a link back to the live Nanite detail
 - concise status and artifact summary

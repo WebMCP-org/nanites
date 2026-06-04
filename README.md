@@ -29,7 +29,7 @@ Generated triggers route machine events. They do not edit repositories or own li
 - `src/backend/db` - D1 client, Drizzle business schema, migrations, and business-data mutations.
 - `src/backend/mcp` - SigVelo MCP OAuth, auth props, and MCP server registration.
 - `src/backend/nanites` - Nanite manager, Think sub-agent runtime, manager chat, trigger execution, and Nanite-owned tool policy.
-- `src/backend/github.ts` - GitHub App/OAuth integration, webhook intake, installation tokens, repository listing, and check-run feedback.
+- `src/backend/github.ts` - GitHub App/OAuth integration, webhook intake, installation tokens, and repository listing.
 - `src/backend/business-data.ts` - business telemetry sync, admin account views, and usage read models.
 - `src/frontend` - product UI, browser routes, and app-local UI primitives.
 - `src/shared` - app constants, domain enums, and observability helpers.

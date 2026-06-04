@@ -10,16 +10,16 @@
 
 import { Route as rootRouteImport } from "./routes/__root";
 import { Route as McpAuthorizeRouteImport } from "./routes/mcp-authorize";
-import { Route as AuthenticatedRouteImport } from "./routes/_authenticated";
+import { Route as AuthenticatedRouteRouteImport } from "./routes/_authenticated/route";
 import { Route as IndexRouteImport } from "./routes/index";
-import { Route as AuthenticatedNanitesRouteImport } from "./routes/_authenticated/nanites";
+import { Route as AuthenticatedNanitesRouteRouteImport } from "./routes/_authenticated/nanites/route";
 
 const McpAuthorizeRoute = McpAuthorizeRouteImport.update({
   id: "/mcp-authorize",
   path: "/mcp-authorize",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: "/_authenticated",
   getParentRoute: () => rootRouteImport,
 } as any);
@@ -28,28 +28,29 @@ const IndexRoute = IndexRouteImport.update({
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any);
-const AuthenticatedNanitesRoute = AuthenticatedNanitesRouteImport.update({
-  id: "/nanites",
-  path: "/nanites",
-  getParentRoute: () => AuthenticatedRoute,
-} as any);
+const AuthenticatedNanitesRouteRoute =
+  AuthenticatedNanitesRouteRouteImport.update({
+    id: "/nanites",
+    path: "/nanites",
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/mcp-authorize": typeof McpAuthorizeRoute;
-  "/nanites": typeof AuthenticatedNanitesRoute;
+  "/nanites": typeof AuthenticatedNanitesRouteRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/mcp-authorize": typeof McpAuthorizeRoute;
-  "/nanites": typeof AuthenticatedNanitesRoute;
+  "/nanites": typeof AuthenticatedNanitesRouteRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
-  "/_authenticated": typeof AuthenticatedRouteWithChildren;
+  "/_authenticated": typeof AuthenticatedRouteRouteWithChildren;
   "/mcp-authorize": typeof McpAuthorizeRoute;
-  "/_authenticated/nanites": typeof AuthenticatedNanitesRoute;
+  "/_authenticated/nanites": typeof AuthenticatedNanitesRouteRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
@@ -66,7 +67,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
-  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren;
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren;
   McpAuthorizeRoute: typeof McpAuthorizeRoute;
 }
 
@@ -83,7 +84,7 @@ declare module "@tanstack/react-router" {
       id: "/_authenticated";
       path: "";
       fullPath: "/";
-      preLoaderRoute: typeof AuthenticatedRouteImport;
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/": {
@@ -97,27 +98,26 @@ declare module "@tanstack/react-router" {
       id: "/_authenticated/nanites";
       path: "/nanites";
       fullPath: "/nanites";
-      preLoaderRoute: typeof AuthenticatedNanitesRouteImport;
-      parentRoute: typeof AuthenticatedRoute;
+      preLoaderRoute: typeof AuthenticatedNanitesRouteRouteImport;
+      parentRoute: typeof AuthenticatedRouteRoute;
     };
   }
 }
 
-interface AuthenticatedRouteChildren {
-  AuthenticatedNanitesRoute: typeof AuthenticatedNanitesRoute;
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedNanitesRouteRoute: typeof AuthenticatedNanitesRouteRoute;
 }
 
-const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
-  AuthenticatedNanitesRoute: AuthenticatedNanitesRoute,
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedNanitesRouteRoute: AuthenticatedNanitesRouteRoute,
 };
 
-const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
-  AuthenticatedRouteChildren,
-);
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   McpAuthorizeRoute: McpAuthorizeRoute,
 };
 export const routeTree = rootRouteImport

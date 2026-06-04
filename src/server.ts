@@ -1,36 +1,68 @@
 // Wrangler entrypoint ("main" in wrangler.jsonc).
 import * as Sentry from "@sentry/cloudflare";
-import { OAuthError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
-export { HostBridgeLoopback } from "@cloudflare/think/extensions";
-import { nanitesHttpApp } from "#/backend/http.ts";
-import { SigveloMcpAgent } from "#/backend/mcp/server.ts";
+import { OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
+import { HostBridgeLoopback } from "@cloudflare/think/extensions";
+import { getLogger } from "@logtape/logtape";
+import { ChatSdkStateAgent } from "agents/chat-sdk";
+import { nanitesHttpApp } from "#/backend/api/apps.ts";
+import { nanitesMcpApiHandler } from "#/backend/mcp/index.ts";
 import {
   MCP_AUTHORIZE_ROUTE,
   MCP_CLIENT_REGISTRATION_ROUTE,
   MCP_ROUTE,
   MCP_TOKEN_ROUTE,
   SUPPORTED_MCP_SCOPES,
-} from "#/shared/constants/mcp.ts";
+} from "#/mcp.ts";
+import { downscopeMcpAuthPropsForToken, sigveloMcpAuthPropsSchema } from "#/backend/mcp/index.ts";
 import {
-  downscopeMcpAuthPropsForToken,
-  sigveloMcpAuthPropsSchema,
-} from "#/backend/mcp/auth-context.ts";
-import { configureAgentLogging } from "#/shared/logger.ts";
-import { parseSamplingRate } from "#/shared/observability/sampling.ts";
+  configureAgentLogging,
+  createWorkerRequestId,
+  getApiRequestLogEvent,
+  getHttpStatusClass,
+  LOG_EVENTS,
+  LOGGING,
+  OTEL_ATTRS,
+} from "#/backend/logging.ts";
+import { SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
+import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
+import { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
+import { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
+import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 
 configureAgentLogging("info");
 
+type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions<Env>["onError"]>>[0];
+
 const DEFAULT_LOCAL_TRACES_SAMPLE_RATE = 1;
 const DEFAULT_REMOTE_TRACES_SAMPLE_RATE = 0.1;
+const SAMPLING_RATE_MIN = 0;
+const SAMPLING_RATE_MAX = 1;
+const OAUTH_AUTHORIZATION_SERVER_METADATA_ROUTE = "/.well-known/oauth-authorization-server";
+const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-protected-resource";
 
 // Keep Sentry at the Worker boundary. Agents/Think already manages the Durable Object
 // WebSocket context, and Sentry's DO wrapper rewraps waitUntil recursively on those routes.
-export { ChatSdkStateAgent } from "agents/chat-sdk";
-export { SigveloChatIngress } from "#/backend/nanites/chat-ingress.ts";
-export { SigveloMcpAgent } from "#/backend/mcp/server.ts";
-export { SigveloManagerConversationAgent } from "#/backend/nanites/manager-conversation-agent.ts";
-export { SigveloNaniteManager } from "#/backend/nanites/host.ts";
-export { SigveloNaniteAgent } from "#/backend/nanites/agent.ts";
+export {
+  ChatSdkStateAgent,
+  HostBridgeLoopback,
+  SigveloChatIngress,
+  SigveloManagerConversationAgent,
+  SigveloNaniteAgent,
+  SigveloNaniteManager,
+};
+
+function parseSamplingRate(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < SAMPLING_RATE_MIN || parsed > SAMPLING_RATE_MAX) {
+    return fallback;
+  }
+
+  return parsed;
+}
 
 function createServerSentryOptions(env: Env) {
   const isLocalLikeEnvironment =
@@ -48,15 +80,129 @@ function createServerSentryOptions(env: Env) {
   };
 }
 
+const oauthLogger = getLogger(LOGGING.SERVER_CATEGORY)
+  .getChild("oauth")
+  .with({
+    [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
+  });
+const oauthProviderRequestLogger = getLogger(LOGGING.SERVER_CATEGORY)
+  .getChild(LOGGING.REQUEST_CHILD_CATEGORY)
+  .with({
+    [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
+  });
+
+function readOAuthInternalReason(internal: unknown): string | undefined {
+  if (typeof internal !== "object" || internal === null || !("reason" in internal)) {
+    return;
+  }
+
+  const reason = internal.reason;
+  return typeof reason === "string" ? reason : undefined;
+}
+
+function createOAuthProviderErrorLogProperties(error: OAuthProviderError) {
+  const internalReason = readOAuthInternalReason(error.internal);
+
+  return {
+    [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CODE]: error.status,
+    [OTEL_ATTRS.ERROR_TYPE]: error.code,
+    [OTEL_ATTRS.OAUTH_ERROR_CODE]: error.code,
+    [OTEL_ATTRS.OAUTH_ERROR_DESCRIPTION]: error.description,
+    ...(internalReason ? { [OTEL_ATTRS.OAUTH_INTERNAL_REASON]: internalReason } : {}),
+  };
+}
+
+function logOAuthProviderErrorResponse(error: OAuthProviderError): void {
+  oauthLogger.warn(LOG_EVENTS.OAUTH_ERROR_RESPONSE, createOAuthProviderErrorLogProperties(error));
+}
+
+function getOAuthProviderRequestRoute(url: URL): string | undefined {
+  if (url.pathname === MCP_ROUTE || url.pathname.startsWith(`${MCP_ROUTE}/`)) {
+    return MCP_ROUTE;
+  }
+  if (url.pathname === MCP_TOKEN_ROUTE) {
+    return MCP_TOKEN_ROUTE;
+  }
+  if (url.pathname === MCP_CLIENT_REGISTRATION_ROUTE) {
+    return MCP_CLIENT_REGISTRATION_ROUTE;
+  }
+  if (url.pathname === OAUTH_AUTHORIZATION_SERVER_METADATA_ROUTE) {
+    return OAUTH_AUTHORIZATION_SERVER_METADATA_ROUTE;
+  }
+  if (
+    url.pathname === OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX ||
+    url.pathname.startsWith(`${OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX}/`)
+  ) {
+    return `${OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX}/*`;
+  }
+}
+
+function createOAuthProviderRequestLogProperties({
+  request,
+  response,
+  route,
+  requestId,
+  responseTime,
+}: {
+  request: Request;
+  response: Response;
+  route: string;
+  requestId: string;
+  responseTime: number;
+}) {
+  const url = new URL(request.url);
+  const roundedResponseTime = Math.round(responseTime);
+
+  return {
+    method: request.method,
+    url: url.pathname,
+    path: url.pathname,
+    status: response.status,
+    responseTime: roundedResponseTime,
+    message: getApiRequestLogEvent(response.status),
+    [OTEL_ATTRS.HTTP_REQUEST_METHOD]: request.method,
+    [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CODE]: response.status,
+    [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CLASS]: getHttpStatusClass(response.status),
+    [OTEL_ATTRS.HTTP_ROUTE]: route,
+    [OTEL_ATTRS.REQUEST_ID]: requestId,
+    [OTEL_ATTRS.REQUEST_DURATION_MS]: roundedResponseTime,
+    [OTEL_ATTRS.URL_PATH]: url.pathname,
+    [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
+  };
+}
+
+function logOAuthProviderRequest({
+  request,
+  response,
+  route,
+  requestId,
+  startTime,
+}: {
+  request: Request;
+  response: Response;
+  route: string;
+  requestId: string;
+  startTime: number;
+}): void {
+  oauthProviderRequestLogger.info(
+    "{method} {url} {status} - {responseTime} ms",
+    createOAuthProviderRequestLogProperties({
+      request,
+      response,
+      route,
+      requestId,
+      responseTime: performance.now() - startTime,
+    }),
+  );
+}
+
 const appHandler = {
   fetch: nanitesHttpApp.fetch,
 } satisfies ExportedHandler<Env>;
 
 const oauthProvider = new OAuthProvider<Env>({
   apiRoute: MCP_ROUTE,
-  apiHandler: SigveloMcpAgent.serve(MCP_ROUTE, {
-    binding: "SigveloMcpAgent",
-  }),
+  apiHandler: nanitesMcpApiHandler,
   defaultHandler: appHandler,
   authorizeEndpoint: MCP_AUTHORIZE_ROUTE,
   tokenEndpoint: MCP_TOKEN_ROUTE,
@@ -67,6 +213,7 @@ const oauthProvider = new OAuthProvider<Env>({
   clientRegistrationTTL: 90 * 24 * 60 * 60,
   allowPlainPKCE: false,
   clientIdMetadataDocumentEnabled: true,
+  onError: logOAuthProviderErrorResponse,
   tokenExchangeCallback: ({ props, requestedScope }) => {
     const parsedProps = sigveloMcpAuthPropsSchema.safeParse(props);
     if (!parsedProps.success) {
@@ -78,9 +225,7 @@ const oauthProvider = new OAuthProvider<Env>({
       requestedScopes: requestedScope,
     });
     if (accessTokenProps.scopes.length === 0) {
-      throw new OAuthError("invalid_scope", {
-        description: "The requested token scope is not available on this Sigvelo MCP grant.",
-      });
+      throw createMcpTokenScopeUnavailableError();
     }
 
     return {
@@ -97,7 +242,21 @@ const oauthProvider = new OAuthProvider<Env>({
 
 const handler = {
   async fetch(request: Request, env: Env, executionContext: ExecutionContext): Promise<Response> {
-    return oauthProvider.fetch(request, env, executionContext);
+    const oauthProviderRoute = getOAuthProviderRequestRoute(new URL(request.url));
+    const requestId = oauthProviderRoute ? createWorkerRequestId(request) : undefined;
+    const startTime = performance.now();
+    const response = await oauthProvider.fetch(request, env, executionContext);
+    if (oauthProviderRoute && requestId) {
+      logOAuthProviderRequest({
+        request,
+        response,
+        route: oauthProviderRoute,
+        requestId,
+        startTime,
+      });
+    }
+
+    return response;
   },
 } satisfies ExportedHandler<Env>;
 

@@ -17,7 +17,7 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 1. Durable tests exercise real product boundaries.
 2. Durable tests do not mock app-internal modules, functions, or stores.
 3. Synthetic payloads should use canonical app or provider types, and any raw external JSON the app immediately decodes should still pass through validation at that boundary.
-4. Shared endpoint and transport paths should come from app-owned constants under `src/shared/constants`.
+4. Shared endpoint and transport paths should come from owner constants such as `src/mcp.ts` and `src/github.ts`.
 5. Assertions should target rendered output, HTTP behavior, persisted state, or published artifacts.
 6. Nanites e2e is stricter than the lower lanes: no mocks anywhere except the explicit deterministic
    LLM provider shim when model output must be controlled.

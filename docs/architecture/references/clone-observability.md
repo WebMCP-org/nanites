@@ -124,9 +124,9 @@ If git operations were replaced with API calls, the entire `.git` directory beco
 
 ### GitHub API integration (already exists)
 
-| File                    | What to look at                                                                                                                                                        |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/backend/github.ts` | Existing Octokit usage — already fetches file content via Contents API (see `getContent` calls). Pattern for authenticated GitHub API access with installation tokens. |
+| File                          | What to look at                                                                                                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/backend/github/index.ts` | Existing Octokit usage — already fetches file content via Contents API (see `getContent` calls). Pattern for authenticated GitHub API access with installation tokens. |
 
 ### isomorphic-git types (not in opensrc)
 
