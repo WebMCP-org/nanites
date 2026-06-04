@@ -3,7 +3,7 @@
     "id": "pr-quality-guard",
     "name": "PR Quality Guard",
     "description": "Reviews pull requests for shallow tests, missing docs, and risky changes.",
-    "trigger": {
+    "eventSource": {
       "type": "github",
       "events": ["pull_request.opened", "pull_request.synchronize", "pull_request.reopened"],
       "repositories": ["WebMCP-org/nanites"]
@@ -24,9 +24,7 @@
         "extraTools": ["actions_list", "actions_get"]
       }
     },
-    "inboundTrigger": {
-      "sourceCode": "export default { async handle(event, ctx) { if (event.name !== 'pull_request') return ctx.noop('Not a pull request event.'); const action = event.payload.action; if (!['opened', 'synchronize', 'reopened'].includes(action)) return ctx.noop(`Ignored pull request action: ${action}`); return ctx.dispatchSelf({ reason: 'Pull request needs quality review' }); } };"
-    }
+    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ events: ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'], async handle(event, ctx) { const action = event.payload.action; if (!['opened', 'synchronize', 'reopened'].includes(action)) return ctx.noop(`Ignored pull request action: ${action}`); return ctx.dispatchSelf({ reason: 'Pull request needs quality review', number: event.payload.pull_request.number }); } });"
   },
   "enabled": true
 }

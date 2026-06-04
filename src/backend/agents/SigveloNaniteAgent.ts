@@ -28,7 +28,8 @@ import type {
   NaniteManifest,
   NaniteRuntimeActivityState,
   NaniteRunRecord,
-  NaniteScheduleSpec,
+  NaniteScheduledEventSourceSpec,
+  NaniteScheduleWhen,
   NaniteTriggerEvent,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getDispatchIntents, runGeneratedTrigger } from "#/backend/nanites/triggers.ts";
@@ -75,13 +76,22 @@ export type StartNaniteAgentInput = {
 };
 
 type ScheduledTriggerPayload = {
-  schedule: NaniteScheduleSpec;
+  eventSource: NaniteScheduledEventSourceSpec;
 };
 
 type LifecycleWatchdogPayload = {
   runId: string;
   lastActivityAt: string;
 };
+
+function resolveCloudflareScheduleWhen(when: NaniteScheduleWhen): Date | string | number {
+  if (typeof when === "number") {
+    return when;
+  }
+
+  const date = new Date(when);
+  return Number.isNaN(date.getTime()) ? when : date;
+}
 
 export type NaniteTranscriptInspectInput = {
   limit?: number;
@@ -618,8 +628,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
             `Name: ${manifest.name}`,
             `Description: ${manifest.description}`,
             "",
-            "Declared trigger:",
-            JSON.stringify(manifest.trigger, null, 2),
+            "Declared event source:",
+            JSON.stringify(manifest.eventSource, null, 2),
             "",
             "Declared permissions:",
             JSON.stringify(manifest.permissions, null, 2),
@@ -945,58 +955,48 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     this.syncStateFromManager(input);
     await this.cancelScheduledTriggerRows();
 
-    const trigger = input.nanite.manifest.trigger;
-    if (!input.nanite.enabled || trigger.type !== "schedule") {
+    const eventSource = input.nanite.manifest.eventSource;
+    if (
+      !input.nanite.enabled ||
+      (eventSource.type !== "schedule" && eventSource.type !== "scheduleEvery")
+    ) {
       return;
     }
 
-    const payload: ScheduledTriggerPayload = { schedule: trigger.schedule };
-    switch (trigger.schedule.type) {
-      case "scheduled":
-        await this.schedule(new Date(trigger.schedule.date), "handleScheduledTrigger", payload, {
-          idempotent: true,
-        });
-        break;
-      case "delayed":
-        await this.schedule(trigger.schedule.delayInSeconds, "handleScheduledTrigger", payload, {
-          idempotent: true,
-        });
-        break;
-      case "cron":
-        await this.schedule(trigger.schedule.cron, "handleScheduledTrigger", payload);
-        break;
-      case "interval":
-        await this.scheduleEvery(
-          trigger.schedule.intervalSeconds,
+    const payload: ScheduledTriggerPayload = { eventSource };
+    switch (eventSource.type) {
+      case "schedule":
+        await this.schedule(
+          resolveCloudflareScheduleWhen(eventSource.when),
           "handleScheduledTrigger",
           payload,
+          { idempotent: true },
         );
-        break;
+        return;
+      case "scheduleEvery":
+        await this.scheduleEvery(eventSource.intervalSeconds, "handleScheduledTrigger", payload);
+        return;
     }
   }
 
   async handleScheduledTrigger(payload: ScheduledTriggerPayload): Promise<void> {
     await this.refreshManifestFromManager();
     const manifest = this.state.manifest;
-    if (!manifest || manifest.trigger.type !== "schedule") {
+    if (
+      !manifest ||
+      (manifest.eventSource.type !== "schedule" && manifest.eventSource.type !== "scheduleEvery")
+    ) {
       return;
     }
 
     const scheduledAt = nowIso();
     const trigger: Extract<NaniteTriggerEvent, { type: "schedule" }> = {
       type: "schedule",
-      schedule: payload.schedule,
+      eventSource: payload.eventSource,
       scheduledAt,
     };
     const manager = this.env.SigveloNaniteManager.getByName(getParentManagerName(this));
-    const triggerSource = manifest.inboundTrigger?.sourceCode;
-
-    if (!triggerSource) {
-      // @ts-expect-error Cloudflare's concrete DO stub type expands the full manager RPC graph here.
-      const run = await manager.startRun({ naniteId: manifest.id, trigger });
-      await manager.dispatchRun({ runId: run.runId });
-      return;
-    }
+    const triggerSource = manifest.triggerSource;
 
     const triggerResult = await runGeneratedTrigger({
       loader: this.env.LOADER,
@@ -1005,7 +1005,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       event: {
         type: "schedule.tick",
         naniteId: manifest.id,
-        schedule: payload.schedule,
+        eventSource: payload.eventSource,
         scheduledAt,
       },
     });

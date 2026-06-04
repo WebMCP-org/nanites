@@ -32,6 +32,7 @@ export const cancelRunsTool = defineSigveloMcpTool({
     openWorldHint: false,
   },
   async execute(input, { manager }) {
+    //@ts-ignore Super Deep types
     return manager.cancelRuns({
       runIds: input.runIds,
       naniteId: input.naniteId,

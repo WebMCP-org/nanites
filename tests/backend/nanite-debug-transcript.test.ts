@@ -114,7 +114,7 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
         id: "sigvelo-commit-bot",
         name: "Commit bot",
         description: "Creates requested maintenance commits.",
-        trigger: { type: "manual" },
+        eventSource: { type: "manual" },
         permissions: {
           github: {
             repositories: ["WebMCP-org/nanites"],

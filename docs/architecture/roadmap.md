@@ -9,7 +9,7 @@ The core runtime shape is now:
 - one installation manager per GitHub installation
 - many stable Think Nanite sub-agents under that manager
 - SDK-native sub-agent chat routing for live token streaming
-- optional per-Nanite generated inbound trigger handlers for arbitrary webhook and schedule logic
+- per-Nanite generated inbound trigger handlers for machine-originated GitHub webhook and schedule logic
 - Nanite-scoped GitHub MCP capability for PR, search, and status operations
 
 The next job is to make the release boring: verify production MCP flows, keep the UI truthful, and
@@ -23,7 +23,7 @@ They:
 
 - are durable sub-agents under a GitHub installation manager
 - own one vertical maintenance responsibility
-- receive events, schedules, manual messages, or generated trigger dispatches
+- receive GitHub events, schedules, manual messages, or generated trigger dispatches
 - can reuse one durable change-proposal surface when code changes exist
 - stream the live agent chat in Sigvelo
 - keep GitHub as the clean artifact and feedback surface
@@ -49,15 +49,16 @@ Capabilities should come primarily from the pulled repo, configured MCP servers,
 
 Generated Dynamic Worker code should be used for each Nanite's inbound trigger handler:
 
-- interpret GitHub webhook payloads in their provider shape, and adapt only non-GitHub external
-  webhooks when their source requires it
+- interpret GitHub webhook payloads in their provider shape
 - evaluate custom schedule or environment predicates
 - decide whether an event should start the owning Nanite
 - propose Nanite creation intents
 
 The installation manager validates generated trigger output before dispatching work.
 
-For GitHub trigger handlers, generated code should use raw Octokit with a scoped installation token. Sigvelo should provide only the Worker Loader runtime wrapper, Octokit types/runtime, and the manager intent API.
+For GitHub trigger handlers, generated code should use the `@sigvelo/nanite-trigger` authoring
+facade. Sigvelo should provide the Worker Loader runtime wrapper, Octokit-backed webhook/REST types,
+and the manager intent API; a live scoped Octokit runtime client is separate authority work.
 
 Human prompts are not trigger events. Manual chats and manual run prompts go directly through the stable Think Nanite.
 
@@ -79,7 +80,7 @@ Human prompts are not trigger events. Manual chats and manual run prompts go dir
 - generated inbound trigger handlers run through Worker Loader
 - trigger intent contract covers dispatch and noop
 - GitHub webhook normalization happens in stable manager-owned code before generated trigger execution
-- generated trigger examples use raw Octokit and manager intents
+- generated trigger examples use the typed trigger facade and manager intents
 - MCP authoring/debug tools can create, start, test, inspect, cancel, deprovision, and explore Nanites
 - GitHub MCP capability is assigned per Nanite and validated against GitHub App permissions
 
@@ -99,9 +100,9 @@ Make generated inbound triggers and GitHub MCP capability feel routine rather th
 
 ### Deliverables
 
-- schedule and generic external webhook intake through the same generated trigger handler path
-- generated-code authoring guidance for raw Octokit, fixtures, and manager intents
-- pre-bundled Octokit runtime for generated Worker Loader handlers, if not already bundled in the target environment
+- schedule intake through the same generated trigger handler path
+- generated-code authoring guidance for the typed trigger facade, fixtures, and manager intents
+- explicit policy for a live Octokit runtime facade in generated Worker Loader handlers
 - manager validation and rate limits around trigger output
 - GitHub repository metadata from installation repository objects where it affects routing
 - hydration telemetry and failure history

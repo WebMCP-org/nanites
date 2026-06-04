@@ -31,9 +31,12 @@ const NANITES_AUTHORING_REPOSITORY = "WebMCP-org/nanites";
 const NANITES_AUTHORING_REPOSITORY_URL = `https://github.com/${NANITES_AUTHORING_REPOSITORY}`;
 const NANITES_AUTHORING_CHECKOUT_DIR = "/repos/WebMCP-org/nanites";
 const NANITES_AUTHORING_REFERENCE_PATHS = [
-  "plugins/nanites/skills/nanites/SKILL.md",
-  "plugins/nanites/skills/nanites/references/authoring.md",
-  "plugins/nanites/skills/nanites/references/operations.md",
+  "docs/architecture/README.md",
+  "docs/architecture/execution-architecture.md",
+  "docs/development.md",
+  "plugins/nanites/commands/create-nanite.md",
+  "plugins/nanites/commands/write-nanite-trigger.md",
+  "plugins/nanites/commands/test-nanite.md",
   "plugins/nanites/assets/examples/",
 ] as const;
 
@@ -463,10 +466,13 @@ function buildManagerSystemPrompt(): string {
     "As Installation Manager, you have broad GitHub MCP access for the selected installation, bounded by the GitHub App installation and accessible repository list.",
     "Use Sigvelo manager tools for control-plane work: inspect Nanites, create or update Nanites, deprovision Nanites, start manual runs, cancel runs, and inspect Nanite workspaces.",
     "Use GitHub MCP tools to investigate repositories, repo instructions, branches, commits, pull requests, issues, and workflow/check state before creating or updating Nanites. You may create pull requests only when that is the user's explicit request or the coherent review surface for the manager's work.",
-    "Use built-in workspace tools for repository file review: read, list, grep, find, write, edit, delete, and execute with git.* for clone, fetch, pull, branch, commit, and push work.",
+    "Use built-in workspace tools for repository file review: read, list, grep, find, write, edit, delete, and execute with state.* plus git.* for clone, fetch, pull, branch, commit, and push work.",
+    "execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, and shell subprocesses are unavailable. Use the provided state.* and git.* APIs directly.",
+    'For generated Nanite trigger source, prefer `import { defineGitHubTrigger } from "@sigvelo/nanite-trigger"` so validation can give Octokit-backed webhook payload diagnostics and typed manager intent feedback.',
+    'Nanite manifests use `eventSource` for coarse manual/schedule/scheduleEvery/github intake and root `triggerSource` for generated TypeScript. For time-based Nanites, use Cloudflare Agent vocabulary directly: `eventSource: { type: "schedule", when: ... }` or `eventSource: { type: "scheduleEvery", intervalSeconds: ... }`. Do not use legacy `trigger` or `inboundTrigger` manifest fields.',
     "For repository file contents, repo-local instructions, and Nanite authoring references, prefer the durable workspace checkout over GitHub MCP so evidence stays inspectable in the manager workspace.",
     `Before creating or updating Nanites, try to refresh the Nanites authoring repo ${NANITES_AUTHORING_REPOSITORY}: clone ${NANITES_AUTHORING_REPOSITORY_URL} into ${NANITES_AUTHORING_CHECKOUT_DIR} if missing, otherwise pull or fetch the latest default branch there.`,
-    `After refreshing ${NANITES_AUTHORING_REPOSITORY}, review the Nanites skill and authoring references at ${NANITES_AUTHORING_REFERENCE_PATHS.join(", ")} before drafting manifests, generated triggers, or capability choices.`,
+    `After refreshing ${NANITES_AUTHORING_REPOSITORY}, review the tracked Nanites authoring references at ${NANITES_AUTHORING_REFERENCE_PATHS.join(", ")} before drafting manifests, generated triggers, or capability choices.`,
     "If the Nanites authoring repo refresh fails because of access, network, or a dirty checkout, do not get stuck: use the best available GitHub MCP evidence and explain the limitation briefly.",
     'When creating a Nanite, define a constrained Nanite Capability: repositories plus the GitHub MCP tier or tool allowlist needed by that runtime. Sigvelo derives the minimum GitHub App token permissions for the Nanite. Declare permissions.github.appPermissions only for extra non-MCP repository operations, such as contents: "write" when the Nanite will edit files, commit, or push branches.',
     "When the user says 'my org', 'this org', 'the package repo', or 'the docs repo', resolve that against the selected installation's account and accessible repository list before asking them for names.",
@@ -489,7 +495,7 @@ function formatNanitesAuthoringSources(): string {
     `- If the checkout already exists, pull or fetch the latest default branch before reading Nanite authoring files.`,
     "- If refresh fails because of access, network, or dirty checkout state, continue from the best available evidence and mention the limitation.",
     "",
-    "Nanite skill and reference paths to review before creating or updating Nanites:",
+    "Tracked Nanite authoring reference paths to review before creating or updating Nanites:",
     ...NANITES_AUTHORING_REFERENCE_PATHS.map(
       (path) => `- ${NANITES_AUTHORING_CHECKOUT_DIR}/${path}`,
     ),

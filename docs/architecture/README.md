@@ -21,7 +21,7 @@ Everything else is implementation detail unless it changes trust, timing, cost, 
 ```mermaid
 flowchart LR
   GitHub["GitHub webhooks<br/>PRs, pushes, issues"] --> Manager["Installation manager<br/>policy, registry, routing"]
-  Schedule["Schedules / external webhooks"] --> Manager
+  Schedule["Schedules"] --> Manager
   Human["Human chat / MCP tools"] --> Nanite["Think Nanite<br/>durable sub-agent"]
   Manager --> Trigger["Generated trigger handler<br/>Worker Loader"]
   Trigger -->|"dispatch / noop"| Manager
@@ -38,20 +38,20 @@ There are three runtime planes:
 
 - **Installation control plane**: auth, registry, routing, capability grants, GitHub feedback.
 - **Nanite actor plane**: Think transcript, token stream, workspace, tool loop, lifecycle.
-- **Inbound trigger plane**: optional generated code that interprets machine events and emits manager intents.
+- **Inbound trigger plane**: generated code for machine-originated events that emits manager intents.
 
 ## Core loop
 
 ```mermaid
 sequenceDiagram
-  participant Event as GitHub/Event
+  participant Event as GitHub/Schedule
   participant Manager as Installation Manager
   participant Trigger as Generated Trigger
   participant Nanite as Think Nanite
   participant UI as Browser UI
   participant GitHub as GitHub
 
-  Event->>Manager: normalized webhook or schedule event
+  Event->>Manager: GitHub webhook or schedule event
   Manager->>Trigger: run generated handler when trigger logic is custom
   Trigger-->>Manager: dispatch / noop intent
   Manager->>Nanite: submit run prompt
@@ -84,32 +84,31 @@ Manager state should stay small: registry, run summaries, routing decisions, Git
 
 ### Generate triggers, not the Nanite runtime
 
-Generated code is most valuable where rules are hard to parameterize: weird webhooks, cross-repo routing, custom schedule predicates, or noisy event dedupe.
+Generated code is most valuable where rules are hard to parameterize: GitHub webhook predicates, cross-repo routing, custom schedule predicates, or noisy event dedupe.
 
 That generated code should be a per-Nanite inbound trigger handler. It receives a normalized machine event, uses plain Worker-compatible TypeScript, and returns `dispatch` or `noop`. The installation manager validates and executes those intents.
 
-The manifest trigger is only a coarse candidate filter. It says which event families and repositories
-may offer an event to a Nanite. It is not where interesting behavior lives. Once a Nanite is a
-candidate, its generated TypeScript trigger decides whether the event should actually start a Run.
+The manifest `eventSource` is only a coarse candidate filter. It says which event families and
+repositories may offer an event to a Nanite. It is not where interesting behavior lives. Once a
+Nanite is a candidate, its root `triggerSource` TypeScript decides whether the event should actually
+start a Run.
 
 Schedules use the same generated trigger decision, but not an installation-wide dispatch shape. Cloudflare Agents
 already provide durable schedules backed by Durable Object alarms, so a scheduled Nanite should have
 a first-party Agent schedule owned by that Nanite sub-agent. The manager validates and installs the
 schedule, but the recurring callback belongs to the Nanite path. The callback turns the tick into a
 normalized machine event; the generated TypeScript trigger still decides `dispatchSelf` or `noop`.
-Use `schedule` as the product/API type, not `cron`, because Cloudflare Agent schedules also include
-interval, delayed, and Date-based schedules.
-
-Use an explicit schedule shape instead of a bare schedule string. Match Cloudflare Agents schedule
-names so the manifest maps directly to `schedule()` / `scheduleEvery()`:
+Use Cloudflare Agent schedule language directly. Match the method names so the manifest maps to
+`schedule()` / `scheduleEvery()` without a Sigvelo-only schedule vocabulary:
 
 ```ts
-type NaniteScheduleSpec =
-  | { type: "scheduled"; date: string }
-  | { type: "delayed"; delayInSeconds: number }
-  | { type: "cron"; cron: string }
-  | { type: "interval"; intervalSeconds: number };
+type NaniteScheduledEventSource =
+  | { type: "schedule"; when: string | number }
+  | { type: "scheduleEvery"; intervalSeconds: number };
 ```
+
+For `schedule.when`, use a number for delayed seconds, a cron string for recurring schedules, or an
+ISO date string when the runtime should call `schedule(new Date(...))`.
 
 Human prompts are different. Chat messages, manual run prompts, and operator steering go directly through the Think Nanite. They are not trigger events.
 
@@ -129,10 +128,10 @@ If the generated TypeScript trigger fails before dispatch, the test returns a tr
 the authoring agent instead of creating a failed Nanite Run. A Run Outcome only exists after the
 Nanite is actually dispatched.
 
-Production webhooks are slightly different for now. If a real webhook hits a broken generated
-trigger, Sigvelo records a failed Run labeled as "trigger failed before model dispatch" so operators
-have a visible artifact to inspect. That failure does not create a GitHub check because no model run
-started and there is no terminal check update to report.
+Production GitHub webhooks are slightly different for now. If a real GitHub webhook hits a broken
+generated trigger, Sigvelo records a failed Run labeled as "trigger failed before model dispatch" so
+operators have a visible artifact to inspect. That failure does not create a GitHub check because no
+model run started and there is no terminal check update to report.
 
 ### Prefer platform primitives over Sigvelo-shaped layers
 
@@ -160,9 +159,9 @@ owns policy and GitHub feedback. GitHub remains the artifact and CI truth surfac
 
 ## What gets authored
 
-Today, Nanite creation authors a thin manifest and optional generated inbound trigger code. The
-manifest describes identity, trigger shape, repo scope, permissions, and external capabilities.
-The generated trigger handles machine-originated events only.
+Nanite creation authors a thin manifest and generated trigger source for machine-originated event
+sources. The manifest describes identity, coarse event intake, repo scope, permissions, and external
+capabilities. The generated trigger source handles machine-originated behavior.
 
 ```ts
 {
@@ -170,7 +169,7 @@ The generated trigger handles machine-originated events only.
     id: "docs-syncer-react-webmcp",
     name: "React WebMCP docs syncer",
     description: "Keeps React WebMCP docs aligned with package changes.",
-    trigger: {
+    eventSource: {
       type: "github",
       events: ["push"],
       repositories: ["WebMCP-org/npm-packages"],
@@ -192,39 +191,31 @@ The generated trigger handles machine-originated events only.
         extraTools: ["actions_list", "actions_get"],
       },
     },
-    inboundTrigger: {
-      sourceCode: "...",
-    },
+    triggerSource: "...",
   },
   enabled: true,
 }
 ```
 
-The `trigger` block above is just the candidate filter. The `inboundTrigger.sourceCode` block owns
-the package-specific decision.
+The `eventSource` block above is just the candidate filter. The root `triggerSource` block owns the
+package-specific decision.
 
 Generated trigger code is ordinary Worker-compatible TypeScript. It routes events; it does not own
-the Nanite runtime.
+the Nanite runtime. Prefer the virtual `@sigvelo/nanite-trigger` authoring package so validation can
+give Octokit-backed webhook payload diagnostics before the trigger is loaded.
 
 ```ts
-import type { EmitterWebhookEvent } from "@octokit/webhooks";
+import { defineGitHubTrigger } from "@sigvelo/nanite-trigger";
 
-export default {
-  async handle(event: EmitterWebhookEvent<"push">, ctx: TriggerContext) {
-    if (event.name !== "push") {
-      return ctx.noop("Not a push event.");
-    }
-
-    const comparison = await ctx.octokit.rest.repos.compareCommitsWithBasehead({
-      owner: event.payload.repository.owner.login,
-      repo: event.payload.repository.name,
-      basehead: `${event.payload.before}...${event.payload.after}`,
-    });
-
-    const relevantFiles =
-      comparison.data.files
-        ?.map((file) => file.filename)
-        .filter((file) => file.startsWith("packages/react-webmcp/")) ?? [];
+export default defineGitHubTrigger({
+  event: "push",
+  async handle(event, ctx) {
+    const changed = event.payload.commits.flatMap((commit) => [
+      ...(commit.added ?? []),
+      ...(commit.modified ?? []),
+      ...(commit.removed ?? []),
+    ]);
+    const relevantFiles = changed.filter((file) => file.startsWith("packages/react-webmcp/"));
 
     if (relevantFiles.length === 0) {
       return ctx.noop("No React WebMCP package docs need syncing.");
@@ -238,7 +229,7 @@ export default {
       files: relevantFiles,
     });
   },
-};
+});
 ```
 
 Human prompts do not go through this trigger handler. They go directly to the Think Nanite through
@@ -272,7 +263,7 @@ first-class Sigvelo stack model.
 | -------------------------------------------- | ------------------------- | -------------------------------------------------------- |
 | Registry, policy, routing, run summaries     | Installation manager      | Small durable state plus lossy runtime projections only. |
 | Transcript, streaming, tool turns, workspace | Think Nanite              | UI connects directly with Agents SDK hooks.              |
-| Weird webhook or schedule predicates         | Generated trigger handler | Emits intents; manager validates and executes.           |
+| GitHub webhook or schedule predicates        | Generated trigger handler | Emits intents; manager validates and executes.           |
 | Repo edits and git operations                | Workspace + Shell git     | Uses scoped GitHub installation auth.                    |
 | PR/search/status operations                  | GitHub MCP                | Nanite-scoped tool inventory.                            |
 | Build, typecheck, test truth                 | GitHub CI                 | Prefer CI signals over a Sigvelo process harness.        |

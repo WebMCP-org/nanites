@@ -42,6 +42,7 @@ export const testNaniteTriggerTool = defineSigveloMcpTool({
     openWorldHint: true,
   },
   async execute(input, { context, manager }) {
+    //@ts-ignore Super Deep types
     return manager.testNaniteTrigger({
       naniteId: input.naniteId,
       event: input.event,

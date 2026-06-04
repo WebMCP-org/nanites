@@ -35,6 +35,177 @@ test("Nanite tools use flattened MCP SDK metadata", () => {
   }
 });
 
+test("Nanite debug transcript query accepts empty strings to list transcript messages", () => {
+  const debugTool = naniteTools.find((tool) => tool.name === "sigvelo_debug_nanites");
+
+  expect(
+    debugTool?.inputSchema.safeParse({
+      include: ["transcript"],
+      transcript: {
+        query: "",
+      },
+    }).success,
+  ).toBe(true);
+});
+
+test("Nanite create schema rejects singular GitHub event source filter keys", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const result = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "singular-event-source",
+      name: "Singular event source",
+      description: "Should fail because GitHub filters use plural array keys.",
+      eventSource: {
+        type: "github",
+        event: "push",
+        repository: "WebMCP-org/nanites",
+        branch: "main",
+      },
+      triggerSource: "export default { async handle(_event, ctx) { return ctx.noop('test'); } };",
+      permissions: {},
+    },
+  });
+
+  expect(result?.success).toBe(false);
+  if (result && !result.success) {
+    expect(JSON.stringify(result.error.issues)).toContain("event");
+    expect(JSON.stringify(result.error.issues)).toContain("repository");
+    expect(JSON.stringify(result.error.issues)).toContain("branch");
+  }
+});
+
+test("Nanite create schema rejects generic webhook event sources until a real source exists", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const result = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "stripe-webhook",
+      name: "Stripe webhook",
+      description: "Should fail because Nanites only support GitHub webhook intake right now.",
+      eventSource: {
+        type: "webhook",
+        source: "stripe",
+      },
+      triggerSource: "export default { async handle(_event, ctx) { return ctx.noop('test'); } };",
+      permissions: {},
+    },
+  });
+
+  expect(result?.success).toBe(false);
+  if (result && !result.success) {
+    expect(JSON.stringify(result.error.issues)).toContain("source");
+  }
+});
+
+test("Nanite create schema rejects old trigger source manifest fields", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const result = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "legacy-trigger-source",
+      name: "Legacy trigger source",
+      description: "Should fail because trigger source is a root manifest field now.",
+      trigger: {
+        type: "github",
+        events: ["push"],
+      },
+      inboundTrigger: {
+        sourceCode: "export default { async handle(_event, ctx) { return ctx.noop('test'); } };",
+      },
+      permissions: {},
+    },
+  });
+
+  expect(result?.success).toBe(false);
+  if (result && !result.success) {
+    expect(JSON.stringify(result.error.issues)).toContain("trigger");
+    expect(JSON.stringify(result.error.issues)).toContain("inboundTrigger");
+  }
+});
+
+test("Nanite create schema requires triggerSource for machine event sources", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const result = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "missing-trigger-source",
+      name: "Missing trigger source",
+      description: "Should fail because GitHub event sources must own behavior in code.",
+      eventSource: {
+        type: "github",
+        events: ["push"],
+      },
+      permissions: {},
+    },
+  });
+
+  expect(result?.success).toBe(false);
+  if (result && !result.success) {
+    expect(JSON.stringify(result.error.issues)).toContain("triggerSource");
+  }
+});
+
+test("Nanite create schema accepts Cloudflare schedule event source language", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const triggerSource =
+    "export default { async handle(_event, ctx) { return ctx.noop('test'); } };";
+
+  expect(
+    createTool?.inputSchema.safeParse({
+      manifest: {
+        id: "cron-schedule",
+        name: "Cron schedule",
+        description: "Uses Cloudflare Agent schedule().",
+        eventSource: {
+          type: "schedule",
+          when: "0 9 * * *",
+        },
+        triggerSource,
+        permissions: {},
+      },
+    }).success,
+  ).toBe(true);
+
+  expect(
+    createTool?.inputSchema.safeParse({
+      manifest: {
+        id: "interval-schedule",
+        name: "Interval schedule",
+        description: "Uses Cloudflare Agent scheduleEvery().",
+        eventSource: {
+          type: "scheduleEvery",
+          intervalSeconds: 3600,
+        },
+        triggerSource,
+        permissions: {},
+      },
+    }).success,
+  ).toBe(true);
+});
+
+test("Nanite create schema rejects old nested schedule discriminants", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const result = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "old-schedule",
+      name: "Old schedule",
+      description: "Should fail because schedules use Cloudflare method names now.",
+      eventSource: {
+        type: "schedule",
+        schedule: {
+          type: "cron",
+          cron: "0 9 * * *",
+        },
+      },
+      triggerSource: "export default { async handle(_event, ctx) { return ctx.noop('test'); } };",
+      permissions: {},
+    },
+  });
+
+  expect(result?.success).toBe(false);
+  if (result && !result.success) {
+    expect(JSON.stringify(result.error.issues)).toContain("when");
+    expect(JSON.stringify(result.error.issues)).toContain("schedule");
+  }
+});
+
 test("Think tools are translated from the same Sigvelo registry", () => {
   const thinkTools = createSigveloThinkTools({
     env: {} as Env,

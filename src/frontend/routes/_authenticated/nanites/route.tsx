@@ -647,12 +647,12 @@ function InstallationPicker({
   );
 }
 
-function getTriggerRepositories(trigger: NaniteManifest["trigger"]): string[] {
-  if (trigger.type !== "github") {
+function getEventSourceRepositories(eventSource: NaniteManifest["eventSource"]): string[] {
+  if (eventSource.type !== "github") {
     return [];
   }
 
-  return trigger.repositories ?? [];
+  return eventSource.repositories ?? [];
 }
 
 function getRunRepository(run: NaniteRunRecord): string | null {
@@ -669,50 +669,45 @@ function getRunGitHubBranch(
   return getGitHubWebhookBranch(trigger.event) ?? "unknown";
 }
 
-function formatScheduleSpec(
-  schedule: Extract<NaniteManifest["trigger"], { type: "schedule" }>["schedule"],
+function formatScheduledEventSource(
+  eventSource: Extract<NaniteManifest["eventSource"], { type: "schedule" | "scheduleEvery" }>,
 ): string {
-  switch (schedule.type) {
-    case "scheduled":
-      return schedule.date;
-    case "delayed":
-      return `after ${schedule.delayInSeconds}s`;
-    case "cron":
-      return schedule.cron;
-    case "interval":
-      return `every ${schedule.intervalSeconds}s`;
+  switch (eventSource.type) {
+    case "schedule":
+      return `schedule(${JSON.stringify(eventSource.when)})`;
+    case "scheduleEvery":
+      return `scheduleEvery(${eventSource.intervalSeconds}s)`;
   }
 }
 
-function formatTriggerSpec(trigger: NaniteManifest["trigger"]): string {
-  switch (trigger.type) {
+function formatEventSourceSpec(eventSource: NaniteManifest["eventSource"]): string {
+  switch (eventSource.type) {
     case "manual":
       return "manual";
     case "schedule":
-      return formatScheduleSpec(trigger.schedule);
+    case "scheduleEvery":
+      return formatScheduledEventSource(eventSource);
     case "github":
-      return `github: ${trigger.events?.join(", ") ?? "all events"}`;
-    case "webhook":
-      return `webhook: ${trigger.source}`;
+      return `github: ${eventSource.events?.join(", ") ?? "all events"}`;
   }
 }
 
 function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTestEvent | null {
-  const { trigger } = nanite.manifest;
-  if (trigger.type !== "github") {
+  const { eventSource } = nanite.manifest;
+  if (eventSource.type !== "github") {
     return null;
   }
 
-  const events = trigger.events ?? [];
+  const events = eventSource.events ?? [];
   const repository =
-    trigger.repositories?.[0] ?? nanite.manifest.permissions.github?.repositories[0];
+    eventSource.repositories?.[0] ?? nanite.manifest.permissions.github?.repositories[0];
   if (!repository) {
     return null;
   }
 
   const [owner = repository, name = repository] = repository.split("/", 2);
   if (events.length === 0 || events.includes("push")) {
-    const branch = trigger.branches?.[0] ?? "main";
+    const branch = eventSource.branches?.[0] ?? "main";
     return {
       fixture: "push",
       overrides: {
@@ -732,11 +727,14 @@ function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTest
   }
 
   let fixture: BrowserTriggerTestEvent["fixture"] = "pull_request.opened";
-  if (events.includes("pull_request.synchronize") || trigger.actions?.includes("synchronize")) {
+  if (events.includes("pull_request.synchronize") || eventSource.actions?.includes("synchronize")) {
     fixture = "pull_request.synchronize";
-  } else if (events.includes("pull_request.reopened") || trigger.actions?.includes("reopened")) {
+  } else if (
+    events.includes("pull_request.reopened") ||
+    eventSource.actions?.includes("reopened")
+  ) {
     fixture = "pull_request.reopened";
-  } else if (events.includes("pull_request.closed") || trigger.actions?.includes("closed")) {
+  } else if (events.includes("pull_request.closed") || eventSource.actions?.includes("closed")) {
     fixture = "pull_request.closed";
   }
 
@@ -757,7 +755,7 @@ function formatTriggerEvent(trigger: NaniteRunRecord["trigger"]): string {
     case "manual":
       return trigger.message ? `manual: ${trigger.message}` : "manual";
     case "schedule":
-      return `schedule: ${formatScheduleSpec(trigger.schedule)}`;
+      return formatScheduledEventSource(trigger.eventSource);
     case "github":
       if (trigger.event.name === "pull_request") {
         const pullRequestNumber = getGitHubWebhookPullRequestNumber(trigger.event);
@@ -770,8 +768,6 @@ function formatTriggerEvent(trigger: NaniteRunRecord["trigger"]): string {
         return `push: ${getRunGitHubBranch(trigger)}`;
       }
       return getGitHubWebhookEventName(trigger.event);
-    case "webhook":
-      return `webhook: ${trigger.source}`;
   }
 }
 
@@ -949,7 +945,7 @@ function getNaniteRepositories(nanite: ManagedNanite, runs: readonly NaniteRunRe
   for (const repository of nanite.manifest.permissions.github?.repositories ?? []) {
     repositories.add(repository);
   }
-  for (const repository of getTriggerRepositories(nanite.manifest.trigger)) {
+  for (const repository of getEventSourceRepositories(nanite.manifest.eventSource)) {
     repositories.add(repository);
   }
   for (const run of runs) {
@@ -1182,14 +1178,14 @@ function NaniteRunInfoPanel({
     .filter(([, permission]) => permission !== undefined && permission !== null)
     .map(([permission, access]) => `${permission}: ${String(access)}`);
   const scopedRepositories = nanite?.manifest.permissions.github?.repositories ?? [];
-  const triggerSpec = formatTriggerSpec(nanite?.manifest.trigger ?? { type: "manual" });
+  const triggerSpec = nanite ? formatEventSourceSpec(nanite.manifest.eventSource) : "manual";
   const manageAccessHref = buildGitHubAppInstallHref({
     suggestedTargetId: activeInstallation.account.id,
   });
   const triggerLabel = run
     ? formatTriggerEvent(run.trigger)
     : nanite
-      ? formatTriggerSpec(nanite.manifest.trigger)
+      ? formatEventSourceSpec(nanite.manifest.eventSource)
       : "No trigger";
   const scopeRows: InfoRow[] = [
     {
@@ -1214,7 +1210,7 @@ function NaniteRunInfoPanel({
       label: "Trigger",
       value: triggerSpec,
       title:
-        nanite?.manifest.trigger.type === "manual"
+        nanite?.manifest.eventSource.type === "manual"
           ? "This Nanite starts when a user manually asks it to run."
           : `This Nanite starts from ${triggerSpec}.`,
       icon: <GitBranchIcon size={15} aria-hidden="true" />,

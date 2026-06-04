@@ -38,7 +38,7 @@ const inspectDebugToolInputSchema = z
     transcript: z
       .object({
         limit: z.number().int().min(1).max(200).default(25),
-        query: nonEmptyStringSchema.optional(),
+        query: z.string().optional(),
         roles: z.array(nonEmptyStringSchema).optional(),
         includeParts: z.boolean().default(false),
         maxTextLength: z.number().int().min(200).max(40_000).default(4_000),

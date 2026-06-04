@@ -3,7 +3,7 @@
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP documentation aligned when the package changes.",
-    "trigger": {
+    "eventSource": {
       "type": "github",
       "events": ["push"],
       "repositories": ["WebMCP-org/npm-packages"],
@@ -25,9 +25,7 @@
         "extraTools": ["actions_list", "actions_get"]
       }
     },
-    "inboundTrigger": {
-      "sourceCode": "export default { async handle(event, ctx) { if (event.name !== 'push') return ctx.noop('Not a push event.'); if (event.payload.repository.full_name !== 'WebMCP-org/npm-packages') return ctx.noop('Different repository.'); const changed = event.payload.commits?.flatMap((commit) => [...(commit.added ?? []), ...(commit.modified ?? []), ...(commit.removed ?? [])]) ?? []; const relevant = changed.filter((file) => file.startsWith('packages/react-webmcp/')); if (relevant.length === 0) return ctx.noop('No React WebMCP package files changed.'); return ctx.dispatchSelf({ reason: 'React WebMCP package changed', files: relevant.slice(0, 50), after: event.payload.after }); } };"
-    }
+    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ event: 'push', async handle(event, ctx) { if (event.payload.repository.full_name !== 'WebMCP-org/npm-packages') return ctx.noop('Different repository.'); const changed = event.payload.commits.flatMap((commit) => [...(commit.added ?? []), ...(commit.modified ?? []), ...(commit.removed ?? [])]); const relevant = changed.filter((file) => file.startsWith('packages/react-webmcp/')); if (relevant.length === 0) return ctx.noop('No React WebMCP package files changed.'); return ctx.dispatchSelf({ reason: 'React WebMCP package changed', files: relevant.slice(0, 50), after: event.payload.after }); } });"
   },
   "enabled": true
 }

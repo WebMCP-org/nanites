@@ -10,44 +10,45 @@ import {
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 
-const naniteScheduleSpecSchema = z.union([
-  z.object({
-    type: z.literal("scheduled"),
-    date: nonEmptyStringSchema,
-  }),
-  z.object({
-    type: z.literal("delayed"),
-    delayInSeconds: z.number().int().positive(),
-  }),
-  z.object({
-    type: z.literal("cron"),
-    cron: nonEmptyStringSchema,
-  }),
-  z.object({
-    type: z.literal("interval"),
-    intervalSeconds: z.number().int().positive(),
-  }),
-]);
+const naniteManualEventSourceSpecSchema = z.object({
+  type: z.literal("manual"),
+});
 
-const naniteTriggerSpecSchema = z.union([
-  z.object({
-    type: z.literal("manual"),
-  }),
-  z.object({
-    type: z.literal("schedule"),
-    schedule: naniteScheduleSpecSchema,
-  }),
-  z.object({
-    type: z.literal("github"),
-    events: z.array(z.enum(emitterEventNames)).min(1).optional(),
-    repositories: z.array(nonEmptyStringSchema).min(1).optional(),
-    actions: z.array(nonEmptyStringSchema).min(1).optional(),
-    branches: z.array(nonEmptyStringSchema).min(1).optional(),
-  }),
-  z.object({
-    type: z.literal("webhook"),
-    source: nonEmptyStringSchema,
-  }),
+const naniteMachineEventSourceSpecSchema = z.union([
+  z
+    .object({
+      type: z.literal("schedule"),
+      when: z
+        .union([z.number().int().positive(), nonEmptyStringSchema])
+        .describe(
+          "Cloudflare Agent schedule() argument. Use a number for delay seconds, a cron string for recurring schedules, or an ISO date string for a one-shot Date schedule.",
+        ),
+    })
+    .strict()
+    .describe("Cloudflare Agent schedule() event source."),
+  z
+    .object({
+      type: z.literal("scheduleEvery"),
+      intervalSeconds: z
+        .number()
+        .int()
+        .positive()
+        .describe("Cloudflare Agent scheduleEvery() interval in seconds."),
+    })
+    .strict()
+    .describe("Cloudflare Agent scheduleEvery() event source."),
+  z
+    .object({
+      type: z.literal("github"),
+      events: z.array(z.enum(emitterEventNames)).min(1).optional(),
+      repositories: z.array(nonEmptyStringSchema).min(1).optional(),
+      actions: z.array(nonEmptyStringSchema).min(1).optional(),
+      branches: z.array(nonEmptyStringSchema).min(1).optional(),
+    })
+    .strict()
+    .describe(
+      "GitHub event source candidate filter. Use plural array keys: events, repositories, actions, and branches. Put behavior in manifest.triggerSource.",
+    ),
 ]);
 
 const nanitePermissionSpecSchema = z
@@ -61,22 +62,34 @@ const nanitePermissionSpecSchema = z
   })
   .default({});
 
+const naniteManifestBaseSchema = z.object({
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  description: nonEmptyStringSchema,
+  permissions: nanitePermissionSpecSchema,
+  capabilities: naniteCapabilitySpecSchema.optional(),
+});
+
+const naniteManifestSchema = z.union([
+  naniteManifestBaseSchema
+    .extend({
+      eventSource: naniteManualEventSourceSpecSchema,
+    })
+    .strict(),
+  naniteManifestBaseSchema
+    .extend({
+      eventSource: naniteMachineEventSourceSpecSchema,
+      triggerSource: nonEmptyStringSchema.describe(
+        "Worker-compatible TypeScript source that decides whether this event source dispatches the Nanite.",
+      ),
+    })
+    .strict(),
+]);
+
 const createNaniteToolInputSchema = z
   .object({
     managerName: optionalNaniteManagerNameSchema,
-    manifest: z.object({
-      id: nonEmptyStringSchema,
-      name: nonEmptyStringSchema,
-      description: nonEmptyStringSchema,
-      trigger: naniteTriggerSpecSchema,
-      inboundTrigger: z
-        .object({
-          sourceCode: nonEmptyStringSchema,
-        })
-        .optional(),
-      permissions: nanitePermissionSpecSchema,
-      capabilities: naniteCapabilitySpecSchema.optional(),
-    }),
+    manifest: naniteManifestSchema,
     enabled: z.boolean().default(true),
   })
   .describe("Create or update a stable Nanite through the authorized installation-scoped manager.");

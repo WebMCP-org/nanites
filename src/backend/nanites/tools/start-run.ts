@@ -37,6 +37,7 @@ export const startNaniteRunTool = defineSigveloMcpTool({
     openWorldHint: true,
   },
   async execute(input, { context, manager }) {
+    //@ts-ignore Super Deep types
     return manager.startNaniteManualRun({
       naniteId: input.naniteId,
       message: input.message,

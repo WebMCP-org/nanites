@@ -138,13 +138,15 @@ The app exposes the model control plane at:
 
 Core tools:
 
-| Tool                               | Purpose                                                          |
-| ---------------------------------- | ---------------------------------------------------------------- |
-| `sigvelo_whoami`                   | Verify actor, installation, client, and scopes.                  |
-| `sigvelo_create_nanite`            | Create or update a Nanite manifest.                              |
-| `sigvelo_poke_nanite`              | Ask, trigger-test, cancel runs, or deprovision Nanites.          |
-| `sigvelo_debug_nanites`            | Inspect manager state and optional Think transcript/submissions. |
-| `sigvelo_explore_nanite_workspace` | Inspect child-owned workspace files.                             |
+| Tool                               | Purpose                                                            |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `sigvelo_whoami`                   | Verify actor, installation, client, and scopes.                    |
+| `sigvelo_create_nanite`            | Create or update a Nanite manifest.                                |
+| `sigvelo_start_nanite_run`         | Start a manual Nanite run.                                         |
+| `sigvelo_cancel_nanite_runs`       | Cancel pending or running Nanite runs.                             |
+| `sigvelo_test_nanite_trigger`      | Build a fixture event, test a trigger, and dispatch accepted runs. |
+| `sigvelo_debug_nanites`            | Inspect manager state and optional Think transcript/submissions.   |
+| `sigvelo_explore_nanite_workspace` | Inspect child-owned workspace files.                               |
 
 Minimal MCP config:
 
@@ -179,8 +181,9 @@ mcpjam oauth login \
 
 Generated trigger handlers are Worker-compatible TypeScript.
 
-They receive a trigger event whose GitHub payload stays in GitHub's webhook shape, plus a small
-manager intent API:
+Machine-originated Nanite manifests use `eventSource` for coarse intake and root `triggerSource` for
+this generated code. Generated trigger handlers receive a trigger event whose GitHub payload stays in
+GitHub's webhook shape, plus a small manager intent API:
 
 ```ts
 export default {

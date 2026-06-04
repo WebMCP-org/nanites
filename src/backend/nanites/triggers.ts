@@ -1,5 +1,7 @@
-import { createWorker } from "@cloudflare/worker-bundler";
+import { InMemoryFileSystem, createWorker, installDependencies } from "@cloudflare/worker-bundler";
+import { createTypescriptLanguageService } from "@cloudflare/worker-bundler/typescript";
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
+import type ts from "typescript";
 import { APP_ERRORS, AppError } from "#/backend/errors.ts";
 
 type TriggerDispatchInputScalar = string | number | boolean | null;
@@ -7,7 +9,7 @@ type TriggerDispatchInputValue = TriggerDispatchInputScalar | TriggerDispatchInp
 
 export type TriggerDispatchInput = Record<string, TriggerDispatchInputValue>;
 
-type TriggerIntent =
+export type TriggerIntent =
   | {
       type: "dispatch_self";
       input: TriggerDispatchInput;
@@ -18,6 +20,7 @@ type TriggerIntent =
     };
 
 export type TriggerDispatchIntent = Extract<TriggerIntent, { type: "dispatch_self" }>;
+export type TriggerNoopIntent = Extract<TriggerIntent, { type: "noop" }>;
 
 type TriggerExecutionResult =
   | {
@@ -31,6 +34,7 @@ type TriggerExecutionResult =
 
 type TriggerFailurePhase =
   | "static"
+  | "typecheck"
   | "bundle"
   | "load"
   | "execute"
@@ -55,6 +59,16 @@ export type RunGeneratedTriggerInput = {
 };
 
 const MAX_GENERATED_TRIGGER_SOURCE_BYTES = 64 * 1024;
+const GENERATED_TRIGGER_ENTRYPOINT_PATH = "src/index.ts";
+const GENERATED_TRIGGER_SOURCE_PATH = "src/trigger.ts";
+const SIGVELO_TRIGGER_PACKAGE_NAME = "@sigvelo/nanite-trigger";
+const SIGVELO_TRIGGER_PACKAGE_PATH = "node_modules/@sigvelo/nanite-trigger";
+const MAX_TYPECHECK_DIAGNOSTICS = 8;
+const MAX_TYPECHECK_DIAGNOSTIC_CHARS = 500;
+const OCTOKIT_WEBHOOKS_VERSION = "14.2.0";
+const OCTOKIT_REST_METHODS_VERSION = "17.0.0";
+const OCTOKIT_OPENAPI_WEBHOOKS_TYPES_VERSION = "12.1.0";
+const OCTOKIT_OPENAPI_TYPES_VERSION = "27.0.0";
 
 const forbiddenStaticTriggerPatterns: Array<{ pattern: RegExp; reason: string }> = [
   {
@@ -75,6 +89,106 @@ const forbiddenStaticTriggerPatterns: Array<{ pattern: RegExp; reason: string }>
     reason: "Generated triggers cannot import Node.js process, filesystem, or networking modules.",
   },
 ];
+
+const sigveloTriggerPackageJson = JSON.stringify({
+  name: SIGVELO_TRIGGER_PACKAGE_NAME,
+  version: "0.0.0",
+  type: "module",
+  exports: {
+    ".": {
+      types: "./index.d.ts",
+      import: "./index.js",
+    },
+  },
+});
+
+const sigveloTriggerRuntimeSource = `
+export function defineGitHubTrigger(trigger) {
+  return trigger;
+}
+`;
+
+const sigveloTriggerTypesSource = `
+import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webhooks";
+import type { RestEndpointMethodTypes } from "@octokit/plugin-rest-endpoint-methods";
+
+export type { EmitterWebhookEvent, EmitterWebhookEventName, RestEndpointMethodTypes };
+
+export type TriggerDispatchInputScalar = string | number | boolean | null;
+export type TriggerDispatchInputValue =
+  | TriggerDispatchInputScalar
+  | readonly TriggerDispatchInputScalar[];
+export type TriggerDispatchInput = Record<string, TriggerDispatchInputValue>;
+
+export type TriggerDispatchIntent = {
+  type: "dispatch_self";
+  input: TriggerDispatchInput;
+};
+
+export type TriggerNoopIntent = {
+  type: "noop";
+  reason: string;
+};
+
+export type TriggerIntent = TriggerDispatchIntent | TriggerNoopIntent;
+export type TriggerResult =
+  | TriggerIntent
+  | readonly TriggerIntent[]
+  | null
+  | undefined
+  | void;
+
+export type TriggerContext = {
+  dispatchSelf(input?: TriggerDispatchInput): TriggerDispatchIntent;
+  noop(reason: string): TriggerNoopIntent;
+  record(message: string, data?: unknown): TriggerNoopIntent;
+};
+
+export type GitHubTriggerHandler<
+  TEventName extends EmitterWebhookEventName = EmitterWebhookEventName,
+> = (
+  event: EmitterWebhookEvent<TEventName>,
+  ctx: TriggerContext,
+) => TriggerResult | Promise<TriggerResult>;
+
+export type GitHubTriggerModule<
+  TEventName extends EmitterWebhookEventName = EmitterWebhookEventName,
+> = {
+  handle: GitHubTriggerHandler<TEventName>;
+};
+
+export declare function defineGitHubTrigger<
+  const TEventNames extends readonly EmitterWebhookEventName[],
+>(
+  trigger: {
+    events: TEventNames;
+    handle: GitHubTriggerHandler<TEventNames[number]>;
+  },
+): GitHubTriggerModule<TEventNames[number]> & { events: TEventNames };
+
+export declare function defineGitHubTrigger<
+  const TEventName extends EmitterWebhookEventName,
+>(
+  trigger: {
+    event: TEventName;
+    handle: GitHubTriggerHandler<TEventName>;
+  },
+): GitHubTriggerModule<TEventName> & { event: TEventName };
+
+export declare function defineGitHubTrigger<
+  TEventName extends EmitterWebhookEventName = EmitterWebhookEventName,
+>(
+  trigger: GitHubTriggerModule<TEventName>,
+): GitHubTriggerModule<TEventName>;
+`;
+
+function createSigveloTriggerPackageFiles(): Record<string, string> {
+  return {
+    [`${SIGVELO_TRIGGER_PACKAGE_PATH}/package.json`]: sigveloTriggerPackageJson,
+    [`${SIGVELO_TRIGGER_PACKAGE_PATH}/index.d.ts`]: sigveloTriggerTypesSource,
+    [`${SIGVELO_TRIGGER_PACKAGE_PATH}/index.js`]: sigveloTriggerRuntimeSource,
+  };
+}
 
 function describeError(error: unknown): string {
   if (error instanceof Error) {
@@ -168,6 +282,147 @@ function validateGeneratedTriggerSourceStatically({
   }
 
   return { ok: true };
+}
+
+type GeneratedTriggerTypeService = Awaited<ReturnType<typeof createTypescriptLanguageService>>;
+
+let generatedTriggerTypeServicePromise: Promise<GeneratedTriggerTypeService> | null = null;
+let generatedTriggerTypecheckQueue: Promise<void> = Promise.resolve();
+
+function createGeneratedTriggerTypeProjectFiles(): Record<string, string> {
+  return {
+    "package.json": JSON.stringify({
+      name: "sigvelo-generated-trigger-type-project",
+      private: true,
+      type: "module",
+      dependencies: {
+        "@octokit/openapi-types": OCTOKIT_OPENAPI_TYPES_VERSION,
+        "@octokit/openapi-webhooks-types": OCTOKIT_OPENAPI_WEBHOOKS_TYPES_VERSION,
+        "@octokit/plugin-rest-endpoint-methods": OCTOKIT_REST_METHODS_VERSION,
+        "@octokit/webhooks": OCTOKIT_WEBHOOKS_VERSION,
+      },
+    }),
+    "tsconfig.json": JSON.stringify({
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+        lib: ["ES2022", "WebWorker"],
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        noEmit: true,
+        noImplicitAny: false,
+        skipLibCheck: true,
+        strict: true,
+        target: "ES2022",
+        types: [],
+        verbatimModuleSyntax: true,
+      },
+    }),
+    [GENERATED_TRIGGER_ENTRYPOINT_PATH]: triggerWorkerRuntimeSource,
+    [GENERATED_TRIGGER_SOURCE_PATH]: "export default { handle() {} };",
+    ...createSigveloTriggerPackageFiles(),
+  };
+}
+
+async function createGeneratedTriggerTypeService(): Promise<GeneratedTriggerTypeService> {
+  const fileSystem = new InMemoryFileSystem(createGeneratedTriggerTypeProjectFiles());
+  const installResult = await installDependencies(fileSystem);
+  if (installResult.warnings.length > 0) {
+    throw new Error(
+      `Failed to prepare generated trigger Octokit types: ${installResult.warnings.join("; ")}`,
+    );
+  }
+
+  return createTypescriptLanguageService({ fileSystem });
+}
+
+function getGeneratedTriggerTypeService(): Promise<GeneratedTriggerTypeService> {
+  generatedTriggerTypeServicePromise ??= createGeneratedTriggerTypeService().catch(
+    (error: unknown) => {
+      generatedTriggerTypeServicePromise = null;
+      throw error;
+    },
+  );
+  return generatedTriggerTypeServicePromise;
+}
+
+function enqueueGeneratedTriggerTypecheck<T>(task: () => Promise<T>): Promise<T> {
+  const run = generatedTriggerTypecheckQueue.then(task, task);
+  generatedTriggerTypecheckQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+function flattenDiagnosticMessage(message: ts.Diagnostic["messageText"]): string {
+  if (typeof message === "string") {
+    return message;
+  }
+
+  return [message.messageText, ...(message.next ?? []).map(flattenDiagnosticMessage)].join(" ");
+}
+
+function formatDiagnosticLocation(diagnostic: ts.Diagnostic): string {
+  if (!diagnostic.file || diagnostic.start === undefined) {
+    return "generated trigger";
+  }
+
+  const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+  return `${diagnostic.file.fileName}:${position.line + 1}:${position.character + 1}`;
+}
+
+function formatTypecheckDiagnostics(diagnostics: readonly ts.Diagnostic[]): string {
+  return diagnostics
+    .slice(0, MAX_TYPECHECK_DIAGNOSTICS)
+    .map((diagnostic) => {
+      const message = flattenDiagnosticMessage(diagnostic.messageText).slice(
+        0,
+        MAX_TYPECHECK_DIAGNOSTIC_CHARS,
+      );
+      return `${formatDiagnosticLocation(diagnostic)} TS${diagnostic.code}: ${message}`;
+    })
+    .join(" | ");
+}
+
+async function validateGeneratedTriggerSourceTypes(
+  input: RunGeneratedTriggerInput,
+): Promise<GeneratedTriggerValidationResult> {
+  return enqueueGeneratedTriggerTypecheck(async () => {
+    try {
+      const { fileSystem, languageService } = await getGeneratedTriggerTypeService();
+      fileSystem.write(GENERATED_TRIGGER_SOURCE_PATH, input.sourceCode);
+
+      const diagnostics = [
+        ...languageService.getCompilerOptionsDiagnostics(),
+        ...languageService.getSyntacticDiagnostics(GENERATED_TRIGGER_SOURCE_PATH),
+        ...languageService.getSemanticDiagnostics(GENERATED_TRIGGER_SOURCE_PATH),
+      ];
+
+      if (diagnostics.length === 0) {
+        return { ok: true };
+      }
+
+      return {
+        ok: false,
+        error: formatTriggerError({
+          phase: "typecheck",
+          error: formatTypecheckDiagnostics(diagnostics),
+          cacheKey: input.cacheKey,
+          sourceCode: input.sourceCode,
+        }),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: formatTriggerError({
+          phase: "typecheck",
+          error,
+          cacheKey: input.cacheKey,
+          sourceCode: input.sourceCode,
+        }),
+      };
+    }
+  });
 }
 
 const triggerWorkerRuntimeSource = `
@@ -313,17 +568,23 @@ export function getDispatchIntents(intents: readonly TriggerIntent[]): TriggerDi
   );
 }
 
+export function getNoopIntents(intents: readonly TriggerIntent[]): TriggerNoopIntent[] {
+  return intents.filter((intent): intent is TriggerNoopIntent => intent.type === "noop");
+}
+
 async function loadGeneratedTriggerWorker(input: RunGeneratedTriggerInput) {
   return input.loader.get(input.cacheKey, async () => {
     let bundledWorker: Awaited<ReturnType<typeof createWorker>>;
     try {
       bundledWorker = await createWorker({
         files: {
-          "src/index.ts": triggerWorkerRuntimeSource,
-          "src/trigger.ts": input.sourceCode,
+          [GENERATED_TRIGGER_ENTRYPOINT_PATH]: triggerWorkerRuntimeSource,
+          [GENERATED_TRIGGER_SOURCE_PATH]: input.sourceCode,
+          ...createSigveloTriggerPackageFiles(),
         },
         bundle: true,
         minify: false,
+        sourcemap: true,
       });
     } catch (error) {
       const reason = formatTriggerError({
@@ -419,6 +680,16 @@ async function requestGeneratedTriggerWorker(
 export async function validateGeneratedTriggerSource(
   input: RunGeneratedTriggerInput,
 ): Promise<GeneratedTriggerValidationResult> {
+  const staticValidation = validateGeneratedTriggerSourceStatically(input);
+  if (!staticValidation.ok) {
+    return staticValidation;
+  }
+
+  const typeValidation = await validateGeneratedTriggerSourceTypes(input);
+  if (!typeValidation.ok) {
+    return typeValidation;
+  }
+
   const result = await requestGeneratedTriggerWorker(
     input,
     new Request("https://sigvelo-trigger.local/", {
