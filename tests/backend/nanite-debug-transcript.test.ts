@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import {
+  buildNaniteSystemPrompt,
   buildRunPrompt,
   inspectTranscript,
   messageHasLifecycleToolCall,
@@ -150,4 +151,44 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
   expect(prompt).toContain("First classify the task's execution plane");
   expect(prompt).toContain("Do not hydrate or repair workspace git for API-only tasks.");
   expect(prompt).toContain("assume the Nanite may be misconfigured");
+});
+
+test("Nanite system prompt includes full manifest config and repository scope", () => {
+  const prompt = buildNaniteSystemPrompt({
+    id: "docs-sync-react-webmcp",
+    name: "React WebMCP docs syncer",
+    description: "Keeps React WebMCP docs aligned with package changes.",
+    eventSource: {
+      type: "github",
+      events: ["push"],
+      repositories: ["WebMCP-org/npm-packages"],
+      branches: ["main"],
+    },
+    triggerSource: `
+export default {
+  async handle(event, ctx) {
+    return ctx.dispatchSelf({
+      repository: event.payload.repository.full_name,
+    });
+  },
+};
+`,
+    permissions: {
+      github: {
+        repositories: ["WebMCP-org/npm-packages", "WebMCP-org/docs"],
+        appPermissions: {
+          contents: "write",
+          pull_requests: "write",
+        },
+      },
+    },
+  });
+
+  expect(prompt).toContain("Full Nanite manifest JSON:");
+  expect(prompt).toContain('"triggerSource"');
+  expect(prompt).toContain("ctx.dispatchSelf");
+  expect(prompt).toContain("Authoritative repository scope");
+  expect(prompt).toContain("- WebMCP-org/npm-packages");
+  expect(prompt).toContain("- WebMCP-org/docs");
+  expect(prompt).toContain("Operate only inside the declared repository and permission scope.");
 });

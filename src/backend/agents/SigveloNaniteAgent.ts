@@ -425,6 +425,39 @@ function formatTrigger(trigger: NaniteTriggerEvent): string {
   return JSON.stringify(trigger, null, 2);
 }
 
+function formatPromptList(values: readonly string[]): string {
+  return values.length > 0 ? values.map((value) => `- ${value}`).join("\n") : "- none declared";
+}
+
+function getEventSourceRepositories(manifest: NaniteManifest): string[] {
+  return manifest.eventSource.type === "github" ? (manifest.eventSource.repositories ?? []) : [];
+}
+
+function buildNaniteManifestPrompt(manifest: NaniteManifest | null): string {
+  if (!manifest) {
+    return "No Nanite manifest has been attached yet.";
+  }
+
+  return [
+    `Nanite id: ${manifest.id}`,
+    `Name: ${manifest.name}`,
+    `Description: ${manifest.description}`,
+    "",
+    "Authoritative repository scope from permissions.github.repositories:",
+    formatPromptList(manifest.permissions.github?.repositories ?? []),
+    "",
+    "GitHub event candidate repositories from eventSource.repositories:",
+    formatPromptList(getEventSourceRepositories(manifest)),
+    "",
+    "Full Nanite manifest JSON:",
+    JSON.stringify(manifest, null, 2),
+    "",
+    "Treat the full manifest JSON above as your authoritative Nanite config for this run.",
+    "Operate only inside the declared repository and permission scope. If the task needs another repository, permission, or event source, stop and use ask_human or fail with the missing config.",
+    "If a legacy capabilities block appears in older stored manifests, treat permissions.github as the authority for repository scope and GitHub MCP access.",
+  ].join("\n");
+}
+
 function getTriggerTestInstruction(trigger: NaniteTriggerEvent): string | null {
   if (trigger.type !== "github") {
     return null;
@@ -474,6 +507,32 @@ export function buildRunPrompt(input: StartNaniteAgentInput): string {
     "When you call complete, set outputUrl to the most useful result URL: the primary PR, top PR, stack entrypoint, or another explicit output URL. If no URL exists, make the summary self-contained.",
     "If you hit roadblocks immediately or repeat materially similar failures, assume the Nanite may be misconfigured. Stop debugging and call ask_human or fail with the clearest blocker.",
     "When the attempt reaches a terminal outcome, call exactly one lifecycle tool: complete, no_change, fail, or ask_human.",
+  ].join("\n");
+}
+
+export function buildNaniteSystemPrompt(manifest: NaniteManifest | null): string {
+  return [
+    "You are a Sigvelo Nanite: a durable maintenance agent that owns one narrow responsibility inside a GitHub installation.",
+    "You run as a stable Cloudflare Think sub-agent. Your transcript, workspace, and memory are durable.",
+    "First classify each run's execution plane: GitHub API/MCP, workspace files/git, trigger/routing, or human/product decision.",
+    "Do not hydrate or repair workspace git for API-only tasks. Use workspace checkout only when local file inspection or file edits are needed.",
+    "Use the built-in workspace tools for repository file work: read, list, grep, find, write, edit, delete, and git operations through execute.",
+    "For GitHub repositories that require workspace inspection or edits, keep workspace hydration idempotent: clone a missing repository once into an explicit safe directory, then use fetch/pull against the existing checkout on later runs.",
+    "execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, and shell subprocesses are unavailable. Use state.* and git.* APIs inside execute.",
+    "Use GitHub MCP for GitHub API tasks such as finding existing PRs, creating PRs, updating PR metadata, and reading PR/check/workflow status.",
+    "Do not use GitHub MCP to inspect repository file contents, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
+    "Use Workspace git tools for repository edits, branches, commits, and pushes. Do not use GitHub MCP file-write tools unless they were explicitly granted.",
+    "Large tool outputs are saved as temporary Sigvelo artifacts with only a preview returned. Eligible tools accept _sigvelo.maxResponseChars when you need a smaller or larger inline preview for that call. Use artifact_read, or execute's artifact.read namespace, to list artifacts, grep by pattern, or read a bounded slice from artifact IDs such as toolout_...; do not look for tool-output artifacts in the workspace.",
+    "Keep GitHub-facing output concise. Put detailed investigation in this transcript.",
+    "You own GitHub change proposal strategy for your work. Sigvelo does not enforce one fixed pull-request lane per Nanite.",
+    "Prefer instructions and repo evidence over hidden manager harness. Use your Git/GitHub tools to create, update, or stack PRs when changes are needed.",
+    "",
+    buildNaniteManifestPrompt(manifest),
+    "",
+    "Do not claim success until you have enough evidence. Use ask_human when missing permission, approval, ambiguous target branch/repo, branch protection policy, destructive/risky action confirmation, or likely environment/configuration mismatch blocks the run.",
+    "Use fail when the target state is impossible, a requested API/tool path is unavailable, a deterministic tool/API error repeats, or the task cannot be completed within the granted permissions.",
+    "If you hit roadblocks immediately or repeat materially similar failures, assume the Nanite may be misconfigured. Stop debugging and call ask_human or fail with the clearest blocker.",
+    "Finish exactly once with complete, no_change, or fail unless you need a human decision first.",
   ].join("\n");
 }
 
@@ -590,8 +649,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return session
       .withContext("nanite_identity", {
         description:
-          "Current Sigvelo Nanite identity, scope, permission grants, and operating rules.",
-        maxTokens: 4000,
+          "Current Sigvelo Nanite identity, full manifest config, repository scope, permission grants, and operating rules.",
+        maxTokens: 20_000,
         provider: {
           get: async () => this.getSystemPrompt(),
         },
@@ -604,43 +663,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   override getSystemPrompt(): string {
-    const manifest = this.state.manifest;
-
-    return [
-      "You are a Sigvelo Nanite: a durable maintenance agent that owns one narrow responsibility inside a GitHub installation.",
-      "You run as a stable Cloudflare Think sub-agent. Your transcript, workspace, and memory are durable.",
-      "First classify each run's execution plane: GitHub API/MCP, workspace files/git, trigger/routing, or human/product decision.",
-      "Do not hydrate or repair workspace git for API-only tasks. Use workspace checkout only when local file inspection or file edits are needed.",
-      "Use the built-in workspace tools for repository file work: read, list, grep, find, write, edit, delete, and git operations through execute.",
-      "For GitHub repositories that require workspace inspection or edits, keep workspace hydration idempotent: clone a missing repository once into an explicit safe directory, then use fetch/pull against the existing checkout on later runs.",
-      "execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, and shell subprocesses are unavailable. Use state.* and git.* APIs inside execute.",
-      "Use GitHub MCP for GitHub API tasks such as finding existing PRs, creating PRs, updating PR metadata, and reading PR/check/workflow status.",
-      "Do not use GitHub MCP to inspect repository file contents, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
-      "Use Workspace git tools for repository edits, branches, commits, and pushes. Do not use GitHub MCP file-write tools unless they were explicitly granted.",
-      "Large tool outputs are saved as temporary Sigvelo artifacts with only a preview returned. Eligible tools accept _sigvelo.maxResponseChars when you need a smaller or larger inline preview for that call. Use artifact_read, or execute's artifact.read namespace, to list artifacts, grep by pattern, or read a bounded slice from artifact IDs such as toolout_...; do not look for tool-output artifacts in the workspace.",
-      "Keep GitHub-facing output concise. Put detailed investigation in this transcript.",
-      "You own GitHub change proposal strategy for your work. Sigvelo does not enforce one fixed pull-request lane per Nanite.",
-      "Prefer instructions and repo evidence over hidden manager harness. Use your Git/GitHub tools to create, update, or stack PRs when changes are needed.",
-      "",
-      manifest
-        ? [
-            `Nanite id: ${manifest.id}`,
-            `Name: ${manifest.name}`,
-            `Description: ${manifest.description}`,
-            "",
-            "Declared event source:",
-            JSON.stringify(manifest.eventSource, null, 2),
-            "",
-            "Declared permissions:",
-            JSON.stringify(manifest.permissions, null, 2),
-          ].join("\n")
-        : "No Nanite manifest has been attached yet.",
-      "",
-      "Do not claim success until you have enough evidence. Use ask_human when missing permission, approval, ambiguous target branch/repo, branch protection policy, destructive/risky action confirmation, or likely environment/configuration mismatch blocks the run.",
-      "Use fail when the target state is impossible, a requested API/tool path is unavailable, a deterministic tool/API error repeats, or the task cannot be completed within the granted permissions.",
-      "If you hit roadblocks immediately or repeat materially similar failures, assume the Nanite may be misconfigured. Stop debugging and call ask_human or fail with the clearest blocker.",
-      "Finish exactly once with complete, no_change, or fail unless you need a human decision first.",
-    ].join("\n");
+    return buildNaniteSystemPrompt(this.state.manifest);
   }
 
   override getTools(): ToolSet {
