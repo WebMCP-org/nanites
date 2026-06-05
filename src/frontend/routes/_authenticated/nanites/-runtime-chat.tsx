@@ -4,7 +4,9 @@ import type { UIMessage } from "ai";
 import { useAgent } from "agents/react";
 import {
   Component,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -753,19 +755,33 @@ export function NaniteRuntimeChatLoading({
   );
 }
 
-export function NaniteRuntimeChatConnector({
+type NaniteAgentInstance = ReturnType<typeof useAgent<SigveloNaniteAgent, NaniteAgentState>>;
+const NaniteAgentContext = createContext<NaniteAgentInstance | null>(null);
+
+export function NaniteAgentProvider({
+  children,
   managerName,
   naniteId,
 }: {
+  readonly children: ReactNode;
   readonly managerName: string;
   readonly naniteId: string;
 }) {
-  const naniteAgent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
+  const agent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
     agent: NANITE_MANAGER_NAME,
     name: managerName,
     sub: [{ agent: NANITE_AGENT_NAME, name: naniteId }],
   });
+  return <NaniteAgentContext.Provider value={agent}>{children}</NaniteAgentContext.Provider>;
+}
 
+export function useNaniteAgent(): NaniteAgentInstance | null {
+  return useContext(NaniteAgentContext);
+}
+
+export function NaniteRuntimeChatConnector() {
+  const naniteAgent = useContext(NaniteAgentContext);
+  if (!naniteAgent) return <NaniteRuntimeChatPlaceholder />;
   return <NaniteRuntimeChatSession agent={naniteAgent} />;
 }
 

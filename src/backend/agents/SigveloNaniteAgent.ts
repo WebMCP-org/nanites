@@ -1,5 +1,5 @@
-import { Think, Workspace } from "@cloudflare/think";
-import type { Session, ThinkSubmissionInspection } from "@cloudflare/think";
+import { Think, Workspace, defaultContextOverflowClassifier } from "@cloudflare/think";
+import type { Session, ThinkSubmissionInspection, ThinkSubmissionStatus } from "@cloudflare/think";
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createExtensionTools } from "@cloudflare/think/tools/extensions";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
@@ -104,7 +104,7 @@ export type NaniteTranscriptInspectInput = {
 
 export type NaniteSubmissionsInspectInput = {
   limit?: number;
-  status?: ThinkSubmissionInspection["status"] | ThinkSubmissionInspection["status"][];
+  status?: ThinkSubmissionStatus | ThinkSubmissionStatus[];
 };
 
 export type NaniteDebugInspectInput = {
@@ -233,7 +233,7 @@ type LastStepDiagnostic = {
 };
 
 function isTerminalSubmissionStatus(
-  status: ThinkSubmissionInspection["status"],
+  status: ThinkSubmissionStatus,
 ): status is "completed" | "aborted" | "skipped" | "error" {
   return terminalSubmissionStatuses.has(status);
 }
@@ -628,6 +628,9 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   extensionLoader = this.env.LOADER;
   override maxSteps = naniteMaxSteps;
   override waitForMcpConnections = { timeout: 10_000 };
+  override chatRecovery = { noProgressTimeoutMs: 10 * 60 * 1000 };
+  override classifyChatError = defaultContextOverflowClassifier;
+  override contextOverflow = { reactive: true, maxRetries: 2 };
   private lastStepDiagnostic: LastStepDiagnostic | null = null;
   private completedResponsesWithoutLifecycle = new Set<string>();
 
@@ -1698,7 +1701,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     const submissions = await this.listSubmissions({
       limit: 25,
-      status: ["completed", "aborted", "skipped", "error"],
+      status: [...terminalSubmissionStatuses],
     });
     const submission = submissions.find(
       (candidate) => this.resolveSubmissionRunId(candidate) === activeRunId,

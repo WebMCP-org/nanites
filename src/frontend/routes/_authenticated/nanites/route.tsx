@@ -62,17 +62,15 @@ import type {
   TestNaniteTriggerInput,
   TestNaniteTriggerOutput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
-import type {
-  NaniteAgentState,
-  NaniteWorkspaceInfo,
-  SigveloNaniteAgent,
-} from "#/backend/agents/SigveloNaniteAgent.ts";
+import type { NaniteWorkspaceInfo } from "#/backend/agents/SigveloNaniteAgent.ts";
 import type { FileInfo } from "@cloudflare/shell";
 import {
   ManagerRuntimeChatConnector,
+  NaniteAgentProvider,
   NaniteRuntimeChatConnector,
   NaniteRuntimeChatLoading,
   NaniteRuntimeChatPlaceholder,
+  useNaniteAgent,
 } from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import {
@@ -81,7 +79,7 @@ import {
   fetchOptionalSession,
   invalidateAuthQueries,
 } from "#/frontend/lib/auth.ts";
-import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/nanites.ts";
+import { NANITE_MANAGER_NAME } from "#/nanites.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import { buildGitHubAppInstallHref, SIGVELO_GITHUB_APP_URL } from "#/github.ts";
 import {
@@ -1506,12 +1504,10 @@ function uniqueWorkspaceEntries(
 }
 
 function NaniteWorkspacePanel({
-  managerName,
   nanite,
   naniteId,
   refreshKey,
 }: {
-  readonly managerName: string;
   readonly nanite: ManagedNanite | null;
   readonly naniteId: string | null;
   readonly refreshKey: string;
@@ -1538,33 +1534,19 @@ function NaniteWorkspacePanel({
         </section>
       }
     >
-      <NaniteWorkspaceReview
-        key={naniteId}
-        managerName={managerName}
-        nanite={nanite}
-        naniteId={naniteId}
-        refreshKey={refreshKey}
-      />
+      <NaniteWorkspaceReview key={naniteId} nanite={nanite} refreshKey={refreshKey} />
     </Suspense>
   );
 }
 
 function NaniteWorkspaceReview({
-  managerName,
   nanite,
-  naniteId,
   refreshKey,
 }: {
-  readonly managerName: string;
   readonly nanite: ManagedNanite | null;
-  readonly naniteId: string;
   readonly refreshKey: string;
 }) {
-  const naniteAgent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
-    agent: NANITE_MANAGER_NAME,
-    name: managerName,
-    sub: [{ agent: NANITE_AGENT_NAME, name: naniteId }],
-  });
+  const naniteAgent = useNaniteAgent();
   const [files, setFiles] = useState<readonly NaniteWorkspaceReviewFile[]>([]);
   const [entriesByDirectory, setEntriesByDirectory] = useState<
     Record<string, readonly NaniteWorkspaceTreeEntry[]>
@@ -1598,6 +1580,7 @@ function NaniteWorkspaceReview({
         return;
       }
 
+      if (!naniteAgent) return;
       setLoadingDirectories((current) => new Set(current).add(path));
       setError(null);
       try {
@@ -1622,7 +1605,7 @@ function NaniteWorkspaceReview({
         });
       }
     },
-    [naniteAgent.stub],
+    [naniteAgent],
   );
 
   const loadFile = useCallback(
@@ -1640,6 +1623,7 @@ function NaniteWorkspaceReview({
         return;
       }
 
+      if (!naniteAgent) return;
       setLoadingFilePath(path);
       setError(null);
       try {
@@ -1686,7 +1670,7 @@ function NaniteWorkspaceReview({
         setLoadingFilePath((current) => (current === path ? null : current));
       }
     },
-    [definitionFilesByPath, filesByPath, naniteAgent.stub],
+    [definitionFilesByPath, filesByPath, naniteAgent],
   );
 
   const loadWorkspaceRoot = useCallback(async () => {
@@ -1698,6 +1682,7 @@ function NaniteWorkspaceReview({
     loadedDirectoriesRef.current = new Set(["/nanite"]);
     setExpandedPaths(new Set(["/workspace"]));
     try {
+      if (!naniteAgent) throw new Error("No agent connection");
       const nextInfo = await naniteAgent.stub.getWorkspaceInfo();
       setInfo(nextInfo);
       await loadDirectory("/", { force: true });
@@ -1709,7 +1694,7 @@ function NaniteWorkspaceReview({
     } finally {
       setLoading(false);
     }
-  }, [definitionFiles, loadDirectory, naniteAgent.stub]);
+  }, [definitionFiles, loadDirectory, naniteAgent]);
 
   const refresh = useCallback(() => {
     void loadWorkspaceRoot();
@@ -1737,6 +1722,7 @@ function NaniteWorkspaceReview({
 
         try {
           while (directories.length > 0 && scannedEntries < naniteWorkspaceFilterScanEntryLimit) {
+            if (!naniteAgent) break;
             const directory = directories.shift() ?? "/";
             const output = await naniteAgent.stub.exploreWorkspace({
               action: "list",
@@ -1781,7 +1767,7 @@ function NaniteWorkspaceReview({
       canceled = true;
       window.clearTimeout(timeout);
     };
-  }, [fileFilter, naniteAgent.stub]);
+  }, [fileFilter, naniteAgent]);
 
   const loadedFileEntries = useMemo(() => {
     const entries = Object.values(entriesByDirectory).flat();
@@ -2462,7 +2448,7 @@ function NanitesRuntimeSurface({
     });
   }, [activeInstallation.account.login, activeInstallation.id, fallbackNaniteItem?.id, navigate]);
 
-  return (
+  const main = (
     <main
       className="nanites-workspace"
       data-desktop-panel={desktopPanel}
@@ -2695,11 +2681,7 @@ function NanitesRuntimeSurface({
               </Suspense>
             ) : selectedNaniteAgentId ? (
               <Suspense fallback={<NaniteRuntimeChatLoading />}>
-                <NaniteRuntimeChatConnector
-                  key={selectedNaniteAgentId}
-                  managerName={managerName}
-                  naniteId={selectedNaniteAgentId}
-                />
+                <NaniteRuntimeChatConnector key={selectedNaniteAgentId} />
               </Suspense>
             ) : (
               <NaniteRuntimeChatPlaceholder />
@@ -2779,15 +2761,9 @@ function NanitesRuntimeSurface({
 
         <div className="nanites-workspace__files-slot" data-active={desktopPanel === "files"}>
           {isManagerSelected ? (
-            <NaniteWorkspacePanel
-              managerName={managerName}
-              nanite={null}
-              naniteId={null}
-              refreshKey="manager"
-            />
+            <NaniteWorkspacePanel nanite={null} naniteId={null} refreshKey="manager" />
           ) : (
             <NaniteWorkspacePanel
-              managerName={managerName}
               nanite={selectedNanite}
               naniteId={selectedNaniteAgentId}
               refreshKey={`${selectedRun?.runId ?? "no-run"}:${selectedRun?.updatedAt ?? "no-update"}`}
@@ -2832,4 +2808,18 @@ function NanitesRuntimeSurface({
       </nav>
     </main>
   );
+
+  if (selectedNaniteAgentId) {
+    return (
+      <NaniteAgentProvider
+        key={selectedNaniteAgentId}
+        managerName={managerName}
+        naniteId={selectedNaniteAgentId}
+      >
+        {main}
+      </NaniteAgentProvider>
+    );
+  }
+
+  return main;
 }

@@ -320,6 +320,9 @@
     },
     "staging": {
       "name": "nanites-app-staging",
+      "limits": {
+        "subrequests": 10000000,
+      },
       "worker_loaders": [
         {
           "binding": "LOADER",
@@ -415,6 +418,9 @@
     },
     "production": {
       "name": "nanites-app-production",
+      "limits": {
+        "subrequests": 10000000,
+      },
       "worker_loaders": [
         {
           "binding": "LOADER",
