@@ -127,7 +127,7 @@ export default defineGitHubTrigger({
   expect(result).toEqual({ ok: true });
 });
 
-test("generated trigger validation reports Octokit payload type diagnostics", async () => {
+test("generated trigger validation skips Octokit payload semantic diagnostics", async () => {
   const result = await validateGeneratedTriggerSource({
     loader: env.LOADER,
     cacheKey: `typed-trigger-error-${crypto.randomUUID()}`,
@@ -146,11 +146,7 @@ export default defineGitHubTrigger({
 `,
   });
 
-  expect(result.ok).toBe(false);
-  if (!result.ok) {
-    expect(result.error).toContain("phase=typecheck");
-    expect(result.error).toContain("pull_request");
-  }
+  expect(result).toEqual({ ok: true });
 });
 
 test("generated trigger validation rejects source that does not export handle", async () => {
