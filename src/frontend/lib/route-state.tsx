@@ -2,9 +2,9 @@ import { type ReactNode, useEffect } from "react";
 import * as Sentry from "@sentry/react";
 import { useQueryClient, useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, Navigate, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
-import { Badge } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { Card } from "#/frontend/ui/components/Card.tsx";
+import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
 import { ArrowClockwiseIcon, ArrowUUpLeftIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import {
   getInstallationAuthErrorDetails,
@@ -22,20 +22,18 @@ interface StateAction {
 }
 
 interface PageStateCardProps {
-  readonly badge: string;
-  readonly badgeColor?: "neutral" | "primary" | "warning" | "destructive";
   readonly title: string;
   readonly description: string;
   readonly actions?: readonly StateAction[];
+  readonly sceneVariant?: NaniteSceneVariant;
 }
 
 export function RoutePendingPage() {
   return (
     <PageStateCard
-      badge="Loading"
-      badgeColor="primary"
-      title="Loading route."
-      description="SigVelo is preparing the next screen and syncing the required data."
+      sceneVariant="working"
+      title="Loading Nanites."
+      description="Nanites are preparing the next screen and syncing the required data."
     />
   );
 }
@@ -44,7 +42,12 @@ export function RouteNotFoundPage() {
   return (
     <div className="not-found">
       <div className="not-found__inner">
-        <span className="not-found__wordmark">Sigvelo</span>
+        <NaniteScene
+          className="not-found__nanite"
+          mode="solo"
+          title="Concerned Nanite"
+          variant="concerned"
+        />
         <div className="not-found__content">
           <span className="not-found__eyebrow">404</span>
           <h1 className="not-found__heading">
@@ -103,8 +106,7 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
 
   return (
     <PageStateCard
-      badge="Dashboard Error"
-      badgeColor="destructive"
+      sceneVariant="concerned"
       title="Something failed to load."
       description={message}
       actions={[
@@ -161,13 +163,12 @@ function InstallationRouteErrorPage({
       : "This installation is no longer available.";
   const description =
     installationError.code === "active_installation_required"
-      ? "SigVelo needs an active installation before loading Nanites. Pick one to continue."
-      : "GitHub access for this installation changed, so SigVelo can no longer use it. Pick another installation or reinstall the SigVelo GitHub App.";
+      ? "Nanites needs an active GitHub installation before loading the workspace. Pick one to continue."
+      : "GitHub access for this installation changed, so Nanites can no longer use it. Pick another installation or reinstall the Nanites GitHub App.";
 
   return (
     <PageStateCard
-      badge="Installation required"
-      badgeColor="warning"
+      sceneVariant="working"
       title={title}
       description={description}
       actions={[
@@ -196,21 +197,23 @@ function InstallationRouteErrorPage({
 }
 
 function PageStateCard({
-  badge,
-  badgeColor = "neutral",
   title,
   description,
   actions = [],
+  sceneVariant = "idle",
 }: PageStateCardProps) {
   return (
     <div className="app-shell">
       <main className="app-main">
         <div className="app-stack">
-          <Card>
+          <Card className="page-state-card">
             <div className="app-stack">
-              <Badge color={badgeColor} variant="outline">
-                {badge}
-              </Badge>
+              <NaniteScene
+                className="page-state-card__nanite"
+                mode="solo"
+                title="Nanite status"
+                variant={sceneVariant}
+              />
               <div className="app-page-header">
                 <h1 className="app-page-title">{title}</h1>
                 <p className="app-page-description">{description}</p>

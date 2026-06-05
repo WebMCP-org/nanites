@@ -1,16 +1,14 @@
 import { Badge } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
+import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { McpAuthorizeContext } from "#/backend/api/routes/mcp.ts";
 import {
   ArrowSquareOutIcon,
   ArrowRightIcon,
-  BuildingsIcon,
   GithubLogoIcon,
-  PlugsConnectedIcon,
   ShieldCheckIcon,
-  WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { MCP_AUTHORIZE_CONTEXT_ROUTE } from "#/mcp.ts";
 
@@ -40,14 +38,9 @@ function McpAuthorizePage() {
   if (context.status === "login") {
     return (
       <McpAuthorizeShell
-        icon={<GithubLogoIcon size={22} weight="fill" aria-hidden="true" />}
         title="Log in with GitHub"
-        summary={`${context.clientName} wants to connect to Sigvelo through MCP.`}
+        summary={`${context.clientName} wants to connect to Nanites through MCP.`}
       >
-        <p className="mcp-authorize__copy">
-          GitHub confirms your identity and installation access. Sigvelo issues the MCP token, and
-          the MCP client does not receive your GitHub token.
-        </p>
         <a
           className="button button--normal button--primary button--lg mcp-authorize__link-button"
           href={context.loginHref}
@@ -63,19 +56,9 @@ function McpAuthorizePage() {
   if (context.status === "no_installations") {
     return (
       <McpAuthorizeShell
-        icon={<BuildingsIcon size={22} aria-hidden="true" />}
-        title="Install the Sigvelo GitHub App"
-        summary={`${context.clientName} can connect after Sigvelo has access to a GitHub account and repositories.`}
+        title="Install the Nanites GitHub App"
+        summary={`${context.clientName} can connect after Nanites has access to a GitHub account and repositories.`}
       >
-        <p className="mcp-authorize__copy">
-          You are signed in with GitHub, but GitHub is not reporting a Sigvelo installation for any
-          account you can access.
-        </p>
-        <ol className="mcp-authorize__setup-list" aria-label="GitHub App setup steps">
-          <li>Install Sigvelo on the user or organization that owns the repository.</li>
-          <li>Choose all repositories or select the repositories Nanites may maintain.</li>
-          <li>Return here and refresh to continue authorizing the MCP client.</li>
-        </ol>
         <div className="mcp-authorize__actions">
           <a
             className="button button--normal button--primary button--lg mcp-authorize__link-button"
@@ -84,7 +67,7 @@ function McpAuthorizePage() {
             rel="noreferrer"
           >
             <GithubLogoIcon size={18} weight="fill" aria-hidden="true" />
-            <span>Install Sigvelo on GitHub</span>
+            <span>Install Nanites on GitHub</span>
           </a>
           <Button
             color="neutral"
@@ -104,19 +87,9 @@ function McpAuthorizePage() {
   if (context.status === "no_repositories") {
     return (
       <McpAuthorizeShell
-        icon={<BuildingsIcon size={22} aria-hidden="true" />}
-        title="Choose repositories for Sigvelo"
-        summary={`${context.clientName} can connect after at least one repository is shared with Sigvelo.`}
+        title="Choose repositories for Nanites"
+        summary={`${context.clientName} can connect after at least one repository is shared with Nanites.`}
       >
-        <p className="mcp-authorize__copy">
-          GitHub says Sigvelo is installed, but none of the installations visible to you currently
-          expose repositories Nanites can work on.
-        </p>
-        <ol className="mcp-authorize__setup-list" aria-label="Repository access setup steps">
-          <li>Open repository access for the GitHub account you want this MCP client to use.</li>
-          <li>Choose all repositories or select the repositories Nanites may maintain.</li>
-          <li>Return here and refresh to continue authorizing the MCP client.</li>
-        </ol>
         <ul className="mcp-authorize__installation-list" aria-label="GitHub installations">
           {context.installations.map((option) => (
             <li key={option.installation.id}>
@@ -169,11 +142,7 @@ function McpAuthorizePage() {
 
   if (context.status === "invalid") {
     return (
-      <McpAuthorizeShell
-        icon={<WarningCircleIcon size={22} aria-hidden="true" />}
-        title="Authorization request failed"
-        summary={context.message}
-      >
+      <McpAuthorizeShell title="Authorization request failed" summary={context.message}>
         <Button
           color="neutral"
           variant="outline"
@@ -182,7 +151,7 @@ function McpAuthorizePage() {
             window.location.href = "/";
           }}
         >
-          Return to Sigvelo
+          Return to Nanites
         </Button>
       </McpAuthorizeShell>
     );
@@ -196,9 +165,8 @@ function McpAuthorizePage() {
 
   return (
     <McpAuthorizeShell
-      icon={<PlugsConnectedIcon size={22} aria-hidden="true" />}
       title={`Authorize ${context.clientName}`}
-      summary="Choose the GitHub installation this MCP client may use with Sigvelo."
+      summary="Choose the GitHub installation this MCP client may use with Nanites."
     >
       <form className="mcp-authorize__form" method="post" action={context.authorizeAction}>
         <input type="hidden" name="csrf_token" value={context.csrfToken} />
@@ -230,10 +198,6 @@ function McpAuthorizePage() {
           ))}
         </ul>
 
-        <p className="mcp-authorize__copy">
-          The MCP token is bound to the selected installation. GitHub tokens stay in Sigvelo.
-        </p>
-
         <div className="mcp-authorize__actions">
           <Button type="submit" color="primary" size="lg" name="intent" value="authorize">
             <ShieldCheckIcon size={18} aria-hidden="true" />
@@ -256,12 +220,10 @@ function McpAuthorizePage() {
 }
 
 function McpAuthorizeShell({
-  icon,
   title,
   summary,
   children,
 }: {
-  readonly icon: ReactNode;
   readonly title: string;
   readonly summary: string;
   readonly children: ReactNode;
@@ -269,12 +231,12 @@ function McpAuthorizeShell({
   return (
     <main className="mcp-authorize">
       <section className="mcp-authorize__panel" aria-labelledby="mcp-authorize-title">
-        <div className="mcp-authorize__brand">
-          <span className="mcp-authorize__mark" aria-hidden="true">
-            {icon}
-          </span>
-          <span className="mcp-authorize__wordmark">Sigvelo MCP</span>
-        </div>
+        <NaniteScene
+          className="mcp-authorize__nanite"
+          mode="solo"
+          title="Nanite authorizing MCP"
+          variant="working"
+        />
 
         <div className="mcp-authorize__body">
           <h1 id="mcp-authorize-title">{title}</h1>

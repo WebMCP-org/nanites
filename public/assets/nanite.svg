@@ -1,0 +1,50 @@
+<svg width="240" height="110" viewBox="0 0 240 110" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="nanite-title nanite-desc">
+  <title id="nanite-title">Nanites</title>
+  <desc id="nanite-desc">Three nanite characters studying a repository workspace.</desc>
+  <g transform="translate(120 20)">
+    <rect x="-28" y="-4" width="56" height="36" rx="3" fill="#1e2d3d" stroke="#3a5068" />
+    <circle cx="-21" cy="2" r="1.5" fill="#c87832" />
+    <circle cx="-15" cy="2" r="1.5" fill="#d4a636" />
+    <circle cx="-9" cy="2" r="1.5" fill="#0f7b6c" />
+    <rect x="-22" y="8" width="30" height="2" rx="1" fill="#2e3d50" />
+    <rect x="-22" y="13" width="20" height="2" rx="1" fill="#2e3d50" />
+    <rect x="-22" y="18" width="26" height="2" rx="1" fill="#2e3d50" />
+    <rect x="-22" y="23" width="16" height="4" rx="2" fill="#2d5a8a" opacity="0.5" />
+  </g>
+  <g transform="translate(140 44)">
+    <circle cx="0" cy="0" r="6" fill="none" stroke="#8ba7b8" stroke-width="1.2" />
+    <line x1="4.5" y1="4.5" x2="9" y2="9" stroke="#8ba7b8" stroke-width="1.5" stroke-linecap="round" />
+  </g>
+  <g opacity="0.08" fill="#0d1520">
+    <ellipse cx="60" cy="96" rx="18" ry="2.8" />
+    <ellipse cx="120" cy="96" rx="18" ry="2.8" />
+    <ellipse cx="180" cy="96" rx="18" ry="2.8" />
+  </g>
+  <g transform="translate(60 70)">
+    <rect x="-15" y="-21" width="30" height="36" rx="8" fill="#0f7b6c" />
+    <circle cx="-5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="-4" cy="-10" r="1.5" fill="white" opacity="0.45" />
+    <circle cx="7" cy="-10" r="1.5" fill="white" opacity="0.45" />
+    <rect x="-12" y="13" width="9" height="5" rx="2.5" fill="#0f7b6c" opacity="0.7" />
+    <rect x="3" y="13" width="9" height="5" rx="2.5" fill="#0f7b6c" opacity="0.7" />
+  </g>
+  <g transform="translate(120 70)">
+    <rect x="-15" y="-21" width="30" height="36" rx="8" fill="#2d5a8a" />
+    <circle cx="-5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="-4" cy="-10" r="1.5" fill="white" opacity="0.45" />
+    <circle cx="7" cy="-10" r="1.5" fill="white" opacity="0.45" />
+    <rect x="-12" y="13" width="9" height="5" rx="2.5" fill="#2d5a8a" opacity="0.7" />
+    <rect x="3" y="13" width="9" height="5" rx="2.5" fill="#2d5a8a" opacity="0.7" />
+  </g>
+  <g transform="translate(180 70)">
+    <rect x="-15" y="-21" width="30" height="36" rx="8" fill="#7eb8c9" />
+    <circle cx="-5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="-4" cy="-10" r="1.5" fill="white" opacity="0.45" />
+    <circle cx="7" cy="-10" r="1.5" fill="white" opacity="0.45" />
+    <rect x="-12" y="13" width="9" height="5" rx="2.5" fill="#7eb8c9" opacity="0.7" />
+    <rect x="3" y="13" width="9" height="5" rx="2.5" fill="#7eb8c9" opacity="0.7" />
+  </g>
+</svg>

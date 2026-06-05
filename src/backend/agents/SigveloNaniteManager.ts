@@ -665,8 +665,22 @@ function isRecurringScheduleWhen(when: NaniteScheduleWhen): boolean {
   return typeof when === "string" && !isDateLikeScheduleWhen(when);
 }
 
-function shouldResyncNaniteDuringMaintenance(nanite: ManagedNanite): boolean {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isGitHubEventSource(
+  value: unknown,
+): value is Extract<NaniteEventSourceSpec, { type: "github" }> {
+  return isRecord(value) && value.type === "github";
+}
+
+export function shouldResyncNaniteDuringMaintenance(nanite: ManagedNanite): boolean {
   const eventSource = nanite.manifest.eventSource;
+  if (!isRecord(eventSource)) {
+    return true;
+  }
+
   if (eventSource.type !== "schedule" && eventSource.type !== "scheduleEvery") {
     return true;
   }
@@ -675,7 +689,15 @@ function shouldResyncNaniteDuringMaintenance(nanite: ManagedNanite): boolean {
     return true;
   }
 
-  return eventSource.type === "scheduleEvery" || isRecurringScheduleWhen(eventSource.when);
+  if (eventSource.type === "scheduleEvery") {
+    return true;
+  }
+
+  if (typeof eventSource.when !== "string" && typeof eventSource.when !== "number") {
+    return true;
+  }
+
+  return isRecurringScheduleWhen(eventSource.when);
 }
 
 function sortJsonValue(value: unknown): unknown {
@@ -798,7 +820,7 @@ function buildTriggerKey(input: StartNaniteRunInput): string {
 
 function githubEventSourceMatches(nanite: ManagedNanite, event: EmitterWebhookEvent): boolean {
   const eventSource = nanite.manifest.eventSource;
-  if (eventSource.type !== "github") {
+  if (!isGitHubEventSource(eventSource)) {
     return false;
   }
 

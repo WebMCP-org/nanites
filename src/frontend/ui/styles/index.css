@@ -11,6 +11,7 @@
 @import "./conversation.css" layer(components);
 @import "./file-tree.css" layer(components);
 @import "./message.css" layer(components);
+@import "./nanite-scene.css" layer(components);
 @import "./popover.css" layer(components);
 @import "./prompt-input.css" layer(components);
 @import "./reasoning.css" layer(components);

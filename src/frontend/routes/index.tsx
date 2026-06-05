@@ -1,4 +1,5 @@
 import { Button } from "#/frontend/ui/components/Button.tsx";
+import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { GithubLogoIcon } from "@phosphor-icons/react";
 import { loadSession } from "#/frontend/lib/auth.ts";
@@ -24,34 +25,32 @@ function LoginPage() {
   const returnTo = readRequestedReturnTo(new URLSearchParams(window.location.search));
 
   return (
-    <div className="login-split">
-      <div className="login-panel">
-        <div className="login-panel__inner">
-          <span className="login-panel__wordmark">Sigvelo</span>
-        </div>
+    <main className="login-screen">
+      <NaniteScene
+        className="login-screen__nanite"
+        mode="solo"
+        title="Nanite ready to work"
+        variant="working"
+      />
+      <div className="login-screen__copy">
+        <h1>Nanites</h1>
+        <p>Small durable agents for GitHub repository maintenance.</p>
       </div>
-      <div className="login-form">
-        <div className="login-form__inner">
-          <div className="login-form__header">
-            <h2 className="login-form__title">Sign in</h2>
-          </div>
-          <Button
-            color="primary"
-            size="lg"
-            onClick={() => {
-              const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
-              loginUrl.searchParams.set(
-                AUTH_RETURN_TO_PARAM,
-                normalizeAuthenticatedReturnToPath(returnTo),
-              );
-              window.location.href = loginUrl.toString();
-            }}
-          >
-            <GithubLogoIcon size={18} />
-            <span>Sign in with GitHub</span>
-          </Button>
-        </div>
-      </div>
-    </div>
+      <Button
+        color="primary"
+        size="lg"
+        onClick={() => {
+          const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
+          loginUrl.searchParams.set(
+            AUTH_RETURN_TO_PARAM,
+            normalizeAuthenticatedReturnToPath(returnTo),
+          );
+          window.location.href = loginUrl.toString();
+        }}
+      >
+        <GithubLogoIcon size={18} />
+        <span>Sign in with GitHub</span>
+      </Button>
+    </main>
   );
 }

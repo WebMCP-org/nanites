@@ -4,7 +4,10 @@ import {
   validateGeneratedTriggerSource,
   type GitHubPushFixtureOverrides,
 } from "#/backend/nanites/triggers.ts";
-import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
+import {
+  shouldResyncNaniteDuringMaintenance,
+  type SigveloNaniteManager,
+} from "#/backend/agents/SigveloNaniteManager.ts";
 
 function getManager() {
   return getAgentByName(
@@ -183,6 +186,28 @@ export default {
     expect(result.error).toContain("phase=static");
     expect(result.error).toContain("eval");
   }
+});
+
+test("maintenance resync predicate tolerates persisted nanites without event sources", () => {
+  const staleNanite = {
+    manifest: {
+      id: "stale-missing-event-source",
+      name: "Stale missing event source",
+      description: "Persisted before eventSource was required.",
+      permissions: {},
+    },
+    latestVersion: {
+      versionId: "manifest-stale",
+      manifestHash: "stale",
+      registeredAt: "2026-01-01T00:00:00.000Z",
+    },
+    enabled: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  } as unknown as Parameters<typeof shouldResyncNaniteDuringMaintenance>[0];
+
+  expect(() => shouldResyncNaniteDuringMaintenance(staleNanite)).not.toThrow();
+  expect(shouldResyncNaniteDuringMaintenance(staleNanite)).toBe(true);
 });
 
 test("nanite registration stores generated triggers only after validation passes", async () => {

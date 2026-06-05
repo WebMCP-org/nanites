@@ -27,6 +27,7 @@ import {
   type CodeBlockLanguage,
 } from "#/frontend/ui/components/CodeBlock.tsx";
 import { FileTree, FileTreeFile, FileTreeFolder } from "#/frontend/ui/components/FileTree.tsx";
+import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { Popover } from "#/frontend/ui/components/Popover.tsx";
 import {
   ArrowClockwiseIcon,
@@ -43,7 +44,6 @@ import {
   GithubLogoIcon,
   MagnifyingGlassIcon,
   PlusIcon,
-  PlugsIcon,
   SlidersHorizontalIcon,
   SidebarSimpleIcon,
   SignOutIcon,
@@ -228,6 +228,7 @@ type NaniteRepositoryGroup = {
   readonly items: readonly NaniteListItem[];
 };
 
+type NaniteEventSource = NaniteManifest["eventSource"];
 type NaniteMobileView = "nanites" | "chat" | "files" | "details";
 type BrowserTriggerTestEvent = TestNaniteTriggerInput["event"];
 
@@ -601,7 +602,7 @@ function InstallationPicker({
               <PlusIcon size={14} aria-hidden="true" />
               <span>
                 {installations.length === 0
-                  ? "Install SigVelo on GitHub"
+                  ? "Install Nanites on GitHub"
                   : "Install on another account"}
               </span>
               <ArrowSquareOutIcon size={14} aria-hidden="true" />
@@ -623,7 +624,7 @@ function InstallationPicker({
               rel="noreferrer"
             >
               <GithubLogoIcon size={14} aria-hidden="true" />
-              <span>View SigVelo on GitHub Marketplace</span>
+              <span>View Nanites on GitHub Marketplace</span>
               <ArrowSquareOutIcon size={14} aria-hidden="true" />
             </a>
 
@@ -645,8 +646,26 @@ function InstallationPicker({
   );
 }
 
-function getEventSourceRepositories(eventSource: NaniteManifest["eventSource"]): string[] {
-  if (eventSource.type !== "github") {
+function isNaniteEventSource(value: unknown): value is NaniteEventSource {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    value.type === "manual" ||
+    value.type === "schedule" ||
+    value.type === "scheduleEvery" ||
+    value.type === "github"
+  );
+}
+
+function readNaniteEventSource(nanite: ManagedNanite): NaniteEventSource | null {
+  const eventSource: unknown = nanite.manifest.eventSource;
+  return isNaniteEventSource(eventSource) ? eventSource : null;
+}
+
+function getEventSourceRepositories(eventSource: NaniteEventSource | null | undefined): string[] {
+  if (!eventSource || eventSource.type !== "github") {
     return [];
   }
 
@@ -668,7 +687,7 @@ function getRunGitHubBranch(
 }
 
 function formatScheduledEventSource(
-  eventSource: Extract<NaniteManifest["eventSource"], { type: "schedule" | "scheduleEvery" }>,
+  eventSource: Extract<NaniteEventSource, { type: "schedule" | "scheduleEvery" }>,
 ): string {
   switch (eventSource.type) {
     case "schedule":
@@ -678,7 +697,11 @@ function formatScheduledEventSource(
   }
 }
 
-function formatEventSourceSpec(eventSource: NaniteManifest["eventSource"]): string {
+function formatEventSourceSpec(eventSource: NaniteEventSource | null | undefined): string {
+  if (!eventSource) {
+    return "manual";
+  }
+
   switch (eventSource.type) {
     case "manual":
       return "manual";
@@ -691,8 +714,8 @@ function formatEventSourceSpec(eventSource: NaniteManifest["eventSource"]): stri
 }
 
 function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTestEvent | null {
-  const { eventSource } = nanite.manifest;
-  if (eventSource.type !== "github") {
+  const eventSource = readNaniteEventSource(nanite);
+  if (!eventSource || eventSource.type !== "github") {
     return null;
   }
 
@@ -943,7 +966,7 @@ function getNaniteRepositories(nanite: ManagedNanite, runs: readonly NaniteRunRe
   for (const repository of nanite.manifest.permissions.github?.repositories ?? []) {
     repositories.add(repository);
   }
-  for (const repository of getEventSourceRepositories(nanite.manifest.eventSource)) {
+  for (const repository of getEventSourceRepositories(readNaniteEventSource(nanite))) {
     repositories.add(repository);
   }
   for (const run of runs) {
@@ -1176,15 +1199,12 @@ function NaniteRunInfoPanel({
     .filter(([, permission]) => permission !== undefined && permission !== null)
     .map(([permission, access]) => `${permission}: ${String(access)}`);
   const scopedRepositories = nanite?.manifest.permissions.github?.repositories ?? [];
-  const triggerSpec = nanite ? formatEventSourceSpec(nanite.manifest.eventSource) : "manual";
+  const eventSource = nanite ? readNaniteEventSource(nanite) : null;
+  const triggerSpec = nanite ? formatEventSourceSpec(eventSource) : "manual";
   const manageAccessHref = buildGitHubAppInstallHref({
     suggestedTargetId: activeInstallation.account.id,
   });
-  const triggerLabel = run
-    ? formatTriggerEvent(run.trigger)
-    : nanite
-      ? formatEventSourceSpec(nanite.manifest.eventSource)
-      : "No trigger";
+  const triggerLabel = run ? formatTriggerEvent(run.trigger) : nanite ? triggerSpec : "No trigger";
   const scopeRows: InfoRow[] = [
     {
       key: "repos",
@@ -1208,7 +1228,7 @@ function NaniteRunInfoPanel({
       label: "Trigger",
       value: triggerSpec,
       title:
-        nanite?.manifest.eventSource.type === "manual"
+        eventSource?.type === "manual" || !eventSource
           ? "This Nanite starts when a user manually asks it to run."
           : `This Nanite starts from ${triggerSpec}.`,
       icon: <GitBranchIcon size={15} aria-hidden="true" />,
@@ -2059,6 +2079,12 @@ function NanitesRoute() {
       <main className="nanites-workspace nanites-workspace--empty">
         <section className="nanites-workspace__empty-state">
           <div className="nanites-workspace__empty-panel">
+            <NaniteScene
+              className="nanites-workspace__empty-icon"
+              mode="solo"
+              title="Concerned Nanite"
+              variant="concerned"
+            />
             <h1>Installation mismatch</h1>
             <p>
               The URL points at a different GitHub account or installation than the one currently
@@ -2104,20 +2130,18 @@ function NanitesZeroInstallState() {
     <div className="dashboard">
       <Card>
         <div className="dashboard__zero-install">
-          <div className="dashboard__setup-mark" aria-hidden="true">
-            <GithubLogoIcon size={22} weight="fill" />
-          </div>
-          <h1 className="dashboard__heading">Install the SigVelo GitHub App</h1>
+          <NaniteScene
+            className="dashboard__setup-nanite"
+            mode="solo"
+            title="Nanite preparing GitHub setup"
+            variant="working"
+          />
+          <h1 className="dashboard__heading">Install the Nanites GitHub App</h1>
           <p className="dashboard__subtext">
-            You are signed in, but GitHub is not reporting a SigVelo installation for any account
+            You are signed in, but GitHub is not reporting a Nanites installation for any account
             you can access. Install the app on the user or organization that owns the repositories
             Nanites should work on.
           </p>
-          <ol className="dashboard__setup-steps" aria-label="GitHub App setup steps">
-            <li>Choose a GitHub user or organization.</li>
-            <li>Select all repositories or only the repositories Nanites may maintain.</li>
-            <li>Return to SigVelo and refresh this page.</li>
-          </ol>
           <div className="dashboard__zero-install-actions">
             <a
               className="button button--primary button--md"
@@ -2141,11 +2165,8 @@ function NanitesChooseInstallationState({
 }: {
   readonly installations: VisibleInstallationsResponse["installations"];
 }) {
-  const location = useLocation();
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
-  const returnToPath = buildReturnToPath(location);
-  const installHref = buildGitHubAppInstallHref({ state: returnToPath });
   const changeInstallation = useMutation({
     mutationFn: setActiveInstallation,
     onSuccess: async (_data, variables) => {
@@ -2169,12 +2190,15 @@ function NanitesChooseInstallationState({
     <div className="dashboard">
       <Card>
         <div className="dashboard__zero-install">
-          <div className="dashboard__setup-mark" aria-hidden="true">
-            <PlugsIcon size={22} />
-          </div>
+          <NaniteScene
+            className="dashboard__setup-nanite"
+            mode="solo"
+            title="Nanite choosing an installation"
+            variant="working"
+          />
           <h1 className="dashboard__heading">Choose where Nanites can work</h1>
           <p className="dashboard__subtext">
-            GitHub says SigVelo is installed on these accounts, but this browser session does not
+            GitHub says Nanites is installed on these accounts, but this browser session does not
             have an active installation selected. Pick the account that owns the repository you want
             to connect.
           </p>
@@ -2214,29 +2238,6 @@ function NanitesChooseInstallationState({
               );
             })}
           </ul>
-          <div className="dashboard__zero-install-actions">
-            <a
-              className="button button--outline button--primary button--md"
-              href={installHref}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <GithubLogoIcon size={16} aria-hidden="true" />
-              <span>Install on another account</span>
-              <ArrowSquareOutIcon size={14} aria-hidden="true" />
-            </a>
-            <Button
-              color="neutral"
-              size="md"
-              variant="outline"
-              onClick={() => {
-                void invalidateAuthQueries(queryClient);
-              }}
-            >
-              <ArrowClockwiseIcon size={16} aria-hidden="true" />
-              <span>Refresh</span>
-            </Button>
-          </div>
         </div>
       </Card>
     </div>

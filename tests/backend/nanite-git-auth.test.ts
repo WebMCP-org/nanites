@@ -3,6 +3,7 @@ import { wrapGitToolProviderWithLazyAuth } from "#/backend/nanites/git-auth.ts";
 
 function createFakeGitProvider(input?: {
   cloneImplementation?: (...args: unknown[]) => Promise<unknown>;
+  pushImplementation?: (...args: unknown[]) => Promise<unknown>;
 }): ToolProvider {
   return {
     name: "git",
@@ -22,6 +23,15 @@ function createFakeGitProvider(input?: {
           status: true,
           options,
         }),
+      },
+      push: {
+        description: "git.push",
+        execute:
+          input?.pushImplementation ??
+          (async (options: unknown) => ({
+            pushed: true,
+            options,
+          })),
       },
     },
   };
@@ -144,4 +154,32 @@ test("lazy git auth does not resolve credentials for non-auth commands", async (
     options: {},
   });
   expect(resolverCalled).toBe(false);
+});
+
+test("lazy git auth rejects force pushes before resolving credentials", async () => {
+  let resolverCalled = false;
+  let pushCalled = false;
+  const provider = createFakeGitProvider({
+    pushImplementation: async () => {
+      pushCalled = true;
+      return { ok: true };
+    },
+  });
+  const wrapped = wrapGitToolProviderWithLazyAuth(provider, {
+    isAuthRejection: () => false,
+    resolveAuth: async () => {
+      resolverCalled = true;
+      return { token: "fresh-token" };
+    },
+  });
+
+  await expect(
+    (wrapped.tools.push as ExecutableTool).execute({
+      dir: "/repos/WebMCP-org/docs",
+      force: true,
+    }),
+  ).rejects.toThrow("Git force pushes are disabled for Nanites");
+
+  expect(resolverCalled).toBe(false);
+  expect(pushCalled).toBe(false);
 });

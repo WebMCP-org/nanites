@@ -26,6 +26,26 @@ type ExecutableGitTool = {
   execute: (...args: unknown[]) => Promise<unknown>;
 };
 
+function isTruthyForceOption(value: unknown): boolean {
+  return value === true || value === "true" || value === 1;
+}
+
+function assertSafeGitCommandOptions(command: string, options: Record<string, unknown>): void {
+  if (command !== "push") {
+    return;
+  }
+
+  if (
+    isTruthyForceOption(options.force) ||
+    isTruthyForceOption(options.forceWithLease) ||
+    isTruthyForceOption(options.force_with_lease)
+  ) {
+    throw new Error(
+      "Git force pushes are disabled for Nanites. Fetch and rebase or merge the remote branch, then push normally. If a history rewrite is required, ask_human for explicit approval.",
+    );
+  }
+}
+
 function isExplicitOptions(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
 }
@@ -83,6 +103,7 @@ export function wrapGitToolProviderWithLazyAuth(
 
             const [firstArg, ...restArgs] = args;
             const explicitOptions = isExplicitOptions(firstArg) ? firstArg : {};
+            assertSafeGitCommandOptions(command, explicitOptions);
             const optionsWithAuth = await resolveOptionsWithLazyAuth({
               command,
               options: explicitOptions,

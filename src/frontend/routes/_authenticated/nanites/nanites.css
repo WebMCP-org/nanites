@@ -129,6 +129,11 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   background: var(--app-paper-warm);
 }
 
+.nanites-workspace__empty-icon.nanite-scene--solo {
+  inline-size: 6rem;
+  block-size: 3.75rem;
+}
+
 .nanites-workspace__empty-panel h1,
 .nanites-workspace__empty-panel p {
   margin: 0;

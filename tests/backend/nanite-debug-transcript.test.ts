@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import {
   buildNaniteSystemPrompt,
+  buildNaniteTaskContext,
   buildRunPrompt,
   inspectTranscript,
   messageHasLifecycleToolCall,
@@ -151,20 +152,50 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
   expect(prompt).toContain("First classify the task's execution plane");
   expect(prompt).toContain("Do not hydrate or repair workspace git for API-only tasks.");
   expect(prompt).toContain("assume the Nanite may be misconfigured");
+  expect(prompt).toContain(
+    "Before committing or pushing, verify the current branch, upstream branch, remote default branch, and latest remote head",
+  );
+  expect(prompt).toContain("If a push is rejected, fetch the remote branch and reconcile");
+  expect(prompt).toContain("Never force push.");
 });
 
-test("Nanite system prompt includes full manifest config and repository scope", () => {
-  const prompt = buildNaniteSystemPrompt({
-    id: "docs-sync-react-webmcp",
-    name: "React WebMCP docs syncer",
-    description: "Keeps React WebMCP docs aligned with package changes.",
-    eventSource: {
+test("Nanite system prompt stays stable and delegates dynamic facts to task context", () => {
+  const prompt = buildNaniteSystemPrompt();
+
+  expect(prompt).toContain("Use nanite_task_context");
+  expect(prompt).toContain("Use the smallest execution plane that can satisfy the run");
+  expect(prompt).toContain("Finish exactly once with complete, no_change, fail, or ask_human.");
+  expect(prompt).not.toContain("Full Nanite manifest JSON:");
+  expect(prompt).not.toContain("ctx.dispatchSelf");
+  expect(prompt).not.toContain("Before committing or pushing");
+  expect(prompt).not.toContain("If a push is rejected");
+});
+
+test("Nanite task context includes full manifest config, trigger source, and active trigger", () => {
+  const prompt = buildNaniteTaskContext({
+    trigger: {
       type: "github",
-      events: ["push"],
-      repositories: ["WebMCP-org/npm-packages"],
-      branches: ["main"],
+      requestId: "request-1",
+      event: "push",
+      repository: "WebMCP-org/npm-packages",
+      ref: "refs/heads/main",
+      sender: { login: "sigvelo-dev" },
+      payload: {
+        repository: { full_name: "WebMCP-org/npm-packages" },
+        ref: "refs/heads/main",
+      },
     },
-    triggerSource: `
+    manifest: {
+      id: "docs-sync-react-webmcp",
+      name: "React WebMCP docs syncer",
+      description: "Keeps React WebMCP docs aligned with package changes.",
+      eventSource: {
+        type: "github",
+        events: ["push"],
+        repositories: ["WebMCP-org/npm-packages"],
+        branches: ["main"],
+      },
+      triggerSource: `
 export default {
   async handle(event, ctx) {
     return ctx.dispatchSelf({
@@ -173,22 +204,30 @@ export default {
   },
 };
 `,
-    permissions: {
-      github: {
-        repositories: ["WebMCP-org/npm-packages", "WebMCP-org/docs"],
-        appPermissions: {
-          contents: "write",
-          pull_requests: "write",
+      permissions: {
+        github: {
+          repositories: ["WebMCP-org/npm-packages", "WebMCP-org/docs"],
+          appPermissions: {
+            contents: "write",
+            pull_requests: "write",
+          },
         },
       },
     },
   });
 
+  expect(prompt).toContain("Nanite task context");
   expect(prompt).toContain("Full Nanite manifest JSON:");
   expect(prompt).toContain('"triggerSource"');
   expect(prompt).toContain("ctx.dispatchSelf");
-  expect(prompt).toContain("Authoritative repository scope");
+  expect(prompt).toContain("Repository scope from permissions.github.repositories");
+  expect(prompt).toContain("GitHub app permissions from permissions.github.appPermissions");
   expect(prompt).toContain("- WebMCP-org/npm-packages");
   expect(prompt).toContain("- WebMCP-org/docs");
+  expect(prompt).toContain("Use this manifest as the authority");
+  expect(prompt).toContain("Active run trigger payload");
+  expect(prompt).toContain('"repository": "WebMCP-org/npm-packages"');
   expect(prompt).toContain("Operate only inside the declared repository and permission scope.");
+  expect(prompt).not.toContain("Before committing or pushing");
+  expect(prompt).not.toContain("If a push is rejected");
 });

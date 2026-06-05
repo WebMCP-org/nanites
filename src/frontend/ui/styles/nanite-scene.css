@@ -1,0 +1,46 @@
+.nanite-scene {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.nanite-scene--trio {
+  inline-size: 200px;
+  block-size: 68px;
+}
+
+.nanite-scene--solo {
+  inline-size: 120px;
+  block-size: 56px;
+  flex-shrink: 0;
+}
+
+.nanite-scene--studying {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  line-height: 0;
+}
+
+.nanite-scene--static-trio {
+  inline-size: min(240px, 80%);
+  block-size: auto;
+  aspect-ratio: 184 / 52;
+}
+
+.nanite-scene svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+}
+
+.nanite-scene--studying svg,
+.nanite-scene--static-trio svg {
+  block-size: auto;
+}
+
+.nanite-scene--concerned .nanite-scene__nanite {
+  filter: saturate(0.55) brightness(0.92);
+}
