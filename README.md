@@ -152,11 +152,11 @@ whether a machine event should dispatch the Nanite.
 
 ## Brand Assets
 
-| Asset                                        | Use                                                          |
-| -------------------------------------------- | ------------------------------------------------------------ |
-| `public/assets/nanite.svg`                   | Static Nanites banner for README and documentation surfaces. |
-| `src/frontend/ui/components/NaniteScene.tsx` | GSAP-backed React SVG scene used in product states.          |
-| `src/frontend/ui/styles/nanite-scene.css`    | Shared motion and layout styles for the Nanite scene.        |
+| Asset                                        | Use                                                        |
+| -------------------------------------------- | ---------------------------------------------------------- |
+| `public/assets/nanite.svg`                   | Animated SVG banner for README and documentation surfaces. |
+| `src/frontend/ui/components/NaniteScene.tsx` | GSAP-backed React SVG scene used in product states.        |
+| `src/frontend/ui/styles/nanite-scene.css`    | Shared motion and layout styles for the Nanite scene.      |
 
 ## Cloudflare Setup
 
