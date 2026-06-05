@@ -29,8 +29,8 @@ function LoginPage() {
       <NaniteScene
         className="login-screen__nanite"
         mode="solo"
-        title="Nanite ready to work"
-        variant="idle"
+        title="Nanite putting on a work helmet"
+        variant="helmet"
       />
       <div className="login-screen__copy">
         <h1>Nanites</h1>

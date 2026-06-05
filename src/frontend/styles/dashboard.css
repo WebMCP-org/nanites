@@ -87,9 +87,9 @@
   aspect-ratio: 52 / 56;
 }
 
-.login-screen__nanite.nanite-scene--solo:not(.nanite-scene--idle),
-.mcp-authorize__nanite.nanite-scene--solo:not(.nanite-scene--idle),
-.dashboard__setup-nanite.nanite-scene--solo:not(.nanite-scene--idle) {
+.login-screen__nanite.nanite-scene--solo:not(.nanite-scene--idle):not(.nanite-scene--helmet),
+.mcp-authorize__nanite.nanite-scene--solo:not(.nanite-scene--idle):not(.nanite-scene--helmet),
+.dashboard__setup-nanite.nanite-scene--solo:not(.nanite-scene--idle):not(.nanite-scene--helmet) {
   aspect-ratio: 120 / 56;
 }
 

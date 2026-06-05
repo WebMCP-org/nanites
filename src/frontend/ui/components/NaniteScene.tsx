@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
 
-export type NaniteSceneVariant = "idle" | "working" | "celebrating" | "concerned";
+export type NaniteSceneVariant = "idle" | "helmet" | "working" | "celebrating" | "concerned";
 
 type NaniteSceneProps = {
   readonly variant: NaniteSceneVariant;
@@ -56,7 +56,7 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
 
     const setTerminalPose = () => {
       gsap.set(nanites, { y: 0, rotation: 0 });
-      if (variant === "working") {
+      if (variant === "working" || variant === "helmet") {
         gsap.set(hats, { autoAlpha: 1, y: 0 });
       } else {
         gsap.set(hats, { autoAlpha: 0, y: -6 });
@@ -92,6 +92,38 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
           index * 0.12,
         );
       });
+    } else if (variant === "helmet") {
+      tl.repeat(-1).repeatDelay(0.7);
+      hats.forEach((hat, index) => {
+        tl.fromTo(
+          hat,
+          { autoAlpha: 0, y: -18 },
+          { autoAlpha: 1, y: 0, duration: 0.55, ease: "bounce.out" },
+          index * 0.08,
+        );
+      });
+      nanites.forEach((nanite, index) => {
+        tl.to(
+          nanite,
+          {
+            keyframes: [
+              { y: 2, duration: 0.08, ease: "power1.in" },
+              { y: -3, duration: 0.2, ease: "power2.out" },
+              { y: 0, duration: 0.24, ease: "bounce.out" },
+            ],
+          },
+          0.42 + index * 0.06,
+        );
+        tl.to(
+          nanite,
+          { y: -2, duration: 0.9, ease: "sine.inOut", yoyo: true, repeat: 2 },
+          0.95 + index * 0.08,
+        );
+      });
+      hats.forEach((hat, index) => {
+        tl.to(hat, { autoAlpha: 0, y: -14, duration: 0.32, ease: "power2.in" }, 3 + index * 0.06);
+      });
+      tl.set(nanites, { y: 0, rotation: 0 }, 3.35);
     } else if (variant === "working") {
       hats.forEach((hat, index) => {
         tl.fromTo(
@@ -271,7 +303,7 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
     );
   }
 
-  const showBrowser = variant !== "idle";
+  const showBrowser = variant !== "idle" && variant !== "helmet";
   const showGlass = variant === "working";
   const showSuccessBadge = variant === "celebrating";
   const showFailBadge = variant === "concerned";
