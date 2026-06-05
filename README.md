@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/assets/nanite.svg" alt="Nanites banner" width="520" />
+  <img src="https://github.com/WebMCP-org/nanites/raw/main/public/assets/nanite.svg" alt="Nanites banner" width="520" />
 </p>
 
 <h1 align="center">Nanites</h1>
