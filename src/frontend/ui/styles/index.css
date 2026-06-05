@@ -10,6 +10,7 @@
 @import "./code-block.css" layer(components);
 @import "./conversation.css" layer(components);
 @import "./file-tree.css" layer(components);
+@import "./github-motion-mark.css" layer(components);
 @import "./message.css" layer(components);
 @import "./nanite-scene.css" layer(components);
 @import "./popover.css" layer(components);

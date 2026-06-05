@@ -27,6 +27,7 @@ import {
   type CodeBlockLanguage,
 } from "#/frontend/ui/components/CodeBlock.tsx";
 import { FileTree, FileTreeFile, FileTreeFolder } from "#/frontend/ui/components/FileTree.tsx";
+import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { Popover } from "#/frontend/ui/components/Popover.tsx";
 import {
@@ -2149,7 +2150,7 @@ function NanitesZeroInstallState() {
               target="_blank"
               rel="noreferrer"
             >
-              <GithubLogoIcon size={16} aria-hidden="true" />
+              <GithubMotionMark size={16} />
               <span>Install GitHub App</span>
               <ArrowSquareOutIcon size={14} aria-hidden="true" />
             </a>

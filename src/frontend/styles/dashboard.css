@@ -87,6 +87,12 @@
   aspect-ratio: 52 / 56;
 }
 
+.login-screen__nanite.nanite-scene--solo:not(.nanite-scene--idle),
+.mcp-authorize__nanite.nanite-scene--solo:not(.nanite-scene--idle),
+.dashboard__setup-nanite.nanite-scene--solo:not(.nanite-scene--idle) {
+  aspect-ratio: 120 / 56;
+}
+
 .login-screen__copy {
   display: grid;
   gap: 0.5rem;

@@ -132,6 +132,7 @@ body.is-resizing-columns .nanites-workspace__review-grid {
 .nanites-workspace__empty-icon.nanite-scene--solo {
   inline-size: 6rem;
   block-size: 3.75rem;
+  aspect-ratio: 120 / 56;
 }
 
 .nanites-workspace__empty-panel h1,

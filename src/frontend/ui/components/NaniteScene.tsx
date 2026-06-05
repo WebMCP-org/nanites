@@ -40,6 +40,8 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
   const sparklesRef = useRef<SVGGElement | null>(null);
   const glassRef = useRef<SVGGElement | null>(null);
   const badgeRef = useRef<SVGGElement | null>(null);
+  const screenSignalRef = useRef<SVGGElement | null>(null);
+  const screenScanRef = useRef<SVGRectElement | null>(null);
 
   useEffect(() => {
     const nanites = naniteRefs.current.filter((el): el is SVGGElement => el !== null);
@@ -47,6 +49,8 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
     const sparkles = sparklesRef.current;
     const glass = glassRef.current;
     const badge = badgeRef.current;
+    const screenSignal = screenSignalRef.current;
+    const screenScan = screenScanRef.current;
 
     if (nanites.length === 0) return;
 
@@ -60,6 +64,10 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
       if (sparkles) gsap.set(sparkles, { autoAlpha: 0 });
       if (glass) gsap.set(glass, { autoAlpha: 1, rotation: 0 });
       if (badge) gsap.set(badge, { autoAlpha: 1, scale: 1, transformOrigin: "50% 50%" });
+      if (screenSignal) {
+        gsap.set(screenSignal, { autoAlpha: 1, scale: 1, transformOrigin: "50% 50%" });
+      }
+      if (screenScan) gsap.set(screenScan, { autoAlpha: 0, x: -20 });
     };
 
     setTerminalPose();
@@ -68,7 +76,23 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
 
     const tl = gsap.timeline();
 
-    if (variant === "working") {
+    if (variant === "idle") {
+      nanites.forEach((nanite, index) => {
+        tl.to(
+          nanite,
+          {
+            y: -3,
+            rotation: index % 2 === 0 ? -1.2 : 1.2,
+            duration: 1.45,
+            ease: "sine.inOut",
+            yoyo: true,
+            repeat: -1,
+            transformOrigin: "50% 100%",
+          },
+          index * 0.12,
+        );
+      });
+    } else if (variant === "working") {
       hats.forEach((hat, index) => {
         tl.fromTo(
           hat,
@@ -96,6 +120,48 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
             repeat: -1,
           },
           0.4,
+        );
+      }
+      if (screenSignal) {
+        const nodes = screenSignal.querySelectorAll<SVGCircleElement>(".nanite-scene__github-node");
+        tl.to(
+          nodes,
+          {
+            scale: 1.22,
+            transformOrigin: "50% 50%",
+            duration: 0.58,
+            ease: "sine.inOut",
+            stagger: 0.14,
+            yoyo: true,
+            repeat: -1,
+          },
+          0.5,
+        );
+        tl.to(
+          screenSignal,
+          {
+            y: -0.8,
+            duration: 1.35,
+            ease: "sine.inOut",
+            yoyo: true,
+            repeat: -1,
+          },
+          0.65,
+        );
+      }
+      if (screenScan) {
+        tl.fromTo(
+          screenScan,
+          { autoAlpha: 0, x: -20 },
+          {
+            autoAlpha: 0.55,
+            x: 20,
+            duration: 1.25,
+            ease: "power2.inOut",
+            repeat: -1,
+            repeatDelay: 0.25,
+          },
+          0.7,
         );
       }
     } else if (variant === "celebrating") {
@@ -262,6 +328,16 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
             <rect x="-18" y="-2" width="16" height="1.8" rx="0.9" fill={SCREEN_LINE} />
             <rect x="-18" y="2" width="20" height="1.8" rx="0.9" fill={SCREEN_LINE} />
             <rect
+              ref={screenScanRef}
+              x="-20"
+              y="-9"
+              width="6"
+              height="23"
+              rx="3"
+              fill={BODY_COLORS[2]}
+              opacity="0"
+            />
+            <rect
               x="-18"
               y="7"
               width="12"
@@ -270,6 +346,30 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
               fill={BODY_COLORS[1]}
               opacity="0.55"
             />
+            <g ref={screenSignalRef} className="nanite-scene__github-signal">
+              <path
+                d="M 3 5.5 L 9 0 L 14 5.5"
+                stroke={BODY_COLORS[2]}
+                strokeWidth="1.15"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle
+                className="nanite-scene__github-node"
+                cx="3"
+                cy="5.5"
+                r="2"
+                fill={BODY_COLORS[0]}
+              />
+              <circle className="nanite-scene__github-node" cx="9" cy="0" r="2" fill={HAT_SHELL} />
+              <circle
+                className="nanite-scene__github-node"
+                cx="14"
+                cy="5.5"
+                r="2"
+                fill={BODY_COLORS[1]}
+              />
+            </g>
           </g>
         ) : null}
 

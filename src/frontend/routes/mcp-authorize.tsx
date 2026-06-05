@@ -1,15 +1,11 @@
 import { Badge } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
+import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { McpAuthorizeContext } from "#/backend/api/routes/mcp.ts";
-import {
-  ArrowSquareOutIcon,
-  ArrowRightIcon,
-  GithubLogoIcon,
-  ShieldCheckIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ArrowRightIcon, ShieldCheckIcon } from "@phosphor-icons/react";
 import { MCP_AUTHORIZE_CONTEXT_ROUTE } from "#/mcp.ts";
 
 export const Route = createFileRoute("/mcp-authorize")({
@@ -45,7 +41,7 @@ function McpAuthorizePage() {
           className="button button--normal button--primary button--lg mcp-authorize__link-button"
           href={context.loginHref}
         >
-          <GithubLogoIcon size={18} weight="fill" aria-hidden="true" />
+          <GithubMotionMark size={18} />
           <span>Log in with GitHub</span>
           <ArrowRightIcon size={16} aria-hidden="true" />
         </a>
@@ -66,7 +62,7 @@ function McpAuthorizePage() {
             target="_blank"
             rel="noreferrer"
           >
-            <GithubLogoIcon size={18} weight="fill" aria-hidden="true" />
+            <GithubMotionMark size={18} />
             <span>Install Nanites on GitHub</span>
           </a>
           <Button
@@ -122,7 +118,7 @@ function McpAuthorizePage() {
             target="_blank"
             rel="noreferrer"
           >
-            <GithubLogoIcon size={18} weight="fill" aria-hidden="true" />
+            <GithubMotionMark size={18} />
             <span>Install on another account</span>
           </a>
           <Button

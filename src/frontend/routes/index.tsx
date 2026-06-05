@@ -1,7 +1,7 @@
 import { Button } from "#/frontend/ui/components/Button.tsx";
+import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { GithubLogoIcon } from "@phosphor-icons/react";
 import { loadSession } from "#/frontend/lib/auth.ts";
 import {
   AUTH_RETURN_TO_PARAM,
@@ -30,7 +30,7 @@ function LoginPage() {
         className="login-screen__nanite"
         mode="solo"
         title="Nanite ready to work"
-        variant="working"
+        variant="idle"
       />
       <div className="login-screen__copy">
         <h1>Nanites</h1>
@@ -48,7 +48,7 @@ function LoginPage() {
           window.location.href = loginUrl.toString();
         }}
       >
-        <GithubLogoIcon size={18} />
+        <GithubMotionMark size={18} />
         <span>Sign in with GitHub</span>
       </Button>
     </main>
