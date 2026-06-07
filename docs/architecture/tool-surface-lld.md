@@ -261,7 +261,7 @@ helpers over manager stubs unless a workflow needs a new composed backend operat
 export const startNaniteRunTool = {
   name: "sigvelo_start_nanite_run",
   config: {
-    title: "Start a Sigvelo Nanite run",
+    title: "Start a SigVelo Nanite run",
     description:
       "Starts a direct manual run for one registered Nanite and dispatches it through the real Nanite manager path.",
     inputSchema: startNaniteRunInputSchema,

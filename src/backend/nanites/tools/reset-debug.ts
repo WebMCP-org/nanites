@@ -16,10 +16,10 @@ const resetDebugToolInputSchema = z
 
 export const resetDebugTool = defineSigveloMcpTool({
   name: "sigvelo_reset_nanite_debug",
-  title: "Reset Sigvelo Nanite debug state",
+  title: "Reset SigVelo Nanite debug state",
   description: "Clears child-owned Think messages and durable submissions for one Nanite.",
   inputSchema: resetDebugToolInputSchema,
-  outputSchema: createObjectOutputSchema("Sigvelo Nanite debug reset result."),
+  outputSchema: createObjectOutputSchema("SigVelo Nanite debug reset result."),
   annotations: {
     readOnlyHint: false,
     destructiveHint: true,

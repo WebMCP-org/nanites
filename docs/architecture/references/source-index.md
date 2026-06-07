@@ -4,7 +4,7 @@ This is the current source map for Nanites runtime work.
 
 It now includes:
 
-- local Sigvelo runtime files
+- local SigVelo runtime files
 - current `opensrc/` mirrors
 - live sibling-repo code in `../npm-packages`, `../char-ai-saas`, and `../WebMCP`
 - the extra inputs still needed before deeper executor work
@@ -32,7 +32,7 @@ Important local note:
 - `../WebMCP` also has a heavily dirty worktree.
 - Treat sibling repos as live local references, not clean branches to auto-pull over.
 
-## Local Sigvelo Files
+## Local SigVelo Files
 
 Current runtime entrypoints:
 
@@ -142,7 +142,7 @@ Why they matter:
 
 - `BrowserMcpServer` is the actual `navigator.modelContext` bridge shape
 - native-versus-polyfill capture and replacement flow
-- good reference for how much magic should stay in the browser layer versus Sigvelo
+- good reference for how much magic should stay in the browser layer versus SigVelo
 
 React registration path:
 
@@ -293,7 +293,7 @@ These are the extra inputs still missing or still worth making explicit before m
   package install with `@mcp-b/global`,
   `@mcp-b/react-webmcp`,
   or a relay-only/testing-only path.
-- Keep Sigvelo runtime-owned terminal actions separate from borrowed executor patterns:
+- Keep SigVelo runtime-owned terminal actions separate from borrowed executor patterns:
   publish,
   verify,
   complete,

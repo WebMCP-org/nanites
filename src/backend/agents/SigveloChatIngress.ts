@@ -198,7 +198,7 @@ export class SigveloChatIngress extends Agent<Env> {
       }),
     );
     const statusMessage = await thread.post(
-      "Sigvelo manager accepted this message and is queueing a Think turn.",
+      "SigVelo manager accepted this message and is queueing a Think turn.",
     );
     await this.enqueueManagerRequest(thread, message, statusMessage);
   }
@@ -247,7 +247,7 @@ export class SigveloChatIngress extends Agent<Env> {
         }),
       });
       await thread.post(
-        "Sigvelo manager accepted the message, but the manager Think turn could not be queued.",
+        "SigVelo manager accepted the message, but the manager Think turn could not be queued.",
       );
     }
   }
@@ -288,7 +288,7 @@ export class SigveloChatIngress extends Agent<Env> {
     }
 
     if (reply.status === "failed") {
-      await this.editStatusMessage(input, `Sigvelo manager turn failed: ${reply.error}`);
+      await this.editStatusMessage(input, `SigVelo manager turn failed: ${reply.error}`);
       return;
     }
 
@@ -304,7 +304,7 @@ export class SigveloChatIngress extends Agent<Env> {
       });
       await this.editStatusMessage(
         input,
-        `Sigvelo manager turn is still running. Submission: \`${input.submissionId}\`.`,
+        `SigVelo manager turn is still running. Submission: \`${input.submissionId}\`.`,
       );
       return;
     }

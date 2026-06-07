@@ -130,7 +130,7 @@ Typical permission grants:
 - `checks: "write"` only when the Nanite needs manager-owned check projection.
 - `issues: "write"` only when PR comments or issue surfaces are part of the Nanite's job.
 
-Keep GitHub data GitHub-shaped. Use Octokit webhook event names, payload field names, and permission names instead of inventing Sigvelo DTOs.
+Keep GitHub data GitHub-shaped. Use Octokit webhook event names, payload field names, and permission names instead of inventing SigVelo DTOs.
 
 ## Generated Trigger Runtime
 
@@ -165,7 +165,7 @@ Runtime rules:
 - Let `eventSource` cheaply narrow candidates by event family, repository, action, and branch.
 - In `triggerSource`, re-check the facts that matter: repository, action, branch, path, label, author, or changed-file set.
 - Return `ctx.noop(...)` for every irrelevant branch with a reason another agent can debug.
-- Dispatch only the owning Nanite. Do not fan out, call other Nanites, or call Sigvelo MCP tools from trigger code.
+- Dispatch only the owning Nanite. Do not fan out, call other Nanites, or call SigVelo MCP tools from trigger code.
 - Keep dispatch payloads small and bounded. Slice file lists and include enough commit or PR identity for the Think Nanite to investigate.
 - Do not write to GitHub, mutate workspace files, start shell work, own lifecycle state, or push branches from a trigger.
 - Do not fetch GitHub in trigger code unless the runtime explicitly adds a scoped read helper. The current contract is payload plus manager intents.

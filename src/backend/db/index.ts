@@ -1,5 +1,5 @@
 /**
- * Shared Drizzle client factory for the Sigvelo DB package.
+ * Shared Drizzle client factory for the SigVelo DB package.
  *
  * Rules:
  * - Compose the client from authoritative Drizzle tables only.

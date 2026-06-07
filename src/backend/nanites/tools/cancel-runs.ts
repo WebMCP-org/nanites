@@ -19,10 +19,10 @@ const cancelRunsToolInputSchema = z
 
 export const cancelRunsTool = defineSigveloMcpTool({
   name: "sigvelo_cancel_nanite_runs",
-  title: "Cancel Sigvelo Nanite runs",
+  title: "Cancel SigVelo Nanite runs",
   description: "Cancels pending or running Nanite runs through the manager cancellation path.",
   inputSchema: cancelRunsToolInputSchema,
-  outputSchema: createObjectOutputSchema("Sigvelo Nanite run cancellation result."),
+  outputSchema: createObjectOutputSchema("SigVelo Nanite run cancellation result."),
   annotations: {
     readOnlyHint: false,
     destructiveHint: true,

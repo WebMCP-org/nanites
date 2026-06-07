@@ -1,5 +1,5 @@
 interface:
-  display_name: "Sigvelo Nanites"
+  display_name: "SigVelo Nanites"
   short_description: "Create and debug GitHub Nanites"
   brand_color: "#2F6F73"
   default_prompt: "Use $nanites to create and test a focused GitHub maintenance Nanite."

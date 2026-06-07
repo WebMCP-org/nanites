@@ -147,13 +147,13 @@ test("Nanite tool output budget stores large outputs and returns a natural langu
   expect(writes).toEqual([{ content: "a".repeat(120), extension: "txt" }]);
   expect(output).toEqual({ notice: expect.any(String) });
   const notice = (output as { notice: string }).notice;
-  expect(notice).toContain("Sigvelo saved the full tool result as a current-run artifact");
+  expect(notice).toContain("SigVelo saved the full tool result as a current-run artifact");
   expect(notice).toContain("toolout_large");
   expect(notice).toContain("120 characters");
-  expect(notice).toContain("[Sigvelo truncated");
+  expect(notice).toContain("[SigVelo truncated");
 });
 
-test("Nanite tool output wrapper applies per-call maxResponseChars and strips Sigvelo input", async () => {
+test("Nanite tool output wrapper applies per-call maxResponseChars and strips SigVelo input", async () => {
   let receivedInput: unknown = null;
   const tools = {
     noisy: tool({
@@ -182,7 +182,7 @@ test("Nanite tool output wrapper applies per-call maxResponseChars and strips Si
   expect(result).toEqual({ notice: expect.any(String) });
   const notice = (result as { notice: string }).notice;
   expect(notice).toContain("toolout_noisy");
-  expect(notice).toContain("[Sigvelo truncated");
+  expect(notice).toContain("[SigVelo truncated");
 });
 
 test("Nanite tool output wrapper exposes maxResponseChars on eligible Zod object schemas", () => {

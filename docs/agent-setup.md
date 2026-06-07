@@ -20,7 +20,7 @@ The plugin payload lives in `plugins/nanites`:
 | `plugins/nanites/skills/nanites`             | Canonical Nanites skill and references.  |
 | `plugins/nanites/commands`                   | Command prompts for common Nanite tasks. |
 | `plugins/nanites/assets/examples`            | Example Nanite manifests and fixtures.   |
-| `plugins/nanites/.mcp.json`                  | Production Sigvelo MCP config.           |
+| `plugins/nanites/.mcp.json`                  | Production SigVelo MCP config.           |
 | `plugins/nanites/.mcp.example.json`          | Optional operator MCP servers.           |
 | `plugins/nanites/.codex-plugin/plugin.json`  | Codex plugin manifest.                   |
 | `plugins/nanites/.claude-plugin/plugin.json` | Claude Code plugin manifest.             |
@@ -71,7 +71,7 @@ Install only the Nanites skill:
 npx --yes skills add WebMCP-org/nanites --skill nanites --global --copy --agent codex claude-code -y
 ```
 
-Then add the hosted Sigvelo MCP server:
+Then add the hosted SigVelo MCP server:
 
 ```bash
 npx --yes add-mcp https://app.sigvelo.com/mcp --name sigvelo --transport http --global --agent codex --agent claude-code --yes

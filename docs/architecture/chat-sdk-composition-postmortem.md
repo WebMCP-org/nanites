@@ -9,20 +9,20 @@ The previous implementation attempt violated the Nanites engineering thesis.
 The product direction was right:
 
 ```text
-Humans talk to the Sigvelo manager.
+Humans talk to the SigVelo manager.
 The manager routes, coordinates, or creates Nanites.
 Nanites stay narrow and own scoped work.
 ```
 
-The implementation direction was wrong. It added custom Sigvelo conversation code before proving the existing Chat SDK and Cloudflare Agents primitives. That inverted the desired maintenance model.
+The implementation direction was wrong. It added custom SigVelo conversation code before proving the existing Chat SDK and Cloudflare Agents primitives. That inverted the desired maintenance model.
 
-Sigvelo should keep custom code small. At integration boundaries, the default move is:
+SigVelo should keep custom code small. At integration boundaries, the default move is:
 
 ```text
 copy the first-party example
 swap the provider
 compose existing library objects
-add custom code only where Sigvelo owns product policy
+add custom code only where SigVelo owns product policy
 ```
 
 I did the opposite. I started with a custom manager-message parser, custom result types, custom trust helpers, custom status rendering, and custom idempotency helpers. Even though that code was removed, the mistake matters because it shows the wrong reflex.
@@ -67,7 +67,7 @@ The first code should have copied that shape and adapted Telegram to GitHub. Ins
 
 This is the principle that should have controlled the work:
 
-> Sigvelo should compose existing library primitives until a missing product boundary forces custom code.
+> SigVelo should compose existing library primitives until a missing product boundary forces custom code.
 
 For Nanites, custom code is justified when it owns:
 
@@ -77,7 +77,7 @@ For Nanites, custom code is justified when it owns:
 - trigger validation
 - run lifecycle
 - GitHub feedback policy
-- Sigvelo UI links and product state
+- SigVelo UI links and product state
 
 Custom code is not justified when the library already owns:
 
@@ -125,14 +125,14 @@ post one simple reply
 
 The manager API is not the first unknown.
 
-The first unknown is whether this shape works cleanly in Sigvelo:
+The first unknown is whether this shape works cleanly in SigVelo:
 
 ```text
 Cloudflare Agent
   -> Vercel Chat SDK
   -> @chat-adapter/github
   -> agents/chat-sdk state
-  -> Sigvelo manager call
+  -> SigVelo manager call
 ```
 
 The manager API should emerge after the ingress proves:
@@ -171,7 +171,7 @@ The right order is:
 
 ```text
 GitHub adapter running through Chat SDK
-small seam where provider-specific data enters Sigvelo policy
+small seam where provider-specific data enters SigVelo policy
 second provider arrives
 extract only the duplicated shape
 ```
@@ -219,7 +219,7 @@ no Chat SDK
 
 ### Mistake 6: Violated The Existing Nanites Docs
 
-The canonical docs already say to prefer platform primitives over Sigvelo-shaped layers.
+The canonical docs already say to prefer platform primitives over SigVelo-shaped layers.
 
 Relevant local docs:
 
@@ -227,7 +227,7 @@ Relevant local docs:
 - [Execution architecture, use Cloudflare primitives directly](/docs/architecture/execution-architecture.md)
 - [Architecture, use Octokit at GitHub boundary](/docs/architecture/architecture.md)
 
-The failed code added a Sigvelo-shaped layer at exactly the place where the library shape should have been tested.
+The failed code added a SigVelo-shaped layer at exactly the place where the library shape should have been tested.
 
 ## Correct Rule Going Forward
 
@@ -238,7 +238,7 @@ Before adding custom code around a third-party integration, answer these questio
 3. Does the library already own this state or behavior?
 4. Can the product requirement be expressed as a callback, adapter option, or small handler?
 5. What exact behavior is missing from the library?
-6. Is the missing behavior Sigvelo policy, or just premature internal preference?
+6. Is the missing behavior SigVelo policy, or just premature internal preference?
 
 Only write custom code after question 5 has a concrete answer.
 
@@ -248,7 +248,7 @@ The next implementation should be a Chat SDK spike, not a manager abstraction sp
 
 ### Goal
 
-Prove that GitHub human comments can enter Sigvelo through the same library shape as the Cloudflare example.
+Prove that GitHub human comments can enter SigVelo through the same library shape as the Cloudflare example.
 
 ### Scope
 
@@ -274,7 +274,7 @@ Start from:
 - [Chat SDK example `src/index.ts`](/Users/alexmnahas/.opensrc/repos/github.com/cloudflare/agents/0.13.2/examples/chat-sdk-messenger/src/index.ts)
 - [Chat SDK example `wrangler.jsonc`](/Users/alexmnahas/.opensrc/repos/github.com/cloudflare/agents/0.13.2/examples/chat-sdk-messenger/wrangler.jsonc)
 
-Then adapt to Sigvelo:
+Then adapt to SigVelo:
 
 - [Worker entrypoint](/src/server.ts)
 - [Current GitHub webhook path](/src/backend/github/index.ts)
@@ -313,13 +313,13 @@ export class SigveloChatIngress extends Agent<Env> {
     this.bot.onNewMention(async (thread, message) => {
       await thread.subscribe();
       await thread.createSentMessageFromMessage(message).addReaction("eyes");
-      await thread.post("Sigvelo received this manager request.");
+      await thread.post("SigVelo received this manager request.");
     });
   }
 }
 ```
 
-The reaction API comes from the Chat SDK `SentMessage` wrapper around the incoming GitHub message. Do not invent a Sigvelo reaction wrapper before checking the library.
+The reaction API comes from the Chat SDK `SentMessage` wrapper around the incoming GitHub message. Do not invent a SigVelo reaction wrapper before checking the library.
 
 ### Routing Shape
 
@@ -410,9 +410,9 @@ Not allowed:
 - custom Nanite target resolver
 - autonomous Nanite creation
 
-## When Custom Sigvelo Code Becomes Justified
+## When Custom SigVelo Code Becomes Justified
 
-Custom manager code becomes justified after the spike proves the ingress and we need Sigvelo-specific policy.
+Custom manager code becomes justified after the spike proves the ingress and we need SigVelo-specific policy.
 
 Examples:
 
@@ -421,8 +421,8 @@ Examples:
 - deciding whether a request should start a Run
 - validating Nanite scope and capability
 - recording manager-created Nanite provenance
-- linking a Chat SDK thread to a Sigvelo run
-- rendering Sigvelo URLs into a provider reply
+- linking a Chat SDK thread to a SigVelo run
+- rendering SigVelo URLs into a provider reply
 
 Even then, use the library objects as inputs. Do not invent a parallel message model unless a second provider proves that the repeated shape is real.
 
@@ -469,7 +469,7 @@ Deliver:
 Exit:
 
 - GitHub follow-ups stay in GitHub
-- Sigvelo does not own a custom subscription system
+- SigVelo does not own a custom subscription system
 
 ### Slice 4: Add Manager Policy
 
@@ -483,7 +483,7 @@ Deliver:
 
 Exit:
 
-- custom code exists only for Sigvelo policy
+- custom code exists only for SigVelo policy
 - Chat SDK still owns conversation infrastructure
 
 ## Review Checklist For Future Work
@@ -495,9 +495,9 @@ Before approving code in this area, check:
 - Is `ChatSdkStateAgent` exported and used as infrastructure only?
 - Are mentions and follow-ups handled through `onNewMention` and `onSubscribedMessage`?
 - Are locks, queues, dedupe, and subscriptions left to Chat SDK unless a concrete gap is proven?
-- Are GitHub thread ids left as Chat SDK ids until Sigvelo needs a safe Agent name?
+- Are GitHub thread ids left as Chat SDK ids until SigVelo needs a safe Agent name?
 - Does the manager receive library-shaped input first, not an invented generic message model?
-- Is every custom type tied to Sigvelo policy, not adapter plumbing?
+- Is every custom type tied to SigVelo policy, not adapter plumbing?
 - Did tests prove the library path before testing product parsing?
 
 ## Source Anchors
@@ -517,7 +517,7 @@ Vercel Chat SDK:
 - [Thread API](/Users/alexmnahas/.opensrc/repos/github.com/vercel/chat/4.29.0/packages/chat/src/thread.ts)
 - [GitHub adapter implementation](/Users/alexmnahas/.opensrc/repos/github.com/vercel/chat/4.29.0/packages/adapter-github/src/index.ts)
 
-Sigvelo Nanites:
+SigVelo Nanites:
 
 - [Nanites README](/docs/architecture/README.md)
 - [Nanites architecture](/docs/architecture/architecture.md)
@@ -528,7 +528,7 @@ Sigvelo Nanites:
 
 ## Bottom Line
 
-The next implementation should not start with a new Sigvelo conversation framework.
+The next implementation should not start with a new SigVelo conversation framework.
 
 It should start by adapting the upstream Chat SDK Agents example as directly as possible:
 
@@ -540,4 +540,4 @@ ChatIngressAgent from the example
   + one mention handler
 ```
 
-Only after that path works should Sigvelo add manager policy. Custom code belongs behind proven library composition, not in front of it.
+Only after that path works should SigVelo add manager policy. Custom code belongs behind proven library composition, not in front of it.

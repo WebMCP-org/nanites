@@ -38,11 +38,11 @@ const exploreWorkspaceToolInputSchema = z
 
 export const exploreWorkspaceTool = defineSigveloMcpTool({
   name: "sigvelo_explore_nanite_workspace",
-  title: "Explore a Sigvelo Nanite workspace",
+  title: "Explore a SigVelo Nanite workspace",
   description:
     "Reads child-owned Think workspace information, directory listings, file content, or text search results for one Nanite.",
   inputSchema: exploreWorkspaceToolInputSchema,
-  outputSchema: createObjectOutputSchema("Sigvelo Nanite workspace exploration result."),
+  outputSchema: createObjectOutputSchema("SigVelo Nanite workspace exploration result."),
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,

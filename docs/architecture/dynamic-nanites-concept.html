@@ -488,7 +488,7 @@
             <p class="label">Dynamic Nanites</p>
             <h1>A generated agent in a harness.</h1>
             <p class="lead">
-              Sigvelo runs the durable Think host. The model writes the job code loaded into that
+              SigVelo runs the durable Think host. The model writes the job code loaded into that
               host through WorkerLoader, extensions, loopback capabilities, or a supervised facet.
             </p>
             <nav class="nav" aria-label="Page sections">
@@ -701,7 +701,7 @@
             <h2 id="map-title">The durable agent is the host.</h2>
             <p>
               GitHub decides identity. Cloudflare runs the host Agent, WorkerLoader isolates, and
-              optional facets. Sigvelo owns the policy boundary between generated code and real
+              optional facets. SigVelo owns the policy boundary between generated code and real
               authority.
             </p>
           </div>
@@ -715,7 +715,7 @@
               <svg viewBox="0 0 1100 620" role="img" aria-labelledby="map-svg-title map-svg-desc">
                 <title id="map-svg-title">Dynamic Nanites system map</title>
                 <desc id="map-svg-desc">
-                  A map of GitHub identity, Sigvelo control plane, authoring agent, generated code
+                  A map of GitHub identity, SigVelo control plane, authoring agent, generated code
                   loaded through WorkerLoader, and target APIs.
                 </desc>
                 <defs>
@@ -775,7 +775,7 @@
                   font-size="22"
                   fill="#181816"
                 >
-                  Sigvelo host on Cloudflare
+                  SigVelo host on Cloudflare
                 </text>
                 <rect
                   x="335"
@@ -1416,7 +1416,7 @@ await worker.getEntrypoint("Nanite").run();</code></pre>
             <p class="label">Authoring flow</p>
             <h2 id="authoring-title">Creation is a build pipeline, not a config form.</h2>
             <p>
-              The authoring agent can use Sigvelo MCP, Cloudflare MCP or Wrangler, and GitHub MCP or
+              The authoring agent can use SigVelo MCP, Cloudflare MCP or Wrangler, and GitHub MCP or
               CLI.
             </p>
           </div>
@@ -1435,7 +1435,7 @@ await worker.getEntrypoint("Nanite").run();</code></pre>
                 >
                   <title id="authoring-svg-title">Nanite authoring sequence</title>
                   <desc id="authoring-svg-desc">
-                    A sequence from user request through coding agent, Sigvelo MCP, validation,
+                    A sequence from user request through coding agent, SigVelo MCP, validation,
                     Cloudflare source packaging, and trigger enablement.
                   </desc>
                   <defs>
@@ -1464,7 +1464,7 @@ await worker.getEntrypoint("Nanite").run();</code></pre>
                   <g class="svg-label" font-size="15" fill="#181816">
                     <text x="95" y="70" text-anchor="middle">Human</text>
                     <text x="250" y="70" text-anchor="middle">Coding agent</text>
-                    <text x="415" y="70" text-anchor="middle">Sigvelo MCP</text>
+                    <text x="415" y="70" text-anchor="middle">SigVelo MCP</text>
                     <text x="585" y="70" text-anchor="middle">Cloudflare</text>
                     <text x="755" y="70" text-anchor="middle">GitHub</text>
                   </g>
@@ -1883,7 +1883,7 @@ await worker.getEntrypoint("Nanite").run();</code></pre>
             <article class="code-card">
               <div class="code-title">
                 <strong>Host-proxied GitHub call</strong>
-                <span>token stays inside Sigvelo</span>
+                <span>token stays inside SigVelo</span>
               </div>
               <pre><code>const token = await broker.issueRunGitHubToken({
   installationId,

@@ -233,7 +233,7 @@ const oauthProvider = new OAuthProvider<Env>({
     };
   },
   resourceMetadata: {
-    resource_name: "Sigvelo Nanites MCP",
+    resource_name: "SigVelo Nanites MCP",
     scopes_supported: [...SUPPORTED_MCP_SCOPES],
     bearer_methods_supported: ["header"],
   },

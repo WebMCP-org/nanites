@@ -1,10 +1,10 @@
 {
   "name": "nanites",
-  "displayName": "Sigvelo Nanites",
+  "displayName": "SigVelo Nanites",
   "version": "0.2.0",
-  "description": "Model guidance and MCP configuration for creating, testing, and debugging Sigvelo Nanites.",
+  "description": "Model guidance and MCP configuration for creating, testing, and debugging SigVelo Nanites.",
   "author": {
-    "name": "WebMCP / Sigvelo"
+    "name": "WebMCP / SigVelo"
   },
   "homepage": "https://app.sigvelo.com",
   "license": "Apache-2.0",

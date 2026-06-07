@@ -1,9 +1,9 @@
 ---
 name: nanites
-description: Use when setting up Sigvelo access, creating or updating Nanites, writing generated inbound triggers, testing Nanites through MCP, debugging Nanite runs, or improving the Nanites plugin itself. This is the single canonical Sigvelo Nanites skill; load focused references as needed.
+description: Use when setting up SigVelo access, creating or updating Nanites, writing generated inbound triggers, testing Nanites through MCP, debugging Nanite runs, or improving the Nanites plugin itself. This is the single canonical SigVelo Nanites skill; load focused references as needed.
 ---
 
-# Sigvelo Nanites
+# SigVelo Nanites
 
 Nanites are small durable agents that own one vertical maintenance responsibility inside a GitHub installation. Use this skill for the full Nanite loop: setup, manifest authoring, generated trigger code, MCP acceptance tests, runtime debugging, and plugin upkeep.
 
