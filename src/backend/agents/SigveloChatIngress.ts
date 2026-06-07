@@ -1,5 +1,6 @@
 import { createGitHubAdapter } from "@chat-adapter/github";
 import type { GitHubAdapter, GitHubRawMessage } from "@chat-adapter/github";
+import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getLogger } from "@logtape/logtape";
 import { Agent, getAgentByName } from "agents";
 import { createChatSdkState } from "agents/chat-sdk";
@@ -155,7 +156,7 @@ export class SigveloChatIngress extends Agent<Env> {
     const bot = new Chat({
       userName: SIGVELO_GITHUB_BOT_USERNAME,
       adapters: { github },
-      state: createChatSdkState(),
+      state: createChatSdkState({ agent: ThinkMessengerStateAgent }),
       concurrency: { strategy: "burst", debounceMs: 600 },
     });
 

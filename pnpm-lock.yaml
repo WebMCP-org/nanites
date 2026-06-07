@@ -18,20 +18,20 @@ importers:
         specifier: 4.30.0
         version: 4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/ai-chat':
-        specifier: ^0.8.2
-        version: 0.8.2(@ai-sdk/react@3.0.148(react@19.2.7)(zod@4.4.3))(agents@0.14.2)(ai@6.0.196(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
+        specifier: ^0.8.4
+        version: 0.8.4(@ai-sdk/react@3.0.148(react@19.2.7)(zod@4.4.3))(agents@0.14.5)(ai@6.0.196(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
       '@cloudflare/codemode':
         specifier: ^0.3.8
         version: 0.3.8(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/shell':
-        specifier: ^0.3.8
-        version: 0.3.8(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
+        specifier: ^0.3.9
+        version: 0.3.9(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/think':
-        specifier: ^0.8.3
-        version: 0.8.3(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(agents@0.14.2)(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
+        specifier: ^0.8.6
+        version: 0.8.6(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(agents@0.14.5)(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/worker-bundler':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       '@cloudflare/workers-oauth-provider':
         specifier: ^0.7.2
         version: 0.7.2
@@ -81,8 +81,8 @@ importers:
         specifier: ^1.170.11
         version: 1.170.11(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       agents:
-        specifier: ^0.14.2
-        version: 0.14.2(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.2)(@cloudflare/worker-bundler@0.2.0)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
+        specifier: ^0.14.5
+        version: 0.14.5(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.4)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
       ai:
         specifier: ^6.0.196
         version: 6.0.196(zod@4.4.3)
@@ -100,7 +100,7 @@ importers:
         version: 4.12.23
       hono-agents:
         specifier: ^3.0.11
-        version: 3.0.11(agents@0.14.2)(hono@4.12.23)
+        version: 3.0.11(agents@0.14.5)(hono@4.12.23)
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -570,8 +570,8 @@ packages:
   '@chevrotain/types@11.1.2':
     resolution: {integrity: sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==}
 
-  '@cloudflare/ai-chat@0.8.2':
-    resolution: {integrity: sha512-3yhlR6bqfmSEpab9ATWfEegILaJxBeTUXFRlyigrNCY/sBtEAVANdhDfKNKG1VSnGCvgov1b5HXDNGmduL+PSg==}
+  '@cloudflare/ai-chat@0.8.4':
+    resolution: {integrity: sha512-y9+Mqe2uZS8vHOCi936IWknNM3Z2FLqU42bq1mdL+OFkI+MWdUZ0oVWR0ZWTYP/MNWgxwgdZBxzmaALQZuwbtA==}
     peerDependencies:
       '@ai-sdk/react': ^3.0.0
       agents: '>=0.14.0 <1.0.0'
@@ -600,18 +600,22 @@ packages:
     resolution: {integrity: sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg==}
     engines: {node: '>=22.0.0'}
 
-  '@cloudflare/shell@0.3.8':
-    resolution: {integrity: sha512-tuseZ2bYEIiiOioGOgD9SqhchUQfHPOaRcifw8fj0YwTZNvcmO/wSvbtWDxxC/CUlnEJ1Y+tvNHub97TyTyoEQ==}
+  '@cloudflare/shell@0.3.9':
+    resolution: {integrity: sha512-b3z4uYvqlcuQoKKdQ4DHLxHwFTKu+gWenPd7yQoecD5A+tTkZpW350TRXfXIZ8avc4DODAL0nJF0Q0qCVGSksw==}
 
-  '@cloudflare/think@0.8.3':
-    resolution: {integrity: sha512-u5HJMrjcSyqISDi+rQAI8EI5oXigff4iO5QH5MX7Xw1P/BGcKm57IPJk37a95I1mjMOWaxZpkyT7tccOWYR5XA==}
+  '@cloudflare/think@0.8.6':
+    resolution: {integrity: sha512-vq1oM3VPAP9yH9vrnCMpRbtGCwE3RlNU4iGt1GFIw+WCKZ3qkyu3wvwIoVDtTVGbPoZ7uztAvjLy1I4xlozQLg==}
+    hasBin: true
     peerDependencies:
       '@chat-adapter/telegram': ^4.29.0
       agents: '>=0.14.0 <1.0.0'
       ai: ^6.0.182
+      vite: '>=6 <9'
       zod: ^4.0.0
     peerDependenciesMeta:
       '@chat-adapter/telegram':
+        optional: true
+      vite:
         optional: true
 
   '@cloudflare/unenv-preset@2.16.1':
@@ -637,8 +641,8 @@ packages:
       '@vitest/snapshot': ^4.1.0
       vitest: ^4.1.0
 
-  '@cloudflare/worker-bundler@0.2.0':
-    resolution: {integrity: sha512-4MK8iwDe16OJygeON+vQDcwn+UtShEeHc1PKGYT+5ZvIIER5BCHLf3XUO/g9DDuTQzU3w5Zgs/KjQ1C18+ffAA==}
+  '@cloudflare/worker-bundler@0.2.1':
+    resolution: {integrity: sha512-1jlJ9RtG04v1KeRO5DoF3OpUm1xLmgljrXLh/roUJfX+xUyKfLuyNNiV20I05UECq/xqmwn3gXwF2EeyDiG6mw==}
     engines: {node: '>=22'}
 
   '@cloudflare/workerd-darwin-64@1.20260603.1':
@@ -2822,6 +2826,9 @@ packages:
   '@types/node@25.9.1':
     resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
 
+  '@types/node@25.9.2':
+    resolution: {integrity: sha512-G05zqtJhcDLb8uslf5EjCxXg9G1KQxiV8OS0R26IC//Eoyitzqe8z37I7cqvnZlrlSfgocQRfSn/AHBZJJFyGw==}
+
   '@types/pg@8.15.6':
     resolution: {integrity: sha512-NoaMtzhxOrubeL/7UZuNTrejB4MPAJ0RpxZqXQf2qXuVlTPuG6Y8p4u9dKRaue4yjmC7ZhzVO2/Yyyn25znrPQ==}
 
@@ -3241,12 +3248,11 @@ packages:
     resolution: {integrity: sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==}
     engines: {node: '>= 6.0.0'}
 
-  agents@0.14.2:
-    resolution: {integrity: sha512-3wtf2Zgu2WLnPSMRE8PcMJpLl2tV1xxtYRyGMbYriwXRvwDm+E4fBLxFfe40LCl/hm67n0ghQW8Y9/1AWCZ6CQ==}
+  agents@0.14.5:
+    resolution: {integrity: sha512-xKZDaAU5vaLw5vNlGzt20vCwAe74hWcufuc5a4LeVh9/uOoPFILpgCTyOdTtvEs2eMBy3KyyAIbailsBOGECaw==}
     hasBin: true
     peerDependencies:
       '@cloudflare/ai-chat': '>=0.8.0 <1.0.0'
-      '@cloudflare/worker-bundler': '>=0.2.0 <1.0.0'
       '@tanstack/ai': '>=0.10.2 <1.0.0'
       '@x402/core': ^2.0.0
       '@x402/evm': ^2.0.0
@@ -3257,8 +3263,6 @@ packages:
       zod: ^4.0.0
     peerDependenciesMeta:
       '@cloudflare/ai-chat':
-        optional: true
-      '@cloudflare/worker-bundler':
         optional: true
       '@tanstack/ai':
         optional: true
@@ -3330,6 +3334,10 @@ packages:
   available-typed-arrays@1.0.7:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
+
+  aywson@0.0.16:
+    resolution: {integrity: sha512-xLFICM6OgSMcysNHCgrhri7hpcn0TfuyU5KxtjpIAJAUuD0Bjph2pSkLgxjn45iQBjBxs4S5Fq+RmXhIYuQtNw==}
+    hasBin: true
 
   babel-dead-code-elimination@1.0.12:
     resolution: {integrity: sha512-GERT7L2TiYcYDtYk1IpD+ASAYXjKbLTDPhBtYj7X1NuRMDTMtAx9kyBenub1Ev41lo91OHCKdmP+egTDmfQ7Ig==}
@@ -3414,6 +3422,10 @@ packages:
 
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
+
+  chalk@5.6.2:
+    resolution: {integrity: sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA==}
+    engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
 
   character-entities-html4@2.1.0:
     resolution: {integrity: sha512-1v7fgQRj6hnSwFpq1Eu0ynr/CDEw0rXo2B61qXrLNdHZmPKgb7fqS1a2JwF0rISo9q77jDI8VMEHoApn8qDoZA==}
@@ -4380,6 +4392,9 @@ packages:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  jsonc-parser@3.3.1:
+    resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
 
   just-bash@3.0.1:
     resolution: {integrity: sha512-YVyzCN08fKarUnwqy7rKOAcX+2MLYLnYInuowmUXn3mqhrtd4ieZNBuzdQG+qYV9DqnIWuv9Whiph0WRIWsBtw==}
@@ -5540,8 +5555,8 @@ packages:
     resolution: {integrity: sha512-6KQ/+QxK49Z/p3HO6E5ZCZWNnCasyZLa5ExaVYyvPxUwKtbCPMKELJOqh7EqOle0t9cH/7d2TaaTRRa6Nhs4YQ==}
     engines: {node: '>=20.18.1'}
 
-  undici@7.27.1:
-    resolution: {integrity: sha512-UDdpiex+mzigiyrXrGbiUaF4HzTNhKbh2vRNFaTMzcqmLIPrZxaCtwo/1TMSuWoM1Xz3WiTo9KdgI3kRqYzJGg==}
+  undici@7.27.2:
+    resolution: {integrity: sha512-uZsKNuzQxDMUY6M3pIMvy5tvlGmtq8XJ2oLAkfRKGNu+1VQAIvLy2xIVG5ATZl5wDXl/tddByAWCizRbOme+TA==}
     engines: {node: '>=20.18.1'}
 
   unenv@2.0.0-rc.24:
@@ -6134,10 +6149,10 @@ snapshots:
 
   '@chevrotain/types@11.1.2': {}
 
-  '@cloudflare/ai-chat@0.8.2(@ai-sdk/react@3.0.148(react@19.2.7)(zod@4.4.3))(agents@0.14.2)(ai@6.0.196(zod@4.4.3))(react@19.2.7)(zod@4.4.3)':
+  '@cloudflare/ai-chat@0.8.4(@ai-sdk/react@3.0.148(react@19.2.7)(zod@4.4.3))(agents@0.14.5)(ai@6.0.196(zod@4.4.3))(react@19.2.7)(zod@4.4.3)':
     dependencies:
       '@ai-sdk/react': 3.0.148(react@19.2.7)(zod@4.4.3)
-      agents: 0.14.2(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.2)(@cloudflare/worker-bundler@0.2.0)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
+      agents: 0.14.5(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.4)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
       ai: 6.0.196(zod@4.4.3)
       nanoid: 5.1.11
       react: 19.2.7
@@ -6154,7 +6169,7 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
-  '@cloudflare/shell@0.3.8(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)':
+  '@cloudflare/shell@0.3.9(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       '@cloudflare/codemode': 0.3.8(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
       isomorphic-git: 1.38.4
@@ -6164,15 +6179,20 @@ snapshots:
       - ai
       - zod
 
-  '@cloudflare/think@0.8.3(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(agents@0.14.2)(ai@6.0.196(zod@4.4.3))(zod@4.4.3)':
+  '@cloudflare/think@0.8.6(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(agents@0.14.5)(ai@6.0.196(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       '@cloudflare/codemode': 0.3.8(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
-      '@cloudflare/shell': 0.3.8(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
-      agents: 0.14.2(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.2)(@cloudflare/worker-bundler@0.2.0)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
+      '@cloudflare/shell': 0.3.9(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
+      agents: 0.14.5(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.4)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
       ai: 6.0.196(zod@4.4.3)
+      aywson: 0.0.16
       chat: 4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
       just-bash: 3.0.1
+      smol-toml: 1.6.1
+      yargs: 18.0.0
       zod: 4.4.3
+    optionalDependencies:
+      vite: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0)'
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - '@tanstack/ai'
@@ -6212,7 +6232,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@cloudflare/worker-bundler@0.2.0':
+  '@cloudflare/worker-bundler@0.2.1':
     dependencies:
       '@typescript/vfs': 1.6.4(typescript@6.0.3)
       es-module-lexer: 2.1.0
@@ -7710,7 +7730,7 @@ snapshots:
 
   '@types/better-sqlite3@7.6.13':
     dependencies:
-      '@types/node': 25.9.1
+      '@types/node': 25.9.2
     optional: true
 
   '@types/chai@5.2.3':
@@ -7865,9 +7885,14 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  '@types/node@25.9.2':
+    dependencies:
+      undici-types: 7.24.6
+    optional: true
+
   '@types/pg@8.15.6':
     dependencies:
-      '@types/node': 25.9.1
+      '@types/node': 25.9.2
       pg-protocol: 1.14.0
       pg-types: 2.2.0
     optional: true
@@ -8185,7 +8210,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  agents@0.14.2(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.2)(@cloudflare/worker-bundler@0.2.0)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3):
+  agents@0.14.5(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.4)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3):
     dependencies:
       '@babel/plugin-proposal-decorators': 7.29.7(@babel/core@7.29.7)
       '@cfworker/json-schema': 4.1.1
@@ -8194,6 +8219,7 @@ snapshots:
       '@rolldown/plugin-babel': 0.2.3(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(rolldown@1.0.0-rc.13)
       ai: 6.0.196(zod@4.4.3)
       cron-schedule: 6.0.0
+      esbuild: 0.28.0
       just-bash: 3.0.1
       mimetext: 3.0.28
       nanoid: 5.1.11
@@ -8204,8 +8230,7 @@ snapshots:
       yargs: 18.0.0
       zod: 4.4.3
     optionalDependencies:
-      '@cloudflare/ai-chat': 0.8.2(@ai-sdk/react@3.0.148(react@19.2.7)(zod@4.4.3))(agents@0.14.2)(ai@6.0.196(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
-      '@cloudflare/worker-bundler': 0.2.0
+      '@cloudflare/ai-chat': 0.8.4(@ai-sdk/react@3.0.148(react@19.2.7)(zod@4.4.3))(agents@0.14.5)(ai@6.0.196(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
       chat: 4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3)
       vite: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0)'
     transitivePeerDependencies:
@@ -8270,6 +8295,11 @@ snapshots:
   available-typed-arrays@1.0.7:
     dependencies:
       possible-typed-array-names: 1.1.0
+
+  aywson@0.0.16:
+    dependencies:
+      chalk: 5.6.2
+      jsonc-parser: 3.3.1
 
   babel-dead-code-elimination@1.0.12:
     dependencies:
@@ -8378,6 +8408,8 @@ snapshots:
   caniuse-lite@1.0.30001793: {}
 
   ccount@2.0.1: {}
+
+  chalk@5.6.2: {}
 
   character-entities-html4@2.1.0: {}
 
@@ -9262,9 +9294,9 @@ snapshots:
       '@types/set-cookie-parser': 2.4.10
       set-cookie-parser: 3.1.0
 
-  hono-agents@3.0.11(agents@0.14.2)(hono@4.12.23):
+  hono-agents@3.0.11(agents@0.14.5)(hono@4.12.23):
     dependencies:
-      agents: 0.14.2(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.2)(@cloudflare/worker-bundler@0.2.0)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
+      agents: 0.14.5(@babel/core@7.29.7)(@babel/runtime@7.29.7)(@cloudflare/ai-chat@0.8.4)(@cloudflare/workers-types@4.20260604.1)(@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(ai@6.0.196(zod@4.4.3))(chat@4.30.0(ai@6.0.196(zod@4.4.3))(zod@4.4.3))(react@19.2.7)(rolldown@1.0.0-rc.13)(zod@4.4.3)
       hono: 4.12.23
 
   hono@4.12.23: {}
@@ -9416,7 +9448,7 @@ snapshots:
       saxes: 6.0.0
       symbol-tree: 3.2.4
       tough-cookie: 6.0.1
-      undici: 7.27.1
+      undici: 7.27.2
       w3c-xmlserializer: 5.0.0
       webidl-conversions: 8.0.1
       whatwg-mimetype: 5.0.0
@@ -9437,6 +9469,8 @@ snapshots:
   json-with-bigint@3.5.8: {}
 
   json5@2.2.3: {}
+
+  jsonc-parser@3.3.1: {}
 
   just-bash@3.0.1:
     dependencies:
@@ -10999,7 +11033,7 @@ snapshots:
 
   undici@7.24.8: {}
 
-  undici@7.27.1:
+  undici@7.27.2:
     optional: true
 
   unenv@2.0.0-rc.24:

@@ -1,8 +1,9 @@
-import { Think, Workspace } from "@cloudflare/think";
+import { Think, Workspace, skills } from "@cloudflare/think";
 import type { Session, ThinkSubmissionInspection, ThinkSubmissionStatus } from "@cloudflare/think";
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
+import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
 import { callable, getAgentByName } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
 import { AppError } from "#/backend/errors.ts";
@@ -157,6 +158,17 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
 
   override getSystemPrompt(): string {
     return buildManagerSystemPrompt();
+  }
+
+  override getSkills() {
+    return [nanitesSkills];
+  }
+
+  override getSkillScriptRunner() {
+    return skills.runner({
+      loader: this.env.LOADER,
+      workspaceInstance: this.workspace,
+    });
   }
 
   override getTools(): ToolSet {
