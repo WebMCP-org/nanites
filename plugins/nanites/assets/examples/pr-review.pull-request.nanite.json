@@ -18,13 +18,7 @@
         }
       }
     },
-    "capabilities": {
-      "githubMcp": {
-        "tier": "github_pr_read",
-        "extraTools": ["actions_list", "actions_get"]
-      }
-    },
-    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ events: ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'], async handle(event, ctx) { const action = event.payload.action; if (!['opened', 'synchronize', 'reopened'].includes(action)) return ctx.noop(`Ignored pull request action: ${action}`); return ctx.dispatchSelf({ reason: 'Pull request needs quality review', number: event.payload.pull_request.number }); } });"
+    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ events: ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'], async handle(event, ctx) { const action = event.payload.action; if (!['opened', 'synchronize', 'reopened'].includes(action)) return ctx.noop(`Ignored pull request action: ${action}`); return ctx.dispatchSelf({ reason: 'Pull request needs quality review', repository: event.payload.repository.full_name, pullNumber: event.payload.pull_request.number, headSha: event.payload.pull_request.head.sha }); } });"
   },
   "enabled": true
 }

@@ -1,0 +1,16 @@
+{
+  "name": "sigvelo",
+  "owner": {
+    "name": "WebMCP / Sigvelo"
+  },
+  "description": "Sigvelo plugins for repository maintenance agents.",
+  "plugins": [
+    {
+      "name": "nanites",
+      "source": "./plugins/nanites",
+      "description": "Model guidance and MCP configuration for creating, testing, and debugging Sigvelo Nanites.",
+      "category": "Developer Tools",
+      "tags": ["sigvelo", "nanites", "mcp", "github"]
+    }
+  ]
+}

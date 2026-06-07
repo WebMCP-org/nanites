@@ -1,8 +1,14 @@
 {
-  "name": "sigvelo-nanites",
-  "version": "0.1.0",
-  "description": "One canonical skill plus commands for creating, testing, and debugging Sigvelo Nanites through MCP.",
+  "name": "nanites",
+  "displayName": "Sigvelo Nanites",
+  "version": "0.2.0",
+  "description": "Model guidance and MCP configuration for creating, testing, and debugging Sigvelo Nanites.",
   "author": {
     "name": "WebMCP / Sigvelo"
-  }
+  },
+  "homepage": "https://app.sigvelo.com",
+  "license": "Apache-2.0",
+  "keywords": ["sigvelo", "nanites", "mcp", "github", "octokit", "cloudflare"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
 }

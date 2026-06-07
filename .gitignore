@@ -82,6 +82,8 @@ test-results
 skills/
 !.agents/skills/
 !.agents/skills/**
+!plugins/*/skills/
+!plugins/*/skills/**
 
 # Local secrets
 *.private-key.pem
@@ -89,6 +91,7 @@ skills/
 .dev.vars*
 .env
 .env.*
+!.dev.vars.example
 !.env.example
 .env.sentry-build-plugin
 
@@ -102,4 +105,7 @@ skills/
 
 # opensrc - source code for packages
 opensrc/
-.agents/
+.agents/*
+!.agents/plugins/
+.agents/plugins/*
+!.agents/plugins/marketplace.json

@@ -1,0 +1,20 @@
+{
+  "name": "sigvelo",
+  "interface": {
+    "displayName": "Sigvelo"
+  },
+  "plugins": [
+    {
+      "name": "nanites",
+      "source": {
+        "source": "local",
+        "path": "./plugins/nanites"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -19,13 +19,7 @@
         }
       }
     },
-    "capabilities": {
-      "githubMcp": {
-        "tier": "github_pr_author",
-        "extraTools": ["actions_list", "actions_get"]
-      }
-    },
-    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ event: 'push', async handle(event, ctx) { if (event.payload.repository.full_name !== 'WebMCP-org/npm-packages') return ctx.noop('Different repository.'); const changed = event.payload.commits.flatMap((commit) => [...(commit.added ?? []), ...(commit.modified ?? []), ...(commit.removed ?? [])]); const relevant = changed.filter((file) => file.startsWith('packages/react-webmcp/')); if (relevant.length === 0) return ctx.noop('No React WebMCP package files changed.'); return ctx.dispatchSelf({ reason: 'React WebMCP package changed', files: relevant.slice(0, 50), after: event.payload.after }); } });"
+    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ event: 'push', async handle(event, ctx) { if (event.payload.repository.full_name !== 'WebMCP-org/npm-packages') return ctx.noop('Different repository.'); if (event.payload.ref !== 'refs/heads/main') return ctx.noop('Not the main branch.'); const changed = event.payload.commits.flatMap((commit) => [...(commit.added ?? []), ...(commit.modified ?? []), ...(commit.removed ?? [])]); const relevant = changed.filter((file) => file.startsWith('packages/react-webmcp/')); if (relevant.length === 0) return ctx.noop('No React WebMCP package files changed.'); return ctx.dispatchSelf({ reason: 'React WebMCP package changed', repository: event.payload.repository.full_name, before: event.payload.before, after: event.payload.after, files: relevant.slice(0, 50) }); } });"
   },
   "enabled": true
 }
