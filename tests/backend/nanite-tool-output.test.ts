@@ -147,7 +147,7 @@ test("Nanite tool output budget stores large outputs and returns a natural langu
   expect(writes).toEqual([{ content: "a".repeat(120), extension: "txt" }]);
   expect(output).toEqual({ notice: expect.any(String) });
   const notice = (output as { notice: string }).notice;
-  expect(notice).toContain("Sigvelo saved the full tool result as a temporary artifact");
+  expect(notice).toContain("Sigvelo saved the full tool result as a current-run artifact");
   expect(notice).toContain("toolout_large");
   expect(notice).toContain("120 characters");
   expect(notice).toContain("[Sigvelo truncated");

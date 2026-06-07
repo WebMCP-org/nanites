@@ -1,13 +1,11 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import {
-  validateGeneratedTriggerSource,
-  type GitHubPushFixtureOverrides,
-} from "#/backend/nanites/triggers.ts";
+import { validateGeneratedTriggerSource } from "#/backend/nanites/triggers.ts";
 import {
   shouldResyncNaniteDuringMaintenance,
   type SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
+import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
 
 function getManager() {
   return getAgentByName(
@@ -78,6 +76,89 @@ export default {
   },
 };
 `;
+
+type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
+type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
+
+async function registerPackageDocsSyncer(
+  manager: InstallationManager,
+  input: {
+    id: string;
+    name: string;
+    triggerSource: string;
+  },
+) {
+  await manager.registerNanite({
+    manifest: {
+      id: input.id,
+      name: input.name,
+      description: "Keeps package docs aligned with package changes.",
+      eventSource: {
+        type: "github",
+      },
+      triggerSource: input.triggerSource,
+      permissions: {},
+    },
+  });
+}
+
+function npmPackagesRepositoryOverride() {
+  return {
+    full_name: "WebMCP-org/npm-packages",
+    name: "npm-packages",
+    owner: { login: "WebMCP-org" },
+  };
+}
+
+function packageDocsChangedCommit() {
+  return {
+    id: "test000000000001",
+    added: [],
+    modified: ["packages/react-webmcp/README.md"],
+    removed: [],
+  };
+}
+
+function testPackageDocsTrigger(
+  manager: InstallationManager,
+  input: {
+    naniteId: string;
+    commits?: ReturnType<typeof packageDocsChangedCommit>[];
+  },
+) {
+  return manager.testNaniteTrigger({
+    naniteId: input.naniteId,
+    actorId: "github:1",
+    requestId: crypto.randomUUID(),
+    event: {
+      fixture: "push",
+      overrides: {
+        repository: npmPackagesRepositoryOverride(),
+        ref: "refs/heads/main",
+        ...(input.commits ? { commits: input.commits } : {}),
+      },
+    },
+    waitForTerminalOutcome: true,
+    timeoutMs: 10_000,
+  });
+}
+
+function expectAcceptedTriggerRun(output: TriggerTestOutput, naniteId: string) {
+  expect(output.ok).toBe(true);
+  expect(output.runs).toHaveLength(1);
+  expect(output.acceptance).toMatchObject({
+    fixtureBuilt: true,
+    triggerAcceptedEvent: true,
+    runCreated: true,
+    modelDispatched: true,
+    terminalOutcomeReached: true,
+    triggerRejectionReason: null,
+  });
+  expect(output.runs[0]).toMatchObject({
+    naniteId,
+    status: "complete",
+  });
+}
 
 test("generated trigger validation accepts source that bundles and exports the runtime contract", async () => {
   const result = await validateGeneratedTriggerSource({
@@ -244,36 +325,14 @@ export default {
 test("trigger tests return generated noop reasons when fixtures do not dispatch", async () => {
   const manager = await getInstallationManager();
 
-  await manager.registerNanite({
-    manifest: {
-      id: "package-docs-syncer",
-      name: "Package docs syncer",
-      description: "Keeps package docs aligned with package changes.",
-      eventSource: {
-        type: "github",
-      },
-      triggerSource: packageDocsTriggerSource,
-      permissions: {},
-    },
+  await registerPackageDocsSyncer(manager, {
+    id: "package-docs-syncer",
+    name: "Package docs syncer",
+    triggerSource: packageDocsTriggerSource,
   });
 
-  const output = await manager.testNaniteTrigger({
+  const output = await testPackageDocsTrigger(manager, {
     naniteId: "package-docs-syncer",
-    actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "push",
-      overrides: {
-        repository: {
-          full_name: "WebMCP-org/npm-packages",
-          name: "npm-packages",
-          owner: { login: "WebMCP-org" },
-        },
-        ref: "refs/heads/main",
-      },
-    },
-    waitForTerminalOutcome: true,
-    timeoutMs: 10_000,
   });
 
   expect(output.ok).toBe(false);
@@ -292,21 +351,31 @@ test("trigger tests return generated noop reasons when fixtures do not dispatch"
 test("trigger tests dispatch when fixture overrides satisfy generated filters", async () => {
   const manager = await getInstallationManager();
 
-  await manager.registerNanite({
-    manifest: {
-      id: "package-docs-syncer",
-      name: "Package docs syncer",
-      description: "Keeps package docs aligned with package changes.",
-      eventSource: {
-        type: "github",
-      },
-      triggerSource: packageDocsTriggerSource,
-      permissions: {},
-    },
+  await registerPackageDocsSyncer(manager, {
+    id: "package-docs-syncer",
+    name: "Package docs syncer",
+    triggerSource: packageDocsTriggerSource,
+  });
+
+  const output = await testPackageDocsTrigger(manager, {
+    naniteId: "package-docs-syncer",
+    commits: [packageDocsChangedCommit()],
+  });
+
+  expectAcceptedTriggerRun(output, "package-docs-syncer");
+});
+
+test("trigger tests apply fixture repository overrides before generated filters run", async () => {
+  const manager = await getInstallationManager();
+
+  await registerPackageDocsSyncer(manager, {
+    id: "package-docs-syncer-repository-overrides",
+    name: "Package docs syncer repository overrides",
+    triggerSource: repoFilteredPackageDocsTriggerSource,
   });
 
   const output = await manager.testNaniteTrigger({
-    naniteId: "package-docs-syncer",
+    naniteId: "package-docs-syncer-repository-overrides",
     actorId: "github:1",
     requestId: crypto.randomUUID(),
     event: {
@@ -315,17 +384,12 @@ test("trigger tests dispatch when fixture overrides satisfy generated filters", 
         repository: {
           full_name: "WebMCP-org/npm-packages",
           name: "npm-packages",
-          owner: { login: "WebMCP-org" },
+          owner: {
+            login: "WebMCP-org",
+          },
         },
         ref: "refs/heads/main",
-        commits: [
-          {
-            id: "test000000000001",
-            added: [],
-            modified: ["packages/react-webmcp/README.md"],
-            removed: [],
-          },
-        ],
+        commits: [packageDocsChangedCommit()],
       },
     },
     waitForTerminalOutcome: true,
@@ -333,75 +397,6 @@ test("trigger tests dispatch when fixture overrides satisfy generated filters", 
   });
 
   expect(output.ok).toBe(true);
-  expect(output.runs).toHaveLength(1);
-  expect(output.acceptance).toMatchObject({
-    fixtureBuilt: true,
-    triggerAcceptedEvent: true,
-    runCreated: true,
-    modelDispatched: true,
-    terminalOutcomeReached: true,
-    triggerRejectionReason: null,
-  });
-  expect(output.runs[0]).toMatchObject({
-    naniteId: "package-docs-syncer",
-    status: "complete",
-  });
-});
-
-test("trigger tests apply dotted fixture override keys before generated filters run", async () => {
-  const manager = await getInstallationManager();
-
-  await manager.registerNanite({
-    manifest: {
-      id: "package-docs-syncer-dotted-overrides",
-      name: "Package docs syncer dotted overrides",
-      description: "Keeps package docs aligned with package changes.",
-      eventSource: {
-        type: "github",
-      },
-      triggerSource: repoFilteredPackageDocsTriggerSource,
-      permissions: {},
-    },
-  });
-
-  const output = await manager.testNaniteTrigger({
-    naniteId: "package-docs-syncer-dotted-overrides",
-    actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "push",
-      overrides: {
-        "repository.full_name": "WebMCP-org/npm-packages",
-        "repository.name": "npm-packages",
-        "repository.owner.login": "WebMCP-org",
-        ref: "refs/heads/main",
-        commits: [
-          {
-            id: "test000000000001",
-            added: [],
-            modified: ["packages/react-webmcp/README.md"],
-            removed: [],
-          },
-        ],
-      } as unknown as GitHubPushFixtureOverrides,
-    },
-    waitForTerminalOutcome: true,
-    timeoutMs: 10_000,
-  });
-
-  expect(output.ok).toBe(true);
-  expect(output.event.payload.repository.full_name).toBe("WebMCP-org/npm-packages");
-  expect(output.runs).toHaveLength(1);
-  expect(output.acceptance).toMatchObject({
-    fixtureBuilt: true,
-    triggerAcceptedEvent: true,
-    runCreated: true,
-    modelDispatched: true,
-    terminalOutcomeReached: true,
-    triggerRejectionReason: null,
-  });
-  expect(output.runs[0]).toMatchObject({
-    naniteId: "package-docs-syncer-dotted-overrides",
-    status: "complete",
-  });
+  expect(getGitHubWebhookRepositoryFullName(output.event)).toBe("WebMCP-org/npm-packages");
+  expectAcceptedTriggerRun(output, "package-docs-syncer-repository-overrides");
 });

@@ -3,7 +3,7 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { getAgentByName } from "agents";
 import { tool, type FlexibleSchema, type ToolExecutionOptions } from "ai";
 import { z } from "zod";
-import { AppError } from "#/backend/errors.ts";
+import { AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
@@ -104,10 +104,6 @@ async function resolveAuthorizedNaniteToolRuntime(input: {
 
 const naniteToolLogger = getLogger(LOGGING.NANITES_CATEGORY);
 
-function formatCompactError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function getErrorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
@@ -200,7 +196,7 @@ export async function executeSigveloNaniteTool(input: {
         runtime,
       }),
       [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
-      [OTEL_ATTRS.EXCEPTION_MESSAGE]: formatCompactError(error),
+      [OTEL_ATTRS.EXCEPTION_MESSAGE]: describeError(error),
       [OTEL_ATTRS.REQUEST_DURATION_MS]: Math.round(performance.now() - startedAt),
     });
     throw error;

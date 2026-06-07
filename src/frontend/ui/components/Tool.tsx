@@ -2,7 +2,7 @@ import * as React from "react";
 import { Collapsible as BaseCollapsible } from "@base-ui/react/collapsible";
 import { Badge, type BadgeColor } from "./Badge.js";
 import { CodeBlock, CodeBlockContainer, CodeBlockContent } from "./CodeBlock.js";
-import { formatStructuredCodeDisplay } from "../utils/structured-code.js";
+import { formatStructuredCodeDisplay } from "../code-display/structured-code.js";
 import { cx } from "./_internal/class-names.js";
 import { ChevronRightIcon } from "./_internal/icons.js";
 

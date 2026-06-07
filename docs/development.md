@@ -23,11 +23,11 @@ The manager owns policy and aggregate state. Think Nanites own transcript, strea
 
 ## Key Areas
 
-- `src/backend/nanites/manager.ts` - installation manager, registry, routing, run summaries, and GitHub feedback.
-- `src/backend/nanites/nanite-agent.ts` - stable Think Nanite runtime, workspace tools, GitHub-aware git auth, GitHub MCP attachment, lifecycle tools.
+- `src/backend/agents/SigveloNaniteManager.ts` - installation manager, registry, routing, run summaries, and GitHub feedback.
+- `src/backend/agents/SigveloNaniteAgent.ts` - stable Think Nanite runtime, workspace tools, GitHub-aware git auth, GitHub MCP attachment, lifecycle tools.
 - `src/backend/nanites/triggers.ts` - Worker Loader execution for generated inbound trigger handlers.
 - `src/backend/mcp/index.ts` - Sigvelo MCP tools for model operators.
-- `src/frontend/routes/_authenticated/nanites.tsx` - Nanites product UI.
+- `src/frontend/routes/_authenticated/nanites/route.tsx` - Nanites product UI.
 - `wrangler.jsonc` - Cloudflare bindings, Durable Object migrations, vars, and required secrets.
 
 ## Prerequisites
@@ -64,6 +64,7 @@ vp exec wrangler whoami
 - D1 database bound as `DB`
 - R2 bucket bound as `WORKSPACE_FILES`
 - KV namespace bound as `OAUTH_KV`
+- KV namespace bound as `TOOL_OUTPUTS`
 
 Create/update resources with Wrangler or Cloudflare MCP:
 
@@ -71,6 +72,7 @@ Create/update resources with Wrangler or Cloudflare MCP:
 vp exec wrangler d1 create nanites-db
 vp exec wrangler r2 bucket create nanites-workspace-files
 vp exec wrangler kv namespace create OAUTH_KV
+vp exec wrangler kv namespace create TOOL_OUTPUTS
 ```
 
 Apply database migrations before relying on an environment:
@@ -89,6 +91,12 @@ vp exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc
+```
+
+For local development, copy the local template and fill in the required values:
+
+```bash
+cp .dev.vars.example .dev.vars
 ```
 
 Optional Sentry:
@@ -182,7 +190,7 @@ Local MCP smoke tests can use the GitHub CLI token already stored in the user's 
 print or commit the token. Start the local app with:
 
 ```bash
-ALLOW_TEST_AUTH=true GITHUB_TEST_USER_TOKEN="$(gh auth token)" vp dev
+ALLOW_TEST_AUTH=true GITHUB_TEST_USER_TOKEN="$(gh auth token)" vp run dev
 ```
 
 Run that from the repository root, then point MCPJam at the local server:
@@ -236,7 +244,7 @@ vp run dev
 Run app commands:
 
 ```bash
-vp dev
+vp run dev
 vp build
 vp test
 vp check

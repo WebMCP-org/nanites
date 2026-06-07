@@ -94,7 +94,7 @@ const isoDateTimeSchema = z.string();
 const githubIdSchema = z.number().int().positive();
 const githubLoginSchema = z.string().min(1);
 
-export type BrowserAuthenticatedActor = {
+type BrowserAuthenticatedActor = {
   id: number;
   login: string;
 } & Record<string, unknown>;
@@ -339,7 +339,7 @@ export async function sealGitHubUserTokenCookie(
   );
 }
 
-export async function readGitHubUserTokenCookie(
+async function readGitHubUserTokenCookie(
   request: Request,
   env: Env,
 ): Promise<GitHubUserToken | null> {

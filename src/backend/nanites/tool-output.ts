@@ -251,6 +251,7 @@ export class NaniteToolOutputArtifactStore {
     return this.#readSlice(input.artifactId, input);
   }
 
+  // fallow-ignore-next-line unused-class-member
   provider(): {
     name: "artifact";
     tools: {
@@ -263,7 +264,7 @@ export class NaniteToolOutputArtifactStore {
       tools: {
         read: {
           description:
-            "Inspect temporary Sigvelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a slice. With pattern, grep-searches one artifact or all current-run artifacts.",
+            "Inspect saved Sigvelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a slice. With pattern, grep-searches one artifact or all current-run artifacts.",
           execute: async (args) => this.read(parseReadArgs(args)),
         },
       },
@@ -454,7 +455,7 @@ const sigveloToolInputControlSchema = z
           .positive()
           .optional()
           .describe(
-            "Optional Sigvelo inline response budget for this tool call. Large outputs are saved as temporary Sigvelo artifacts; this controls how many characters are returned inline.",
+            "Optional Sigvelo inline response budget for this tool call. Large outputs are saved as current-run Sigvelo artifacts; this controls how many characters are returned inline.",
           ),
       })
       .optional()
@@ -540,7 +541,7 @@ function buildTruncationNotice(input: {
   preview: string;
 }): string {
   return [
-    "Sigvelo saved the full tool result as a temporary artifact:",
+    "Sigvelo saved the full tool result as a current-run artifact:",
     input.artifactId,
     "",
     `The full result is ${input.originalChars.toLocaleString()} characters. The inline preview below is capped at ${input.maxResponseChars.toLocaleString()} characters.`,

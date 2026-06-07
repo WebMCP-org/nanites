@@ -32,8 +32,8 @@ export interface FileTreeProps extends Omit<React.HTMLAttributes<HTMLDivElement>
  * <FileTree defaultExpanded={new Set(["src"])}>
  *   <FileTreeFolder path="src" name="src">
  *     <FileTreeFile path="src/index.ts" name="index.ts" />
- *     <FileTreeFolder path="src/lib" name="lib">
- *       <FileTreeFile path="src/lib/utils.ts" name="utils.ts" />
+ *     <FileTreeFolder path="src/domain" name="domain">
+ *       <FileTreeFile path="src/domain/model.ts" name="model.ts" />
  *     </FileTreeFolder>
  *   </FileTreeFolder>
  * </FileTree>

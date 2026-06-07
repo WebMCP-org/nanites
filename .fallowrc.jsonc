@@ -1,6 +1,15 @@
 {
   // Rolldown's Babel integration resolves this plugin by package name during build.
   "ignoreDependencies": ["@babel/plugin-proposal-decorators"],
+  "health": {
+    // Complexity is a review signal here, not a mandate to extract one-off helpers.
+    // Keep large runtime owner files readable in place unless a real domain boundary emerges.
+    "maxCyclomatic": 25,
+    "maxCognitive": 25,
+    "maxCrap": 80,
+    "crapRefactorBand": 0,
+    "suggestInlineSuppression": false,
+  },
   "overrides": [
     {
       // Shared UI primitives intentionally expose a library-style surface.
@@ -8,6 +17,13 @@
       "rules": {
         "unused-exports": "off",
         "unused-types": "off",
+      },
+    },
+    {
+      // Agents SDK and Durable Object classes expose hooks invoked by the runtime.
+      "files": ["src/backend/agents/**"],
+      "rules": {
+        "unused-class-members": "off",
       },
     },
   ],

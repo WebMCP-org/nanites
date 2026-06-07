@@ -3,15 +3,12 @@ import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { getAgentByName } from "agents";
 import worker, { ChatSdkStateAgent, SigveloChatIngress } from "#/server.ts";
 import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
+import { encodeHex } from "#/backend/crypto.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 
 const textEncoder = new TextEncoder();
-
-function toHex(bytes: ArrayBuffer): string {
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 async function signGitHubWebhookBody(body: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(
@@ -21,7 +18,7 @@ async function signGitHubWebhookBody(body: string, secret: string): Promise<stri
     false,
     ["sign"],
   );
-  return `sha256=${toHex(await crypto.subtle.sign("HMAC", key, textEncoder.encode(body)))}`;
+  return `sha256=${encodeHex(await crypto.subtle.sign("HMAC", key, textEncoder.encode(body)))}`;
 }
 
 function buildGitHubApiJsonResponse(path: string, payload: unknown, init?: ResponseInit): Response {

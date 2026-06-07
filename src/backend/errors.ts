@@ -341,6 +341,28 @@ export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function describeErrorWithStack(error: unknown): string {
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
+}
+
+export function parseAppIsoDate(value: string, fieldName: string): Date {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new AppError("naniteInvalidTimestamp", {
+      details: { fieldName },
+      message: `${APP_ERRORS.naniteInvalidTimestamp.message}: ${fieldName}`,
+    });
+  }
+  return date;
+}
+
+export function parseOptionalAppIsoDate(
+  value: string | undefined,
+  fieldName: string,
+): Date | undefined {
+  return value ? parseAppIsoDate(value, fieldName) : undefined;
+}
+
 export function createMcpTokenScopeUnavailableError(): OAuthError {
   return new OAuthError("invalid_scope", {
     description: APP_ERRORS.mcpTokenScopeUnavailable.message,

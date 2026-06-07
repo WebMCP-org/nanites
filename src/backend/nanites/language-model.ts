@@ -176,7 +176,7 @@ function buildToolOutputBudgetFixtureChunks(
         name: "no_change",
         arguments: JSON.stringify({
           summary:
-            "Verified large tool output was capped inline and preserved as a temporary KV artifact.",
+            "Verified large tool output was capped inline and preserved as a current-run KV artifact.",
         }),
       },
     });

@@ -11,15 +11,9 @@ on:
       - "wrangler.jsonc"
       - "vite.config.ts"
       - "tsconfig.json"
-      - "packages/contracts/**"
-      - "packages/db/**"
-      - "packages/domain/**"
-      - "packages/observability/**"
-      - "packages/ui/**"
-      - "packages/design-tokens/**"
+      - "tooling/**"
       - "package.json"
       - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
   push:
     branches: [main]
     paths:
@@ -30,15 +24,9 @@ on:
       - "wrangler.jsonc"
       - "vite.config.ts"
       - "tsconfig.json"
-      - "packages/contracts/**"
-      - "packages/db/**"
-      - "packages/domain/**"
-      - "packages/observability/**"
-      - "packages/ui/**"
-      - "packages/design-tokens/**"
+      - "tooling/**"
       - "package.json"
       - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

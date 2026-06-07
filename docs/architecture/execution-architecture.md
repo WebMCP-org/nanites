@@ -180,7 +180,9 @@ type TriggerContext = {
 };
 ```
 
-Generated trigger validation typechecks this authoring surface before loading the dynamic Worker.
+Generated trigger validation currently catches static, bundle, load, and runtime contract errors
+before accepting the dynamic Worker. Deep Octokit semantic diagnostics may be skipped until a
+dedicated validation Worker owns that typecheck path outside the manager Durable Object.
 The trigger runtime does not currently receive a live Octokit client; GitHub read/write authority
 belongs to the Nanite Think agent through its explicit tools and to the manager through validated
 lifecycle and result-surface operations.
@@ -362,7 +364,7 @@ Release baseline:
 
 - old unreleased manager/run prototype code has been removed or quarantined outside the active
   runtime path
-- [src/backend/nanites/manager.ts](/src/backend/nanites/manager.ts)
+- [src/backend/agents/SigveloNaniteManager.ts](/src/backend/agents/SigveloNaniteManager.ts)
   owns the installation manager state machine: registered Nanites, source versions, runs,
   trigger dedupe, human requests, and terminal transitions
 - [src/backend/nanites/triggers.ts](/src/backend/nanites/triggers.ts)
@@ -403,13 +405,13 @@ Do not try to solve every future runtime problem in the same pass.
 
 - [docs/architecture/architecture.md](/docs/architecture/architecture.md)
 - [docs/architecture/roadmap.md](/docs/architecture/roadmap.md)
-- [src/backend/nanites/manager.ts](/src/backend/nanites/manager.ts)
-- [src/backend/nanites/nanite-agent.ts](/src/backend/nanites/nanite-agent.ts)
+- [src/backend/agents/SigveloNaniteManager.ts](/src/backend/agents/SigveloNaniteManager.ts)
+- [src/backend/agents/SigveloNaniteAgent.ts](/src/backend/agents/SigveloNaniteAgent.ts)
 - [src/backend/nanites/triggers.ts](/src/backend/nanites/triggers.ts)
 - [src/backend/nanites/github-mcp-capabilities.ts](/src/backend/nanites/github-mcp-capabilities.ts)
 - [src/backend/github/index.ts](/src/backend/github/index.ts)
 - [src/backend/db/schema.ts](/src/backend/db/schema.ts)
-- [src/frontend/routes/\_authenticated/nanites.tsx](/src/frontend/routes/_authenticated/nanites.tsx)
+- [src/frontend/routes/\_authenticated/nanites/route.tsx](/src/frontend/routes/_authenticated/nanites/route.tsx)
 
 ### Sibling working repos
 

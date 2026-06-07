@@ -175,14 +175,17 @@ test("Nanite task context includes full manifest config, trigger source, and act
   const prompt = buildNaniteTaskContext({
     trigger: {
       type: "github",
-      requestId: "request-1",
-      event: "push",
-      repository: "WebMCP-org/npm-packages",
-      ref: "refs/heads/main",
-      sender: { login: "sigvelo-dev" },
-      payload: {
-        repository: { full_name: "WebMCP-org/npm-packages" },
-        ref: "refs/heads/main",
+      event: {
+        id: "request-1",
+        name: "push",
+        payload: {
+          repository: { full_name: "WebMCP-org/npm-packages" },
+          ref: "refs/heads/main",
+          sender: { login: "sigvelo-dev" },
+        },
+      },
+      input: {
+        repository: "WebMCP-org/npm-packages",
       },
     },
     manifest: {

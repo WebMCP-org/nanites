@@ -524,7 +524,7 @@ Sigvelo Nanites:
 - [Nanites execution architecture](/docs/architecture/execution-architecture.md)
 - [Worker entrypoint](/src/server.ts)
 - [GitHub webhook handler](/src/backend/github/index.ts)
-- [Nanite manager](/src/backend/nanites/manager.ts)
+- [Nanite manager](/src/backend/agents/SigveloNaniteManager.ts)
 
 ## Bottom Line
 

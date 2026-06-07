@@ -51,7 +51,7 @@ import {
   ToolInput,
   ToolOutput,
 } from "#/frontend/ui/components/Tool.tsx";
-import { formatStructuredCodeDisplay } from "#/frontend/ui/utils/structured-code.ts";
+import { formatStructuredCodeDisplay } from "#/frontend/ui/code-display/structured-code.ts";
 import {
   ArrowsClockwiseIcon,
   CheckCircleIcon,

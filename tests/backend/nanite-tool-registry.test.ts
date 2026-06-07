@@ -100,7 +100,7 @@ test("Nanite create schema rejects old trigger source manifest fields", () => {
   const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
   const result = createTool?.inputSchema.safeParse({
     manifest: {
-      id: "legacy-trigger-source",
+      id: "rejected-trigger-source",
       name: "Legacy trigger source",
       description: "Should fail because trigger source is a root manifest field now.",
       trigger: {

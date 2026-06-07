@@ -31,7 +31,7 @@
   --sigvelo-form-control-font-size-lg: 1.25rem;
   --sigvelo-form-control-font-size-xl: 1.5rem;
 
-  /* Form control misc */
+  /* Form control required marker and placeholder */
   --sigvelo-form-control-required-content: "*";
   --sigvelo-form-control-placeholder-color: color-mix(
     in oklab,

@@ -11,7 +11,7 @@ const LOGIN_ROUTE_PATH = "/";
 /**
  * All GitHub OAuth browser routes live under this prefix.
  */
-export const GITHUB_AUTH_ROUTE_PREFIX = "/auth/github/";
+const GITHUB_AUTH_ROUTE_PREFIX = "/auth/github/";
 
 /**
  * Browser route that starts the GitHub OAuth flow.

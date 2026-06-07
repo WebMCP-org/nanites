@@ -202,8 +202,10 @@ workspace git operations and derived GitHub MCP PR/status tools; it is not a sep
 language.
 
 Generated trigger code is ordinary Worker-compatible TypeScript. It routes events; it does not own
-the Nanite runtime. Prefer the virtual `@sigvelo/nanite-trigger` authoring package so validation can
-give Octokit-backed webhook payload diagnostics before the trigger is loaded.
+the Nanite runtime. Prefer the virtual `@sigvelo/nanite-trigger` authoring package for the
+Octokit-shaped authoring contract and typed manager intents. Current validation catches static,
+bundle, load, and runtime contract errors; deep Octokit semantic diagnostics may be skipped until a
+dedicated validation Worker owns that typecheck path.
 
 ```ts
 import { defineGitHubTrigger } from "@sigvelo/nanite-trigger";

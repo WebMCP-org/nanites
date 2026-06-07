@@ -10,7 +10,15 @@
     "github",
     "mcp"
   ],
+  "homepage": "https://github.com/WebMCP-org/nanites#readme",
+  "bugs": {
+    "url": "https://github.com/WebMCP-org/nanites/issues"
+  },
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WebMCP-org/nanites.git"
+  },
   "type": "module",
   "imports": {
     "#/*": "./src/*"

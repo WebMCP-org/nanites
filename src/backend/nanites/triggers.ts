@@ -41,7 +41,7 @@ type TriggerFailurePhase =
   | "execute"
   | "response"
   | "parse"
-  | "normalize";
+  | "intent";
 
 type GeneratedTriggerValidationResult =
   | {
@@ -513,8 +513,8 @@ function toDispatchInputValue(value: unknown): TriggerDispatchInputValue {
 
   if (Array.isArray(value)) {
     return value.map((item) => {
-      const normalized = toDispatchInputValue(item);
-      return Array.isArray(normalized) ? JSON.stringify(normalized) : normalized;
+      const dispatchValue = toDispatchInputValue(item);
+      return Array.isArray(dispatchValue) ? JSON.stringify(dispatchValue) : dispatchValue;
     });
   }
 
@@ -535,7 +535,7 @@ function toDispatchInput(value: unknown): TriggerDispatchInput {
   );
 }
 
-function normalizeIntent(value: unknown): TriggerIntent | null {
+function parseTriggerIntent(value: unknown): TriggerIntent | null {
   if (!isRecord(value) || typeof value.type !== "string") {
     return null;
   }
@@ -737,8 +737,8 @@ export async function runGeneratedTrigger(
   try {
     const rawIntents = isRecord(body) && Array.isArray(body.intents) ? body.intents : [];
     const intents = rawIntents.flatMap((intent) => {
-      const normalized = normalizeIntent(intent);
-      return normalized ? [normalized] : [];
+      const parsedIntent = parseTriggerIntent(intent);
+      return parsedIntent ? [parsedIntent] : [];
     });
 
     return { ok: true, intents };
@@ -746,7 +746,7 @@ export async function runGeneratedTrigger(
     return {
       ok: false,
       error: formatTriggerError({
-        phase: "normalize",
+        phase: "intent",
         error,
         cacheKey: input.cacheKey,
         sourceCode: input.sourceCode,
@@ -770,13 +770,13 @@ export type GitHubPullRequestFixtureId =
 export type GitHubPushFixtureId = "push";
 export type GitHubTriggerFixtureId = GitHubPullRequestFixtureId | GitHubPushFixtureId;
 
-export const githubPullRequestFixtureIds = [
+const githubPullRequestFixtureIds = [
   "pull_request.opened",
   "pull_request.synchronize",
   "pull_request.reopened",
   "pull_request.closed",
 ] as const satisfies readonly GitHubPullRequestFixtureId[];
-export const githubPushFixtureIds = ["push"] as const satisfies readonly GitHubPushFixtureId[];
+const githubPushFixtureIds = ["push"] as const satisfies readonly GitHubPushFixtureId[];
 export const githubTriggerFixtureIds = [
   ...githubPullRequestFixtureIds,
   ...githubPushFixtureIds,
@@ -803,41 +803,6 @@ const EMPTY_SHA = "0000000000000000000000000000000000000000";
 
 function valueOr<T>(value: T | null | undefined, fallback: T): T {
   return value ?? fallback;
-}
-
-function normalizeDottedFixtureOverrides<T extends object>(rawOverrides: T): T {
-  const directOverrides: Record<string, unknown> = {};
-  const dottedOverrides: Array<[string, unknown]> = [];
-
-  for (const [key, value] of Object.entries(rawOverrides as Record<string, unknown>)) {
-    if (key.includes(".")) {
-      dottedOverrides.push([key, value]);
-    } else {
-      directOverrides[key] = value;
-    }
-  }
-
-  for (const [key, value] of dottedOverrides) {
-    const path = key.split(".").filter(Boolean);
-    if (
-      path.length === 0 ||
-      path.some((segment) => ["__proto__", "prototype", "constructor"].includes(segment))
-    ) {
-      continue;
-    }
-
-    let target = directOverrides;
-    for (const segment of path.slice(0, -1)) {
-      const existing = target[segment];
-      if (typeof existing !== "object" || existing === null || Array.isArray(existing)) {
-        target[segment] = {};
-      }
-      target = target[segment] as Record<string, unknown>;
-    }
-    target[path.at(-1) as string] = value;
-  }
-
-  return directOverrides as T;
 }
 
 function randomTestSha(): string {
@@ -888,13 +853,13 @@ function actionFromFixture(
   }
 }
 
-export function buildGitHubPullRequestFixture(input: {
+function buildGitHubPullRequestFixture(input: {
   fixture: GitHubPullRequestFixtureId;
   deliveryId: string;
   installationId: number;
   overrides?: GitHubPullRequestFixtureOverrides;
 }): EmitterWebhookEvent<GitHubPullRequestFixtureId> {
-  const overrides = normalizeDottedFixtureOverrides(input.overrides ?? {});
+  const overrides = input.overrides ?? {};
   const pullRequest = overrides.pull_request ?? {};
   const pullRequestHead = pullRequest.head ?? {};
   const pullRequestBase = pullRequest.base ?? {};
@@ -927,12 +892,12 @@ export function buildGitHubPullRequestFixture(input: {
   } as EmitterWebhookEvent<GitHubPullRequestFixtureId>;
 }
 
-export function buildGitHubPushFixture(input: {
+function buildGitHubPushFixture(input: {
   deliveryId: string;
   installationId: number;
   overrides?: GitHubPushFixtureOverrides;
 }): EmitterWebhookEvent<"push"> {
-  const overrides = normalizeDottedFixtureOverrides(input.overrides ?? {});
+  const overrides = input.overrides ?? {};
   const after = valueOr(overrides.after, randomTestSha());
 
   const payload = {

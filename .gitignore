@@ -39,6 +39,7 @@ test-results
 .claude/worktrees/
 .claude/skills/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Generated agent compatibility skill copies we do not use in this repo.
 .adal/
@@ -89,9 +90,9 @@ skills/
 *.private-key.pem
 *.pem
 .dev.vars*
+!.dev.vars.example
 .env
 .env.*
-!.dev.vars.example
 !.env.example
 .env.sentry-build-plugin
 
