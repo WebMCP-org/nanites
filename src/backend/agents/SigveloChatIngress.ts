@@ -1,5 +1,6 @@
 import { createGitHubAdapter } from "@chat-adapter/github";
 import type { GitHubAdapter, GitHubRawMessage } from "@chat-adapter/github";
+import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getLogger } from "@logtape/logtape";
 import { Agent, getAgentByName } from "agents";
 import { createChatSdkState } from "agents/chat-sdk";
@@ -24,6 +25,10 @@ const chatIngressLogger = getLogger(LOGGING.NANITES_CATEGORY)
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
     [OTEL_ATTRS.AGENT_CLASS]: "SigveloChatIngress",
   });
+
+// Preserve the existing Durable Object/facet class name while adopting the
+// upstream Think messenger state implementation.
+export class ChatSdkStateAgent extends ThinkMessengerStateAgent {}
 
 type GitHubManagerChatThread = Thread<Record<string, unknown>, GitHubRawMessage>;
 type GitHubManagerChatMessage = Message<GitHubRawMessage>;
@@ -155,7 +160,7 @@ export class SigveloChatIngress extends Agent<Env> {
     const bot = new Chat({
       userName: SIGVELO_GITHUB_BOT_USERNAME,
       adapters: { github },
-      state: createChatSdkState(),
+      state: createChatSdkState({ agent: ChatSdkStateAgent }),
       concurrency: { strategy: "burst", debounceMs: 600 },
     });
 

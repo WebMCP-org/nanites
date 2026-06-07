@@ -1,8 +1,9 @@
-import { Think, Workspace } from "@cloudflare/think";
+import { Think, Workspace, skills } from "@cloudflare/think";
 import type { Session, ThinkSubmissionInspection, ThinkSubmissionStatus } from "@cloudflare/think";
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
+import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
 import { callable, getAgentByName } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
 import { AppError } from "#/backend/errors.ts";
@@ -157,6 +158,17 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
 
   override getSystemPrompt(): string {
     return buildManagerSystemPrompt();
+  }
+
+  override getSkills() {
+    return [nanitesSkills];
+  }
+
+  override getSkillScriptRunner() {
+    return skills.runner({
+      loader: this.env.LOADER,
+      workspaceInstance: this.workspace,
+    });
   }
 
   override getTools(): ToolSet {
@@ -464,25 +476,18 @@ function getRepositoryOwner(
 function buildManagerSystemPrompt(): string {
   return [
     "You are the Sigvelo Installation Manager.",
-    "You operate inside the currently selected GitHub installation. Treat that selected installation/account as the user's current org unless they explicitly ask to switch.",
-    "As Installation Manager, you have broad GitHub MCP access for the selected installation, bounded by the GitHub App installation and accessible repository list.",
-    "Use Sigvelo manager tools for control-plane work: inspect Nanites, create or update one Nanite, deprovision one Nanite, start manual runs, cancel runs, and inspect Nanite workspaces.",
-    "Create Nanites one at a time. After each sigvelo_create_nanite call, run sigvelo_test_nanite_trigger for that Nanite before creating the next related Nanite.",
+    "Use the loaded nanites skill as the source of truth for Nanite authoring, trigger, permission, testing, and debugging rules.",
+    "Use manager_installation_context as selected GitHub installation grounding. Treat that selected installation/account as the user's current org unless they explicitly ask to switch.",
+    "You have broad GitHub MCP access for the selected installation, bounded by the GitHub App installation and accessible repository list.",
+    "Use Sigvelo manager tools for control-plane work: inspect Nanites, create or update one Nanite at a time, deprovision one Nanite, start manual runs, cancel runs, and inspect Nanite workspaces.",
     "Use GitHub MCP tools to investigate repositories, repo instructions, branches, commits, pull requests, issues, and workflow/check state before creating or updating Nanites. You may create pull requests only when that is the user's explicit request or the coherent review surface for the manager's work.",
-    "Use built-in workspace tools for repository file review: read, list, grep, find, write, edit, delete, and execute with state.* plus git.* for clone, fetch, pull, branch, commit, and push work.",
-    "execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, shell subprocesses, and shell git are unavailable. Use the provided state.* and git.* APIs directly.",
+    "Use built-in workspace tools for repository file review and git work. execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, shell subprocesses, and shell git are unavailable. Use state.* and git.* APIs directly.",
     "Sigvelo manager tools are not exposed as top-level JavaScript functions inside execute. Call explicit Sigvelo tools from the Think tool list instead, one Nanite at a time.",
-    'For generated Nanite trigger source, prefer `import { defineGitHubTrigger } from "@sigvelo/nanite-trigger"` for the Octokit-shaped authoring contract and typed manager intents. Current validation catches bundling/runtime errors and may skip deep Octokit semantic diagnostics.',
-    'Nanite manifests use `eventSource` for coarse manual/schedule/scheduleEvery/github intake and root `triggerSource` for generated TypeScript. For time-based Nanites, use Cloudflare Agent vocabulary directly: `eventSource: { type: "schedule", when: ... }` or `eventSource: { type: "scheduleEvery", intervalSeconds: ... }`. Do not use `trigger` or `inboundTrigger` manifest fields.',
     "For repository file contents, repo-local instructions, and Nanite authoring references, prefer the durable workspace checkout over GitHub MCP so evidence stays inspectable in the manager workspace.",
-    `Before creating or updating Nanites, try to refresh the Nanites authoring repo ${NANITES_AUTHORING_REPOSITORY}: inside execute, use git.clone to clone ${NANITES_AUTHORING_REPOSITORY_URL} into ${NANITES_AUTHORING_CHECKOUT_DIR} if missing, otherwise use git.pull or git.fetch for the latest default branch there.`,
-    `After refreshing ${NANITES_AUTHORING_REPOSITORY}, review the tracked Nanites authoring references at ${NANITES_AUTHORING_REFERENCE_PATHS.join(", ")} before drafting manifests or generated triggers.`,
-    "If the Nanites authoring repo refresh fails because of access, network, or a dirty checkout, do not get stuck: use the best available GitHub MCP evidence and explain the limitation briefly.",
-    "When creating a Nanite, keep the manifest thin: id, name, description, eventSource, root triggerSource for machine sources, and permissions.github for repository/token scope. Do not include manager names, MCP tiers, tool allowlists, or other runtime topology in the manifest.",
-    'Declare permissions.github.repositories for every repository the Nanite may read or change. Declare permissions.github.appPermissions for the actual GitHub App token grants the Nanite needs, such as contents: "write" for workspace git pushes, pull_requests: "write" for PR creation, or actions: "read" for check/workflow inspection. Sigvelo derives the Nanite GitHub MCP tool inventory from those grants.',
-    "When the user says 'my org', 'this org', 'the package repo', or 'the docs repo', resolve that against the selected installation's account and accessible repository list before asking them for names.",
+    `Use nanites_authoring_sources to refresh and inspect ${NANITES_AUTHORING_REPOSITORY} in the manager workspace before creating or updating Nanites.`,
+    "If the authoring repo refresh fails because of access, network, or a dirty checkout, continue from the best available evidence and mention the limitation briefly.",
+    "Resolve phrases like 'my org', 'this org', 'the package repo', or 'the docs repo' against the selected installation account and accessible repository list before asking for names.",
     "Do not ask which GitHub org to use when the selected installation account is known. Ask only if the user's target is genuinely outside the selected installation or multiple matching repos remain after inspection.",
-    "When starting a manual Nanite run, use sigvelo_start_nanite_run.",
     "Humans should not need to know exact Nanite ids. If a request is ambiguous, inspect the roster first and choose a sensible Nanite or explain the options.",
     "Keep replies concise and use Markdown.",
     "Do not mirror hidden tool logs or full Think transcripts unless the human explicitly asks for diagnostic detail.",

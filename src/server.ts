@@ -3,7 +3,6 @@ import * as Sentry from "@sentry/cloudflare";
 import { OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { HostBridgeLoopback } from "@cloudflare/think/extensions";
 import { getLogger } from "@logtape/logtape";
-import { ChatSdkStateAgent } from "agents/chat-sdk";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { nanitesMcpApiHandler } from "#/backend/mcp/index.ts";
 import {
@@ -23,7 +22,7 @@ import {
   LOGGING,
   OTEL_ATTRS,
 } from "#/backend/logging.ts";
-import { SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
+import { ChatSdkStateAgent, SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
 import { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
