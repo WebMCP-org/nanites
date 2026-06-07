@@ -2,7 +2,6 @@
 import * as Sentry from "@sentry/cloudflare";
 import { OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { HostBridgeLoopback } from "@cloudflare/think/extensions";
-import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getLogger } from "@logtape/logtape";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { nanitesMcpApiHandler } from "#/backend/mcp/index.ts";
@@ -23,7 +22,7 @@ import {
   LOGGING,
   OTEL_ATTRS,
 } from "#/backend/logging.ts";
-import { SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
+import { ChatSdkStateAgent, SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
 import { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
@@ -43,12 +42,12 @@ const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-prote
 // Keep Sentry at the Worker boundary. Agents/Think already manages the Durable Object
 // WebSocket context, and Sentry's DO wrapper rewraps waitUntil recursively on those routes.
 export {
+  ChatSdkStateAgent,
   HostBridgeLoopback,
   SigveloChatIngress,
   SigveloManagerConversationAgent,
   SigveloNaniteAgent,
   SigveloNaniteManager,
-  ThinkMessengerStateAgent,
 };
 
 function parseSamplingRate(value: string | undefined, fallback: number): number {

@@ -26,6 +26,10 @@ const chatIngressLogger = getLogger(LOGGING.NANITES_CATEGORY)
     [OTEL_ATTRS.AGENT_CLASS]: "SigveloChatIngress",
   });
 
+// Preserve the existing Durable Object/facet class name while adopting the
+// upstream Think messenger state implementation.
+export class ChatSdkStateAgent extends ThinkMessengerStateAgent {}
+
 type GitHubManagerChatThread = Thread<Record<string, unknown>, GitHubRawMessage>;
 type GitHubManagerChatMessage = Message<GitHubRawMessage>;
 type UnknownChatThread = Thread<Record<string, unknown>, unknown>;
@@ -156,7 +160,7 @@ export class SigveloChatIngress extends Agent<Env> {
     const bot = new Chat({
       userName: SIGVELO_GITHUB_BOT_USERNAME,
       adapters: { github },
-      state: createChatSdkState({ agent: ThinkMessengerStateAgent }),
+      state: createChatSdkState({ agent: ChatSdkStateAgent }),
       concurrency: { strategy: "burst", debounceMs: 600 },
     });
 
