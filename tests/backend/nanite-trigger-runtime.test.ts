@@ -121,7 +121,7 @@ export default {
 
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
-const naniteModel = "deepseek/deepseek-v4-pro";
+const naniteModel = "@cf/moonshotai/kimi-k2.6";
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,

@@ -3,7 +3,7 @@ import { isKeyedAiProvider, type KeyedAiProvider } from "#/backend/nanites/provi
 
 const defaultCatalogPageSize = 200;
 
-const DEFAULT_SIGVELO_AGENT_MODEL_ID = "deepseek/deepseek-v4-pro";
+const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/moonshotai/kimi-k2.6";
 const DEFAULT_NANITES_MODEL_GATEWAY_ID = "default";
 
 export type NanitesModelSource = "cloudflare-hosted" | "third-party";
@@ -38,22 +38,13 @@ type CloudflareAiModelsApi = {
   models?: (params?: { hide_experimental?: boolean; per_page?: number }) => Promise<unknown[]>;
 };
 
-type CloudflareModelSearchObject = {
-  id?: unknown;
-  name?: unknown;
-  description?: unknown;
-  task?: {
-    name?: unknown;
-  };
-  tags?: unknown;
-  properties?: unknown;
-};
+type CloudflareModelSearchObject = Record<string, unknown>;
 
 export const DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS = {
-  provider: "deepseek",
-  providerLabel: "DeepSeek",
+  provider: "kimi",
+  providerLabel: "Moonshot AI",
   modelId: DEFAULT_SIGVELO_AGENT_MODEL_ID,
-  modelName: "DeepSeek V4 Pro",
+  modelName: "Kimi K2.6",
   gatewayId: DEFAULT_NANITES_MODEL_GATEWAY_ID,
 } as const;
 
@@ -121,11 +112,20 @@ function looksLikeModelId(value: string): boolean {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function readModelId(input: CloudflareModelSearchObject): string | null {
   const candidates = [input.name, input.id]
     .filter((value): value is string => typeof value === "string")
     .map((value) => value.trim());
   return candidates.find((candidate) => looksLikeModelId(candidate)) ?? null;
+}
+
+function readCatalogTaskName(input: CloudflareModelSearchObject): string {
+  const task = input.task;
+  return isRecord(task) && typeof task.name === "string" ? task.name : "";
 }
 
 function readDisplayName(input: CloudflareModelSearchObject, modelId: string): string | null {
@@ -197,8 +197,12 @@ function readTags(tags: unknown): string[] {
   return [...new Set(tags.filter((tag): tag is string => typeof tag === "string"))];
 }
 
-function readCatalogItem(input: CloudflareModelSearchObject): NanitesModelCatalogItem | null {
-  const task = typeof input.task?.name === "string" ? input.task.name : "";
+function readCatalogItem(input: unknown): NanitesModelCatalogItem | null {
+  if (!isRecord(input)) {
+    return null;
+  }
+
+  const task = readCatalogTaskName(input);
   if (task !== "Text Generation") {
     return null;
   }
@@ -259,7 +263,7 @@ export async function fetchNanitesModelCatalog(env: Env): Promise<NanitesModelCa
     fetchedAt,
     models: sortCatalogModels(
       models
-        .map((model) => readCatalogItem(model as CloudflareModelSearchObject))
+        .map((model) => readCatalogItem(model))
         .filter((model): model is NanitesModelCatalogItem => Boolean(model)),
     ),
   };

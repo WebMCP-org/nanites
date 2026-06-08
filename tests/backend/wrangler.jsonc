@@ -23,6 +23,8 @@
     "GITHUB_CLIENT_SECRET": "test-client-secret",
     "GITHUB_WEBHOOK_SECRET": "test-webhook-secret",
     "AUTH_COOKIE_SECRET": "test-auth-cookie-secret",
+    "CLOUDFLARE_ACCOUNT_ID": "test-cloudflare-account-id",
+    "CLOUDFLARE_API_TOKEN": "test-cloudflare-api-token",
   },
   "d1_databases": [
     {

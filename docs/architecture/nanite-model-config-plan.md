@@ -34,7 +34,7 @@ Example:
 
 ```json
 {
-  "model": "deepseek/deepseek-v4-pro"
+  "model": "@cf/moonshotai/kimi-k2.6"
 }
 ```
 
@@ -43,8 +43,8 @@ provider key in the manifest. If a model is not valid or runnable, registration 
 fail normally.
 
 The manager authoring prompt should tell agents to inspect the current Cloudflare model catalog and
-pick the cheapest reliable model for the Nanite's job. Prefer DeepSeek when it is suitable and
-available.
+pick the cheapest reliable model for the Nanite's job. Prefer DeepSeek only when it is suitable and
+present in the current Cloudflare catalog.
 
 ## Validation
 
@@ -73,8 +73,9 @@ Keys live at the GitHub installation boundary. They do not belong in Nanite mani
 authorization screen blocks consent until the chosen installation has at least one saved provider
 key, making it clear that model-backed Nanites need an AI key before use.
 
-Cloudflare AI Gateway supports REST/OpenAI-compatible requests with `author/model` ids and BYOK
-stored provider keys. That is the right future runtime path for hosted third-party models.
+Cloudflare AI Gateway supports OpenAI-compatible requests with `author/model` ids. Hosted Nanites
+uses the installation's encrypted provider API key on those keyed third-party requests and keeps
+Cloudflare-hosted Workers AI models on the deployment-owned binding path.
 
 ## Non-Goals
 

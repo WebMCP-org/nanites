@@ -58,7 +58,7 @@ A Nanite is primarily:
 - `Scope`: which repos, files, packages, docs, or surfaces it owns
 - `Soul`: what purpose it serves and what behavior/tradeoffs it should prefer
 - `Stop conditions`: what counts as done, blocked, failed, or waiting
-- `Model policy`: deployment default or an explicit Cloudflare catalog model override
+- `Model`: one explicit Cloudflare catalog model id
 
 That is the durable product identity.
 

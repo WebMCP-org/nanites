@@ -20,11 +20,12 @@ export const KEYED_AI_PROVIDER_OPTIONS = [
 
 const keyedAiProviderSet = new Set<string>(KEYED_AI_PROVIDERS);
 const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 export type InstallationAiProviderKeySummary = {
   provider: KeyedAiProvider;
   keyLast4: string;
-  updatedAt: Date;
+  updatedAt: string;
 };
 
 export function isKeyedAiProvider(value: string): value is KeyedAiProvider {
@@ -74,6 +75,19 @@ async function sealProviderApiKey(env: Env, apiKey: string): Promise<string> {
   return Buffer.from(packed).toString("base64url");
 }
 
+async function openProviderApiKey(env: Env, encryptedApiKey: string): Promise<string> {
+  const packed = new Uint8Array(Buffer.from(encryptedApiKey, "base64url"));
+  const iv = packed.slice(0, 12);
+  const encrypted = packed.slice(12);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    await deriveProviderKeyEncryptionKey(env),
+    encrypted,
+  );
+
+  return textDecoder.decode(decrypted);
+}
+
 export async function saveInstallationAiProviderKey({
   db,
   env,
@@ -117,8 +131,30 @@ export async function saveInstallationAiProviderKey({
   return {
     provider,
     keyLast4: values.keyLast4,
-    updatedAt: values.updatedAt,
+    updatedAt: values.updatedAt.toISOString(),
   };
+}
+
+export async function readInstallationAiProviderApiKey({
+  db,
+  env,
+  githubInstallationId,
+  provider,
+}: {
+  db: DbClient;
+  env: Env;
+  githubInstallationId: number;
+  provider: KeyedAiProvider;
+}): Promise<string | null> {
+  const row = await db.query.installationAiProviderKeys.findFirst({
+    columns: { encryptedApiKey: true },
+    where: and(
+      eq(installationAiProviderKeys.githubInstallationId, githubInstallationId),
+      eq(installationAiProviderKeys.provider, provider),
+    ),
+  });
+
+  return row ? await openProviderApiKey(env, row.encryptedApiKey) : null;
 }
 
 export async function hasInstallationAiProviderKey(
@@ -162,7 +198,7 @@ export async function listInstallationAiProviderKeySummaries(
     summaries.push({
       provider: row.provider,
       keyLast4: row.keyLast4,
-      updatedAt: row.updatedAt,
+      updatedAt: row.updatedAt.toISOString(),
     });
     byInstallation.set(row.githubInstallationId, summaries);
   }

@@ -74,7 +74,10 @@ export const OBSERVABILITY_ACTOR_SOURCES = [
 ] as const;
 export const AUDIT_EVENT_OUTCOMES = ["success", "failure", "denied", "noop"] as const;
 export const KEYED_AI_PROVIDERS = ["deepseek", "openai", "anthropic", "google"] as const;
-export const NANITE_MODEL_RUNTIME_PATHS = ["workers_ai_gateway"] as const;
+export const NANITE_MODEL_RUNTIME_PATHS = [
+  "workers_ai_gateway",
+  "ai_gateway_openai_compat",
+] as const;
 export const AUDIT_TARGET_TYPES = [
   "nanite",
   "run",

@@ -23,6 +23,7 @@ Before your first deploy, replace every environment-specific value in `wrangler.
 | `d1_databases[].database_name`        | your D1 database name                                 |
 | `r2_buckets[].bucket_name`            | your R2 bucket name                                   |
 | `kv_namespaces[].id` / `preview_id`   | your KV namespace ids                                 |
+| `CLOUDFLARE_API_TOKEN`                | an AI Gateway token for keyed third-party model calls |
 | `CLOUDFLARE_ACCESS_TEAM_DOMAIN` / AUD | your Access app values, or empty strings if unused    |
 | `SENTRY_ENVIRONMENT` / trace settings | your observability environment names and sample rates |
 
@@ -100,6 +101,7 @@ Set required Worker secrets:
 ```bash
 vp exec wrangler secret put AUTH_COOKIE_SECRET --config wrangler.jsonc
 vp exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+vp exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc

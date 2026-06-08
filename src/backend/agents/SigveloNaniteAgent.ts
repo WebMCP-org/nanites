@@ -27,7 +27,10 @@ import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.t
 import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabilities.ts";
 import { NaniteToolOutputArtifactStore } from "#/backend/nanites/tool-output.ts";
 import { wrapToolSetForNaniteOutputBudget } from "#/backend/nanites/tool-output.ts";
-import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
+import {
+  createNaniteRunLanguageModel,
+  createSigveloAgentLanguageModel,
+} from "#/backend/nanites/language-model.ts";
 import type {
   AskHumanInput,
   CompleteNaniteRunInput,
@@ -833,16 +836,28 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   private async getTurnModel(runId: string | null): Promise<LanguageModel> {
     const run = await this.readActiveRun(runId);
     const runModel = run?.model ?? this.state.activeRunModel;
+    if (!runModel) {
+      throw new AppError("nanitesModelSelectionInvalid", {
+        details: {
+          reason: "Nanite turns require a resolved run model.",
+          modelId: null,
+        },
+      });
+    }
 
-    return createSigveloAgentLanguageModel({
+    const managerName = this.state.managerName ?? getParentManagerName(this);
+    const githubInstallationId = parseManagerInstallationId(managerName);
+    if (!githubInstallationId) {
+      throw new AppError("naniteAgentManagerRequired");
+    }
+
+    return createNaniteRunLanguageModel({
+      db: createDbClient(this.env.DB),
       env: this.env,
+      githubInstallationId,
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(runId),
-      ...(runModel
-        ? {
-            modelSettings: modelSettingsFromRunSnapshot(runModel),
-          }
-        : {}),
+      modelSettings: modelSettingsFromRunSnapshot(runModel),
     });
   }
 
@@ -898,8 +913,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       naniteId: run.naniteId,
       runKey: run.runId,
       requestId,
-      provider: aiGatewayLog?.provider ?? ctx.model.provider,
-      model: aiGatewayLog?.model ?? ctx.model.modelId,
+      provider: aiGatewayLog?.provider ?? run.model.effectiveProvider,
+      model: aiGatewayLog?.model ?? run.model.effectiveModelId,
       sessionAffinity: run.runId,
       isContinuation: this.currentTurnContinuation,
       stepCount: ctx.stepNumber + 1,
@@ -931,15 +946,9 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   });
 
   override getModel(): LanguageModel {
-    const activeRunModel = this.state.activeRunModel;
     return createSigveloAgentLanguageModel({
       env: this.env,
       sessionAffinity: this.state.activeRunId ?? this.name,
-      ...(activeRunModel
-        ? {
-            modelSettings: modelSettingsFromRunSnapshot(activeRunModel),
-          }
-        : {}),
     });
   }
 

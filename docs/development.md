@@ -88,6 +88,7 @@ Set runtime secrets with Wrangler:
 ```bash
 vp exec wrangler secret put AUTH_COOKIE_SECRET --config wrangler.jsonc
 vp exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+vp exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc

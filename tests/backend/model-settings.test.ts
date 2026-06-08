@@ -108,8 +108,8 @@ test("runtime settings resolve from env and explicit model id", () => {
       envWithModelCatalog([], { NANITES_AI_GATEWAY_ID: "deployment-gateway" }),
     ),
   ).toMatchObject({
-    modelId: "deepseek/deepseek-v4-pro",
-    provider: "deepseek",
+    modelId: "@cf/moonshotai/kimi-k2.6",
+    provider: "kimi",
     gatewayId: "deployment-gateway",
   });
 

@@ -195,6 +195,7 @@
     "required": [
       "AUTH_COOKIE_SECRET",
       "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
       "GITHUB_APP_PRIVATE_KEY",
       "GITHUB_CLIENT_SECRET",
       "GITHUB_WEBHOOK_SECRET",
@@ -260,6 +261,7 @@
       "secrets": {
         "required": [
           "AUTH_COOKIE_SECRET",
+          "CLOUDFLARE_API_TOKEN",
           "GITHUB_APP_PRIVATE_KEY",
           "GITHUB_CLIENT_SECRET",
           "GITHUB_WEBHOOK_SECRET",
@@ -361,6 +363,7 @@
         "required": [
           "AUTH_COOKIE_SECRET",
           "CLOUDFLARE_ACCOUNT_ID",
+          "CLOUDFLARE_API_TOKEN",
           "GITHUB_APP_PRIVATE_KEY",
           "GITHUB_CLIENT_SECRET",
           "GITHUB_WEBHOOK_SECRET",
@@ -460,6 +463,7 @@
         "required": [
           "AUTH_COOKIE_SECRET",
           "CLOUDFLARE_ACCOUNT_ID",
+          "CLOUDFLARE_API_TOKEN",
           "GITHUB_APP_PRIVATE_KEY",
           "GITHUB_CLIENT_SECRET",
           "GITHUB_WEBHOOK_SECRET",

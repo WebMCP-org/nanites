@@ -355,7 +355,7 @@ export type NaniteRunRecord = {
 };
 
 export type NaniteRunModelSnapshot = {
-  runtimePath: "workers_ai_gateway";
+  runtimePath: "workers_ai_gateway" | "ai_gateway_openai_compat";
   effectiveModelId: string;
   effectiveProvider: string;
   effectiveProviderLabel: string;
@@ -650,7 +650,7 @@ async function assertNaniteRepositoriesBelongToInstallation({
   }
 }
 
-async function assertNaniteModelKeyBelongsToInstallation({
+export async function assertNaniteModelKeyBelongsToInstallation({
   env,
   githubInstallationId,
   modelId,
@@ -781,7 +781,9 @@ export async function resolveNaniteRunModelSnapshot(input: {
   const modelSettings = resolveNanitesModelSettings(input.env, input.manifest.model);
 
   return {
-    runtimePath: "workers_ai_gateway",
+    runtimePath: keyedAiProviderForNanitesModelId(modelSettings.modelId)
+      ? "ai_gateway_openai_compat"
+      : "workers_ai_gateway",
     effectiveModelId: modelSettings.modelId,
     effectiveProvider: modelSettings.provider,
     effectiveProviderLabel: modelSettings.providerLabel,

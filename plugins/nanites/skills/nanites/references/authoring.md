@@ -38,7 +38,7 @@ GitHub machine-source Nanite:
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP docs aligned with package changes.",
-    "model": "deepseek/deepseek-v4-pro",
+    "model": "/moonshotai/kimi-k2.6",
     "eventSource": {
       "type": "github",
       "events": ["push"],
@@ -69,7 +69,7 @@ Manual Nanite:
     "id": "repo-health-checker",
     "name": "Repo Health Checker",
     "description": "Answers manual maintenance questions for one repo surface.",
-    "model": "deepseek/deepseek-v4-pro",
+    "model": "/moonshotai/kimi-k2.6",
     "eventSource": {
       "type": "manual"
     },
@@ -96,7 +96,7 @@ Schedule source shape:
     "type": "scheduleEvery",
     "intervalSeconds": 86400
   },
-  "model": "deepseek/deepseek-v4-pro",
+  "model": "/moonshotai/kimi-k2.6",
   "triggerSource": "export default { async handle(event, ctx) { return ctx.dispatchSelf({ reason: 'Daily scheduled check' }); } };"
 }
 ```

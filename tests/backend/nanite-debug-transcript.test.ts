@@ -7,13 +7,13 @@ import {
   messageHasLifecycleToolCall,
 } from "#/backend/agents/SigveloNaniteAgent.ts";
 
-const naniteModel = "deepseek/deepseek-v4-pro";
+const naniteModel = "@cf/moonshotai/kimi-k2.6";
 const naniteRunModel = {
-  runtimePath: "workers_ai_gateway",
-  effectiveModelId: "deepseek/deepseek-v4-pro",
-  effectiveProvider: "deepseek",
-  effectiveProviderLabel: "DeepSeek",
-  effectiveModelName: "DeepSeek V4 Pro",
+  runtimePath: "ai_gateway_openai_compat",
+  effectiveModelId: "@cf/moonshotai/kimi-k2.6",
+  effectiveProvider: "kimi",
+  effectiveProviderLabel: "Moonshot AI",
+  effectiveModelName: "Kimi K2.6",
   effectiveGatewayId: "default",
   manifestVersionId: "version-1",
   resolvedAt: "2026-05-24T00:00:00.000Z",

@@ -3,6 +3,7 @@
 # Required runtime secrets
 AUTH_COOKIE_SECRET="replace-with-a-long-random-value"
 CLOUDFLARE_ACCOUNT_ID="replace-with-your-cloudflare-account-id"
+CLOUDFLARE_API_TOKEN="replace-with-your-cloudflare-ai-gateway-token"
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nreplace-with-your-github-app-private-key\n-----END PRIVATE KEY-----"
 GITHUB_CLIENT_SECRET="replace-with-your-github-app-client-secret"
 GITHUB_WEBHOOK_SECRET="replace-with-your-github-app-webhook-secret"
