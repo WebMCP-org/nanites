@@ -60,6 +60,26 @@ BYOK belongs to a later provider-native AI Gateway runtime, not this V1 manifest
 runtime is added, introduce an explicit runtime discriminant instead of extending `selected` with
 credential fields.
 
+## Future Hosted Cost Model
+
+The hosted Nanites product should assume AI credits are the dominant marginal cost. Self-hosted
+operators can bring their own Cloudflare account, Workers AI binding, AI Gateway, and provider
+secrets through deployment configuration. Hosted users need a product-level way to pay for or attach
+model credits without turning each Nanite manifest into a credential document.
+
+The likely next shape is a small account or installation settings surface, simpler than the deleted
+settings page:
+
+- choose the model runtime surface: Cloudflare-hosted Workers AI or AI Gateway provider route
+- store provider API keys or Cloudflare AI Gateway BYOK aliases at the account/installation boundary
+- let `manifest.model` continue to pick model policy only
+- validate selected models against the relevant Cloudflare documentation/catalog for that runtime
+- smoke-test the selected runtime/key before allowing it to become the active billing path
+
+Do not put raw API keys, BYOK aliases, provider headers, gateway ids, or billing-account choices in
+Nanite manifests. A Nanite should only say which model policy it wants; the deployment or
+installation should own how that model call is paid for and authorized.
+
 ## Non-Goals
 
 - No new UI for Nanite model selection.
