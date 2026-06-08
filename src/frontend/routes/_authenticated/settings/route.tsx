@@ -104,7 +104,7 @@ async function testModelSettings(
   return parseResponse(httpClient.api.settings.model.test.$post({ json: input }));
 }
 
-function normalizedOptional(value: string): string | null {
+function optionalSettingValue(value: string): string | null {
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
 }
@@ -112,8 +112,8 @@ function normalizedOptional(value: string): string | null {
 function buildPayload(draft: DraftModelSettings): SaveModelSettingsInput {
   return {
     modelId: draft.modelId,
-    gatewayId: normalizedOptional(draft.gatewayId),
-    byokAlias: normalizedOptional(draft.byokAlias),
+    gatewayId: optionalSettingValue(draft.gatewayId),
+    byokAlias: optionalSettingValue(draft.byokAlias),
   };
 }
 
@@ -273,7 +273,7 @@ function InstallationBadge({
 function NoActiveInstallationPanel() {
   return (
     <section className="settings-empty-panel">
-      <div className="settings-panel__icon" aria-hidden="true">
+      <div className="settings-empty-panel__icon" aria-hidden="true">
         <GearSixIcon size={18} />
       </div>
       <div>

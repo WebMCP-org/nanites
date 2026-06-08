@@ -89,6 +89,12 @@ test("model catalog reads Cloudflare text-generation search results", async () =
         task: { name: "Text-to-Image" },
         tags: ["Cloudflare-hosted"],
       },
+      {
+        id: "02c16efa-29f5-4304-8e6c-3d188889f875",
+        name: "catalog display name",
+        task: { name: "Text Generation" },
+        tags: ["Third-party"],
+      },
     ]),
   );
 
@@ -112,6 +118,9 @@ test("model catalog reads Cloudflare text-generation search results", async () =
   );
   expect(catalog.models.map((model) => model.id)).not.toContain(
     "@cf/black-forest-labs/flux-1-schnell",
+  );
+  expect(catalog.models.map((model) => model.id)).not.toContain(
+    "02c16efa-29f5-4304-8e6c-3d188889f875",
   );
 });
 

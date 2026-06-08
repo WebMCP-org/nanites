@@ -99,6 +99,29 @@ export const DEFAULT_NANITES_MODEL_SETTINGS = {
   byokAlias: null,
 } as const;
 
+const providerLabels: Record<string, string> = {
+  aisingapore: "AI Singapore",
+  anthropic: "Anthropic",
+  cloudflare: "Cloudflare",
+  deepseek: "DeepSeek",
+  google: "Google",
+  "google-ai-studio": "Google AI Studio",
+  kimi: "Moonshot AI",
+  meta: "Meta",
+  "ibm-granite": "IBM Granite",
+  mistral: "Mistral AI",
+  mistralai: "Mistral AI",
+  moonshotai: "Moonshot AI",
+  openai: "OpenAI",
+  qwen: "Qwen",
+  xai: "xAI",
+};
+
+const providerAliases: Record<string, string> = {
+  "deepseek-ai": "deepseek",
+  moonshotai: "kimi",
+};
+
 function toIso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
@@ -113,25 +136,8 @@ function cleanGatewayId(value: string | null | undefined): string {
 }
 
 function providerLabel(provider: string): string {
-  const labels: Record<string, string> = {
-    aisingapore: "AI Singapore",
-    anthropic: "Anthropic",
-    cloudflare: "Cloudflare",
-    deepseek: "DeepSeek",
-    google: "Google",
-    "google-ai-studio": "Google AI Studio",
-    kimi: "Moonshot AI",
-    meta: "Meta",
-    "ibm-granite": "IBM Granite",
-    mistral: "Mistral AI",
-    mistralai: "Mistral AI",
-    moonshotai: "Moonshot AI",
-    openai: "OpenAI",
-    qwen: "Qwen",
-    xai: "xAI",
-  };
   return (
-    labels[provider] ??
+    providerLabels[provider] ??
     provider.replaceAll("-", " ").replace(/\b\w/g, (match) => match.toUpperCase())
   );
 }
@@ -157,10 +163,10 @@ function looksLikeModelId(value: string): boolean {
 }
 
 function readModelId(input: CloudflareModelSearchObject): string | null {
-  const name = typeof input.name === "string" ? input.name.trim() : "";
-  const id = typeof input.id === "string" ? input.id.trim() : "";
-  const modelId = name && looksLikeModelId(name) ? name : id;
-  return modelId ? modelId : null;
+  const candidates = [input.name, input.id]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim());
+  return candidates.find((candidate) => looksLikeModelId(candidate)) ?? null;
 }
 
 function readDisplayName(input: CloudflareModelSearchObject, modelId: string): string | null {
@@ -174,18 +180,15 @@ function readDisplayName(input: CloudflareModelSearchObject, modelId: string): s
 function inferProvider(modelId: string): string {
   const segments = modelId.split("/");
   if (modelId.startsWith("@cf/")) {
-    const author = segments.at(1) ?? "cloudflare";
-    if (author === "moonshotai") {
-      return "kimi";
-    }
-    if (author === "deepseek-ai") {
-      return "deepseek";
-    }
-    return author.replace("-ai", "");
+    return providerSlug(segments.at(1));
   }
 
-  const provider = segments.at(0) ?? "cloudflare";
-  return provider === "xai" ? "xai" : provider;
+  return providerSlug(segments.at(0));
+}
+
+function providerSlug(value: string | undefined): string {
+  const provider = value ?? "cloudflare";
+  return providerAliases[provider] ?? provider.replace(/-ai$/, "");
 }
 
 function inferSource(modelId: string): NanitesModelSource {
@@ -415,15 +418,16 @@ export async function recordInstallationModelSmokeTest(
   ) {
     return;
   }
+  const now = new Date();
 
   await db
     .update(installationModelSettings)
     .set({
-      lastTestedAt: new Date(),
+      lastTestedAt: now,
       lastTestStatus: input.result.status,
       lastTestMessage: input.result.message,
       lastTestLatencyMs: input.result.latencyMs,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(eq(installationModelSettings.githubInstallationId, input.githubInstallationId))
     .run();
