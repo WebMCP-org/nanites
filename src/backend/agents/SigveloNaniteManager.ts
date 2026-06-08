@@ -66,10 +66,11 @@ import {
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
 import {
-  resolveDeploymentNanitesModelSettings,
-  resolveSelectedNanitesModelSettings,
-  validateNanitesModelSelection,
+  keyedAiProviderForNanitesModelId,
+  resolveNanitesModelSettings,
+  validateNanitesModelId,
 } from "#/backend/nanites/model-settings.ts";
+import { hasInstallationAiProviderKey } from "#/backend/nanites/provider-keys.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -292,18 +293,9 @@ type NaniteManifestBase = {
   id: string;
   name: string;
   description: string;
-  model: NaniteModelConfig;
+  model: string;
   permissions: NanitePermissionSpec;
 };
-
-export type NaniteModelConfig =
-  | {
-      mode: "deployment_default";
-    }
-  | {
-      mode: "selected";
-      modelId: string;
-    };
 
 export type NaniteManifest =
   | (NaniteManifestBase & {
@@ -363,8 +355,6 @@ export type NaniteRunRecord = {
 };
 
 export type NaniteRunModelSnapshot = {
-  configMode: NaniteModelConfig["mode"];
-  selectionSource: "deployment_default" | "manifest";
   runtimePath: "workers_ai_gateway";
   effectiveModelId: string;
   effectiveProvider: string;
@@ -660,6 +650,34 @@ async function assertNaniteRepositoriesBelongToInstallation({
   }
 }
 
+async function assertNaniteModelKeyBelongsToInstallation({
+  env,
+  githubInstallationId,
+  modelId,
+}: {
+  env: Env;
+  githubInstallationId: number;
+  modelId: string;
+}): Promise<void> {
+  const provider = keyedAiProviderForNanitesModelId(modelId);
+  if (!provider) {
+    return;
+  }
+
+  if (await hasInstallationAiProviderKey(createDbClient(env.DB), githubInstallationId, provider)) {
+    return;
+  }
+
+  throw new AppError("nanitesModelSelectionInvalid", {
+    details: {
+      reason: "The selected model provider needs an API key for this GitHub installation.",
+      modelId,
+      provider,
+      githubInstallationId,
+    },
+  });
+}
+
 function createInitialNaniteManagerState(): NaniteManagerState {
   return {
     nanites: {},
@@ -737,42 +755,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasNaniteModelConfig(value: unknown): value is NaniteModelConfig {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  if (value.mode === "deployment_default") {
-    return true;
-  }
-
-  return value.mode === "selected" && typeof value.modelId === "string";
-}
-
 export async function normalizeNaniteManifestModelConfig(
   env: Env,
   manifest: NaniteManifest,
 ): Promise<NaniteManifest> {
-  if (!hasNaniteModelConfig(manifest.model)) {
+  if (typeof manifest.model !== "string") {
     throw new AppError("nanitesModelSelectionInvalid", {
-      details: { reason: "Nanite manifests must include model config.", modelId: null },
+      details: { reason: "Nanite manifests must include a model id.", modelId: null },
     });
   }
 
-  if (manifest.model.mode === "deployment_default") {
-    return {
-      ...manifest,
-      model: { mode: "deployment_default" },
-    };
-  }
-
-  const modelId = await validateNanitesModelSelection(env, manifest.model.modelId);
+  const modelId = await validateNanitesModelId(env, manifest.model);
   return {
     ...manifest,
-    model: {
-      mode: "selected",
-      modelId,
-    },
+    model: modelId,
   };
 }
 
@@ -782,14 +778,9 @@ export async function resolveNaniteRunModelSnapshot(input: {
   manifestVersionId: string;
   resolvedAt: string;
 }): Promise<NaniteRunModelSnapshot> {
-  const modelSettings =
-    input.manifest.model.mode === "selected"
-      ? resolveSelectedNanitesModelSettings(input.env, input.manifest.model.modelId)
-      : resolveDeploymentNanitesModelSettings(input.env);
+  const modelSettings = resolveNanitesModelSettings(input.env, input.manifest.model);
 
   return {
-    configMode: input.manifest.model.mode,
-    selectionSource: input.manifest.model.mode === "selected" ? "manifest" : "deployment_default",
     runtimePath: "workers_ai_gateway",
     effectiveModelId: modelSettings.modelId,
     effectiveProvider: modelSettings.provider,
@@ -2160,6 +2151,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         env: this.env,
         githubInstallationId,
         manifest,
+      });
+      await assertNaniteModelKeyBelongsToInstallation({
+        env: this.env,
+        githubInstallationId,
+        modelId: manifest.model,
       });
     }
 

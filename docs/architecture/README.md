@@ -174,7 +174,7 @@ path filters, debounce rules, and other behavior belong in `triggerSource` code.
     id: "docs-syncer-react-webmcp",
     name: "React WebMCP docs syncer",
     description: "Keeps React WebMCP docs aligned with package changes.",
-    model: { mode: "deployment_default" },
+    model: "deepseek/deepseek-v4-pro",
     eventSource: {
       type: "github",
       events: ["push"],

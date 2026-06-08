@@ -5,7 +5,12 @@ import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { McpAuthorizeContext } from "#/backend/api/routes/mcp.ts";
-import { ArrowSquareOutIcon, ArrowRightIcon, ShieldCheckIcon } from "@phosphor-icons/react";
+import {
+  ArrowSquareOutIcon,
+  ArrowRightIcon,
+  KeyIcon,
+  ShieldCheckIcon,
+} from "@phosphor-icons/react";
 import { MCP_AUTHORIZE_CONTEXT_ROUTE } from "#/mcp.ts";
 
 export const Route = createFileRoute("/mcp-authorize")({
@@ -153,6 +158,81 @@ function McpAuthorizePage() {
     );
   }
 
+  if (context.status === "missing_ai_key") {
+    return (
+      <McpAuthorizeShell
+        title="Add an AI API key"
+        summary={`${context.clientName} can connect after this GitHub installation has a model provider key.`}
+      >
+        <form className="mcp-authorize__form" method="post" action={context.saveAction}>
+          <label className="mcp-authorize__field">
+            <span>GitHub installation</span>
+            <select
+              className="mcp-authorize__select"
+              name="github_installation_id"
+              defaultValue={String(context.activeGithubInstallationId)}
+              required
+            >
+              {context.installations.map((option) => (
+                <option key={option.installation.id} value={option.installation.id}>
+                  {option.installation.account.login} ({option.repositoryCount}{" "}
+                  {option.repositoryCount === 1 ? "repository" : "repositories"})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="mcp-authorize__field">
+            <span>Provider</span>
+            <select className="mcp-authorize__select" name="provider" defaultValue="deepseek">
+              {context.providers.map((provider) => (
+                <option key={provider.provider} value={provider.provider}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="mcp-authorize__field">
+            <span>API key</span>
+            <input
+              className="mcp-authorize__input"
+              name="api_key"
+              type="password"
+              aria-label="API key"
+              autoComplete="off"
+              placeholder="Paste a provider API key"
+              required
+            />
+          </label>
+
+          <p className="mcp-authorize__note">
+            Nanites needs a provider API key before an MCP client can create or run model-backed
+            Nanites for this installation. Keys are stored encrypted and scoped to this GitHub
+            installation.
+          </p>
+
+          <div className="mcp-authorize__actions">
+            <Button type="submit" color="primary" size="lg">
+              <KeyIcon size={18} aria-hidden="true" />
+              <span>Save API key</span>
+            </Button>
+            <Button
+              color="neutral"
+              variant="outline"
+              size="lg"
+              onClick={() => {
+                window.location.reload();
+              }}
+            >
+              Refresh
+            </Button>
+          </div>
+        </form>
+      </McpAuthorizeShell>
+    );
+  }
+
   const selectedInstallationId = context.installations.some(
     (option) => option.installation.id === context.activeGithubInstallationId,
   )
@@ -179,6 +259,9 @@ function McpAuthorizePage() {
               <option key={option.installation.id} value={option.installation.id}>
                 {option.installation.account.login} ({option.repositoryCount}{" "}
                 {option.repositoryCount === 1 ? "repository" : "repositories"})
+                {option.configuredAiProviders.length
+                  ? ` - ${option.configuredAiProviders.map((key) => key.provider).join(", ")} key`
+                  : ""}
               </option>
             ))}
           </select>

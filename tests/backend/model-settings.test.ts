@@ -1,10 +1,9 @@
 import { env } from "cloudflare:test";
 import {
-  DEFAULT_NANITES_MODEL_ID,
   fetchNanitesModelCatalog,
-  resolveDeploymentNanitesModelSettings,
-  resolveSelectedNanitesModelSettings,
-  validateNanitesModelSelection,
+  resolveDefaultSigveloAgentModelSettings,
+  resolveNanitesModelSettings,
+  validateNanitesModelId,
 } from "#/backend/nanites/model-settings.ts";
 
 function envWithModelCatalog(models: unknown[], overrides: Record<string, unknown> = {}): Env {
@@ -83,9 +82,9 @@ test("model catalog reads Cloudflare text-generation search results", async () =
   );
 });
 
-test("selected model validation trims and checks the Cloudflare catalog", async () => {
+test("model validation trims and checks the Cloudflare catalog", async () => {
   await expect(
-    validateNanitesModelSelection(
+    validateNanitesModelId(
       envWithModelCatalog([
         {
           id: "@cf/moonshotai/kimi-k2.6",
@@ -99,23 +98,23 @@ test("selected model validation trims and checks the Cloudflare catalog", async 
   ).resolves.toBe("@cf/moonshotai/kimi-k2.6");
 
   await expect(
-    validateNanitesModelSelection(envWithModelCatalog([]), "deepseek/not-in-catalog"),
+    validateNanitesModelId(envWithModelCatalog([]), "deepseek/not-in-catalog"),
   ).rejects.toThrow("Nanites model selection is invalid");
 });
 
-test("runtime settings resolve from deployment env and selected model id", () => {
+test("runtime settings resolve from env and explicit model id", () => {
   expect(
-    resolveDeploymentNanitesModelSettings(
+    resolveDefaultSigveloAgentModelSettings(
       envWithModelCatalog([], { NANITES_AI_GATEWAY_ID: "deployment-gateway" }),
     ),
   ).toMatchObject({
-    modelId: DEFAULT_NANITES_MODEL_ID,
+    modelId: "deepseek/deepseek-v4-pro",
     provider: "deepseek",
     gatewayId: "deployment-gateway",
   });
 
   expect(
-    resolveSelectedNanitesModelSettings(
+    resolveNanitesModelSettings(
       envWithModelCatalog([], { NANITES_AI_GATEWAY_ID: "deployment-gateway" }),
       "@cf/moonshotai/kimi-k2.6",
     ),

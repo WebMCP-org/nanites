@@ -63,7 +63,7 @@ test("Nanite plugin examples avoid legacy manifest fields", () => {
   }
 });
 
-test("Nanite plugin examples include explicit model policy", () => {
+test("Nanite plugin examples include explicit model ids", () => {
   for (const { source } of exampleFiles) {
     const payload = JSON.parse(source) as {
       manifest?: {
@@ -71,6 +71,6 @@ test("Nanite plugin examples include explicit model policy", () => {
       };
     };
 
-    expect(payload.manifest?.model).toEqual({ mode: "deployment_default" });
+    expect(payload.manifest?.model).toBe("deepseek/deepseek-v4-pro");
   }
 });

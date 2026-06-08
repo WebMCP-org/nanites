@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e2018000-7848-47f2-a48c-3de82bc3bc79",
-  "prevId": "b6f1a5fb-efef-4833-8927-c4f3db0b07eb",
+  "id": "51fb321b-c510-4d1b-beb9-4f8359bef414",
+  "prevId": "e2018000-7848-47f2-a48c-3de82bc3bc79",
   "tables": {
     "account_entitlements": {
       "name": "account_entitlements",
@@ -1072,6 +1072,73 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "installation_ai_provider_keys": {
+      "name": "installation_ai_provider_keys",
+      "columns": {
+        "github_installation_id": {
+          "name": "github_installation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "encrypted_api_key": {
+          "name": "encrypted_api_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key_last4": {
+          "name": "key_last4",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "installation_ai_provider_keys_github_installation_id_account_installations_github_installation_id_fk": {
+          "name": "installation_ai_provider_keys_github_installation_id_account_installations_github_installation_id_fk",
+          "tableFrom": "installation_ai_provider_keys",
+          "tableTo": "account_installations",
+          "columnsFrom": ["github_installation_id"],
+          "columnsTo": ["github_installation_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "installation_ai_provider_keys_github_installation_id_provider_pk": {
+          "columns": ["github_installation_id", "provider"],
+          "name": "installation_ai_provider_keys_github_installation_id_provider_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "nanite_catalog": {
       "name": "nanite_catalog",
       "columns": {
@@ -1130,6 +1197,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         },
         "repository_full_names_json": {
           "name": "repository_full_names_json",
@@ -1218,14 +1293,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "model_id": {
-          "name": "model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
         }
       },
       "indexes": {

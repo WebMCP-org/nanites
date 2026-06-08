@@ -1,9 +1,10 @@
 import { AppError } from "#/backend/errors.ts";
+import { isKeyedAiProvider, type KeyedAiProvider } from "#/backend/nanites/provider-keys.ts";
 
 const defaultCatalogPageSize = 200;
 
-export const DEFAULT_NANITES_MODEL_ID = "deepseek/deepseek-v4-pro";
-export const DEFAULT_NANITES_MODEL_GATEWAY_ID = "default";
+const DEFAULT_SIGVELO_AGENT_MODEL_ID = "deepseek/deepseek-v4-pro";
+const DEFAULT_NANITES_MODEL_GATEWAY_ID = "default";
 
 export type NanitesModelSource = "cloudflare-hosted" | "third-party";
 
@@ -48,10 +49,10 @@ type CloudflareModelSearchObject = {
   properties?: unknown;
 };
 
-export const DEFAULT_NANITES_MODEL_SETTINGS = {
+export const DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS = {
   provider: "deepseek",
   providerLabel: "DeepSeek",
-  modelId: DEFAULT_NANITES_MODEL_ID,
+  modelId: DEFAULT_SIGVELO_AGENT_MODEL_ID,
   modelName: "DeepSeek V4 Pro",
   gatewayId: DEFAULT_NANITES_MODEL_GATEWAY_ID,
 } as const;
@@ -76,6 +77,7 @@ const providerLabels: Record<string, string> = {
 
 const providerAliases: Record<string, string> = {
   "deepseek-ai": "deepseek",
+  "google-ai-studio": "google",
   moonshotai: "kimi",
 };
 
@@ -152,6 +154,16 @@ function inferSource(modelId: string): NanitesModelSource {
   return modelId.startsWith("@cf/") || modelId.startsWith("@hf/")
     ? "cloudflare-hosted"
     : "third-party";
+}
+
+export function keyedAiProviderForNanitesModelId(modelId: string): KeyedAiProvider | null {
+  const cleanModelId = modelId.trim();
+  if (cleanModelId.startsWith("@cf/") || cleanModelId.startsWith("@hf/")) {
+    return null;
+  }
+
+  const provider = inferProvider(cleanModelId);
+  return isKeyedAiProvider(provider) ? provider : null;
 }
 
 function parseContextWindow(properties: unknown): number | null {
@@ -253,11 +265,11 @@ export async function fetchNanitesModelCatalog(env: Env): Promise<NanitesModelCa
   };
 }
 
-export async function validateNanitesModelSelection(env: Env, modelId: string): Promise<string> {
+export async function validateNanitesModelId(env: Env, modelId: string): Promise<string> {
   const cleanModelId = modelId.trim();
   if (!cleanModelId) {
     throw new AppError("nanitesModelSelectionInvalid", {
-      details: { reason: "Selected model id is required.", modelId },
+      details: { reason: "Nanite model id is required.", modelId },
     });
   }
 
@@ -272,14 +284,14 @@ export async function validateNanitesModelSelection(env: Env, modelId: string): 
   return cleanModelId;
 }
 
-export function resolveDeploymentNanitesModelSettings(env: Env): NanitesRuntimeModelSettings {
+export function resolveDefaultSigveloAgentModelSettings(env: Env): NanitesRuntimeModelSettings {
   return {
-    ...DEFAULT_NANITES_MODEL_SETTINGS,
+    ...DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS,
     gatewayId: deploymentGatewayId(env),
   };
 }
 
-export function resolveSelectedNanitesModelSettings(
+export function resolveNanitesModelSettings(
   env: Env,
   modelId: string,
 ): NanitesRuntimeModelSettings {

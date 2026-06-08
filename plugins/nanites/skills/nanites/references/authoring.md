@@ -25,10 +25,10 @@ Avoid:
 
 Use the live MCP schema as the final authority. The create schema is strict: unexpected fields are rejected.
 
-Every manifest includes `model` as runtime policy. Use `{ "mode": "deployment_default" }` for the
-deployment's default model. Use `{ "mode": "selected", "modelId": "provider/model" }` only when the
-Nanite needs a specific Cloudflare catalog model. Do not put gateway ids, BYOK aliases, provider API
-keys, or auth headers in the manifest.
+Every manifest includes `model` as an explicit Cloudflare model id string. Pick the cheapest reliable
+model for the Nanite's job from the current Cloudflare model catalog; prefer DeepSeek when it is
+suitable and available. Do not put gateway ids, BYOK aliases, provider API keys, or auth headers in
+the manifest.
 
 GitHub machine-source Nanite:
 
@@ -38,9 +38,7 @@ GitHub machine-source Nanite:
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP docs aligned with package changes.",
-    "model": {
-      "mode": "deployment_default"
-    },
+    "model": "deepseek/deepseek-v4-pro",
     "eventSource": {
       "type": "github",
       "events": ["push"],
@@ -71,9 +69,7 @@ Manual Nanite:
     "id": "repo-health-checker",
     "name": "Repo Health Checker",
     "description": "Answers manual maintenance questions for one repo surface.",
-    "model": {
-      "mode": "deployment_default"
-    },
+    "model": "deepseek/deepseek-v4-pro",
     "eventSource": {
       "type": "manual"
     },
@@ -100,9 +96,7 @@ Schedule source shape:
     "type": "scheduleEvery",
     "intervalSeconds": 86400
   },
-  "model": {
-    "mode": "deployment_default"
-  },
+  "model": "deepseek/deepseek-v4-pro",
   "triggerSource": "export default { async handle(event, ctx) { return ctx.dispatchSelf({ reason: 'Daily scheduled check' }); } };"
 }
 ```
@@ -112,7 +106,7 @@ For `eventSource.type: "schedule"`, use `when` with a delayed seconds number, a 
 Authoring checklist:
 
 - identity: stable `id`, `name`, and `description`
-- model policy: `model.mode` is `deployment_default` or `selected`
+- model: explicit Cloudflare model id string
 - scope: repositories and owned files, packages, docs, workflows, or product surfaces
 - intake: `eventSource` as the coarse candidate filter
 - behavior: root `triggerSource` for machine-originated sources

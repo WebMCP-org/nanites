@@ -24,17 +24,14 @@ function envWithModelCatalog(models: unknown[], overrides: Record<string, unknow
   } as Env;
 }
 
-test("selected Nanite model config resolves through the Cloudflare catalog", async () => {
+test("Nanite model id resolves through the Cloudflare catalog", async () => {
   const manifest = await normalizeNaniteManifestModelConfig(
     envWithModelCatalog([kimiCatalogModel]),
     {
       id: "selected-kimi",
       name: "Selected Kimi",
       description: "Uses a selected catalog model.",
-      model: {
-        mode: "selected",
-        modelId: " @cf/moonshotai/kimi-k2.6 ",
-      },
+      model: " @cf/moonshotai/kimi-k2.6 ",
       eventSource: { type: "manual" },
       permissions: {},
     },
@@ -49,13 +46,8 @@ test("selected Nanite model config resolves through the Cloudflare catalog", asy
     resolvedAt: "2026-06-08T00:00:00.000Z",
   });
 
-  expect(manifest.model).toEqual({
-    mode: "selected",
-    modelId: "@cf/moonshotai/kimi-k2.6",
-  });
+  expect(manifest.model).toBe("@cf/moonshotai/kimi-k2.6");
   expect(snapshot).toMatchObject({
-    configMode: "selected",
-    selectionSource: "manifest",
     runtimePath: "workers_ai_gateway",
     effectiveModelId: "@cf/moonshotai/kimi-k2.6",
     effectiveProvider: "kimi",
@@ -65,7 +57,7 @@ test("selected Nanite model config resolves through the Cloudflare catalog", asy
   });
 });
 
-test("Nanite manifests missing model config are rejected", async () => {
+test("Nanite manifests missing model id are rejected", async () => {
   const missingModelManifest = {
     id: "missing-model-config",
     name: "Missing model config",
@@ -79,33 +71,27 @@ test("Nanite manifests missing model config are rejected", async () => {
   ).rejects.toThrow("Nanites model selection is invalid");
 });
 
-test("selected Nanite model config rejects models missing from the catalog", async () => {
+test("Nanite model id rejects models missing from the catalog", async () => {
   await expect(
     normalizeNaniteManifestModelConfig(envWithModelCatalog([]), {
       id: "missing-model",
       name: "Missing model",
       description: "Should fail before registration.",
-      model: {
-        mode: "selected",
-        modelId: "deepseek/not-in-catalog",
-      },
+      model: "deepseek/not-in-catalog",
       eventSource: { type: "manual" },
       permissions: {},
     }),
   ).rejects.toThrow("Nanites model selection is invalid");
 });
 
-test("selected Nanite run snapshots do not re-query the catalog after registration", async () => {
+test("Nanite run snapshots do not re-query the catalog after registration", async () => {
   const manifest = await normalizeNaniteManifestModelConfig(
     envWithModelCatalog([kimiCatalogModel]),
     {
       id: "selected-kimi",
       name: "Selected Kimi",
       description: "Uses a selected catalog model.",
-      model: {
-        mode: "selected",
-        modelId: "@cf/moonshotai/kimi-k2.6",
-      },
+      model: "@cf/moonshotai/kimi-k2.6",
       eventSource: { type: "manual" },
       permissions: {},
     },
@@ -121,8 +107,6 @@ test("selected Nanite run snapshots do not re-query the catalog after registrati
   });
 
   expect(snapshot).toMatchObject({
-    configMode: "selected",
-    selectionSource: "manifest",
     effectiveModelId: "@cf/moonshotai/kimi-k2.6",
     effectiveProvider: "kimi",
     effectiveGatewayId: "deployment_gateway",

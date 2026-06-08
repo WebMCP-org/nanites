@@ -6,6 +6,7 @@ import { createMiddleware } from "hono/factory";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { AppError, describeError } from "#/backend/errors.ts";
+import { createDbClient } from "#/backend/db/index.ts";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import {
   clearRevokedSessionSelectionIfNeeded,
@@ -32,6 +33,13 @@ import {
   MCP_CONSENT_COOKIE_PATH,
 } from "#/mcp.ts";
 import { buildGitHubAppInstallHref } from "#/github.ts";
+import {
+  KEYED_AI_PROVIDER_OPTIONS,
+  listInstallationAiProviderKeySummaries,
+  saveInstallationAiProviderKey,
+  type InstallationAiProviderKeySummary,
+} from "#/backend/nanites/provider-keys.ts";
+import { KEYED_AI_PROVIDERS } from "#/backend/db/schema.ts";
 
 const consentCookiePayloadSchema = z.object({
   csrfToken: z.string().min(1),
@@ -49,6 +57,7 @@ interface McpAuthorizeInstallationOption {
   readonly installation: SessionInstallationSnapshot;
   readonly repositoryCount: number;
   readonly manageAccessHref: string;
+  readonly configuredAiProviders: readonly InstallationAiProviderKeySummary[];
 }
 
 type BrowserAuthorizeContext = {
@@ -76,6 +85,14 @@ export type McpAuthorizeContext =
       installations: McpAuthorizeInstallationOption[];
     }
   | {
+      status: "missing_ai_key";
+      clientName: string;
+      saveAction: string;
+      activeGithubInstallationId: number;
+      installations: McpAuthorizeInstallationOption[];
+      providers: typeof KEYED_AI_PROVIDER_OPTIONS;
+    }
+  | {
       status: "consent";
       clientName: string;
       requestedScopes: string[];
@@ -101,6 +118,21 @@ const mcpConsentFormInput = zValidator(
       csrfToken: value.csrf_token,
       intent: value.intent,
       selectedInstallationId: value.github_installation_id,
+    })),
+);
+
+const mcpAiKeyFormInput = zValidator(
+  "form",
+  z
+    .object({
+      github_installation_id: z.coerce.number().int().positive(),
+      provider: z.enum(KEYED_AI_PROVIDERS),
+      api_key: z.string().trim().min(1),
+    })
+    .transform((value) => ({
+      githubInstallationId: value.github_installation_id,
+      provider: value.provider,
+      apiKey: value.api_key,
     })),
 );
 
@@ -186,6 +218,30 @@ async function readOptionalBrowserAuthorizeContext({
 
     throw error;
   }
+}
+
+async function withInstallationAiKeySummaries(
+  env: Env,
+  installations: readonly Omit<McpAuthorizeInstallationOption, "configuredAiProviders">[],
+): Promise<McpAuthorizeInstallationOption[]> {
+  const keySummaries = await listInstallationAiProviderKeySummaries(
+    createDbClient(env.DB),
+    installations.map((option) => option.installation.id),
+  );
+
+  return installations.map((option) => ({
+    ...option,
+    configuredAiProviders: keySummaries.get(option.installation.id) ?? [],
+  }));
+}
+
+function firstUsableInstallationId(
+  activeGithubInstallationId: number | null,
+  installations: readonly McpAuthorizeInstallationOption[],
+): number {
+  return installations.some((option) => option.installation.id === activeGithubInstallationId)
+    ? activeGithubInstallationId!
+    : installations[0]!.installation.id;
 }
 
 async function hashAuthRequest(authRequest: AuthRequest): Promise<string> {
@@ -337,6 +393,17 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         );
       }
 
+      const keySummaries = await listInstallationAiProviderKeySummaries(
+        createDbClient(context.env.DB),
+        [activeInstallation.id],
+      );
+      if ((keySummaries.get(activeInstallation.id) ?? []).length === 0) {
+        expireConsentCookie(context);
+        const uiUrl = new URL(MCP_AUTHORIZE_UI_ROUTE, context.req.raw.url);
+        uiUrl.search = new URL(context.req.raw.url).search;
+        return context.redirect(uiUrl.toString(), 302);
+      }
+
       const grantedScopes = resolveGrantedMcpScopes(authRequest.scope);
 
       const authorizedAt = new Date().toISOString();
@@ -364,6 +431,56 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
 
       expireConsentCookie(context);
       return context.redirect(authorization.redirectTo, 302);
+    },
+  )
+  .post(
+    MCP_AUTHORIZE_CONTEXT_ROUTE,
+    csrf(),
+    mcpAiKeyFormInput,
+    mcpOAuthProviderRequired,
+    mcpAuthRequestRequired,
+    async (context) => {
+      const sourceUrl = new URL(context.req.raw.url);
+      const authContext = await readOptionalBrowserAuthorizeContext({
+        request: context.req.raw,
+        env: context.env,
+        responseHeaders: context.res.headers,
+      });
+      if (!authContext) {
+        throw new AppError("mcpAuthorizationInstallationRequired");
+      }
+
+      const formData = context.req.valid("form");
+      const selectedInstallation =
+        authContext.sessionInstallationSnapshots.find(
+          (installation) => installation.id === formData.githubInstallationId,
+        ) ?? null;
+      if (!selectedInstallation) {
+        throw new AppError("mcpSelectedInstallationUnavailable");
+      }
+
+      if (
+        (
+          await listInstallationRepositories(
+            authContext.githubUserToken.accessToken,
+            selectedInstallation.id,
+          )
+        ).length === 0
+      ) {
+        throw new AppError("mcpSelectedInstallationUnavailable");
+      }
+
+      await saveInstallationAiProviderKey({
+        db: createDbClient(context.env.DB),
+        env: context.env,
+        githubInstallationId: selectedInstallation.id,
+        provider: formData.provider,
+        apiKey: formData.apiKey,
+      });
+
+      const uiUrl = new URL(MCP_AUTHORIZE_UI_ROUTE, context.req.raw.url);
+      uiUrl.search = sourceUrl.search;
+      return context.redirect(uiUrl.toString(), 303);
     },
   )
   .get(
@@ -406,20 +523,23 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         });
       }
 
-      const installations = await Promise.all(
-        authContext.sessionInstallationSnapshots.map(async (installation) => ({
-          installation,
-          repositoryCount: (
-            await listInstallationRepositories(
-              authContext.githubUserToken.accessToken,
-              installation.id,
-            )
-          ).length,
-          manageAccessHref: buildGitHubAppInstallHref({
-            state: authorizeReturnToPath,
-            suggestedTargetId: installation.account.id,
-          }),
-        })),
+      const installations = await withInstallationAiKeySummaries(
+        context.env,
+        await Promise.all(
+          authContext.sessionInstallationSnapshots.map(async (installation) => ({
+            installation,
+            repositoryCount: (
+              await listInstallationRepositories(
+                authContext.githubUserToken.accessToken,
+                installation.id,
+              )
+            ).length,
+            manageAccessHref: buildGitHubAppInstallHref({
+              state: authorizeReturnToPath,
+              suggestedTargetId: installation.account.id,
+            }),
+          })),
+        ),
       );
       const repositoryReadyInstallations = installations.filter(
         (installation) => installation.repositoryCount > 0,
@@ -432,6 +552,24 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           clientName,
           installHref: buildGitHubAppInstallHref({ state: authorizeReturnToPath }),
           installations,
+        });
+      }
+
+      const aiReadyInstallations = repositoryReadyInstallations.filter(
+        (installation) => installation.configuredAiProviders.length > 0,
+      );
+      if (aiReadyInstallations.length === 0) {
+        expireConsentCookie(context);
+        return context.json({
+          status: "missing_ai_key",
+          clientName,
+          saveAction: `${MCP_AUTHORIZE_CONTEXT_ROUTE}${sourceUrl.search}`,
+          activeGithubInstallationId: firstUsableInstallationId(
+            authContext.session.activeGithubInstallationId,
+            repositoryReadyInstallations,
+          ),
+          installations: repositoryReadyInstallations,
+          providers: KEYED_AI_PROVIDER_OPTIONS,
         });
       }
 
@@ -463,7 +601,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         authorizeAction: `${MCP_AUTHORIZE_ROUTE}${sourceUrl.search}`,
         csrfToken,
         activeGithubInstallationId: authContext.session.activeGithubInstallationId,
-        installations: repositoryReadyInstallations,
+        installations: aiReadyInstallations,
       });
     },
   );

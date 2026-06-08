@@ -3,7 +3,7 @@ import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import {
   type NanitesRuntimeModelSettings,
-  resolveDeploymentNanitesModelSettings,
+  resolveDefaultSigveloAgentModelSettings,
 } from "#/backend/nanites/model-settings.ts";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
@@ -68,7 +68,7 @@ export function createSigveloAgentLanguageModel(
     }).chat("gpt-4o-mini");
   }
 
-  const modelSettings = input.modelSettings ?? resolveDeploymentNanitesModelSettings(input.env);
+  const modelSettings = input.modelSettings ?? resolveDefaultSigveloAgentModelSettings(input.env);
 
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,

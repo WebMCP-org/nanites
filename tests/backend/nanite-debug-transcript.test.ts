@@ -7,10 +7,8 @@ import {
   messageHasLifecycleToolCall,
 } from "#/backend/agents/SigveloNaniteAgent.ts";
 
-const deploymentDefaultModel = { mode: "deployment_default" } as const;
-const deploymentDefaultRunModel = {
-  configMode: "deployment_default",
-  selectionSource: "deployment_default",
+const naniteModel = "deepseek/deepseek-v4-pro";
+const naniteRunModel = {
   runtimePath: "workers_ai_gateway",
   effectiveModelId: "deepseek/deepseek-v4-pro",
   effectiveProvider: "deepseek",
@@ -130,7 +128,7 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
         id: "sigvelo-commit-bot",
         name: "Commit bot",
         description: "Creates requested maintenance commits.",
-        model: deploymentDefaultModel,
+        model: naniteModel,
         eventSource: { type: "manual" },
         permissions: {
           github: {
@@ -143,7 +141,7 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
     run: {
       runId: "d08164f2-024a-4b6a-98fb-b8adb4be5ffd",
       naniteId: "sigvelo-commit-bot",
-      model: deploymentDefaultRunModel,
+      model: naniteRunModel,
       triggerKey: "manual:empty-commit",
       trigger: {
         type: "manual",
@@ -208,7 +206,7 @@ test("Nanite task context includes full manifest config, trigger source, and act
       id: "docs-sync-react-webmcp",
       name: "React WebMCP docs syncer",
       description: "Keeps React WebMCP docs aligned with package changes.",
-      model: deploymentDefaultModel,
+      model: naniteModel,
       eventSource: {
         type: "github",
         events: ["push"],

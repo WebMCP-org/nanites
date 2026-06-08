@@ -191,7 +191,8 @@
   font-weight: 750;
 }
 
-.mcp-authorize__select {
+.mcp-authorize__select,
+.mcp-authorize__input {
   inline-size: 100%;
   min-block-size: 2.75rem;
   padding-inline: 0.875rem;
@@ -203,9 +204,21 @@
   font-weight: 600;
 }
 
-.mcp-authorize__select:focus-visible {
+.mcp-authorize__select:focus-visible,
+.mcp-authorize__input:focus-visible {
   outline: 2px solid var(--sigvelo-focus-color);
   outline-offset: 2px;
+}
+
+.mcp-authorize__input::placeholder {
+  color: color-mix(in srgb, var(--app-text-muted) 72%, transparent);
+}
+
+.mcp-authorize__note {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: var(--sigvelo-font-size-sm);
+  line-height: 1.5;
 }
 
 .mcp-authorize__scopes,

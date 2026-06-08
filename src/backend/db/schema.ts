@@ -7,7 +7,7 @@
  * - Business enum domains live with the schema until another owner earns them.
  * - API semantics and mutation command shapes do not belong here.
  */
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
 
 export const GITHUB_ACCOUNT_TYPES = ["User", "Organization"] as const;
@@ -73,8 +73,7 @@ export const OBSERVABILITY_ACTOR_SOURCES = [
   "maintenance",
 ] as const;
 export const AUDIT_EVENT_OUTCOMES = ["success", "failure", "denied", "noop"] as const;
-export const NANITE_MODEL_CONFIG_MODES = ["deployment_default", "selected"] as const;
-export const NANITE_MODEL_SELECTION_SOURCES = ["deployment_default", "manifest"] as const;
+export const KEYED_AI_PROVIDERS = ["deepseek", "openai", "anthropic", "google"] as const;
 export const NANITE_MODEL_RUNTIME_PATHS = ["workers_ai_gateway"] as const;
 export const AUDIT_TARGET_TYPES = [
   "nanite",
@@ -100,6 +99,7 @@ export type ObservabilityActorKind = (typeof OBSERVABILITY_ACTOR_KINDS)[number];
 export type ObservabilityActorSource = (typeof OBSERVABILITY_ACTOR_SOURCES)[number];
 export type AuditEventOutcome = (typeof AUDIT_EVENT_OUTCOMES)[number];
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];
+export type KeyedAiProvider = (typeof KEYED_AI_PROVIDERS)[number];
 
 function observabilityActorColumns() {
   return {
@@ -206,6 +206,29 @@ export const accountRepositories = sqliteTable(
   ],
 );
 
+export const installationAiProviderKeys = sqliteTable(
+  "installation_ai_provider_keys",
+  {
+    githubInstallationId: integer("github_installation_id")
+      .notNull()
+      .references(() => accountInstallations.githubInstallationId, { onDelete: "cascade" }),
+    provider: text("provider", { enum: KEYED_AI_PROVIDERS }).notNull(),
+    encryptedApiKey: text("encrypted_api_key").notNull(),
+    keyLast4: text("key_last4").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.githubInstallationId, table.provider],
+    }),
+  ],
+);
+
 export const accountPeople = sqliteTable(
   "account_people",
   {
@@ -266,10 +289,6 @@ export const naniteRunFacts = sqliteTable(
     outputAdditions: integer("output_additions"),
     outputDeletions: integer("output_deletions"),
     outputChangedFiles: integer("output_changed_files"),
-    modelConfigMode: text("model_config_mode", { enum: NANITE_MODEL_CONFIG_MODES }),
-    modelSelectionSource: text("model_selection_source", {
-      enum: NANITE_MODEL_SELECTION_SOURCES,
-    }),
     modelRuntimePath: text("model_runtime_path", { enum: NANITE_MODEL_RUNTIME_PATHS }),
     effectiveModelId: text("effective_model_id"),
     effectiveProvider: text("effective_provider"),
@@ -368,10 +387,7 @@ export const naniteCatalog = sqliteTable(
     enabled: integer("enabled", { mode: "boolean" }).notNull(),
     eventSourceType: text("event_source_type", { enum: NANITE_EVENT_SOURCE_TYPES }).notNull(),
     latestVersionId: text("latest_version_id").notNull(),
-    modelConfigMode: text("model_config_mode", { enum: NANITE_MODEL_CONFIG_MODES })
-      .notNull()
-      .default("deployment_default"),
-    selectedModelId: text("selected_model_id"),
+    modelId: text("model_id").notNull().default(""),
     repositoryFullNamesJson: text("repository_full_names_json").notNull().default("[]"),
     repositoryCount: integer("repository_count").notNull().default(0),
     triggerEventCount: integer("trigger_event_count").notNull().default(0),

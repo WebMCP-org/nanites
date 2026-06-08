@@ -15,6 +15,13 @@
       "when": 1780942443327,
       "tag": "0001_nanite_model_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780958111502,
+      "tag": "0002_installation_ai_provider_keys",
+      "breakpoints": true
     }
   ]
 }

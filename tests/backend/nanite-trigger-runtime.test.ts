@@ -9,6 +9,30 @@ import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
 
 beforeAll(async () => {
   await env.DB.exec("CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY);");
+  await env.DB.exec(
+    [
+      "CREATE TABLE IF NOT EXISTS installation_ai_provider_keys (",
+      "github_installation_id integer NOT NULL,",
+      "provider text NOT NULL,",
+      "encrypted_api_key text NOT NULL,",
+      "key_last4 text NOT NULL,",
+      "created_at integer NOT NULL,",
+      "updated_at integer NOT NULL,",
+      "PRIMARY KEY(github_installation_id, provider)",
+      ");",
+    ].join(" "),
+  );
+  Object.assign(env, {
+    AI: {
+      models: async () => [
+        {
+          id: naniteModel,
+          task: { name: "Text Generation" },
+          tags: ["Third-party"],
+        },
+      ],
+    },
+  });
 });
 
 function getManager() {
@@ -18,11 +42,25 @@ function getManager() {
   );
 }
 
-function getInstallationManager() {
+async function getInstallationManager() {
+  const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
+  await seedProviderKey(githubInstallationId);
   return getAgentByName(
     env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-    `installation:${Math.floor(Math.random() * 1_000_000) + 1}`,
+    `installation:${githubInstallationId}`,
   );
+}
+
+function seedProviderKey(githubInstallationId: number) {
+  return env.DB.prepare(
+    [
+      "INSERT OR REPLACE INTO installation_ai_provider_keys",
+      "(github_installation_id, provider, encrypted_api_key, key_last4, created_at, updated_at)",
+      "VALUES (?, 'deepseek', 'encrypted-test-key', 'test', 0, 0)",
+    ].join(" "),
+  )
+    .bind(githubInstallationId)
+    .run();
 }
 
 const packageDocsTriggerSource = `
@@ -83,7 +121,7 @@ export default {
 
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
-const deploymentDefaultModel = { mode: "deployment_default" } as const;
+const naniteModel = "deepseek/deepseek-v4-pro";
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,
@@ -98,7 +136,7 @@ async function registerPackageDocsSyncer(
       id: input.id,
       name: input.name,
       description: "Keeps package docs aligned with package changes.",
-      model: deploymentDefaultModel,
+      model: naniteModel,
       eventSource: {
         type: "github",
       },
@@ -305,7 +343,7 @@ test("nanite registration stores generated triggers only after validation passes
       id: "valid-generated-trigger",
       name: "Valid generated trigger",
       description: "Registers source that satisfies the trigger runtime contract.",
-      model: deploymentDefaultModel,
+      model: naniteModel,
       eventSource: {
         type: "github",
         events: ["push"],
