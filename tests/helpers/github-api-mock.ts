@@ -15,19 +15,6 @@ function matchesPath(path: string | RegExp, requestPath: string): boolean {
   return path.test(requestPath);
 }
 
-function normalizeFetchInput(input: RequestInfo | URL): RequestInfo | URL {
-  if (typeof input !== "string") {
-    return input;
-  }
-
-  try {
-    new URL(input);
-    return input;
-  } catch {
-    return `${GITHUB_API_ORIGIN}${input.startsWith("/") ? input : `/${input}`}`;
-  }
-}
-
 export function mockGitHubApi(routes: readonly GitHubRoute[]): () => void {
   if (activeGitHubFetchRestore) {
     throw new Error("mockGitHubApi called before the previous GitHub fetch mock was restored");
@@ -36,8 +23,7 @@ export function mockGitHubApi(routes: readonly GitHubRoute[]): () => void {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request =
-      input instanceof Request ? input : new Request(normalizeFetchInput(input), init);
+    const request = input instanceof Request ? input : new Request(input, init);
     const url = new URL(request.url);
 
     if (url.origin !== GITHUB_API_ORIGIN) {

@@ -199,7 +199,7 @@ Initial attribution policy:
 
 | Situation                    | Actor                                 | Billing attribution                                         |
 | ---------------------------- | ------------------------------------- | ----------------------------------------------------------- |
-| Browser manual/test action   | Signed-in GitHub user.                | Same GitHub user.                                           |
+| Browser manual action        | Signed-in GitHub user.                | Same GitHub user.                                           |
 | MCP tool call                | GitHub user stored in MCP auth props. | Same GitHub user unless the action runs an existing Nanite. |
 | Scheduled Nanite run         | `schedule`.                           | Nanite creator until explicit ownership exists.             |
 | GitHub webhook-triggered run | `github_webhook`.                     | Nanite creator until explicit ownership exists.             |
@@ -728,42 +728,30 @@ Default retention:
 Do not write retention automation in the first planning slice unless storage pressure appears during
 implementation.
 
-## Test Plan
+## Validation
 
-Use slice integration tests for the first implementation.
+Do not add dedicated observability read-path or dashboard tests for v1. Observability is a reporting
+surface, so query and UI bugs can be repaired without risking Nanites core functionality.
 
-Required tests:
+Keep validation focused on the ingestion pipeline:
 
-- AI usage recorder maps AI SDK `LanguageModelUsage` into `ai_usage_facts`, including cached input
-  tokens, cache-write tokens, reasoning tokens, total tokens, raw usage, finish reason, and provider
-  metadata.
-- AI usage recorder stores `aiGatewayLogId` and local gateway `eventId` when present.
-- Gateway metadata builder emits no more than five scalar metadata fields and includes installation,
-  Nanite, run, billing user, and repository.
-- Browser-originated facts include the signed-in GitHub viewer as actor.
-- MCP-originated facts include the GitHub user from MCP auth props as actor.
-- Scheduled or webhook-triggered model usage resolves billing attribution from `nanite_catalog`
-  when no direct human actor exists.
-- Nanite create/update/deprovision audit rows include creator/editor actor fields.
-- Observability API only returns real installation data for installations visible to the signed-in
-  GitHub user.
-- Cost dashboard queries group by Nanite, run, repository, model, actor, and billing user.
-
-Do not mock app-local code. Use existing local auth/test fixture paths and the AI fixture model where
-possible. Mock only external HTTP boundaries.
+- Make recorder calls hard to skip by wiring them directly at Nanite lifecycle and run lifecycle
+  owners.
+- Keep ingestion writes non-blocking for core Nanite behavior unless the owner path already requires
+  the write.
+- Validate the reporting surface with local browser smoke checks and real D1 rows while iterating.
 
 ## Implementation Order
 
-1. Add attribution helpers and AI Gateway metadata builder tests first.
-2. Add `nanite_catalog`, `audit_events`, and narrow AI usage attribution schema changes.
-3. Add recorder functions for catalog, audit, run facts, and AI usage facts.
-4. Wire recorders at Nanite create/update/deprovision, manual start/cancel, run create/complete, and
+1. Add `nanite_catalog`, `audit_events`, and narrow AI usage attribution schema changes.
+2. Add recorder functions for catalog, audit, run facts, and AI usage facts.
+3. Wire recorders at Nanite create/update/deprovision, manual start/cancel, run create/complete, and
    AI usage completion.
-5. Add observability query functions and Hono routes.
-6. Add an ungated `/observability` route shell with URL-backed search state.
-7. Build overview and cost panels first.
-8. Add Nanite roster, runs feed, and audit feed.
-9. Add access checks around real data.
+4. Add observability query functions and Hono routes.
+5. Add an ungated `/observability` route shell with URL-backed search state.
+6. Build overview and cost panels first.
+7. Add Nanite roster, runs feed, and audit feed.
+8. Add access checks around real data.
 
 ## Non-Goals
 
