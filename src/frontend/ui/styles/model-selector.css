@@ -138,6 +138,48 @@
   color: var(--sigvelo-text-body);
 }
 
+.model-selector__logo svg {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+.model-selector__logo[data-provider="cloudflare"] {
+  color: #f38020;
+}
+
+.model-selector__logo[data-provider="deepseek"] {
+  color: #4b66f0;
+}
+
+.model-selector__logo[data-provider="kimi"] {
+  color: #176c5f;
+}
+
+.model-selector__logo[data-provider="mistral"],
+.model-selector__logo[data-provider="mistralai"] {
+  color: #fa520f;
+}
+
+.model-selector__logo[data-provider="qwen"] {
+  color: #5a5fcf;
+}
+
+.model-selector__logo[data-provider="openai"] {
+  color: #111827;
+}
+
+.model-selector__logo[data-provider="anthropic"] {
+  color: #8a5a44;
+}
+
+.model-selector__logo[data-provider="google"] {
+  color: #1a73e8;
+}
+
+.model-selector__logo[data-provider="meta"] {
+  color: #0866ff;
+}
+
 .model-selector__item:has(.model-selector__item-content) .model-selector__logo {
   margin-block-start: 0.125rem;
 }

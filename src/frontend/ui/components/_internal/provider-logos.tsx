@@ -7,6 +7,9 @@ export type ModelProvider =
   | "meta"
   | "kimi"
   | "deepseek"
+  | "mistral"
+  | "mistralai"
+  | "qwen"
   | "cloudflare";
 
 type LogoProps = React.SVGAttributes<SVGSVGElement>;
@@ -87,6 +90,22 @@ const DeepSeekLogo = (props: LogoProps) => (
   </Svg>
 );
 
+const MistralLogo = (props: LogoProps) => (
+  <Svg {...props}>
+    <path d="M4 5h4v3h2v3h4V8h2V5h4v14h-4v-4h-2v-3h-4v3H8v4H4z" />
+  </Svg>
+);
+
+const QwenLogo = (props: LogoProps) => (
+  <Svg {...props}>
+    <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    <path
+      d="M8 12.1c0-2.45 1.65-4.1 4-4.1s4 1.65 4 4.1c0 1.14-.36 2.1-1 2.8l1.28 1.28-1.42 1.42-1.32-1.32c-.47.18-.99.27-1.54.27-2.35 0-4-1.68-4-4.45Zm2 0c0 1.34.78 2.32 2 2.32s2-.98 2-2.32-.78-2.25-2-2.25-2 .94-2 2.25Z"
+      fill="currentColor"
+    />
+  </Svg>
+);
+
 const CloudflareLogo = (props: LogoProps) => (
   <Svg {...props}>
     <path d="M8.8 17.5h7.95a4.25 4.25 0 0 0 .2-8.5A6.1 6.1 0 0 0 5.5 8.05 4.75 4.75 0 0 0 6.75 17.5z" />
@@ -96,7 +115,8 @@ const CloudflareLogo = (props: LogoProps) => (
 
 const FallbackLogo = (props: LogoProps) => (
   <Svg {...props}>
-    <circle cx="12" cy="12" r="3" />
+    <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    <path d="M8 12h8M12 8v8" fill="none" stroke="currentColor" strokeLinecap="round" />
   </Svg>
 );
 
@@ -115,6 +135,11 @@ export function ProviderLogo({ provider, ...props }: LogoProps & { provider: str
       return <KimiLogo {...props} />;
     case "deepseek":
       return <DeepSeekLogo {...props} />;
+    case "mistral":
+    case "mistralai":
+      return <MistralLogo {...props} />;
+    case "qwen":
+      return <QwenLogo {...props} />;
     case "cloudflare":
       return <CloudflareLogo {...props} />;
     default:

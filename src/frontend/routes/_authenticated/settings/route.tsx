@@ -11,7 +11,6 @@ import {
   GearSixIcon,
   KeyIcon,
   PlayIcon,
-  RobotIcon,
   SlidersHorizontalIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
@@ -197,10 +196,6 @@ function savedSmokeTestResult(settings: InstallationModelSettings): ModelSmokeTe
   };
 }
 
-function smokeStatusColor(status: ModelSmokeTestResult["status"]) {
-  return status === "success" ? "success" : "destructive";
-}
-
 function SettingsRoute() {
   const sessionQuery = useQuery({
     queryKey: AUTH_SESSION_QUERY_KEY,
@@ -277,7 +272,7 @@ function InstallationBadge({
 
 function NoActiveInstallationPanel() {
   return (
-    <section className="settings-panel settings-panel--empty">
+    <section className="settings-empty-panel">
       <div className="settings-panel__icon" aria-hidden="true">
         <GearSixIcon size={18} />
       </div>
@@ -369,17 +364,81 @@ function ModelSettingsPanel({
   const isPending = settingsQuery.isPending;
   const saveError = saveMutation.error ? formatError(saveMutation.error) : null;
   const testError = testMutation.error ? formatError(testMutation.error) : null;
+  const smokeTestStatus = visibleTestResult?.status ?? "idle";
 
   return (
-    <div className="settings-layout">
+    <div className="settings-workspace">
+      <aside className="settings-provider-rail" aria-label="Model provider">
+        <div className="settings-provider-rail__header">
+          <ModelSelectorLogo className="settings-provider-rail__logo" provider="cloudflare" />
+          <div>
+            <span className="settings-eyebrow">Provider</span>
+            <h2>Cloudflare AI Gateway</h2>
+          </div>
+        </div>
+
+        <div className="settings-provider-option" data-active="true">
+          <span className="settings-provider-option__status" aria-hidden="true" />
+          <div>
+            <strong>Cloudflare</strong>
+            <span>AI Gateway catalog</span>
+          </div>
+          <Badge variant="outline" color="neutral" size="sm">
+            {models.length}
+          </Badge>
+        </div>
+
+        <dl className="settings-rail-list">
+          <div>
+            <dt>Fetched</dt>
+            <dd>{formatDate(data?.catalog.fetchedAt ?? null)}</dd>
+          </div>
+          <div>
+            <dt>Installation</dt>
+            <dd>{activeInstallation.account.login}</dd>
+          </div>
+          <div>
+            <dt>Gateway</dt>
+            <dd>{draft.gatewayId || "default"}</dd>
+          </div>
+        </dl>
+
+        <div className="settings-rail-status" data-status={smokeTestStatus}>
+          <span aria-hidden="true">
+            {visibleTestResult?.status === "success" ? (
+              <CheckCircleIcon size={16} />
+            ) : (
+              <WarningCircleIcon size={16} />
+            )}
+          </span>
+          <div>
+            <strong>{visibleTestResult ? visibleTestResult.status : "Not tested"}</strong>
+            <small>
+              {visibleTestResult ? `${testTimestamp} · ${visibleTestResult.latencyMs}ms` : "No run"}
+            </small>
+          </div>
+        </div>
+
+        <Button
+          render={<Link to="/observability" />}
+          nativeButton={false}
+          variant="ghost"
+          color="neutral"
+          className="settings-provider-rail__link"
+        >
+          <ChartBarIcon size={16} aria-hidden="true" />
+          <span>Observability</span>
+        </Button>
+      </aside>
+
       <form
-        className="settings-panel settings-panel--model"
+        className="settings-config"
         onSubmit={(event) => {
           event.preventDefault();
           saveMutation.mutate(payload);
         }}
       >
-        <div className="settings-panel__header">
+        <div className="settings-config__header">
           <div>
             <span className="settings-eyebrow">Model</span>
             <h2>Nanite runtime</h2>
@@ -389,71 +448,119 @@ function ModelSettingsPanel({
           </Badge>
         </div>
 
-        <div className="settings-field">
-          <label htmlFor="settings-model-trigger">Provider model</label>
-          <ModelSelector>
-            <ModelSelectorTrigger
-              id="settings-model-trigger"
-              className="settings-model-trigger"
-              disabled={isPending || models.length === 0}
-            >
+        <section className="settings-selected-model" aria-label="Selected model">
+          <ModelSelectorLogo
+            className="settings-selected-model__logo"
+            provider={selectedModel?.provider ?? "cloudflare"}
+          />
+          <div className="settings-selected-model__body">
+            <div className="settings-selected-model__title">
+              <div>
+                <span className="settings-eyebrow">Selected model</span>
+                <h3>{selectedModel?.name ?? "No model selected"}</h3>
+              </div>
               {selectedModel ? (
-                <span className="settings-model-trigger__content">
-                  <ModelSelectorLogo provider={selectedModel.provider} />
-                  <span>
-                    <strong>{selectedModel.name}</strong>
-                    <small>{selectedModel.id}</small>
-                  </span>
-                </span>
-              ) : (
-                <span>Select model</span>
-              )}
-            </ModelSelectorTrigger>
-            <ModelSelectorContent>
-              <ModelSelectorDialog>
-                <ModelSelectorInput placeholder="Search Cloudflare catalog" />
-                <ModelSelectorList>
-                  {modelGroups.map((group) => (
-                    <ModelSelectorGroup key={group.label} label={group.label}>
-                      {group.models.map((model) => (
-                        <ModelSelectorItem
-                          key={model.id}
-                          value={model.id}
-                          selected={model.id === draft.modelId}
-                          keywords={`${model.name} ${model.id} ${model.providerLabel} ${model.capabilities.join(
-                            " ",
-                          )}`}
-                          onSelect={() => {
-                            setDraft((current) => ({ ...current, modelId: model.id }));
-                          }}
-                        >
-                          <ModelSelectorLogo provider={model.provider} />
-                          <ModelSelectorItemContent>
-                            <ModelSelectorName>{model.name}</ModelSelectorName>
-                            {model.description ? (
-                              <ModelSelectorDescription>
-                                {model.description}
-                              </ModelSelectorDescription>
-                            ) : null}
-                            <ModelSelectorMeta>
-                              <span>{model.id}</span>
-                              <ModelSelectorBadge>
-                                {model.source === "third-party" ? "Gateway" : "Workers AI"}
-                              </ModelSelectorBadge>
-                            </ModelSelectorMeta>
-                          </ModelSelectorItemContent>
-                        </ModelSelectorItem>
-                      ))}
-                    </ModelSelectorGroup>
-                  ))}
-                  <ModelSelectorEmpty>No matching models</ModelSelectorEmpty>
-                </ModelSelectorList>
-              </ModelSelectorDialog>
-            </ModelSelectorContent>
-          </ModelSelector>
-        </div>
+                <Badge variant="outline" color="neutral">
+                  {selectedModel.source === "third-party" ? "AI Gateway" : "Workers AI"}
+                </Badge>
+              ) : null}
+            </div>
+            {selectedModel ? (
+              <>
+                <span className="settings-model-id">{selectedModel.id}</span>
+                <dl className="settings-model-stats">
+                  <div>
+                    <dt>Provider</dt>
+                    <dd>{selectedModel.providerLabel}</dd>
+                  </div>
+                  <div>
+                    <dt>Context</dt>
+                    <dd>{formatContextWindow(selectedModel.contextWindowTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>Source</dt>
+                    <dd>{selectedModel.source === "third-party" ? "Gateway" : "Workers AI"}</dd>
+                  </div>
+                </dl>
+                {selectedModel.capabilities.length ? (
+                  <div className="settings-badge-row" aria-label="Model capabilities">
+                    {selectedModel.capabilities.slice(0, 6).map((capability) => (
+                      <Badge key={capability} variant="outline" color="neutral" size="sm">
+                        {capability}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </section>
 
-        <div className="settings-form-grid">
+        <div className="settings-config-grid">
+          <div className="settings-field settings-field--model">
+            <label htmlFor="settings-model-trigger">Provider model</label>
+            <ModelSelector>
+              <ModelSelectorTrigger
+                id="settings-model-trigger"
+                className="settings-model-trigger"
+                disabled={isPending || models.length === 0}
+              >
+                {selectedModel ? (
+                  <span className="settings-model-trigger__content">
+                    <ModelSelectorLogo provider={selectedModel.provider} />
+                    <span>
+                      <strong>{selectedModel.name}</strong>
+                      <small>{selectedModel.id}</small>
+                    </span>
+                  </span>
+                ) : (
+                  <span>Select model</span>
+                )}
+              </ModelSelectorTrigger>
+              <ModelSelectorContent>
+                <ModelSelectorDialog>
+                  <ModelSelectorInput placeholder="Search Cloudflare catalog" />
+                  <ModelSelectorList>
+                    {modelGroups.map((group) => (
+                      <ModelSelectorGroup key={group.label} label={group.label}>
+                        {group.models.map((model) => (
+                          <ModelSelectorItem
+                            key={model.id}
+                            value={model.id}
+                            selected={model.id === draft.modelId}
+                            keywords={`${model.name} ${model.id} ${model.providerLabel} ${model.capabilities.join(
+                              " ",
+                            )}`}
+                            onSelect={() => {
+                              setDraft((current) => ({ ...current, modelId: model.id }));
+                            }}
+                          >
+                            <ModelSelectorLogo provider={model.provider} />
+                            <ModelSelectorItemContent>
+                              <ModelSelectorName>{model.name}</ModelSelectorName>
+                              {model.description ? (
+                                <ModelSelectorDescription>
+                                  {model.description}
+                                </ModelSelectorDescription>
+                              ) : null}
+                              <ModelSelectorMeta>
+                                <span>{model.id}</span>
+                                <ModelSelectorBadge>
+                                  {model.source === "third-party" ? "Gateway" : "Workers AI"}
+                                </ModelSelectorBadge>
+                              </ModelSelectorMeta>
+                            </ModelSelectorItemContent>
+                          </ModelSelectorItem>
+                        ))}
+                      </ModelSelectorGroup>
+                    ))}
+                    <ModelSelectorEmpty>No matching models</ModelSelectorEmpty>
+                  </ModelSelectorList>
+                </ModelSelectorDialog>
+              </ModelSelectorContent>
+            </ModelSelector>
+          </div>
+
           <label className="settings-field" htmlFor="settings-gateway-id">
             <span>Gateway id</span>
             <input
@@ -494,130 +601,56 @@ function ModelSettingsPanel({
           </div>
         ) : null}
 
-        <div className="settings-actions">
-          <Button type="submit" color="primary" disabled={!draft.modelId || saveMutation.isPending}>
-            {saveMutation.isPending ? (
-              <CircleNotchIcon className="settings-spin" size={16} aria-hidden="true" />
-            ) : (
-              <SlidersHorizontalIcon size={16} aria-hidden="true" />
-            )}
-            <span>Save</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            color="neutral"
-            disabled={!draft.modelId || testMutation.isPending}
-            onClick={() => testMutation.mutate(payload)}
-          >
-            {testMutation.isPending ? (
-              <CircleNotchIcon className="settings-spin" size={16} aria-hidden="true" />
-            ) : (
-              <PlayIcon size={16} aria-hidden="true" />
-            )}
-            <span>Test model</span>
-          </Button>
-        </div>
-      </form>
-
-      <aside className="settings-side">
-        <section className="settings-panel settings-panel--summary">
-          <div className="settings-panel__header">
+        <div className="settings-footer">
+          <div className="settings-test-inline" data-status={smokeTestStatus}>
+            <span className="settings-test-inline__icon" aria-hidden="true">
+              {visibleTestResult?.status === "success" ? (
+                <CheckCircleIcon size={18} />
+              ) : (
+                <WarningCircleIcon size={18} />
+              )}
+            </span>
             <div>
-              <span className="settings-eyebrow">Selection</span>
-              <h2>{selectedModel?.name ?? "No model"}</h2>
-            </div>
-            <RobotIcon size={20} aria-hidden="true" />
-          </div>
-          {selectedModel ? (
-            <dl className="settings-definition-list">
-              <div>
-                <dt>Provider</dt>
-                <dd>{selectedModel.providerLabel}</dd>
-              </div>
-              <div>
-                <dt>Model id</dt>
-                <dd>{selectedModel.id}</dd>
-              </div>
-              <div>
-                <dt>Context</dt>
-                <dd>{formatContextWindow(selectedModel.contextWindowTokens)}</dd>
-              </div>
-              <div>
-                <dt>Source</dt>
-                <dd>{selectedModel.source === "third-party" ? "AI Gateway" : "Workers AI"}</dd>
-              </div>
-            </dl>
-          ) : null}
-          {selectedModel?.capabilities.length ? (
-            <div className="settings-badge-row" aria-label="Model capabilities">
-              {selectedModel.capabilities.slice(0, 6).map((capability) => (
-                <Badge key={capability} variant="outline" color="neutral">
-                  {capability}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="settings-panel settings-panel--status">
-          <div className="settings-panel__header">
-            <div>
-              <span className="settings-eyebrow">Smoke test</span>
-              <h2>{visibleTestResult ? visibleTestResult.status : "Not tested"}</h2>
-            </div>
-            {visibleTestResult?.status === "success" ? (
-              <CheckCircleIcon size={20} aria-hidden="true" />
-            ) : (
-              <WarningCircleIcon size={20} aria-hidden="true" />
-            )}
-          </div>
-          {visibleTestResult ? (
-            <div className="settings-test-result">
-              <Badge color={smokeStatusColor(visibleTestResult.status)}>
-                {visibleTestResult.status}
-              </Badge>
-              <p>{visibleTestResult.message}</p>
+              <strong>{visibleTestResult ? visibleTestResult.status : "Not tested"}</strong>
               <span>
-                {testTimestamp} · {visibleTestResult.latencyMs}ms
+                {visibleTestResult
+                  ? `${testTimestamp} · ${visibleTestResult.latencyMs}ms`
+                  : "No smoke test result"}
               </span>
             </div>
-          ) : (
-            <p className="settings-muted">No smoke test result for this selection.</p>
-          )}
-        </section>
-
-        <section className="settings-panel settings-panel--catalog">
-          <div className="settings-panel__header">
-            <div>
-              <span className="settings-eyebrow">Catalog</span>
-              <h2>Cloudflare</h2>
-            </div>
-            <Badge variant="outline" color="neutral">
-              {models.length}
-            </Badge>
+            {visibleTestResult?.message ? <p>{visibleTestResult.message}</p> : null}
           </div>
-          <dl className="settings-definition-list">
-            <div>
-              <dt>Fetched</dt>
-              <dd>{formatDate(data?.catalog.fetchedAt ?? null)}</dd>
-            </div>
-            <div>
-              <dt>Installation</dt>
-              <dd>{activeInstallation.account.login}</dd>
-            </div>
-          </dl>
-          <Button
-            render={<Link to="/observability" />}
-            nativeButton={false}
-            variant="ghost"
-            color="neutral"
-          >
-            <ChartBarIcon size={16} aria-hidden="true" />
-            <span>Observability</span>
-          </Button>
-        </section>
-      </aside>
+
+          <div className="settings-actions">
+            <Button
+              type="submit"
+              color="primary"
+              disabled={!draft.modelId || saveMutation.isPending}
+            >
+              {saveMutation.isPending ? (
+                <CircleNotchIcon className="settings-spin" size={16} aria-hidden="true" />
+              ) : (
+                <SlidersHorizontalIcon size={16} aria-hidden="true" />
+              )}
+              <span>Save</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              color="neutral"
+              disabled={!draft.modelId || testMutation.isPending}
+              onClick={() => testMutation.mutate(payload)}
+            >
+              {testMutation.isPending ? (
+                <CircleNotchIcon className="settings-spin" size={16} aria-hidden="true" />
+              ) : (
+                <PlayIcon size={16} aria-hidden="true" />
+              )}
+              <span>Test model</span>
+            </Button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }

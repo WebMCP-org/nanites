@@ -345,7 +345,7 @@ export interface ModelSelectorLogoProps extends React.SVGAttributes<SVGSVGElemen
 
 export function ModelSelectorLogo({ className, provider, ...props }: ModelSelectorLogoProps) {
   return (
-    <span className={cx("model-selector__logo", className)}>
+    <span className={cx("model-selector__logo", className)} data-provider={provider}>
       <ProviderLogo provider={provider} {...props} />
     </span>
   );

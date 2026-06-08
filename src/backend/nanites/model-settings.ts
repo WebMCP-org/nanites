@@ -114,6 +114,7 @@ function cleanGatewayId(value: string | null | undefined): string {
 
 function providerLabel(provider: string): string {
   const labels: Record<string, string> = {
+    aisingapore: "AI Singapore",
     anthropic: "Anthropic",
     cloudflare: "Cloudflare",
     deepseek: "DeepSeek",
@@ -121,11 +122,18 @@ function providerLabel(provider: string): string {
     "google-ai-studio": "Google AI Studio",
     kimi: "Moonshot AI",
     meta: "Meta",
+    "ibm-granite": "IBM Granite",
+    mistral: "Mistral AI",
+    mistralai: "Mistral AI",
     moonshotai: "Moonshot AI",
     openai: "OpenAI",
+    qwen: "Qwen",
     xai: "xAI",
   };
-  return labels[provider] ?? provider.replaceAll("-", " ");
+  return (
+    labels[provider] ??
+    provider.replaceAll("-", " ").replace(/\b\w/g, (match) => match.toUpperCase())
+  );
 }
 
 function catalogModelName(id: string, name: string | null): string {
@@ -138,6 +146,29 @@ function catalogModelName(id: string, name: string | null): string {
     .at(-1)!
     .replaceAll("-", " ")
     .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function looksLikeModelId(value: string): boolean {
+  return (
+    value.startsWith("@cf/") ||
+    value.startsWith("@hf/") ||
+    /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*/i.test(value)
+  );
+}
+
+function readModelId(input: CloudflareModelSearchObject): string | null {
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  const id = typeof input.id === "string" ? input.id.trim() : "";
+  const modelId = name && looksLikeModelId(name) ? name : id;
+  return modelId ? modelId : null;
+}
+
+function readDisplayName(input: CloudflareModelSearchObject, modelId: string): string | null {
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name || name === modelId || looksLikeModelId(name)) {
+    return null;
+  }
+  return name;
 }
 
 function inferProvider(modelId: string): string {
@@ -195,16 +226,12 @@ function readTags(tags: unknown): string[] {
 }
 
 function readCatalogItem(input: CloudflareModelSearchObject): NanitesModelCatalogItem | null {
-  if (typeof input.id !== "string") {
-    return null;
-  }
-
   const task = typeof input.task?.name === "string" ? input.task.name : "";
   if (task !== "Text Generation") {
     return null;
   }
 
-  const id = input.id.trim();
+  const id = readModelId(input);
   if (!id) {
     return null;
   }
@@ -216,7 +243,7 @@ function readCatalogItem(input: CloudflareModelSearchObject): NanitesModelCatalo
 
   return {
     id,
-    name: catalogModelName(id, typeof input.name === "string" ? input.name : null),
+    name: catalogModelName(id, readDisplayName(input, id)),
     provider,
     providerLabel: providerLabel(provider),
     source: inferSource(id),

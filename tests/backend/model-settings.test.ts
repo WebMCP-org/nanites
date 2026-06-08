@@ -68,6 +68,14 @@ test("model catalog reads Cloudflare text-generation search results", async () =
   const catalog = await fetchNanitesModelCatalog(
     envWithModelCatalog([
       {
+        id: "02c16efa-29f5-4304-8e6c-3d188889f875",
+        name: "@cf/qwen/qwq-32b",
+        description: "Qwen reasoning model.",
+        task: { name: "Text Generation" },
+        tags: ["Cloudflare-hosted"],
+        properties: [{ property_id: "context-window", value: "24,000" }],
+      },
+      {
         id: "openai/gpt-4.1-mini",
         name: "gpt-4.1-mini",
         description: "OpenAI small model.",
@@ -91,6 +99,15 @@ test("model catalog reads Cloudflare text-generation search results", async () =
       providerLabel: "OpenAI",
       source: "third-party",
       contextWindowTokens: 1_047_576,
+    }),
+  );
+  expect(catalog.models).toContainEqual(
+    expect.objectContaining({
+      id: "@cf/qwen/qwq-32b",
+      provider: "qwen",
+      providerLabel: "Qwen",
+      source: "cloudflare-hosted",
+      contextWindowTokens: 24_000,
     }),
   );
   expect(catalog.models.map((model) => model.id)).not.toContain(
