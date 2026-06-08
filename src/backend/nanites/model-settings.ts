@@ -47,6 +47,15 @@ export type InstallationModelSettings = {
   readonly updatedAt: string | null;
 };
 
+export type NanitesRuntimeModelSettings = {
+  readonly provider: string;
+  readonly providerLabel: string;
+  readonly modelId: string;
+  readonly modelName: string;
+  readonly gatewayId: string;
+  readonly byokAlias: string | null;
+};
+
 export type SaveInstallationModelSettingsInput = {
   readonly githubInstallationId: number;
   readonly accountId: string | null;
@@ -133,6 +142,10 @@ function cleanOptionalString(value: string | null | undefined): string | null {
 
 function cleanGatewayId(value: string | null | undefined): string {
   return cleanOptionalString(value) ?? DEFAULT_NANITES_MODEL_GATEWAY_ID;
+}
+
+function deploymentGatewayId(env: Env): string {
+  return cleanOptionalString(env.NANITES_AI_GATEWAY_ID) ?? DEFAULT_NANITES_MODEL_GATEWAY_ID;
 }
 
 function providerLabel(provider: string): string {
@@ -304,6 +317,35 @@ function findCatalogModel(catalog: NanitesModelCatalog, modelId: string): Nanite
     });
   }
   return model;
+}
+
+export function resolveDeploymentNanitesModelSettings(env: Env): NanitesRuntimeModelSettings {
+  return {
+    ...DEFAULT_NANITES_MODEL_SETTINGS,
+    gatewayId: deploymentGatewayId(env),
+  };
+}
+
+export async function resolveSelectedNanitesModelSettings(
+  env: Env,
+  modelId: string,
+): Promise<NanitesRuntimeModelSettings> {
+  const cleanModelId = modelId.trim();
+  if (!cleanModelId) {
+    throw new AppError("nanitesModelSelectionInvalid", {
+      details: { reason: "Selected model id is required.", modelId },
+    });
+  }
+
+  const model = findCatalogModel(await fetchNanitesModelCatalog(env), cleanModelId);
+  return {
+    provider: model.provider,
+    providerLabel: model.providerLabel,
+    modelId: cleanModelId,
+    modelName: model.name,
+    gatewayId: deploymentGatewayId(env),
+    byokAlias: null,
+  };
 }
 
 function defaultInstallationModelSettings(githubInstallationId: number): InstallationModelSettings {

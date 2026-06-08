@@ -3,6 +3,9 @@
     "id": "pr-quality-guard",
     "name": "PR Quality Guard",
     "description": "Reviews pull requests for shallow tests, missing docs, and risky changes.",
+    "model": {
+      "mode": "deployment_default"
+    },
     "eventSource": {
       "type": "github",
       "events": ["pull_request.opened", "pull_request.synchronize", "pull_request.reopened"],

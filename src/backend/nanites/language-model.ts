@@ -4,6 +4,7 @@ import { createWorkersAI } from "workers-ai-provider";
 import {
   DEFAULT_NANITES_MODEL_SETTINGS,
   type InstallationModelSettings,
+  type NanitesRuntimeModelSettings,
 } from "#/backend/nanites/model-settings.ts";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
@@ -45,7 +46,14 @@ interface SigveloAgentLanguageModelInput {
   env: Env;
   sessionAffinity: string;
   gatewayMetadata?: Record<string, string>;
-  modelSettings?: InstallationModelSettings;
+  modelSettings?: InstallationModelSettings | NanitesRuntimeModelSettings;
+  useModelSettingsGatewayId?: boolean;
+}
+
+function modelSettingsOwnsGatewayId(
+  modelSettings: InstallationModelSettings | NanitesRuntimeModelSettings | undefined,
+): boolean {
+  return Boolean(modelSettings && "source" in modelSettings && modelSettings.source === "saved");
 }
 
 export function createSigveloAgentLanguageModel(
@@ -77,10 +85,11 @@ export function createSigveloAgentLanguageModel(
   }
 
   const modelSettings = input.modelSettings ?? DEFAULT_NANITES_MODEL_SETTINGS;
-  const gatewayId =
-    input.modelSettings?.source === "saved"
-      ? modelSettings.gatewayId
-      : input.env.NANITES_AI_GATEWAY_ID || modelSettings.gatewayId;
+  const useModelSettingsGatewayId =
+    input.useModelSettingsGatewayId ?? modelSettingsOwnsGatewayId(input.modelSettings);
+  const gatewayId = useModelSettingsGatewayId
+    ? modelSettings.gatewayId
+    : input.env.NANITES_AI_GATEWAY_ID || modelSettings.gatewayId;
 
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,

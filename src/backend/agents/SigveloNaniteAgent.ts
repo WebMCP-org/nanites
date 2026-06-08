@@ -28,7 +28,6 @@ import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabi
 import { NaniteToolOutputArtifactStore } from "#/backend/nanites/tool-output.ts";
 import { wrapToolSetForNaniteOutputBudget } from "#/backend/nanites/tool-output.ts";
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
-import { readInstallationModelSettings } from "#/backend/nanites/model-settings.ts";
 import type {
   AskHumanInput,
   CompleteNaniteRunInput,
@@ -40,6 +39,7 @@ import type {
   NaniteRuntimeActivity,
   NaniteRuntimeActivityState,
   NaniteRunRecord,
+  NaniteRunModelSnapshot,
   NaniteScheduledEventSourceSpec,
   NaniteScheduleWhen,
   RecordNaniteRuntimeActivityInput,
@@ -68,6 +68,7 @@ export type NaniteAgentState = {
   naniteId: string | null;
   managerName: string | null;
   activeRunId: string | null;
+  activeRunModel: NaniteRunModelSnapshot | null;
   manifest: NaniteManifest | null;
   trigger: NaniteTriggerEvent | null;
   interruptedSubmissionRetriesByRun: Record<string, number>;
@@ -477,6 +478,7 @@ function createInitialNaniteAgentState(): NaniteAgentState {
     naniteId: null,
     managerName: null,
     activeRunId: null,
+    activeRunModel: null,
     manifest: null,
     trigger: null,
     interruptedSubmissionRetriesByRun: {},
@@ -753,6 +755,17 @@ function getRunRepository(input: NaniteRunRecord): {
   };
 }
 
+function modelSettingsFromRunSnapshot(snapshot: NaniteRunModelSnapshot) {
+  return {
+    provider: snapshot.effectiveProvider,
+    providerLabel: snapshot.effectiveProviderLabel,
+    modelId: snapshot.effectiveModelId,
+    modelName: snapshot.effectiveModelName,
+    gatewayId: snapshot.effectiveGatewayId,
+    byokAlias: null,
+  };
+}
+
 function isLifecycleTerminalStatus(status: NaniteRunRecord["status"]): boolean {
   return (
     status === "complete" || status === "no_change" || status === "fail" || status === "canceled"
@@ -819,24 +832,26 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private async getTurnModel(runId: string | null): Promise<LanguageModel> {
-    const managerName = this.state.managerName ?? getParentManagerName(this);
-    const githubInstallationId = parseManagerInstallationId(managerName);
-    const modelSettings = githubInstallationId
-      ? await readInstallationModelSettings(createDbClient(this.env.DB), githubInstallationId)
-      : undefined;
+    const run = await this.readActiveRun(runId);
+    const runModel = run?.model ?? this.state.activeRunModel;
 
     return createSigveloAgentLanguageModel({
       env: this.env,
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(runId),
-      modelSettings,
+      ...(runModel
+        ? {
+            modelSettings: modelSettingsFromRunSnapshot(runModel),
+            useModelSettingsGatewayId: true,
+          }
+        : {}),
     });
   }
 
   private async readAiGatewayLogDetail(
     logId: string | undefined,
+    gatewayId: string | null,
   ): Promise<AiGatewayLogDetail | null> {
-    const gatewayId = this.env.NANITES_AI_GATEWAY_ID;
     if (!gatewayId || !logId) {
       return null;
     }
@@ -867,7 +882,10 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     const repository = getRunRepository(run);
     const requestId = `${run.runId}:step:${ctx.stepNumber}:${ctx.response.id}`;
     const aiGatewayLogId = this.env.AI.aiGatewayLogId || undefined;
-    const aiGatewayLog = await this.readAiGatewayLogDetail(aiGatewayLogId);
+    const aiGatewayLog = await this.readAiGatewayLogDetail(
+      aiGatewayLogId,
+      run.model.effectiveGatewayId,
+    );
     const actor = naniteTriggerActor(run.trigger);
     const db = createDbClient(this.env.DB);
     const billing = await resolveNaniteBillingAttribution(db, {
@@ -891,6 +909,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       usage: usageWithGatewayTokens(ctx.usage, aiGatewayLog),
       providerMetadata: providerMetadataWithGatewayLog(ctx.providerMetadata, aiGatewayLog),
       providerBilledTotalCostUsdMicros: gatewayCostUsdMicros(aiGatewayLog),
+      aiGatewayId: run.model.effectiveGatewayId,
       aiGatewayLogId: aiGatewayLog?.id ?? aiGatewayLogId,
       aiGatewayEventId: requestId,
       actor,
@@ -914,9 +933,16 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   });
 
   override getModel(): LanguageModel {
+    const activeRunModel = this.state.activeRunModel;
     return createSigveloAgentLanguageModel({
       env: this.env,
       sessionAffinity: this.state.activeRunId ?? this.name,
+      ...(activeRunModel
+        ? {
+            modelSettings: modelSettingsFromRunSnapshot(activeRunModel),
+            useModelSettingsGatewayId: true,
+          }
+        : {}),
     });
   }
 
@@ -1103,9 +1129,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     await this.refreshManifestFromManager();
     const runId = getRunIdFromTurn(ctx);
     if (runId && runId !== this.state.activeRunId) {
+      const run = await this.readActiveRun(runId);
       setStateWithoutProtocolBroadcast(this, {
         ...this.state,
         activeRunId: runId,
+        activeRunModel: run?.model ?? this.state.activeRunModel,
         updatedAt: nowIso(),
       });
     }
@@ -1406,6 +1434,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     setStateWithoutProtocolBroadcast(this, {
       ...this.state,
       activeRunId: this.state.activeRunId === payload.runId ? null : this.state.activeRunId,
+      activeRunModel: this.state.activeRunId === payload.runId ? null : this.state.activeRunModel,
       summary: failedRun.summary,
       outputUrl: failedRun.outputUrl,
       updatedAt: failedRun.updatedAt,
@@ -1420,6 +1449,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       setStateWithoutProtocolBroadcast(this, {
         ...this.state,
         activeRunId: null,
+        activeRunModel: null,
         updatedAt: nowIso(),
       });
     }
@@ -1485,6 +1515,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     setStateWithoutProtocolBroadcast(this, {
       ...this.state,
       activeRunId: null,
+      activeRunModel: null,
       interruptedSubmissionRetriesByRun: {},
       lifecycleWatchdog: null,
       updatedAt: nowIso(),
@@ -1625,6 +1656,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       naniteId: input.nanite.manifest.id,
       managerName: input.managerName,
       activeRunId: input.run.runId,
+      activeRunModel: input.run.model,
       manifest: input.nanite.manifest,
       trigger: input.run.trigger,
       interruptedSubmissionRetriesByRun: {},
@@ -1732,6 +1764,12 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
             ? null
             : run.runId
           : this.state.activeRunId,
+      activeRunModel:
+        this.state.activeRunId === null || this.state.activeRunId === run.runId
+          ? isLifecycleTerminalStatus(run.status)
+            ? null
+            : run.model
+          : this.state.activeRunModel,
       summary: run.summary,
       outputUrl: run.outputUrl,
       updatedAt: run.updatedAt,
@@ -1764,6 +1802,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     setStateWithoutProtocolBroadcast(this, {
       ...this.state,
       activeRunId: runId,
+      activeRunModel: run.model,
       interruptedSubmissionRetriesByRun: {
         ...retriesByRun,
         [runId]: retryAttempt,
@@ -2208,6 +2247,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         setStateWithoutProtocolBroadcast(this, {
           ...this.state,
           activeRunId: null,
+          activeRunModel: null,
           updatedAt: nowIso(),
         });
       }

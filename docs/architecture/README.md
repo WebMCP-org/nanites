@@ -160,8 +160,8 @@ owns policy and GitHub feedback. GitHub remains the artifact and CI truth surfac
 ## What Gets Authored
 
 Nanite creation authors a thin manifest and generated trigger source for machine-originated event
-sources. The manifest describes identity, coarse event intake, and repository/token permission
-scope. The generated trigger source handles machine-originated behavior.
+sources. The manifest describes identity, model policy, coarse event intake, and repository/token
+permission scope. The generated trigger source handles machine-originated behavior.
 
 Do not give the authoring model a manager name, MCP tier, tool allowlist, factory topology, or
 cross-Nanite routing plan. The active installation already selects the manager. GitHub MCP tools are
@@ -174,6 +174,7 @@ path filters, debounce rules, and other behavior belong in `triggerSource` code.
     id: "docs-syncer-react-webmcp",
     name: "React WebMCP docs syncer",
     description: "Keeps React WebMCP docs aligned with package changes.",
+    model: { mode: "deployment_default" },
     eventSource: {
       type: "github",
       events: ["push"],
@@ -292,7 +293,7 @@ This directory has seven active documents.
 
 - `architecture.md` - long-term product model and durable boundaries
 - `execution-architecture.md` - current runtime shape, centered on Think sub-agents and Workspace
-- `nanite-model-config-plan.md` - future MCP/manager-authored model selection for Nanite manifests
+- `nanite-model-config-plan.md` - MCP/manager-authored model selection for Nanite manifests
 - `observability-plan.md` - cost, audit, telemetry, and dashboard planning for Nanites
 - `tool-surface-lld.md` - low-level design for shared MCP/browser/manager-chat Nanite tools
 - `roadmap.md` - the next few sprints, current milestone, and explicit non-goals

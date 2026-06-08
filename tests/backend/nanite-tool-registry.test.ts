@@ -4,6 +4,8 @@ import { createSigveloNanitesMcpServer, registerSigveloNaniteTools } from "#/bac
 import { createSigveloThinkTools, naniteTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_SCOPES } from "#/mcp.ts";
 
+const deploymentDefaultModel = { mode: "deployment_default" } as const;
+
 test("Nanite tool registry declares the canonical manager tools explicitly", () => {
   expect(naniteTools.map((tool) => tool.name)).toEqual([
     "sigvelo_whoami",
@@ -55,6 +57,7 @@ test("Nanite create schema rejects singular GitHub event source filter keys", ()
       id: "singular-event-source",
       name: "Singular event source",
       description: "Should fail because GitHub filters use plural array keys.",
+      model: deploymentDefaultModel,
       eventSource: {
         type: "github",
         event: "push",
@@ -81,6 +84,7 @@ test("Nanite create schema rejects generic webhook event sources until a real so
       id: "stripe-webhook",
       name: "Stripe webhook",
       description: "Should fail because Nanites only support GitHub webhook intake right now.",
+      model: deploymentDefaultModel,
       eventSource: {
         type: "webhook",
         source: "stripe",
@@ -103,6 +107,7 @@ test("Nanite create schema rejects old trigger source manifest fields", () => {
       id: "rejected-trigger-source",
       name: "Legacy trigger source",
       description: "Should fail because trigger source is a root manifest field now.",
+      model: deploymentDefaultModel,
       trigger: {
         type: "github",
         events: ["push"],
@@ -128,6 +133,7 @@ test("Nanite create schema requires triggerSource for machine event sources", ()
       id: "missing-trigger-source",
       name: "Missing trigger source",
       description: "Should fail because GitHub event sources must own behavior in code.",
+      model: deploymentDefaultModel,
       eventSource: {
         type: "github",
         events: ["push"],
@@ -149,6 +155,7 @@ test("Nanite create schema rejects model-authored runtime capabilities", () => {
       id: "capability-config",
       name: "Capability config",
       description: "Should fail because runtime tool inventory is derived from permissions.",
+      model: deploymentDefaultModel,
       eventSource: { type: "manual" },
       permissions: {
         github: {
@@ -167,6 +174,83 @@ test("Nanite create schema rejects model-authored runtime capabilities", () => {
   expect(result?.success).toBe(false);
   if (result && !result.success) {
     expect(JSON.stringify(result.error.issues)).toContain("capabilities");
+  }
+});
+
+test("Nanite create schema requires explicit model config", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+
+  const missingModel = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "missing-model",
+      name: "Missing model",
+      description: "Should fail because model policy is required.",
+      eventSource: { type: "manual" },
+      permissions: {},
+    },
+  });
+
+  expect(missingModel?.success).toBe(false);
+  if (missingModel && !missingModel.success) {
+    expect(JSON.stringify(missingModel.error.issues)).toContain("model");
+  }
+
+  expect(
+    createTool?.inputSchema.safeParse({
+      manifest: {
+        id: "deployment-default-model",
+        name: "Deployment default model",
+        description: "Uses the deployment default model.",
+        model: deploymentDefaultModel,
+        eventSource: { type: "manual" },
+        permissions: {},
+      },
+    }).success,
+  ).toBe(true);
+});
+
+test("Nanite create schema accepts selected model ids but rejects credential fields", () => {
+  const createTool = naniteTools.find((tool) => tool.name === "sigvelo_create_nanite");
+  const selected = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "selected-model",
+      name: "Selected model",
+      description: "Uses a selected model.",
+      model: {
+        mode: "selected",
+        modelId: " deepseek/deepseek-v4-pro ",
+      },
+      eventSource: { type: "manual" },
+      permissions: {},
+    },
+  });
+
+  expect(selected?.success).toBe(true);
+  if (selected?.success) {
+    expect(selected.data.manifest.model).toEqual({
+      mode: "selected",
+      modelId: "deepseek/deepseek-v4-pro",
+    });
+  }
+
+  const credentialField = createTool?.inputSchema.safeParse({
+    manifest: {
+      id: "selected-model-with-key",
+      name: "Selected model with key",
+      description: "Should fail because credentials stay out of manifests.",
+      model: {
+        mode: "selected",
+        modelId: "deepseek/deepseek-v4-pro",
+        byokAlias: "prod-key",
+      },
+      eventSource: { type: "manual" },
+      permissions: {},
+    },
+  });
+
+  expect(credentialField?.success).toBe(false);
+  if (credentialField && !credentialField.success) {
+    expect(JSON.stringify(credentialField.error.issues)).toContain("byokAlias");
   }
 });
 
@@ -203,6 +287,7 @@ test("Nanite create schema accepts Cloudflare schedule event source language", (
         id: "cron-schedule",
         name: "Cron schedule",
         description: "Uses Cloudflare Agent schedule().",
+        model: deploymentDefaultModel,
         eventSource: {
           type: "schedule",
           when: "0 9 * * *",
@@ -219,6 +304,7 @@ test("Nanite create schema accepts Cloudflare schedule event source language", (
         id: "interval-schedule",
         name: "Interval schedule",
         description: "Uses Cloudflare Agent scheduleEvery().",
+        model: deploymentDefaultModel,
         eventSource: {
           type: "scheduleEvery",
           intervalSeconds: 3600,
@@ -237,6 +323,7 @@ test("Nanite create schema rejects old nested schedule discriminants", () => {
       id: "old-schedule",
       name: "Old schedule",
       description: "Should fail because schedules use Cloudflare method names now.",
+      model: deploymentDefaultModel,
       eventSource: {
         type: "schedule",
         schedule: {

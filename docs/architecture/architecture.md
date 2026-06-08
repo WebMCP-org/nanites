@@ -58,12 +58,13 @@ A Nanite is primarily:
 - `Scope`: which repos, files, packages, docs, or surfaces it owns
 - `Soul`: what purpose it serves and what behavior/tradeoffs it should prefer
 - `Stop conditions`: what counts as done, blocked, failed, or waiting
+- `Model policy`: deployment default or an explicit Cloudflare catalog model override
 
 That is the durable product identity.
 
 Runtime topology should not be hand-authored into giant Nanite manifests unless it materially affects
 trust or user-facing behavior. The authoring surface should not ask for a manager name, MCP tier,
-tool allowlist, generated factory, or cross-Nanite architecture.
+tool allowlist, generated factory, credential profile, gateway id, or cross-Nanite architecture.
 
 Default capability sources should be:
 

@@ -7,6 +7,20 @@ import {
   messageHasLifecycleToolCall,
 } from "#/backend/agents/SigveloNaniteAgent.ts";
 
+const deploymentDefaultModel = { mode: "deployment_default" } as const;
+const deploymentDefaultRunModel = {
+  configMode: "deployment_default",
+  selectionSource: "deployment_default",
+  runtimePath: "workers_ai_gateway",
+  effectiveModelId: "deepseek/deepseek-v4-pro",
+  effectiveProvider: "deepseek",
+  effectiveProviderLabel: "DeepSeek",
+  effectiveModelName: "DeepSeek V4 Pro",
+  effectiveGatewayId: "default",
+  manifestVersionId: "version-1",
+  resolvedAt: "2026-05-24T00:00:00.000Z",
+} as const;
+
 test("Nanite debug transcript caps oversized includeParts payloads", () => {
   const messages = [
     {
@@ -116,6 +130,7 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
         id: "sigvelo-commit-bot",
         name: "Commit bot",
         description: "Creates requested maintenance commits.",
+        model: deploymentDefaultModel,
         eventSource: { type: "manual" },
         permissions: {
           github: {
@@ -128,6 +143,7 @@ test("Nanite run prompt does not require workspace hydration for API-only work",
     run: {
       runId: "d08164f2-024a-4b6a-98fb-b8adb4be5ffd",
       naniteId: "sigvelo-commit-bot",
+      model: deploymentDefaultRunModel,
       triggerKey: "manual:empty-commit",
       trigger: {
         type: "manual",
@@ -192,6 +208,7 @@ test("Nanite task context includes full manifest config, trigger source, and act
       id: "docs-sync-react-webmcp",
       name: "React WebMCP docs syncer",
       description: "Keeps React WebMCP docs aligned with package changes.",
+      model: deploymentDefaultModel,
       eventSource: {
         type: "github",
         events: ["push"],

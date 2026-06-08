@@ -88,6 +88,7 @@ export default {
 
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
+const deploymentDefaultModel = { mode: "deployment_default" } as const;
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,
@@ -102,6 +103,7 @@ async function registerPackageDocsSyncer(
       id: input.id,
       name: input.name,
       description: "Keeps package docs aligned with package changes.",
+      model: deploymentDefaultModel,
       eventSource: {
         type: "github",
       },
@@ -308,6 +310,7 @@ test("nanite registration stores generated triggers only after validation passes
       id: "valid-generated-trigger",
       name: "Valid generated trigger",
       description: "Registers source that satisfies the trigger runtime contract.",
+      model: deploymentDefaultModel,
       eventSource: {
         type: "github",
         events: ["push"],

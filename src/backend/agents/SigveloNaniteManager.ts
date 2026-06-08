@@ -65,6 +65,10 @@ import {
   systemActor,
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
+import {
+  resolveDeploymentNanitesModelSettings,
+  resolveSelectedNanitesModelSettings,
+} from "#/backend/nanites/model-settings.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -287,8 +291,18 @@ type NaniteManifestBase = {
   id: string;
   name: string;
   description: string;
+  model: NaniteModelConfig;
   permissions: NanitePermissionSpec;
 };
+
+export type NaniteModelConfig =
+  | {
+      mode: "deployment_default";
+    }
+  | {
+      mode: "selected";
+      modelId: string;
+    };
 
 export type NaniteManifest =
   | (NaniteManifestBase & {
@@ -332,6 +346,7 @@ export type NaniteRunRecord = {
   runId: string;
   naniteId: string;
   versionId: string;
+  model: NaniteRunModelSnapshot;
   triggerKey: string;
   trigger: NaniteTriggerEvent;
   status: NaniteRunStatus;
@@ -344,6 +359,19 @@ export type NaniteRunRecord = {
   dispatchError: string | null;
   updatedAt: string;
   completedAt: string | null;
+};
+
+export type NaniteRunModelSnapshot = {
+  configMode: NaniteModelConfig["mode"];
+  selectionSource: "deployment_default" | "manifest";
+  runtimePath: "workers_ai_gateway";
+  effectiveModelId: string;
+  effectiveProvider: string;
+  effectiveProviderLabel: string;
+  effectiveModelName: string;
+  effectiveGatewayId: string;
+  manifestVersionId: string;
+  resolvedAt: string;
 };
 
 export type NaniteManagerState = {
@@ -641,6 +669,136 @@ function createInitialNaniteManagerState(): NaniteManagerState {
   };
 }
 
+function hasRunModelSnapshot(value: unknown): value is NaniteRunModelSnapshot {
+  return (
+    isRecord(value) &&
+    (value.configMode === "deployment_default" || value.configMode === "selected") &&
+    (value.selectionSource === "deployment_default" || value.selectionSource === "manifest") &&
+    value.runtimePath === "workers_ai_gateway" &&
+    typeof value.effectiveModelId === "string" &&
+    typeof value.effectiveProvider === "string" &&
+    typeof value.effectiveProviderLabel === "string" &&
+    typeof value.effectiveModelName === "string" &&
+    typeof value.effectiveGatewayId === "string" &&
+    typeof value.manifestVersionId === "string" &&
+    typeof value.resolvedAt === "string"
+  );
+}
+
+function normalizePersistedManifestModel(manifest: NaniteManifest): {
+  manifest: NaniteManifest;
+  changed: boolean;
+} {
+  if (!hasNaniteModelConfig(manifest.model)) {
+    return {
+      manifest: {
+        ...manifest,
+        model: deploymentDefaultModelConfig(),
+      },
+      changed: true,
+    };
+  }
+
+  if (manifest.model.mode !== "selected") {
+    return { manifest, changed: false };
+  }
+
+  const modelId = manifest.model.modelId.trim();
+  if (modelId === manifest.model.modelId) {
+    return { manifest, changed: false };
+  }
+
+  return {
+    manifest: {
+      ...manifest,
+      model: modelId ? { mode: "selected", modelId } : deploymentDefaultModelConfig(),
+    },
+    changed: true,
+  };
+}
+
+function createDeploymentDefaultRunModelSnapshot(input: {
+  env: Env;
+  manifestVersionId: string;
+  resolvedAt: string;
+}): NaniteRunModelSnapshot {
+  const modelSettings = resolveDeploymentNanitesModelSettings(input.env);
+  return {
+    configMode: "deployment_default",
+    selectionSource: "deployment_default",
+    runtimePath: "workers_ai_gateway",
+    effectiveModelId: modelSettings.modelId,
+    effectiveProvider: modelSettings.provider,
+    effectiveProviderLabel: modelSettings.providerLabel,
+    effectiveModelName: modelSettings.modelName,
+    effectiveGatewayId: modelSettings.gatewayId,
+    manifestVersionId: input.manifestVersionId,
+    resolvedAt: input.resolvedAt,
+  };
+}
+
+async function normalizePersistedManagerState(input: {
+  env: Env;
+  state: NaniteManagerState;
+  normalizedAt: string;
+}): Promise<{ state: NaniteManagerState; normalizedNaniteIds: string[] }> {
+  const normalizedNaniteIds: string[] = [];
+  const nanites: Record<string, ManagedNanite> = {};
+  let changed = false;
+
+  for (const [naniteId, nanite] of Object.entries(input.state.nanites)) {
+    const normalizedManifest = normalizePersistedManifestModel(nanite.manifest);
+    if (!normalizedManifest.changed) {
+      nanites[naniteId] = nanite;
+      continue;
+    }
+
+    changed = true;
+    normalizedNaniteIds.push(naniteId);
+    nanites[naniteId] = {
+      ...nanite,
+      manifest: normalizedManifest.manifest,
+      latestVersion: await createNaniteSourceVersion(
+        normalizedManifest.manifest,
+        input.normalizedAt,
+      ),
+      updatedAt: input.normalizedAt,
+    };
+  }
+
+  const runs: Record<string, NaniteRunRecord> = {};
+  for (const [runId, run] of Object.entries(input.state.runs)) {
+    if (hasRunModelSnapshot(run.model)) {
+      runs[runId] = run;
+      continue;
+    }
+
+    changed = true;
+    runs[runId] = {
+      ...run,
+      model: createDeploymentDefaultRunModelSnapshot({
+        env: input.env,
+        manifestVersionId: run.versionId,
+        resolvedAt: run.startedAt,
+      }),
+    };
+  }
+
+  if (!changed) {
+    return { state: input.state, normalizedNaniteIds };
+  }
+
+  return {
+    state: {
+      ...input.state,
+      nanites,
+      runs,
+      updatedAt: input.normalizedAt,
+    },
+    normalizedNaniteIds,
+  };
+}
+
 function assertNaniteRunStatusTransition(
   currentStatus: NaniteRunStatus,
   nextStatus: NaniteRunStatus,
@@ -706,6 +864,76 @@ function isRecurringScheduleWhen(when: NaniteScheduleWhen): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deploymentDefaultModelConfig(): Extract<
+  NaniteModelConfig,
+  { mode: "deployment_default" }
+> {
+  return { mode: "deployment_default" };
+}
+
+function hasNaniteModelConfig(value: unknown): value is NaniteModelConfig {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (value.mode === "deployment_default") {
+    return true;
+  }
+
+  return value.mode === "selected" && typeof value.modelId === "string";
+}
+
+export async function normalizeNaniteManifestModelConfig(
+  env: Env,
+  manifest: NaniteManifest,
+): Promise<NaniteManifest> {
+  const modelConfig = hasNaniteModelConfig(manifest.model)
+    ? manifest.model
+    : deploymentDefaultModelConfig();
+
+  if (modelConfig.mode === "deployment_default") {
+    return {
+      ...manifest,
+      model: deploymentDefaultModelConfig(),
+    };
+  }
+
+  const modelId = modelConfig.modelId.trim();
+  await resolveSelectedNanitesModelSettings(env, modelId);
+  return {
+    ...manifest,
+    model: {
+      mode: "selected",
+      modelId,
+    },
+  };
+}
+
+export async function resolveNaniteRunModelSnapshot(input: {
+  env: Env;
+  manifest: NaniteManifest;
+  manifestVersionId: string;
+  resolvedAt: string;
+}): Promise<NaniteRunModelSnapshot> {
+  const modelSettings =
+    input.manifest.model.mode === "selected"
+      ? await resolveSelectedNanitesModelSettings(input.env, input.manifest.model.modelId)
+      : resolveDeploymentNanitesModelSettings(input.env);
+
+  return {
+    configMode: input.manifest.model.mode,
+    selectionSource: input.manifest.model.mode === "selected" ? "manifest" : "deployment_default",
+    runtimePath: "workers_ai_gateway",
+    effectiveModelId: modelSettings.modelId,
+    effectiveProvider: modelSettings.provider,
+    effectiveProviderLabel: modelSettings.providerLabel,
+    effectiveModelName: modelSettings.modelName,
+    effectiveGatewayId: modelSettings.gatewayId,
+    manifestVersionId: input.manifestVersionId,
+    resolvedAt: input.resolvedAt,
+  };
 }
 
 function isGitHubEventSource(
@@ -1509,7 +1737,31 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
   @callable()
   async getSnapshot(): Promise<NaniteManagerState> {
-    return this.state;
+    const before = this.state;
+    const normalized = await normalizePersistedManagerState({
+      env: this.env,
+      state: before,
+      normalizedAt: nowIso(),
+    });
+
+    if (normalized.state === before) {
+      return before;
+    }
+
+    this.setState(normalized.state);
+    for (const naniteId of normalized.normalizedNaniteIds) {
+      const nanite = normalized.state.nanites[naniteId];
+      if (!nanite) {
+        continue;
+      }
+      await this.recordCatalogAndAudit({
+        nanite,
+        existing: before.nanites[naniteId],
+        actor: systemActor("maintenance"),
+      });
+    }
+
+    return normalized.state;
   }
 
   @callable()
@@ -2059,7 +2311,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   @callable()
   async registerNanite(input: RegisterNaniteInput): Promise<ManagedNanite> {
     const current = await this.getSnapshot();
-    const manifest = input.manifest;
+    const manifest = await normalizeNaniteManifestModelConfig(this.env, input.manifest);
 
     const githubInstallationId = getGitHubInstallationIdFromManagerName(this.name);
     if (githubInstallationId) {
@@ -2168,10 +2420,17 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     const startedAt = nowIso();
     const runId = crypto.randomUUID();
+    const model = await resolveNaniteRunModelSnapshot({
+      env: this.env,
+      manifest: nanite.manifest,
+      manifestVersionId: nanite.latestVersion.versionId,
+      resolvedAt: startedAt,
+    });
     const run: NaniteRunRecord = {
       runId,
       naniteId: input.naniteId,
       versionId: nanite.latestVersion.versionId,
+      model,
       triggerKey,
       trigger: input.trigger,
       status: "running",

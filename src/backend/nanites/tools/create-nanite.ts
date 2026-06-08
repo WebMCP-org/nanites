@@ -60,10 +60,25 @@ const nanitePermissionSpecSchema = z
   })
   .default({});
 
+const naniteModelConfigSchema = z.discriminatedUnion("mode", [
+  z
+    .object({
+      mode: z.literal("deployment_default"),
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("selected"),
+      modelId: z.string().trim().min(1),
+    })
+    .strict(),
+]);
+
 const naniteManifestBaseSchema = z.object({
   id: nonEmptyStringSchema,
   name: nonEmptyStringSchema,
   description: nonEmptyStringSchema,
+  model: naniteModelConfigSchema,
   permissions: nanitePermissionSpecSchema,
 });
 

@@ -74,6 +74,9 @@ export const OBSERVABILITY_ACTOR_SOURCES = [
 ] as const;
 export const AUDIT_EVENT_OUTCOMES = ["success", "failure", "denied", "noop"] as const;
 export const MODEL_TEST_STATUSES = ["success", "failure"] as const;
+export const NANITE_MODEL_CONFIG_MODES = ["deployment_default", "selected"] as const;
+export const NANITE_MODEL_SELECTION_SOURCES = ["deployment_default", "manifest"] as const;
+export const NANITE_MODEL_RUNTIME_PATHS = ["workers_ai_gateway"] as const;
 export const AUDIT_TARGET_TYPES = [
   "nanite",
   "run",
@@ -264,6 +267,23 @@ export const naniteRunFacts = sqliteTable(
     outputAdditions: integer("output_additions"),
     outputDeletions: integer("output_deletions"),
     outputChangedFiles: integer("output_changed_files"),
+    modelConfigMode: text("model_config_mode", { enum: NANITE_MODEL_CONFIG_MODES })
+      .notNull()
+      .default("deployment_default"),
+    modelSelectionSource: text("model_selection_source", {
+      enum: NANITE_MODEL_SELECTION_SOURCES,
+    })
+      .notNull()
+      .default("deployment_default"),
+    modelRuntimePath: text("model_runtime_path", { enum: NANITE_MODEL_RUNTIME_PATHS })
+      .notNull()
+      .default("workers_ai_gateway"),
+    effectiveModelId: text("effective_model_id").notNull().default("deepseek/deepseek-v4-pro"),
+    effectiveProvider: text("effective_provider").notNull().default("deepseek"),
+    effectiveModelName: text("effective_model_name").notNull().default("DeepSeek V4 Pro"),
+    effectiveGatewayId: text("effective_gateway_id").notNull().default("default"),
+    modelManifestVersionId: text("model_manifest_version_id").notNull().default("legacy"),
+    modelResolvedAt: integer("model_resolved_at", { mode: "timestamp" }).notNull().default(0),
     configSource: text("config_source", { enum: CONFIG_SOURCES }),
     implicitFailureReason: text("implicit_failure_reason"),
     missingExitToolReminderCount: integer("missing_exit_tool_reminder_count").notNull().default(0),
@@ -327,6 +347,7 @@ export const aiUsageFacts = sqliteTable(
     rawUsageJson: text("raw_usage_json"),
     providerMetadataJson: text("provider_metadata_json"),
     providerBilledTotalCostUsdMicros: integer("provider_billed_total_cost_usd_micros"),
+    aiGatewayId: text("ai_gateway_id"),
     aiGatewayLogId: text("ai_gateway_log_id"),
     aiGatewayEventId: text("ai_gateway_event_id"),
     ...observabilityActorColumns(),
@@ -377,6 +398,10 @@ export const naniteCatalog = sqliteTable(
     enabled: integer("enabled", { mode: "boolean" }).notNull(),
     eventSourceType: text("event_source_type", { enum: NANITE_EVENT_SOURCE_TYPES }).notNull(),
     latestVersionId: text("latest_version_id").notNull(),
+    modelConfigMode: text("model_config_mode", { enum: NANITE_MODEL_CONFIG_MODES })
+      .notNull()
+      .default("deployment_default"),
+    selectedModelId: text("selected_model_id"),
     repositoryFullNamesJson: text("repository_full_names_json").notNull().default("[]"),
     repositoryCount: integer("repository_count").notNull().default(0),
     triggerEventCount: integer("trigger_event_count").notNull().default(0),

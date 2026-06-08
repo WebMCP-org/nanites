@@ -4,24 +4,25 @@
 
 Nanites should run on the cheapest model that can reliably do their narrow job.
 
-This plan makes model selection part of the manager-authored Nanite configuration while keeping the
-live UI unchanged. The existing settings page remains useful as an operator/catalog/smoke-test
+This implemented plan makes model selection part of the manager-authored Nanite configuration while
+keeping the live UI unchanged. The existing settings page remains useful as an operator/catalog/smoke-test
 surface, but Nanite creation stays MCP and manager dictated.
 
 ## Current Boundary
 
-The live `sigvelo_create_nanite` schema is strict and does not yet accept a `manifest.model` field.
-Agents must not include model config in create payloads until this plan is implemented.
+The live `sigvelo_create_nanite` schema is strict and requires a `manifest.model` field. Agents must
+include model config in create payloads.
 
 Current Nanite manifests contain:
 
 - identity: `id`, `name`, `description`
+- model policy: `model`
 - intake: `eventSource`
 - authority: `permissions`
 - generated behavior: root `triggerSource` for machine sources
 
-Model config should join that manifest as runtime policy. It should not become credential
-management, tool selection, or a second capability manifest.
+Model config is runtime policy. It must not become credential management, tool selection, or a
+second capability manifest.
 
 ## V1 Shape
 
@@ -142,5 +143,4 @@ Nanite's vertical responsibility:
 - code-editing Nanites should use models that have proven reliable on repo work
 - broad or uncertain Nanites should be split before upgrading every run to a premium model
 
-Until implementation lands, agents should continue using the current strict manifest schema without
-`manifest.model`.
+Agents must include `manifest.model` in the current strict manifest schema.
