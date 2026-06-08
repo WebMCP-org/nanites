@@ -12,15 +12,8 @@
     {
       "idx": 1,
       "version": "6",
-      "when": 1780908128049,
-      "tag": "0001_installation_model_settings",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1780939675629,
-      "tag": "0002_nanite_model_policy",
+      "when": 1780942443327,
+      "tag": "0001_nanite_model_policy",
       "breakpoints": true
     }
   ]

@@ -2576,14 +2576,6 @@ function NanitesRuntimeSurface({
             >
               <ChartBarIcon size={14} aria-hidden="true" />
             </Link>
-            <Link
-              className="nanites-workspace__nav-link"
-              to="/settings"
-              aria-label="Open settings"
-              title="Open settings"
-            >
-              <SlidersHorizontalIcon size={14} aria-hidden="true" />
-            </Link>
             <span className="nanites-workspace__count">{naniteItems.length}</span>
           </div>
         </div>

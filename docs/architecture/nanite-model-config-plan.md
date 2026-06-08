@@ -4,9 +4,8 @@
 
 Nanites should run on the cheapest model that can reliably do their narrow job.
 
-This implemented plan makes model selection part of the manager-authored Nanite configuration while
-keeping the live UI unchanged. The existing settings page remains useful as an operator/catalog/smoke-test
-surface, but Nanite creation stays MCP and manager dictated.
+This implemented plan makes model selection part of the manager-authored Nanite configuration.
+Nanite creation stays MCP and manager dictated.
 
 ## Current Boundary
 
@@ -72,10 +71,8 @@ credential fields.
 - No failure fallback to a different model.
 - No runtime compatibility branch for manifests missing `model`.
 
-The existing settings page remains a model catalog and smoke-test surface. Implementing this plan
-must stop using saved installation model settings as the default for Nanite runs. If installation
-defaults come back later, they should be designed as a real product layer rather than kept as hidden
-runtime behavior.
+If installation defaults come back later, they should be designed as a real product layer rather
+than kept as hidden runtime behavior.
 
 ## Source Owners
 
@@ -103,8 +100,7 @@ runtime behavior.
    - require non-empty `modelId`
    - fetch the Cloudflare catalog and reject unknown `modelId`
 4. Replace Nanite runtime model resolution in `SigveloNaniteAgent.getTurnModel`: selected manifest
-   model wins; `deployment_default` uses `DEFAULT_NANITES_MODEL_SETTINGS`; Nanite runs do not call
-   `readInstallationModelSettings`.
+   model wins; `deployment_default` uses `DEFAULT_NANITES_MODEL_SETTINGS`.
 5. Resolve a run model snapshot when a Run starts, not when it completes. Store compact immutable
    fields on the run record, such as `configMode`, `selectionSource`, `runtimePath`,
    `effectiveModelId`, `effectiveProvider`, `effectiveModelName`, `effectiveGatewayId`,
@@ -114,7 +110,6 @@ runtime behavior.
 7. Add D1 projection/fact fields for the resolved model policy. `nanite_run_facts` stores the
    per-run effective policy snapshot. `ai_usage_facts` stores per-request provider/model/log data and
    the gateway id used to read AI Gateway logs.
-8. Keep the existing settings page as the model catalog and smoke-test surface.
 
 ## Acceptance Tests
 
@@ -123,7 +118,6 @@ runtime behavior.
 - `sigvelo_create_nanite` rejects selected model ids missing from the catalog.
 - Runtime uses a selected Nanite model when present.
 - Runtime resolves `deployment_default` to `DEFAULT_NANITES_MODEL_SETTINGS`.
-- Runtime does not use saved installation model settings for Nanite runs.
 - Nanite manifests missing `manifest.model` are rejected at the create/register boundary.
 - Run records include an immutable resolved model snapshot.
 - AI usage facts include the actual request model and gateway id.

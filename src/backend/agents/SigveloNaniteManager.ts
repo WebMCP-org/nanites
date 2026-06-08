@@ -68,6 +68,7 @@ import {
 import {
   resolveDeploymentNanitesModelSettings,
   resolveSelectedNanitesModelSettings,
+  validateNanitesModelSelection,
 } from "#/backend/nanites/model-settings.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
@@ -765,8 +766,7 @@ export async function normalizeNaniteManifestModelConfig(
     };
   }
 
-  const modelId = manifest.model.modelId.trim();
-  await resolveSelectedNanitesModelSettings(env, modelId);
+  const modelId = await validateNanitesModelSelection(env, manifest.model.modelId);
   return {
     ...manifest,
     model: {
@@ -784,7 +784,7 @@ export async function resolveNaniteRunModelSnapshot(input: {
 }): Promise<NaniteRunModelSnapshot> {
   const modelSettings =
     input.manifest.model.mode === "selected"
-      ? await resolveSelectedNanitesModelSettings(input.env, input.manifest.model.modelId)
+      ? resolveSelectedNanitesModelSettings(input.env, input.manifest.model.modelId)
       : resolveDeploymentNanitesModelSettings(input.env);
 
   return {

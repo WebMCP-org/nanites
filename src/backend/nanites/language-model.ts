@@ -2,9 +2,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import {
-  DEFAULT_NANITES_MODEL_SETTINGS,
-  type InstallationModelSettings,
   type NanitesRuntimeModelSettings,
+  resolveDeploymentNanitesModelSettings,
 } from "#/backend/nanites/model-settings.ts";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
@@ -15,7 +14,6 @@ interface PromptCachedWorkersAIModelInput {
   sessionAffinity: string;
   gatewayId?: string;
   gatewayMetadata?: Record<string, string>;
-  byokAlias?: string | null;
 }
 
 function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput) {
@@ -32,13 +30,6 @@ function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput
           },
         }
       : {}),
-    ...(input.byokAlias
-      ? {
-          extraHeaders: {
-            "cf-aig-byok-alias": input.byokAlias,
-          },
-        }
-      : {}),
   });
 }
 
@@ -46,17 +37,7 @@ interface SigveloAgentLanguageModelInput {
   env: Env;
   sessionAffinity: string;
   gatewayMetadata?: Record<string, string>;
-  modelSettings?: InstallationModelSettings | NanitesRuntimeModelSettings;
-}
-
-function shouldUseModelSettingsGatewayId(
-  modelSettings: InstallationModelSettings | NanitesRuntimeModelSettings | undefined,
-): boolean {
-  if (!modelSettings) {
-    return false;
-  }
-
-  return !("source" in modelSettings) || modelSettings.source === "saved";
+  modelSettings?: NanitesRuntimeModelSettings;
 }
 
 export function createSigveloAgentLanguageModel(
@@ -87,18 +68,14 @@ export function createSigveloAgentLanguageModel(
     }).chat("gpt-4o-mini");
   }
 
-  const modelSettings = input.modelSettings ?? DEFAULT_NANITES_MODEL_SETTINGS;
-  const gatewayId = shouldUseModelSettingsGatewayId(input.modelSettings)
-    ? modelSettings.gatewayId
-    : input.env.NANITES_AI_GATEWAY_ID || modelSettings.gatewayId;
+  const modelSettings = input.modelSettings ?? resolveDeploymentNanitesModelSettings(input.env);
 
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,
     model: modelSettings.modelId,
     sessionAffinity: input.sessionAffinity,
-    gatewayId: gatewayId || undefined,
+    gatewayId: modelSettings.gatewayId || undefined,
     gatewayMetadata: input.gatewayMetadata,
-    byokAlias: modelSettings.byokAlias,
   });
 }
 

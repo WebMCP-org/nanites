@@ -1703,7 +1703,6 @@ function ObservabilityHeader({ search }: { readonly search: ObservabilitySearch 
           <Link to="/observability" activeProps={{ "data-active": true }}>
             Observability
           </Link>
-          <Link to="/settings">Settings</Link>
         </nav>
       </div>
       <div className="observability-header__meta">

@@ -10,7 +10,6 @@ import { githubWebhookRoutes } from "#/backend/api/routes/github.ts";
 import { mcpOAuthRoutes } from "#/backend/api/routes/mcp.ts";
 import { nanitesApiRoutes } from "#/backend/api/routes/nanites.ts";
 import { observabilityApiRoutes } from "#/backend/api/routes/observability.ts";
-import { settingsApiRoutes } from "#/backend/api/routes/settings.ts";
 import {
   createWorkerRequestId,
   getApiRequestLogEvent,
@@ -82,8 +81,7 @@ export const nanitesHttpApp = app
   .route("/", githubWebhookRoutes)
   .route("/api/auth", browserAuthApiRoutes)
   .route("/api/nanites", nanitesApiRoutes)
-  .route("/api/observability", observabilityApiRoutes)
-  .route("/api/settings", settingsApiRoutes);
+  .route("/api/observability", observabilityApiRoutes);
 
 nanitesHttpApp.use("/agents/*", async (context, next) => {
   const middleware = agentsMiddleware<WorkerHonoEnv>({

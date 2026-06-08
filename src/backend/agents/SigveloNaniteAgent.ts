@@ -762,7 +762,6 @@ function modelSettingsFromRunSnapshot(snapshot: NaniteRunModelSnapshot) {
     modelId: snapshot.effectiveModelId,
     modelName: snapshot.effectiveModelName,
     gatewayId: snapshot.effectiveGatewayId,
-    byokAlias: null,
   };
 }
 

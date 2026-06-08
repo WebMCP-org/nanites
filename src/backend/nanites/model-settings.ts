@@ -1,17 +1,11 @@
-import { eq } from "drizzle-orm";
-import type { DbClient } from "#/backend/db/index.ts";
-import { MODEL_TEST_STATUSES, installationModelSettings } from "#/backend/db/schema.ts";
-import { AppError, describeError } from "#/backend/errors.ts";
+import { AppError } from "#/backend/errors.ts";
 
-const smokePrompt = "Reply with exactly: ok";
 const defaultCatalogPageSize = 200;
 
 export const DEFAULT_NANITES_MODEL_ID = "deepseek/deepseek-v4-pro";
 export const DEFAULT_NANITES_MODEL_GATEWAY_ID = "default";
 
 export type NanitesModelSource = "cloudflare-hosted" | "third-party";
-export type NanitesModelSettingsSource = "default" | "saved";
-export type NanitesModelSmokeTestStatus = (typeof MODEL_TEST_STATUSES)[number];
 
 export type NanitesModelCatalogItem = {
   readonly id: string;
@@ -31,61 +25,16 @@ export type NanitesModelCatalog = {
   readonly models: readonly NanitesModelCatalogItem[];
 };
 
-export type InstallationModelSettings = {
-  readonly githubInstallationId: number;
-  readonly provider: string;
-  readonly providerLabel: string;
-  readonly modelId: string;
-  readonly modelName: string;
-  readonly gatewayId: string;
-  readonly byokAlias: string | null;
-  readonly source: NanitesModelSettingsSource;
-  readonly lastTestedAt: string | null;
-  readonly lastTestStatus: NanitesModelSmokeTestStatus | null;
-  readonly lastTestMessage: string | null;
-  readonly lastTestLatencyMs: number | null;
-  readonly updatedAt: string | null;
-};
-
 export type NanitesRuntimeModelSettings = {
   readonly provider: string;
   readonly providerLabel: string;
   readonly modelId: string;
   readonly modelName: string;
   readonly gatewayId: string;
-  readonly byokAlias: string | null;
-};
-
-export type SaveInstallationModelSettingsInput = {
-  readonly githubInstallationId: number;
-  readonly accountId: string | null;
-  readonly modelId: string;
-  readonly gatewayId?: string | null;
-  readonly byokAlias?: string | null;
-  readonly actorGithubUserId?: number | null;
-  readonly actorGithubLogin?: string | null;
-};
-
-export type ModelSmokeTestInput = {
-  readonly env: Env;
-  readonly modelId: string;
-  readonly gatewayId?: string | null;
-  readonly byokAlias?: string | null;
-};
-
-export type ModelSmokeTestResult = {
-  readonly status: NanitesModelSmokeTestStatus;
-  readonly message: string;
-  readonly latencyMs: number;
 };
 
 type CloudflareAiModelsApi = {
   models?: (params?: { hide_experimental?: boolean; per_page?: number }) => Promise<unknown[]>;
-  run?: (
-    model: string,
-    inputs: Record<string, unknown>,
-    options?: Record<string, unknown>,
-  ) => Promise<unknown>;
 };
 
 type CloudflareModelSearchObject = {
@@ -105,7 +54,6 @@ export const DEFAULT_NANITES_MODEL_SETTINGS = {
   modelId: DEFAULT_NANITES_MODEL_ID,
   modelName: "DeepSeek V4 Pro",
   gatewayId: DEFAULT_NANITES_MODEL_GATEWAY_ID,
-  byokAlias: null,
 } as const;
 
 const providerLabels: Record<string, string> = {
@@ -131,17 +79,9 @@ const providerAliases: Record<string, string> = {
   moonshotai: "kimi",
 };
 
-function toIso(value: Date | null): string | null {
-  return value ? value.toISOString() : null;
-}
-
 function cleanOptionalString(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
-}
-
-function cleanGatewayId(value: string | null | undefined): string {
-  return cleanOptionalString(value) ?? DEFAULT_NANITES_MODEL_GATEWAY_ID;
 }
 
 function deploymentGatewayId(env: Env): string {
@@ -160,7 +100,11 @@ function catalogModelName(id: string, name: string | null): string {
     return name;
   }
 
-  return id
+  return modelNameFromId(id);
+}
+
+function modelNameFromId(modelId: string): string {
+  return modelId
     .split("/")
     .at(-1)!
     .replaceAll("-", " ")
@@ -309,14 +253,23 @@ export async function fetchNanitesModelCatalog(env: Env): Promise<NanitesModelCa
   };
 }
 
-function findCatalogModel(catalog: NanitesModelCatalog, modelId: string): NanitesModelCatalogItem {
-  const model = catalog.models.find((candidate) => candidate.id === modelId);
+export async function validateNanitesModelSelection(env: Env, modelId: string): Promise<string> {
+  const cleanModelId = modelId.trim();
+  if (!cleanModelId) {
+    throw new AppError("nanitesModelSelectionInvalid", {
+      details: { reason: "Selected model id is required.", modelId },
+    });
+  }
+
+  const catalog = await fetchNanitesModelCatalog(env);
+  const model = catalog.models.find((candidate) => candidate.id === cleanModelId);
   if (!model) {
     throw new AppError("nanitesModelSelectionInvalid", {
       details: { reason: "Model is not available in the Cloudflare catalog.", modelId },
     });
   }
-  return model;
+
+  return cleanModelId;
 }
 
 export function resolveDeploymentNanitesModelSettings(env: Env): NanitesRuntimeModelSettings {
@@ -326,202 +279,18 @@ export function resolveDeploymentNanitesModelSettings(env: Env): NanitesRuntimeM
   };
 }
 
-export async function resolveSelectedNanitesModelSettings(
+export function resolveSelectedNanitesModelSettings(
   env: Env,
   modelId: string,
-): Promise<NanitesRuntimeModelSettings> {
+): NanitesRuntimeModelSettings {
   const cleanModelId = modelId.trim();
-  if (!cleanModelId) {
-    throw new AppError("nanitesModelSelectionInvalid", {
-      details: { reason: "Selected model id is required.", modelId },
-    });
-  }
+  const provider = inferProvider(cleanModelId);
 
-  const model = findCatalogModel(await fetchNanitesModelCatalog(env), cleanModelId);
   return {
-    provider: model.provider,
-    providerLabel: model.providerLabel,
+    provider,
+    providerLabel: providerLabel(provider),
     modelId: cleanModelId,
-    modelName: model.name,
+    modelName: modelNameFromId(cleanModelId),
     gatewayId: deploymentGatewayId(env),
-    byokAlias: null,
   };
-}
-
-function defaultInstallationModelSettings(githubInstallationId: number): InstallationModelSettings {
-  return {
-    githubInstallationId,
-    ...DEFAULT_NANITES_MODEL_SETTINGS,
-    source: "default",
-    lastTestedAt: null,
-    lastTestStatus: null,
-    lastTestMessage: null,
-    lastTestLatencyMs: null,
-    updatedAt: null,
-  };
-}
-
-export async function readInstallationModelSettings(
-  db: DbClient,
-  githubInstallationId: number,
-): Promise<InstallationModelSettings> {
-  const row = await db.query.installationModelSettings.findFirst({
-    where: eq(installationModelSettings.githubInstallationId, githubInstallationId),
-  });
-
-  if (!row) {
-    return defaultInstallationModelSettings(githubInstallationId);
-  }
-
-  return {
-    githubInstallationId,
-    provider: row.provider,
-    providerLabel: row.providerLabel,
-    modelId: row.modelId,
-    modelName: row.modelName,
-    gatewayId: row.gatewayId,
-    byokAlias: row.byokAlias,
-    source: "saved",
-    lastTestedAt: toIso(row.lastTestedAt),
-    lastTestStatus: row.lastTestStatus,
-    lastTestMessage: row.lastTestMessage,
-    lastTestLatencyMs: row.lastTestLatencyMs,
-    updatedAt: toIso(row.updatedAt),
-  };
-}
-
-export async function saveInstallationModelSettings(
-  db: DbClient,
-  env: Env,
-  input: SaveInstallationModelSettingsInput,
-): Promise<InstallationModelSettings> {
-  const modelId = input.modelId.trim();
-  const gatewayId = cleanGatewayId(input.gatewayId);
-  const byokAlias = cleanOptionalString(input.byokAlias);
-  const model = findCatalogModel(await fetchNanitesModelCatalog(env), modelId);
-  const now = new Date();
-
-  await db
-    .insert(installationModelSettings)
-    .values({
-      githubInstallationId: input.githubInstallationId,
-      accountId: input.accountId,
-      provider: model.provider,
-      providerLabel: model.providerLabel,
-      modelId,
-      modelName: model.name,
-      gatewayId,
-      byokAlias,
-      updatedByGithubUserId: input.actorGithubUserId ?? null,
-      updatedByGithubLogin: input.actorGithubLogin ?? null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: installationModelSettings.githubInstallationId,
-      set: {
-        accountId: input.accountId,
-        provider: model.provider,
-        providerLabel: model.providerLabel,
-        modelId,
-        modelName: model.name,
-        gatewayId,
-        byokAlias,
-        updatedByGithubUserId: input.actorGithubUserId ?? null,
-        updatedByGithubLogin: input.actorGithubLogin ?? null,
-        updatedAt: now,
-      },
-    })
-    .run();
-
-  return readInstallationModelSettings(db, input.githubInstallationId);
-}
-
-export async function recordInstallationModelSmokeTest(
-  db: DbClient,
-  input: {
-    readonly githubInstallationId: number;
-    readonly modelId: string;
-    readonly gatewayId?: string | null;
-    readonly byokAlias?: string | null;
-    readonly result: ModelSmokeTestResult;
-  },
-): Promise<void> {
-  const gatewayId = cleanGatewayId(input.gatewayId);
-  const byokAlias = cleanOptionalString(input.byokAlias);
-  const current = await db.query.installationModelSettings.findFirst({
-    where: eq(installationModelSettings.githubInstallationId, input.githubInstallationId),
-  });
-  if (
-    !current ||
-    current.modelId !== input.modelId ||
-    current.gatewayId !== gatewayId ||
-    current.byokAlias !== byokAlias
-  ) {
-    return;
-  }
-  const now = new Date();
-
-  await db
-    .update(installationModelSettings)
-    .set({
-      lastTestedAt: now,
-      lastTestStatus: input.result.status,
-      lastTestMessage: input.result.message,
-      lastTestLatencyMs: input.result.latencyMs,
-      updatedAt: now,
-    })
-    .where(eq(installationModelSettings.githubInstallationId, input.githubInstallationId))
-    .run();
-}
-
-export async function smokeTestNanitesModel(
-  input: ModelSmokeTestInput,
-): Promise<ModelSmokeTestResult> {
-  const modelId = input.modelId.trim();
-  const gatewayId = cleanGatewayId(input.gatewayId);
-  const byokAlias = cleanOptionalString(input.byokAlias);
-  const ai = input.env.AI as CloudflareAiModelsApi | undefined;
-  const startedAt = performance.now();
-
-  if (!ai?.run) {
-    return {
-      status: "failure",
-      message: "Cloudflare Workers AI binding is not available in this environment.",
-      latencyMs: Math.round(performance.now() - startedAt),
-    };
-  }
-
-  try {
-    await ai.run(
-      modelId,
-      {
-        messages: [{ role: "user", content: smokePrompt }],
-        max_tokens: 8,
-      },
-      {
-        gateway: {
-          id: gatewayId,
-          skipCache: true,
-          metadata: {
-            sigvelo_surface: "settings",
-            sigvelo_action: "model_smoke_test",
-          },
-        },
-        ...(byokAlias ? { extraHeaders: { "cf-aig-byok-alias": byokAlias } } : {}),
-      },
-    );
-
-    return {
-      status: "success",
-      message: "Model responded through Cloudflare AI Gateway.",
-      latencyMs: Math.round(performance.now() - startedAt),
-    };
-  } catch (error) {
-    return {
-      status: "failure",
-      message: describeError(error),
-      latencyMs: Math.round(performance.now() - startedAt),
-    };
-  }
 }

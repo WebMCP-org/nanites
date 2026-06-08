@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "50e4bce0-1254-44ff-9b60-1b6b0a46e2ce",
+  "id": "e2018000-7848-47f2-a48c-3de82bc3bc79",
   "prevId": "b6f1a5fb-efef-4833-8927-c4f3db0b07eb",
   "tables": {
     "account_entitlements": {
@@ -646,6 +646,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "ai_gateway_id": {
+          "name": "ai_gateway_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "ai_gateway_log_id": {
           "name": "ai_gateway_log_id",
           "type": "text",
@@ -1065,138 +1072,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "installation_model_settings": {
-      "name": "installation_model_settings",
-      "columns": {
-        "github_installation_id": {
-          "name": "github_installation_id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider_label": {
-          "name": "provider_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "model_id": {
-          "name": "model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "model_name": {
-          "name": "model_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "gateway_id": {
-          "name": "gateway_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "byok_alias": {
-          "name": "byok_alias",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "updated_by_github_user_id": {
-          "name": "updated_by_github_user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "updated_by_github_login": {
-          "name": "updated_by_github_login",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_tested_at": {
-          "name": "last_tested_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_test_status": {
-          "name": "last_test_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_test_message": {
-          "name": "last_test_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_test_latency_ms": {
-          "name": "last_test_latency_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "installation_model_settings_account_id_accounts_id_fk": {
-          "name": "installation_model_settings_account_id_accounts_id_fk",
-          "tableFrom": "installation_model_settings",
-          "tableTo": "accounts",
-          "columnsFrom": ["account_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "nanite_catalog": {
       "name": "nanite_catalog",
       "columns": {
@@ -1254,6 +1129,21 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "model_config_mode": {
+          "name": "model_config_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'deployment_default'"
+        },
+        "selected_model_id": {
+          "name": "selected_model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "repository_full_names_json": {
@@ -1582,6 +1472,69 @@
         },
         "output_changed_files": {
           "name": "output_changed_files",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model_config_mode": {
+          "name": "model_config_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model_selection_source": {
+          "name": "model_selection_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model_runtime_path": {
+          "name": "model_runtime_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effective_model_id": {
+          "name": "effective_model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effective_provider": {
+          "name": "effective_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effective_model_name": {
+          "name": "effective_model_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "effective_gateway_id": {
+          "name": "effective_gateway_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model_manifest_version_id": {
+          "name": "model_manifest_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model_resolved_at": {
+          "name": "model_resolved_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
