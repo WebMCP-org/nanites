@@ -47,13 +47,16 @@ interface SigveloAgentLanguageModelInput {
   sessionAffinity: string;
   gatewayMetadata?: Record<string, string>;
   modelSettings?: InstallationModelSettings | NanitesRuntimeModelSettings;
-  useModelSettingsGatewayId?: boolean;
 }
 
-function modelSettingsOwnsGatewayId(
+function shouldUseModelSettingsGatewayId(
   modelSettings: InstallationModelSettings | NanitesRuntimeModelSettings | undefined,
 ): boolean {
-  return Boolean(modelSettings && "source" in modelSettings && modelSettings.source === "saved");
+  if (!modelSettings) {
+    return false;
+  }
+
+  return !("source" in modelSettings) || modelSettings.source === "saved";
 }
 
 export function createSigveloAgentLanguageModel(
@@ -85,9 +88,7 @@ export function createSigveloAgentLanguageModel(
   }
 
   const modelSettings = input.modelSettings ?? DEFAULT_NANITES_MODEL_SETTINGS;
-  const useModelSettingsGatewayId =
-    input.useModelSettingsGatewayId ?? modelSettingsOwnsGatewayId(input.modelSettings);
-  const gatewayId = useModelSettingsGatewayId
+  const gatewayId = shouldUseModelSettingsGatewayId(input.modelSettings)
     ? modelSettings.gatewayId
     : input.env.NANITES_AI_GATEWAY_ID || modelSettings.gatewayId;
 

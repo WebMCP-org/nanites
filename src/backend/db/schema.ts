@@ -7,6 +7,7 @@
  * - Business enum domains live with the schema until another owner earns them.
  * - API semantics and mutation command shapes do not belong here.
  */
+import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
 
@@ -283,7 +284,9 @@ export const naniteRunFacts = sqliteTable(
     effectiveModelName: text("effective_model_name").notNull().default("DeepSeek V4 Pro"),
     effectiveGatewayId: text("effective_gateway_id").notNull().default("default"),
     modelManifestVersionId: text("model_manifest_version_id").notNull().default("legacy"),
-    modelResolvedAt: integer("model_resolved_at", { mode: "timestamp" }).notNull().default(0),
+    modelResolvedAt: integer("model_resolved_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`0`),
     configSource: text("config_source", { enum: CONFIG_SOURCES }),
     implicitFailureReason: text("implicit_failure_reason"),
     missingExitToolReminderCount: integer("missing_exit_tool_reminder_count").notNull().default(0),

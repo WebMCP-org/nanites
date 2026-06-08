@@ -842,7 +842,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       ...(runModel
         ? {
             modelSettings: modelSettingsFromRunSnapshot(runModel),
-            useModelSettingsGatewayId: true,
           }
         : {}),
     });
@@ -940,7 +939,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       ...(activeRunModel
         ? {
             modelSettings: modelSettingsFromRunSnapshot(activeRunModel),
-            useModelSettingsGatewayId: true,
           }
         : {}),
     });

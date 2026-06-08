@@ -3,6 +3,7 @@ import { getAgentByName } from "agents";
 import {
   normalizeNaniteManifestModelConfig,
   resolveNaniteRunModelSnapshot,
+  type NaniteManifest,
   type SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { createDbClient } from "#/backend/db/index.ts";
@@ -20,7 +21,7 @@ const kimiCatalogModel = {
   properties: [{ property_id: "context-window", value: "262,100" }],
 };
 
-function envWithModelCatalog(models: unknown[], overrides: Partial<Env> = {}): Env {
+function envWithModelCatalog(models: unknown[], overrides: Record<string, unknown> = {}): Env {
   return {
     ...env,
     ...overrides,
@@ -87,16 +88,18 @@ test("selected Nanite model config resolves through the Cloudflare catalog", asy
   });
 });
 
-test("legacy Nanite manifests missing model normalize to deployment default", async () => {
-  const manifest = await normalizeNaniteManifestModelConfig(envWithModelCatalog([]), {
-    id: "legacy-missing-model",
-    name: "Legacy missing model",
-    description: "Persisted before manifest model policy was required.",
+test("Nanite manifests missing model config are rejected", async () => {
+  const missingModelManifest = {
+    id: "missing-model-config",
+    name: "Missing model config",
+    description: "Should fail because manifest model policy is required.",
     eventSource: { type: "manual" },
     permissions: {},
-  } as Parameters<typeof normalizeNaniteManifestModelConfig>[1]);
+  } as NaniteManifest;
 
-  expect(manifest.model).toEqual({ mode: "deployment_default" });
+  await expect(
+    normalizeNaniteManifestModelConfig(envWithModelCatalog([]), missingModelManifest),
+  ).rejects.toThrow("Nanites model selection is invalid");
 });
 
 test("selected Nanite model config rejects models missing from the catalog", async () => {

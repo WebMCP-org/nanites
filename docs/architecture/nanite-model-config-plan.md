@@ -70,7 +70,7 @@ credential fields.
 - No dynamic routing policy.
 - No per-installation model default unless a later product decision reintroduces it.
 - No failure fallback to a different model.
-- No runtime compatibility branch for manifests missing `model` after migration.
+- No runtime compatibility branch for manifests missing `model`.
 
 The existing settings page remains a model catalog and smoke-test surface. Implementing this plan
 must stop using saved installation model settings as the default for Nanite runs. If installation
@@ -96,30 +96,25 @@ runtime behavior.
 ## Implementation Steps
 
 1. Add `manifest.model` to `NaniteManifestBase` and the strict MCP create schema.
-2. Normalize persisted manager state before any runtime code reads `manifest.model`. For this
-   pre-production cut, legacy manifests missing `model` should become
-   `{ mode: "deployment_default" }` and then be persisted. Do not keep a long-lived runtime branch
-   for missing model config.
-3. Update plugin authoring docs and examples so MCP agents always provide model config.
-4. Validate selected model config during `registerNanite`:
+2. Update plugin authoring docs and examples so MCP agents always provide model config.
+3. Validate model config during `registerNanite`:
    - accept `mode: "deployment_default"` directly
    - for `mode: "selected"`, trim strings
    - require non-empty `modelId`
    - fetch the Cloudflare catalog and reject unknown `modelId`
-5. Replace Nanite runtime model resolution in `SigveloNaniteAgent.getTurnModel`: selected manifest
+4. Replace Nanite runtime model resolution in `SigveloNaniteAgent.getTurnModel`: selected manifest
    model wins; `deployment_default` uses `DEFAULT_NANITES_MODEL_SETTINGS`; Nanite runs do not call
    `readInstallationModelSettings`.
-6. Resolve a run model snapshot when a Run starts, not when it completes. Store compact immutable
+5. Resolve a run model snapshot when a Run starts, not when it completes. Store compact immutable
    fields on the run record, such as `configMode`, `selectionSource`, `runtimePath`,
    `effectiveModelId`, `effectiveProvider`, `effectiveModelName`, `effectiveGatewayId`,
    `manifestVersionId`, and `resolvedAt`.
-7. Use the run model snapshot for every turn in that Run. Do not derive historical run facts from the
+6. Use the run model snapshot for every turn in that Run. Do not derive historical run facts from the
    current Nanite manifest.
-8. Add D1 projection/fact fields for the resolved model policy. `nanite_run_facts` stores the
+7. Add D1 projection/fact fields for the resolved model policy. `nanite_run_facts` stores the
    per-run effective policy snapshot. `ai_usage_facts` stores per-request provider/model/log data and
    the gateway id used to read AI Gateway logs.
-9. Reproject existing catalog rows from normalized manager state so model policy fields are populated.
-10. Keep the existing settings page as the model catalog and smoke-test surface.
+8. Keep the existing settings page as the model catalog and smoke-test surface.
 
 ## Acceptance Tests
 
@@ -129,7 +124,7 @@ runtime behavior.
 - Runtime uses a selected Nanite model when present.
 - Runtime resolves `deployment_default` to `DEFAULT_NANITES_MODEL_SETTINGS`.
 - Runtime does not use saved installation model settings for Nanite runs.
-- Legacy Nanites missing `manifest.model` are migrated to deployment default before runtime use.
+- Nanite manifests missing `manifest.model` are rejected at the create/register boundary.
 - Run records include an immutable resolved model snapshot.
 - AI usage facts include the actual request model and gateway id.
 - AI Gateway log lookup uses the resolved gateway id.

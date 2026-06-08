@@ -227,9 +227,13 @@ test("Nanite create schema accepts selected model ids but rejects credential fie
 
   expect(selected?.success).toBe(true);
   if (selected?.success) {
-    expect(selected.data.manifest.model).toEqual({
-      mode: "selected",
-      modelId: "deepseek/deepseek-v4-pro",
+    expect(selected.data).toMatchObject({
+      manifest: {
+        model: {
+          mode: "selected",
+          modelId: "deepseek/deepseek-v4-pro",
+        },
+      },
     });
   }
 
