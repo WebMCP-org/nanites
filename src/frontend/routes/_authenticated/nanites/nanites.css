@@ -1412,6 +1412,32 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   font-size: 0.8125rem;
 }
 
+.nanites-workspace__masthead-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.nanites-workspace__nav-link {
+  inline-size: 1.625rem;
+  block-size: 1.625rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--app-sidebar-border) 55%, transparent);
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--app-sidebar) 78%, var(--app-bg));
+  color: var(--app-chat-muted);
+  text-decoration: none;
+}
+
+.nanites-workspace__nav-link:hover,
+.nanites-workspace__nav-link:focus-visible {
+  border-color: color-mix(in srgb, var(--app-sidebar-border) 86%, var(--app-charcoal));
+  background: color-mix(in srgb, var(--app-control-soft) 62%, var(--app-bg));
+  color: var(--app-charcoal);
+}
+
 .account-menu__trigger--nanites {
   min-block-size: 1.625rem;
   min-inline-size: 0;

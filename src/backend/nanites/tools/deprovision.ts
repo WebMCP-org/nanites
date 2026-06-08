@@ -28,10 +28,12 @@ export const deprovisionTool = defineSigveloMcpTool({
     idempotentHint: false,
     openWorldHint: true,
   },
-  async execute(input, { manager }) {
+  async execute(input, { context, manager }) {
     return manager.deprovisionNanite({
       naniteId: input.naniteId,
       reason: input.reason,
+      actor: context.actor,
+      requestId: context.requestId,
     });
   },
 } satisfies SigveloMcpToolDefinition<typeof deprovisionToolInputSchema, DeprovisionNaniteOutput>);

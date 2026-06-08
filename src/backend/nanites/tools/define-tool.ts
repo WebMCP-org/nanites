@@ -7,17 +7,14 @@ import { AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
+import type { ObservabilityActor } from "#/backend/observability/recorders.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 
 export type SigveloNaniteToolSurface = "mcp" | "manager_chat";
 
 export type NaniteToolContext = {
   surface: SigveloNaniteToolSurface;
-  actor: {
-    kind: "github_user";
-    githubUserId: SigveloMcpAuthProps["githubUserId"];
-    githubLogin: SigveloMcpAuthProps["githubLogin"];
-  };
+  actor: ObservabilityActor;
   githubInstallationId: SigveloMcpAuthProps["githubInstallationId"];
   managerName: string;
   requestId: string;
@@ -87,8 +84,11 @@ async function resolveAuthorizedNaniteToolRuntime(input: {
       surface: input.surface,
       actor: {
         kind: "github_user",
+        source: input.surface,
         githubUserId: input.props.githubUserId,
         githubLogin: input.props.githubLogin,
+        actorId: `github:${input.props.githubUserId}`,
+        actorLogin: input.props.githubLogin,
       },
       githubInstallationId: input.props.githubInstallationId,
       managerName,

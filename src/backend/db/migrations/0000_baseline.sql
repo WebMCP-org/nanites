@@ -15,13 +15,6 @@ CREATE TABLE `account_entitlements` (
 	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE TABLE `account_installation_repository_map` (
-	`github_installation_id` integer NOT NULL,
-	`github_repository_id` integer NOT NULL,
-	PRIMARY KEY(`github_installation_id`, `github_repository_id`),
-	FOREIGN KEY (`github_installation_id`) REFERENCES `account_installations`(`github_installation_id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
 CREATE TABLE `account_installations` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
@@ -57,23 +50,7 @@ CREATE TABLE `account_repositories` (
 	`account_id` text NOT NULL,
 	`github_installation_id` integer NOT NULL,
 	`github_repository_id` integer NOT NULL,
-	`name` text NOT NULL,
-	`full_name` text NOT NULL,
-	`owner_login` text NOT NULL,
-	`default_branch` text NOT NULL,
-	`private` integer DEFAULT false NOT NULL,
-	`permission_tier` text,
-	`config_source` text,
-	`config_enabled` integer DEFAULT true NOT NULL,
-	`configured_nanite_count` integer DEFAULT 0 NOT NULL,
-	`mcp_server_count` integer DEFAULT 0 NOT NULL,
-	`missing_soul_document_count` integer DEFAULT 0 NOT NULL,
-	`missing_skill_document_count` integer DEFAULT 0 NOT NULL,
-	`broken_prompt_config` integer DEFAULT false NOT NULL,
-	`last_config_fetched_at` integer,
-	`last_viewed_at` integer,
-	`last_run_at` integer,
-	`last_active_at` integer,
+	`github_repository` text NOT NULL,
 	`first_seen_at` integer NOT NULL,
 	`last_seen_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
@@ -96,24 +73,12 @@ CREATE TABLE `accounts` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `accounts_github_account_id_unique` ON `accounts` (`github_account_id`);--> statement-breakpoint
-CREATE TABLE `ai_pricing_snapshots` (
-	`id` text PRIMARY KEY NOT NULL,
-	`provider` text NOT NULL,
-	`model` text NOT NULL,
-	`effective_at` integer NOT NULL,
-	`input_token_cost_per_million_usd_micros` integer NOT NULL,
-	`cached_input_token_cost_per_million_usd_micros` integer,
-	`output_token_cost_per_million_usd_micros` integer NOT NULL,
-	`reasoning_token_cost_per_million_usd_micros` integer,
-	`created_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `ai_pricing_snapshots_provider_model_effective_unique` ON `ai_pricing_snapshots` (`provider`,`model`,`effective_at`);--> statement-breakpoint
 CREATE TABLE `ai_usage_facts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
 	`github_installation_id` integer NOT NULL,
 	`github_repository_id` integer,
+	`nanite_id` text,
 	`run_key` text,
 	`request_id` text NOT NULL,
 	`provider` text NOT NULL,
@@ -130,6 +95,16 @@ CREATE TABLE `ai_usage_facts` (
 	`cache_write_tokens` integer,
 	`raw_usage_json` text,
 	`provider_metadata_json` text,
+	`provider_billed_total_cost_usd_micros` integer,
+	`ai_gateway_log_id` text,
+	`ai_gateway_event_id` text,
+	`actor_kind` text,
+	`actor_github_user_id` integer,
+	`actor_github_login` text,
+	`actor_source` text,
+	`billing_github_user_id` integer,
+	`billing_github_login` text,
+	`billing_attribution_basis` text,
 	`estimated_input_cost_usd_micros` integer,
 	`estimated_output_cost_usd_micros` integer,
 	`estimated_total_cost_usd_micros` integer,
@@ -141,6 +116,34 @@ CREATE TABLE `ai_usage_facts` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `ai_usage_facts_request_id_unique` ON `ai_usage_facts` (`request_id`);--> statement-breakpoint
+CREATE TABLE `audit_events` (
+	`id` text PRIMARY KEY NOT NULL,
+	`occurred_at` integer NOT NULL,
+	`event_name` text NOT NULL,
+	`account_id` text,
+	`github_installation_id` integer,
+	`github_repository_id` integer,
+	`repository_full_name` text,
+	`nanite_id` text,
+	`run_key` text,
+	`actor_kind` text NOT NULL,
+	`actor_id` text,
+	`actor_login` text,
+	`actor_github_user_id` integer,
+	`actor_github_login` text,
+	`billing_github_user_id` integer,
+	`billing_github_login` text,
+	`billing_basis` text,
+	`surface` text NOT NULL,
+	`target_type` text NOT NULL,
+	`target_id` text,
+	`outcome` text NOT NULL,
+	`reason_code` text,
+	`request_id` text,
+	`metadata_json` text DEFAULT '{}' NOT NULL,
+	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
 CREATE TABLE `auth_funnel_facts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text,
@@ -155,6 +158,31 @@ CREATE TABLE `auth_funnel_facts` (
 	FOREIGN KEY (`github_installation_id`) REFERENCES `account_installations`(`github_installation_id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE `nanite_catalog` (
+	`id` text PRIMARY KEY NOT NULL,
+	`account_id` text,
+	`github_installation_id` integer NOT NULL,
+	`nanite_id` text NOT NULL,
+	`name` text NOT NULL,
+	`enabled` integer NOT NULL,
+	`event_source_type` text NOT NULL,
+	`latest_version_id` text NOT NULL,
+	`repository_full_names_json` text DEFAULT '[]' NOT NULL,
+	`repository_count` integer DEFAULT 0 NOT NULL,
+	`trigger_event_count` integer DEFAULT 0 NOT NULL,
+	`permission_count` integer DEFAULT 0 NOT NULL,
+	`last_run_at` integer,
+	`last_run_status` text,
+	`created_by_github_user_id` integer,
+	`created_by_github_login` text,
+	`updated_by_github_user_id` integer,
+	`updated_by_github_login` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `nanite_catalog_installation_nanite_unique` ON `nanite_catalog` (`github_installation_id`,`nanite_id`);--> statement-breakpoint
 CREATE TABLE `nanite_run_facts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
@@ -166,11 +194,27 @@ CREATE TABLE `nanite_run_facts` (
 	`variant` text NOT NULL,
 	`trigger_kind` text NOT NULL,
 	`trigger_pull_request_number` integer,
+	`triggered_by_github_user_id` integer,
+	`triggered_by_github_login` text,
+	`actor_kind` text,
+	`actor_github_user_id` integer,
+	`actor_github_login` text,
+	`actor_source` text,
+	`billing_github_user_id` integer,
+	`billing_github_login` text,
+	`billing_attribution_basis` text,
 	`status` text NOT NULL,
 	`conclusion` text,
 	`phase` text NOT NULL,
 	`task` text NOT NULL,
 	`summary` text,
+	`output_url` text,
+	`output_pull_request_number` integer,
+	`output_pull_request_merged` integer,
+	`output_pull_request_merged_at` integer,
+	`output_additions` integer,
+	`output_deletions` integer,
+	`output_changed_files` integer,
 	`config_source` text,
 	`implicit_failure_reason` text,
 	`missing_exit_tool_reminder_count` integer DEFAULT 0 NOT NULL,
@@ -212,4 +256,3 @@ CREATE TABLE `platform_usage_facts` (
 	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`github_installation_id`) REFERENCES `account_installations`(`github_installation_id`) ON UPDATE no action ON DELETE cascade
 );
---> statement-breakpoint

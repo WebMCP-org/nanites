@@ -16,9 +16,10 @@ import {
   accountPeople,
   accountRepositories,
   accounts,
-  aiPricingSnapshots,
+  auditEvents,
   aiUsageFacts,
   authFunnelFacts,
+  naniteCatalog,
   naniteRunFacts,
   platformUsageFacts,
 } from "./schema.ts";
@@ -29,9 +30,10 @@ const schema = {
   accountPeople,
   accountRepositories,
   accounts,
-  aiPricingSnapshots,
+  auditEvents,
   aiUsageFacts,
   authFunnelFacts,
+  naniteCatalog,
   naniteRunFacts,
   platformUsageFacts,
 };

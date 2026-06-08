@@ -37,6 +37,7 @@ export const startNaniteRunTool = defineSigveloMcpTool({
       naniteId: input.naniteId,
       message: input.message,
       actorId: `github:${context.actor.githubUserId}`,
+      actor: context.actor,
       manualRequestId: input.manualRequestId ?? context.requestId,
       waitForTerminalOutcome: input.waitForTerminalOutcome,
       timeoutMs: input.timeoutMs,

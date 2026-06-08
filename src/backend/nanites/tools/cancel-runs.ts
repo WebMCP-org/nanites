@@ -29,7 +29,7 @@ export const cancelRunsTool = defineSigveloMcpTool({
     idempotentHint: false,
     openWorldHint: false,
   },
-  async execute(input, { manager }) {
+  async execute(input, { context, manager }) {
     //@ts-ignore Super Deep types
     return manager.cancelRuns({
       runIds: input.runIds,
@@ -37,6 +37,8 @@ export const cancelRunsTool = defineSigveloMcpTool({
       olderThanIso: input.olderThanIso,
       limit: input.limit,
       reason: input.reason,
+      actor: context.actor,
+      requestId: context.requestId,
     });
   },
 } satisfies SigveloMcpToolDefinition<typeof cancelRunsToolInputSchema, CancelNaniteRunsOutput>);
