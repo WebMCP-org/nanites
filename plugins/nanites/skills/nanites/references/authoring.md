@@ -25,6 +25,11 @@ Avoid:
 
 Use the live MCP schema as the final authority. The create schema is strict: unexpected fields are rejected.
 
+Future model selection work is tracked in
+[`docs/architecture/nanite-model-config-plan.md`](../../../../../docs/architecture/nanite-model-config-plan.md).
+Do not include `manifest.model` in live create payloads until that plan is implemented; the current
+schema rejects it.
+
 GitHub machine-source Nanite:
 
 ```json

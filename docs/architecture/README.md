@@ -288,10 +288,11 @@ Do not build code around the generated-owner future until the stable path stops 
 
 ## Active documents
 
-This directory has six active documents.
+This directory has seven active documents.
 
 - `architecture.md` - long-term product model and durable boundaries
 - `execution-architecture.md` - current runtime shape, centered on Think sub-agents and Workspace
+- `nanite-model-config-plan.md` - future MCP/manager-authored model selection for Nanite manifests
 - `observability-plan.md` - cost, audit, telemetry, and dashboard planning for Nanites
 - `tool-surface-lld.md` - low-level design for shared MCP/browser/manager-chat Nanite tools
 - `roadmap.md` - the next few sprints, current milestone, and explicit non-goals
@@ -319,6 +320,7 @@ Do not let this directory turn back into a stack of overlapping plans.
 
 - Product truth belongs in `architecture.md`.
 - Build-now runtime truth belongs in `execution-architecture.md`.
+- Future Nanite model-selection implementation detail belongs in `nanite-model-config-plan.md`.
 - Observability and reporting planning belongs in `observability-plan.md`.
 - Shared manager tool-surface implementation detail belongs in `tool-surface-lld.md`.
 - Near-term sequencing belongs in `roadmap.md`.
