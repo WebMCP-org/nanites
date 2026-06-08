@@ -67,18 +67,19 @@ operators can bring their own Cloudflare account, Workers AI binding, AI Gateway
 secrets through deployment configuration. Hosted users need a product-level way to pay for or attach
 model credits without turning each Nanite manifest into a credential document.
 
-The likely next shape is a small account or installation settings surface, simpler than the deleted
-settings page:
+The likely next shape is a small account or installation API-key surface, much simpler than the
+deleted settings page. Hosted V1 does not need a general model picker. It should support a short
+provider list and route those keys through Cloudflare's AI Gateway provider path:
 
-- choose the model runtime surface: Cloudflare-hosted Workers AI or AI Gateway provider route
-- store provider API keys or Cloudflare AI Gateway BYOK aliases at the account/installation boundary
-- let `manifest.model` continue to pick model policy only
-- validate selected models against the relevant Cloudflare documentation/catalog for that runtime
-- smoke-test the selected runtime/key before allowing it to become the active billing path
+- DeepSeek is the default because it is expected to be the cheapest reliable default.
+- Users can add provider keys for DeepSeek, OpenAI/ChatGPT, Anthropic/Claude, and Google/Gemini.
+- Keys are stored at the account or installation boundary, never in a Nanite manifest.
+- Saving a key should smoke-test that provider route before marking it active.
+- `manifest.model` continues to pick only model policy: deployment default or a selected model id.
 
-Do not put raw API keys, BYOK aliases, provider headers, gateway ids, or billing-account choices in
-Nanite manifests. A Nanite should only say which model policy it wants; the deployment or
-installation should own how that model call is paid for and authorized.
+Do not put raw API keys, provider headers, gateway ids, or billing-account choices in Nanite
+manifests. A Nanite should only say which model policy it wants; the deployment or installation
+should own how that model call is paid for and authorized.
 
 ## Non-Goals
 
