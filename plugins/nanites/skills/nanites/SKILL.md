@@ -47,6 +47,7 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 
 - Create many small Nanites instead of one broad maintainer.
 - Use `eventSource` as a coarse candidate filter and `triggerSource` as the real generated TypeScript decision. Do not use legacy `trigger` or `inboundTrigger` fields.
+- Current live create schema rejects `manifest.model`; do not include it until `docs/architecture/nanite-model-config-plan.md` is implemented.
 - Prefer `import { defineGitHubTrigger } from "@sigvelo/nanite-trigger"` for GitHub triggers.
 - Return `ctx.noop(...)` with a useful reason for irrelevant events.
 - Keep `ctx.dispatchSelf(...)` input small, flat, and JSON-serializable.

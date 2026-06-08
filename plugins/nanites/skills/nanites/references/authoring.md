@@ -284,7 +284,7 @@ After `sigvelo_create_nanite`, test the real path:
 }
 ```
 
-If the test returns `triggerAcceptedEvent: false`, read `acceptance.triggerRejectionReason` before changing code. If it dispatches a model, use terminal run status and `agentFeedback` as the acceptance result.
+If the test returns `triggerAcceptedEvent: false`, read `acceptance.triggerRejectionReason` before changing code. If the trigger dispatches a Nanite run, use terminal run status and `agentFeedback` as the acceptance result.
 
 ## Bundle Examples
 
