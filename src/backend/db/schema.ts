@@ -1,5 +1,5 @@
 /**
- * Authoritative Drizzle schema for Sigvelo business and reporting tables.
+ * Authoritative Drizzle schema for SigVelo business and reporting tables.
  *
  * Ownership:
  * - This file owns persistence structure: table names, columns, defaults, constraints, and enum

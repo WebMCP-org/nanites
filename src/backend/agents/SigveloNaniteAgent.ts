@@ -397,7 +397,7 @@ function summarizeDebugPart(part: unknown, maxLength: number): unknown {
   const tailLength = Math.max(maxLength - headLength - 160, 0);
   const preview = [
     serialized.slice(0, headLength),
-    `\n\n[Sigvelo debug truncated ${serialized.length - headLength - tailLength} characters from this message part.]\n\n`,
+    `\n\n[SigVelo debug truncated ${serialized.length - headLength - tailLength} characters from this message part.]\n\n`,
     tailLength > 0 ? serialized.slice(-tailLength) : "",
   ].join("");
 
@@ -599,7 +599,7 @@ export function buildRunPrompt(input: StartNaniteAgentInput): string {
     "Use Workspace git tools for repository changes and branch pushes.",
     "Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata, reading PR details, and reading check or workflow status.",
     "Do not use GitHub MCP file-write tools unless this Nanite was explicitly granted them. Do not merge pull requests unless this Nanite was explicitly granted merge authority.",
-    "For GitHub changes, manage branches and pull requests yourself with git, gh, or Octokit instead of expecting Sigvelo to publish a support lane for you.",
+    "For GitHub changes, manage branches and pull requests yourself with git, gh, or Octokit instead of expecting SigVelo to publish a support lane for you.",
     "Reuse an existing open PR when that is the coherent review surface for your responsibility.",
     "When stacked PRs are useful: the bottom branch targets the repo default branch, each higher branch targets the branch below it, every PR stays small and independently reviewable, and every PR description includes stack ordering.",
     "Use gh stack only when it is available. Otherwise use plain git branches and gh pr create --base <previous-branch>.",
@@ -613,13 +613,13 @@ export function buildRunPrompt(input: StartNaniteAgentInput): string {
 
 export function buildNaniteSystemPrompt(): string {
   return [
-    "You are a Sigvelo Nanite: a durable maintenance agent for one narrow responsibility inside a GitHub installation.",
+    "You are a SigVelo Nanite: a durable maintenance agent for one narrow responsibility inside a GitHub installation.",
     "Your transcript, workspace, and memory are durable. Keep durable memory compact and evidence-backed.",
     "Use nanite_task_context for the current manifest, repository scope, permission grants, generated trigger source, and active trigger payload.",
     "Use the smallest execution plane that can satisfy the run: GitHub MCP for pull requests, checks, comments, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; ask_human for missing authority or product decisions.",
     "Do not use GitHub MCP to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
     "The execute tool runs Worker-compatible JavaScript with state.* and git.* providers. It is not a shell and cannot use require(), child_process, or subprocess commands.",
-    "Use artifact_read for saved Sigvelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
+    "Use artifact_read for saved SigVelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
     "Keep GitHub-facing output concise. Keep detailed investigation in this transcript.",
     "",
     "Do not claim success without evidence. If authority, configuration, approval, or target scope is missing, use ask_human. If the target state is impossible or a deterministic tool/API error repeats, use fail.",
@@ -900,7 +900,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   override configureSession(session: Session): Session {
     return session
       .withContext("nanite_identity", {
-        description: "Stable Sigvelo Nanite identity, tool routing rules, and lifecycle rules.",
+        description: "Stable SigVelo Nanite identity, tool routing rules, and lifecycle rules.",
         maxTokens: 4000,
         provider: {
           get: async () => this.getSystemPrompt(),
@@ -950,7 +950,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       ...extensionTools,
       artifact_read: tool({
         description:
-          "Inspect saved Sigvelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a bounded slice. With pattern, grep-searches one artifact or all current-run artifacts.",
+          "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a bounded slice. With pattern, grep-searches one artifact or all current-run artifacts.",
         inputSchema: z.object({
           artifactId: z.string().min(1).optional(),
           offset: z.number().int().min(0).optional(),

@@ -140,7 +140,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     return session
       .withContext("manager_installation_context", {
         description:
-          "Selected GitHub installation, account, and repository grounding for the Sigvelo installation manager.",
+          "Selected GitHub installation, account, and repository grounding for the SigVelo installation manager.",
         maxTokens: 2000,
         provider: {
           get: async () => this.formatInstallationContext(),
@@ -264,7 +264,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     if (context.status === "disconnected") {
       return [
         "No GitHub installation has been connected for this manager conversation yet.",
-        "If the human asks about repositories or Nanites, first inspect Sigvelo manager state and connected MCP tools before asking for missing names.",
+        "If the human asks about repositories or Nanites, first inspect SigVelo manager state and connected MCP tools before asking for missing names.",
       ].join("\n");
     }
 
@@ -475,14 +475,14 @@ function getRepositoryOwner(
 
 function buildManagerSystemPrompt(): string {
   return [
-    "You are the Sigvelo Installation Manager.",
+    "You are the SigVelo Installation Manager.",
     "Use the loaded nanites skill as the source of truth for Nanite authoring, trigger, permission, testing, and debugging rules.",
     "Use manager_installation_context as selected GitHub installation grounding. Treat that selected installation/account as the user's current org unless they explicitly ask to switch.",
     "You have broad GitHub MCP access for the selected installation, bounded by the GitHub App installation and accessible repository list.",
-    "Use Sigvelo manager tools for control-plane work: inspect Nanites, create or update one Nanite at a time, deprovision one Nanite, start manual runs, cancel runs, and inspect Nanite workspaces.",
+    "Use SigVelo manager tools for control-plane work: inspect Nanites, create or update one Nanite at a time, deprovision one Nanite, start manual runs, cancel runs, and inspect Nanite workspaces.",
     "Use GitHub MCP tools to investigate repositories, repo instructions, branches, commits, pull requests, issues, and workflow/check state before creating or updating Nanites. You may create pull requests only when that is the user's explicit request or the coherent review surface for the manager's work.",
     "Use built-in workspace tools for repository file review and git work. execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, shell subprocesses, and shell git are unavailable. Use state.* and git.* APIs directly.",
-    "Sigvelo manager tools are not exposed as top-level JavaScript functions inside execute. Call explicit Sigvelo tools from the Think tool list instead, one Nanite at a time.",
+    "SigVelo manager tools are not exposed as top-level JavaScript functions inside execute. Call explicit SigVelo tools from the Think tool list instead, one Nanite at a time.",
     "For repository file contents, repo-local instructions, and Nanite authoring references, prefer the durable workspace checkout over GitHub MCP so evidence stays inspectable in the manager workspace.",
     `Use nanites_authoring_sources to refresh and inspect ${NANITES_AUTHORING_REPOSITORY} in the manager workspace before creating or updating Nanites.`,
     "If the authoring repo refresh fails because of access, network, or a dirty checkout, continue from the best available evidence and mention the limitation briefly.",

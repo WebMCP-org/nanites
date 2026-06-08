@@ -1,6 +1,6 @@
 # Admin Access
 
-Sigvelo admin access is Cloudflare-only:
+SigVelo admin access is Cloudflare-only:
 
 1. Cloudflare Access protects `/admin` and `/admin/*` at the edge.
 2. Admin RPCs live under `/admin/rpc/*`, so they stay inside the same protected path.
@@ -12,17 +12,17 @@ Sigvelo admin access is Cloudflare-only:
 Set these production Worker vars:
 
 - `CLOUDFLARE_ACCESS_TEAM_DOMAIN=alexnahasprojects.cloudflareaccess.com`
-- `CLOUDFLARE_ACCESS_AUD=<Sigvelo Admin Access app aud>`
+- `CLOUDFLARE_ACCESS_AUD=<SigVelo Admin Access app aud>`
 
 ## Cloudflare Access app
 
-Create an account-level self-hosted Access application named `Sigvelo Admin` with:
+Create an account-level self-hosted Access application named `SigVelo Admin` with:
 
 - primary domain `app.sigvelo.com/admin`
 - destinations `app.sigvelo.com/admin` and `app.sigvelo.com/admin/*`
 - `path_cookie_attribute=true`
 - `auto_redirect_to_identity=false`
-- an Allow policy for `alexmnahas@gmail.com`
+- an Allow policy for the authorized email(s) (e.g., `admin@example.com`)
 
 Do not add app-side redirects for Access. The Cloudflare login screen must appear before the Worker or SPA handles `/admin`.
 

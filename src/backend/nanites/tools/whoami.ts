@@ -16,7 +16,7 @@ const whoamiToolOutputSchema = z.object({
 
 export const whoamiTool = defineSigveloMcpTool({
   name: "sigvelo_whoami",
-  title: "Inspect Sigvelo authorization",
+  title: "Inspect SigVelo authorization",
   description: "Returns the GitHub actor and installation bound to this tool session.",
   inputSchema: whoamiToolInputSchema,
   outputSchema: whoamiToolOutputSchema,

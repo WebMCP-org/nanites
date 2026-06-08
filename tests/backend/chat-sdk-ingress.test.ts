@@ -202,7 +202,7 @@ function mockManagerConversationGitHubApi(
           `/repos/WebMCP-org/nanites/issues/${fixture.prNumber}/comments`,
           {
             id: fixture.statusCommentId,
-            body: "Sigvelo manager received this in `WebMCP-org/nanites`.",
+            body: "SigVelo manager received this in `WebMCP-org/nanites`.",
             html_url: `https://github.com/WebMCP-org/nanites/pull/${fixture.prNumber}#issuecomment-${fixture.statusCommentId}`,
             created_at: "2026-05-23T00:00:01Z",
             updated_at: "2026-05-23T00:00:01Z",
@@ -237,7 +237,7 @@ function mockManagerConversationGitHubApi(
             },
             {
               id: fixture.statusCommentId,
-              body: "Sigvelo manager accepted this message and is queueing a Think turn.",
+              body: "SigVelo manager accepted this message and is queueing a Think turn.",
               html_url: `https://github.com/WebMCP-org/nanites/pull/${fixture.prNumber}#issuecomment-${fixture.statusCommentId}`,
               created_at: "2026-05-23T00:00:01Z",
               updated_at: "2026-05-23T00:00:01Z",

@@ -4,7 +4,7 @@
 export const DEFAULT_AUTH_RETURN_TO_PATH = "/nanites";
 
 /**
- * Browser login route for the Sigvelo dashboard.
+ * Browser login route for the SigVelo dashboard.
  */
 const LOGIN_ROUTE_PATH = "/";
 

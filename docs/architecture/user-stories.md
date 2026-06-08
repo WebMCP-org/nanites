@@ -10,7 +10,7 @@ They are not implementation tickets. They are the reference language for decidin
 
 ### Repo selection
 
-As a repo owner, I can tell which repositories are worth running Sigvelo on before I open them.
+As a repo owner, I can tell which repositories are worth running SigVelo on before I open them.
 
 Signals should include:
 
@@ -30,7 +30,7 @@ As a reviewer, I can open a run and immediately see:
 
 ### Large-repo reliability
 
-As an investor, evaluator, or first-time user, I can run Sigvelo on a serious repository without the product failing at hydration before it proves value.
+As an investor, evaluator, or first-time user, I can run SigVelo on a serious repository without the product failing at hydration before it proves value.
 
 That means backend routing and fallback are product requirements, not internal implementation details.
 
@@ -38,11 +38,11 @@ That means backend routing and fallback are product requirements, not internal i
 
 ### Stable change proposal surface
 
-As a maintainer, when repeated runs produce code changes, Sigvelo reuses the current change proposal instead of opening a new PR every time it touches the same area.
+As a maintainer, when repeated runs produce code changes, SigVelo reuses the current change proposal instead of opening a new PR every time it touches the same area.
 
 ### Honest verification
 
-As a frontend lead, I can trust the verification label because Sigvelo only claims `verified` when it observed a real preview and produced browser evidence against it.
+As a frontend lead, I can trust the verification label because SigVelo only claims `verified` when it observed a real preview and produced browser evidence against it.
 
 ### Human checkpoints
 
@@ -69,7 +69,7 @@ Examples:
 
 These are behaviors the product should avoid.
 
-- As a user, I do not want Sigvelo to flood GitHub with many comments.
+- As a user, I do not want SigVelo to flood GitHub with many comments.
 - As a reviewer, I do not want to parse raw transcript data before I can understand the outcome.
 - As a maintainer, I do not want a new PR every time the same Nanite revisits the same area of work.
 - As an operator, I do not want backend routing to be invisible when it affects run behavior or reliability.

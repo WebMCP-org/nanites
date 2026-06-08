@@ -1268,7 +1268,7 @@ function renderManagerChatReply(input: {
     .map((runId) => input.state.runs[runId])
     .filter((run) => run && !isTerminalNaniteRunStatus(run.status))
     .slice(0, 5);
-  const lines = [`Sigvelo manager received this in \`${repository}\`.`, ""];
+  const lines = [`SigVelo manager received this in \`${repository}\`.`, ""];
 
   if (repositoryNanites.length === 0) {
     lines.push("No Nanites are currently scoped to this repository.");

@@ -1,6 +1,6 @@
 # Operations
 
-Use this reference when connecting an agent to Sigvelo, preparing a deployment, testing a Nanite through MCP, or debugging a stuck/broken run.
+Use this reference when connecting an agent to SigVelo, preparing a deployment, testing a Nanite through MCP, or debugging a stuck/broken run.
 
 ## Setup Checklist
 
@@ -19,7 +19,7 @@ gh api user --jq '{login,id}'
 vp exec wrangler whoami
 ```
 
-4. Connect the Sigvelo MCP server and authenticate through OAuth.
+4. Connect the SigVelo MCP server and authenticate through OAuth.
 5. Call `sigvelo_whoami`.
 6. Confirm:
    - `githubInstallationId` is the intended installation
@@ -29,13 +29,13 @@ vp exec wrangler whoami
 
 ## Runtime Surfaces
 
-Sigvelo MCP is for Nanite creation, trigger tests, manual starts, runtime debugging, and workspace exploration.
+SigVelo MCP is for Nanite creation, trigger tests, manual starts, runtime debugging, and workspace exploration.
 
 Cloudflare MCP is for operator setup, provisioning, deploy troubleshooting, logs, and observability.
 
 GitHub CLI (`gh`) is for verifying the operator identity and GitHub App setup. Do not assume Nanite runtime shell sessions have authenticated `gh` unless the runtime explicitly injects `GH_TOKEN`.
 
-MCP clients may display tools under a connector namespace, but the callable tool names exposed by the Sigvelo server start with `sigvelo_`.
+MCP clients may display tools under a connector namespace, but the callable tool names exposed by the SigVelo server start with `sigvelo_`.
 
 ## MCP Connection
 
@@ -58,7 +58,7 @@ Claude Code:
 claude mcp add --transport http sigvelo https://app.sigvelo.com/mcp
 ```
 
-Generic MCP clients can use the plugin root `.mcp.json` as the production config and `.mcp.example.json` for optional Cloudflare support servers. Replace the Sigvelo URL for local or staging environments.
+Generic MCP clients can use the plugin root `.mcp.json` as the production config and `.mcp.example.json` for optional Cloudflare support servers. Replace the SigVelo URL for local or staging environments.
 
 Expected scopes:
 
@@ -290,7 +290,7 @@ vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc
 
 ## GitHub App
 
-Use the deployed Sigvelo origin for URLs:
+Use the deployed SigVelo origin for URLs:
 
 - Callback URL: `https://<origin>/auth/github/callback`
 - Webhook URL: `https://<origin>/api/github/webhook`

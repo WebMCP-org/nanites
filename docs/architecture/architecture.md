@@ -70,7 +70,7 @@ Default capability sources should be:
 - repo-local instructions such as `AGENTS.md`
 - repo-local Codex config, skills, and plugins
 - configured MCP servers
-- runtime-owned CLI surfaces such as Sigvelo publishing and completion commands
+- runtime-owned CLI surfaces such as SigVelo publishing and completion commands
 
 This keeps Nanites legible as product objects instead of turning them into another agent runtime.
 
@@ -157,7 +157,7 @@ export default defineGitHubTrigger({
 
 Generated trigger code should be easy for another coding agent to author. The authoring environment should include:
 
-- the Sigvelo trigger runtime contract and examples
+- the SigVelo trigger runtime contract and examples
 - Octokit types
 - a typed `@sigvelo/nanite-trigger` facade for Worker Loader execution
 - local Octokit source and docs fetched through `opensrc` when deeper API behavior matters
@@ -165,11 +165,11 @@ Generated trigger code should be easy for another coding agent to author. The au
 
 ## Capability Model
 
-Nanites should prefer imported capability over Sigvelo-specific reinvention.
+Nanites should prefer imported capability over SigVelo-specific reinvention.
 
 The default model should be:
 
-- Sigvelo defines the Nanite's scope, soul, and stop conditions
+- SigVelo defines the Nanite's scope, soul, and stop conditions
 - the pulled repository contributes repo-native instructions and local skills
 - MCP contributes external knowledge and tool capability
 - runtime-owned CLIs contribute trust-sensitive actions
@@ -177,13 +177,13 @@ The default model should be:
 Examples:
 
 - docs lookup should come from MCP or repo docs, not hardcoded prompt text when the live source already exists
-- coding behavior should come from the executor's native shell/edit/tool model, not from a duplicate Sigvelo-authored tool catalog
+- coding behavior should come from the executor's native shell/edit/tool model, not from a duplicate SigVelo-authored tool catalog
 - publishing, verification, and explicit finish should remain runtime-owned because they are part of the trust boundary
 
 For GitHub API capability, the manager should issue scoped GitHub App installation tokens and attach
 a constrained GitHub MCP inventory to the Nanite. A GitHub installation cannot mint classic PATs, and
 the official GitHub MCP server cannot automatically scope-filter GitHub App installation tokens. The
-model that creates a Nanite declares repository scope and GitHub App permission grants; Sigvelo
+model that creates a Nanite declares repository scope and GitHub App permission grants; SigVelo
 derives the effective MCP tool inventory from those grants.
 
 The default split should be:
@@ -203,7 +203,7 @@ These rules are part of the product contract:
 - a Run starts from the Nanite's durable identity plus Think-owned memory
 - resume only applies within the same active Run
 - old full transcripts are not reused across Runs
-- any durable memory that survives across Runs should come from Think, not a Sigvelo-owned memory layer
+- any durable memory that survives across Runs should come from Think, not a SigVelo-owned memory layer
 - backend choice is internal unless it changes the outcome, timing, or required next action
 - support PR reuse is an output strategy, not the primary mental model
 
@@ -414,11 +414,11 @@ The model should be:
 
 - Nanites generate artifacts and live state
 - the installation manager enforces GitHub capability and projection policy
-- GitHub stays clean while Sigvelo carries the deeper execution story
+- GitHub stays clean while SigVelo carries the deeper execution story
 
 ## Change proposal continuity
 
-When a Nanite produces code changes, Sigvelo should prefer one stable change-proposal surface per Nanite per target repo instead of opening a new PR each time.
+When a Nanite produces code changes, SigVelo should prefer one stable change-proposal surface per Nanite per target repo instead of opening a new PR each time.
 
 Today that surface is usually a support PR.
 

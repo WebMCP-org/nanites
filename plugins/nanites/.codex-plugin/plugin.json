@@ -1,9 +1,9 @@
 {
   "name": "nanites",
   "version": "0.2.0",
-  "description": "Model guidance and MCP configuration for creating, testing, and debugging Sigvelo Nanites.",
+  "description": "Model guidance and MCP configuration for creating, testing, and debugging SigVelo Nanites.",
   "author": {
-    "name": "WebMCP / Sigvelo"
+    "name": "WebMCP / SigVelo"
   },
   "homepage": "https://app.sigvelo.com",
   "license": "Apache-2.0",
@@ -11,10 +11,10 @@
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "Sigvelo Nanites",
+    "displayName": "SigVelo Nanites",
     "shortDescription": "Create, test, and debug durable GitHub Nanites through MCP.",
-    "longDescription": "Teaches agents how to use the Sigvelo MCP server, author thin Nanite manifests, write generated trigger handlers, run acceptance tests, inspect failed runs, and keep Nanite operating knowledge aligned with the current runtime model.",
-    "developerName": "WebMCP / Sigvelo",
+    "longDescription": "Teaches agents how to use the SigVelo MCP server, author thin Nanite manifests, write generated trigger handlers, run acceptance tests, inspect failed runs, and keep Nanite operating knowledge aligned with the current runtime model.",
+    "developerName": "WebMCP / SigVelo",
     "category": "Developer Tools",
     "capabilities": ["MCP", "GitHub", "Cloudflare", "Agent Authoring"],
     "websiteURL": "https://app.sigvelo.com",

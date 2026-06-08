@@ -1,7 +1,7 @@
 {
   "name": "sigvelo",
   "interface": {
-    "displayName": "Sigvelo"
+    "displayName": "SigVelo"
   },
   "plugins": [
     {

@@ -20,11 +20,11 @@ const startNaniteRunToolInputSchema = z.object({
 
 export const startNaniteRunTool = defineSigveloMcpTool({
   name: "sigvelo_start_nanite_run",
-  title: "Start a Sigvelo Nanite run",
+  title: "Start a SigVelo Nanite run",
   description:
     "Starts a direct manual run for one registered Nanite and dispatches it through the real Nanite manager path.",
   inputSchema: startNaniteRunToolInputSchema,
-  outputSchema: createObjectOutputSchema("Sigvelo Nanite manual run start result."),
+  outputSchema: createObjectOutputSchema("SigVelo Nanite manual run start result."),
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,

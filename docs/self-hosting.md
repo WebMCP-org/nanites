@@ -6,7 +6,7 @@ Nanites is a Cloudflare Worker app. The runtime uses Durable Objects for the man
 state, D1 for product data, R2 for workspace files, KV for OAuth/tool artifacts, Worker Loader for
 generated trigger code, Workers AI for model access, and a GitHub App for repository authority.
 
-The committed `wrangler.jsonc` includes Sigvelo's current app ids, custom domains, and Cloudflare
+The committed `wrangler.jsonc` includes SigVelo's current app ids, custom domains, and Cloudflare
 resource ids for the hosted deployment. Fork operators must replace those values before deploying
 their own instance.
 

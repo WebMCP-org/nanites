@@ -4,7 +4,7 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 
 The product bet is that modern coding agents are good enough to own narrow, recurring work when they have the right context, tools, and stop conditions. A Nanite is not a job queue item, a PR bot rule, or a generated runtime class. It is a durable collaborator with a name, a scope, a purpose, and Think-owned memory.
 
-Sigvelo is the programmable router around those collaborators. The installation manager receives external signals, generated trigger handlers decide what those signals mean, and stable Think Nanites do the actual work. This lets one installation have many tiny durable agents without turning every custom event rule into hand-written product code.
+SigVelo is the programmable router around those collaborators. The installation manager receives external signals, generated trigger handlers decide what those signals mean, and stable Think Nanites do the actual work. This lets one installation have many tiny durable agents without turning every custom event rule into hand-written product code.
 
 The core model should stay simple:
 
@@ -66,7 +66,7 @@ sequenceDiagram
 
 ### Keep GitHub data GitHub-shaped
 
-Use Octokit and GitHub API shapes directly for GitHub-owned facts. Sigvelo should not rename,
+Use Octokit and GitHub API shapes directly for GitHub-owned facts. SigVelo should not rename,
 compress, or recreate GitHub data unless a real boundary requires it. See
 [GitHub Shape Doctrine](./github-shape-doctrine.md).
 
@@ -99,7 +99,7 @@ a first-party Agent schedule owned by that Nanite sub-agent. The manager validat
 schedule, but the recurring callback belongs to the Nanite path. The callback turns the tick into a
 normalized machine event; the generated TypeScript trigger still decides `dispatchSelf` or `noop`.
 Use Cloudflare Agent schedule language directly. Match the method names so the manifest maps to
-`schedule()` / `scheduleEvery()` without a Sigvelo-only schedule vocabulary:
+`schedule()` / `scheduleEvery()` without a SigVelo-only schedule vocabulary:
 
 ```ts
 type NaniteScheduledEventSource =
@@ -129,13 +129,13 @@ the authoring agent instead of creating a failed Nanite Run. A Run Outcome only 
 Nanite is actually dispatched.
 
 Production GitHub webhooks are slightly different for now. If a real GitHub webhook hits a broken
-generated trigger, Sigvelo records a failed Run labeled as "trigger failed before model dispatch" so
+generated trigger, SigVelo records a failed Run labeled as "trigger failed before model dispatch" so
 operators have a visible artifact to inspect. That failure does not create a GitHub check because no
 model run started and there is no terminal check update to report.
 
-### Prefer platform primitives over Sigvelo-shaped layers
+### Prefer platform primitives over SigVelo-shaped layers
 
-Use Cloudflare Agents, Think, Workspace, Worker Loader, Durable Object state, and SDK-native sub-agent routing directly where they already fit. Add Sigvelo code when it owns product policy, auth, lifecycle boundaries, GitHub feedback, or generated-code validation.
+Use Cloudflare Agents, Think, Workspace, Worker Loader, Durable Object state, and SDK-native sub-agent routing directly where they already fit. Add SigVelo code when it owns product policy, auth, lifecycle boundaries, GitHub feedback, or generated-code validation.
 
 Avoid compatibility shims, mirrored schemas, copied message arrays, custom live tunnels, old sandbox/container assumptions, or runtime wrappers that only rename first-party primitives.
 
@@ -147,7 +147,7 @@ A Nanite definition should mostly describe:
 - soul: what it is trying to preserve and how it should make tradeoffs
 - stop conditions: what counts as done, no-change, failed, or waiting for a human
 
-Capabilities should come from repo-local instructions, MCP servers, skills, Workspace/git tools, and runtime-owned lifecycle commands. Do not grow a giant Sigvelo-specific tool manifest unless a real authorization boundary requires it.
+Capabilities should come from repo-local instructions, MCP servers, skills, Workspace/git tools, and runtime-owned lifecycle commands. Do not grow a giant SigVelo-specific tool manifest unless a real authorization boundary requires it.
 
 ### GitHub is the first vertical, not the whole ontology
 
@@ -258,7 +258,7 @@ When finished, call exactly one lifecycle tool.
 The manager does not publish a hidden support lane for the Nanite. The Nanite chooses whether to
 reuse an existing PR, open a new PR, create a simple PR stack, report no change, fail, or ask for a
 human. For now, a stack is represented by the best review URL plus summary text rather than a
-first-class Sigvelo stack model.
+first-class SigVelo stack model.
 
 ## Source of truth
 
@@ -269,7 +269,7 @@ first-class Sigvelo stack model.
 | GitHub webhook or schedule predicates        | Generated trigger handler | Emits intents; manager validates and executes.           |
 | Repo edits and git operations                | Workspace + Shell git     | Uses scoped GitHub installation auth.                    |
 | PR/search/status operations                  | GitHub MCP                | Nanite-scoped tool inventory.                            |
-| Build, typecheck, test truth                 | GitHub CI                 | Prefer CI signals over a Sigvelo process harness.        |
+| Build, typecheck, test truth                 | GitHub CI                 | Prefer CI signals over a SigVelo process harness.        |
 | Final outcome                                | Lifecycle tools           | `complete`, `no_change`, `fail`, `ask_human`.            |
 
 ## Future path

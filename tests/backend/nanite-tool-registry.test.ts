@@ -256,7 +256,7 @@ test("Nanite create schema rejects old nested schedule discriminants", () => {
   }
 });
 
-test("Think tools are translated from the same Sigvelo registry", () => {
+test("Think tools are translated from the same SigVelo registry", () => {
   const thinkTools = createSigveloThinkTools({
     env: {} as Env,
     getProps: () => null,
@@ -264,7 +264,7 @@ test("Think tools are translated from the same Sigvelo registry", () => {
 
   expect(Object.keys(thinkTools)).toEqual(naniteTools.map((tool) => tool.name));
   expect(thinkTools.sigvelo_whoami).toMatchObject({
-    title: "Inspect Sigvelo authorization",
+    title: "Inspect SigVelo authorization",
     description: "Returns the GitHub actor and installation bound to this tool session.",
   });
 });
