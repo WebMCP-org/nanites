@@ -52,8 +52,10 @@ import {
   SelectValue,
 } from "#/frontend/ui/components/Select.tsx";
 import {
+  fetchObservabilityEventDetail,
   fetchObservabilityDashboard,
   observabilityDashboardQueryKey,
+  observabilityEventDetailQueryKey,
   type ObservabilityDashboardData,
   type ObservabilityDashboardFilterOptions,
 } from "./-queries.ts";
@@ -71,6 +73,7 @@ import type {
   KpiMetric,
   NaniteCreatorPoint,
   NaniteCatalogRow,
+  ObservabilityEventDetail,
   ObservabilityEventRow,
   ObservabilityImpactSummary,
   RunActorPoint,
@@ -1741,13 +1744,26 @@ function ObservabilityDashboardState({
 }
 
 function SelectedEventDetail({
-  data,
+  event,
+  isPending,
   onClose,
 }: {
-  readonly data: ObservabilityDashboardData | undefined;
+  readonly event: ObservabilityEventDetail | null | undefined;
+  readonly isPending: boolean;
   readonly onClose: () => void;
 }) {
-  if (!data?.selectedEvent) {
+  if (isPending) {
+    return (
+      <Card className="observability-detail" aria-label="Selected event">
+        <Button type="button" variant="outline" color="neutral" size="sm" onClick={onClose}>
+          Close
+        </Button>
+        <p>Loading event...</p>
+      </Card>
+    );
+  }
+
+  if (!event) {
     return null;
   }
 
@@ -1756,7 +1772,7 @@ function SelectedEventDetail({
       <Button type="button" variant="outline" color="neutral" size="sm" onClick={onClose}>
         Close
       </Button>
-      <pre>{JSON.stringify(data.selectedEvent, null, 2)}</pre>
+      <pre>{JSON.stringify(event, null, 2)}</pre>
     </Card>
   );
 }
@@ -1765,10 +1781,20 @@ function ObservabilityRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const normalizedSearch = useMemo(() => observabilitySearchSchema.parse(search), [search]);
+  const selectedEventId = normalizedSearch.selectedEvent;
   const dashboardQuery = useQuery({
     queryKey: observabilityDashboardQueryKey(normalizedSearch),
     queryFn: () => fetchObservabilityDashboard(normalizedSearch),
     refetchInterval: normalizedSearch.live ? liveRefreshIntervalMs : false,
+    throwOnError: true,
+  });
+  const selectedEventQuery = useQuery({
+    queryKey: observabilityEventDetailQueryKey(normalizedSearch, selectedEventId),
+    queryFn: () =>
+      selectedEventId
+        ? fetchObservabilityEventDetail(normalizedSearch, selectedEventId)
+        : Promise.resolve(null),
+    enabled: Boolean(selectedEventId),
     throwOnError: true,
   });
   const sessionQuery = useQuery({
@@ -1806,7 +1832,8 @@ function ObservabilityRoute() {
         onSelectEvent={(eventId) => setSearch({ selectedEvent: eventId })}
       />
       <SelectedEventDetail
-        data={dashboardQuery.data}
+        event={selectedEventQuery.data}
+        isPending={Boolean(selectedEventId) && selectedEventQuery.isPending}
         onClose={() => setSearch({ selectedEvent: undefined })}
       />
       <footer className="observability-footer">

@@ -39,7 +39,7 @@ type AuditEventInsert = InferInsertModel<typeof auditEvents>;
 type NaniteRunFactInsert = InferInsertModel<typeof naniteRunFacts>;
 
 const sensitiveMetadataKeyPattern =
-  /token|secret|password|authorization|cookie|private[_-]?key|body|prompt|response|output|source/i;
+  /token|secret|password|authorization|cookie|private[_-]?key|body|prompt|response|output|(?:^|[_-])source(?:$|[_-])|sourceCode|generatedSource|rawSource/i;
 const maxMetadataDepth = 3;
 const maxMetadataStringLength = 500;
 const maxMetadataArrayItems = 25;

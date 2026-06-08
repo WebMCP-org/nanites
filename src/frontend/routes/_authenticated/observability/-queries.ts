@@ -9,21 +9,26 @@ import type {
 } from "#/backend/observability/queries.ts";
 import { cleanObservabilitySearch, type ObservabilitySearch } from "./-search.ts";
 
-function query(search: ObservabilitySearch) {
+function requestQuery(search: ObservabilitySearch) {
   const requestQuery = cleanObservabilitySearch(search);
   delete requestQuery.tab;
+  delete requestQuery.selectedEvent;
   return requestQuery;
 }
 
 export const observabilityDashboardQueryKey = (search: ObservabilitySearch) =>
-  ["observability", "dashboard", query(search)] as const;
+  ["observability", "dashboard", requestQuery(search)] as const;
+
+export const observabilityEventDetailQueryKey = (
+  search: ObservabilitySearch,
+  eventId: string | undefined,
+) => ["observability", "event", requestQuery(search), eventId ?? null] as const;
 
 export type ObservabilityDashboardData = {
   overview: ObservabilityOverviewResponse;
   nanites: NaniteCatalogRow[];
   runs: RunFeedRow[];
   audit: AuditFeedRow[];
-  selectedEvent: ObservabilityEventDetail | null;
   filterOptions: ObservabilityDashboardFilterOptions;
 };
 
@@ -44,36 +49,27 @@ export type ObservabilityDashboardFilterOptions = {
 export async function fetchObservabilityDashboard(
   search: ObservabilitySearch,
 ): Promise<ObservabilityDashboardData> {
-  const requestQuery = query(search);
+  const requestQueryForSearch = requestQuery(search);
   const [
     overview,
     nanites,
     runs,
     audit,
-    selectedEvent,
     repositories,
     naniteOptions,
     creators,
     outcomes,
     surfaces,
   ] = await Promise.all([
-    parseResponse(httpClient.api.observability.overview.$get({ query: requestQuery })),
-    parseResponse(httpClient.api.observability.nanites.$get({ query: requestQuery })),
-    parseResponse(httpClient.api.observability.runs.$get({ query: requestQuery })),
-    parseResponse(httpClient.api.observability.audit.$get({ query: requestQuery })),
-    search.selectedEvent
-      ? parseResponse(
-          httpClient.api.observability.events[":eventId"].$get({
-            param: { eventId: search.selectedEvent },
-            query: requestQuery,
-          }),
-        )
-      : Promise.resolve(null),
-    fetchObservabilityFilterOptions(requestQuery, "repository"),
-    fetchObservabilityFilterOptions(requestQuery, "naniteId"),
-    fetchObservabilityFilterOptions(requestQuery, "creator"),
-    fetchObservabilityFilterOptions(requestQuery, "outcome"),
-    fetchObservabilityFilterOptions(requestQuery, "surface"),
+    parseResponse(httpClient.api.observability.overview.$get({ query: requestQueryForSearch })),
+    parseResponse(httpClient.api.observability.nanites.$get({ query: requestQueryForSearch })),
+    parseResponse(httpClient.api.observability.runs.$get({ query: requestQueryForSearch })),
+    parseResponse(httpClient.api.observability.audit.$get({ query: requestQueryForSearch })),
+    fetchObservabilityFilterOptions(requestQueryForSearch, "repository"),
+    fetchObservabilityFilterOptions(requestQueryForSearch, "naniteId"),
+    fetchObservabilityFilterOptions(requestQueryForSearch, "creator"),
+    fetchObservabilityFilterOptions(requestQueryForSearch, "outcome"),
+    fetchObservabilityFilterOptions(requestQueryForSearch, "surface"),
   ]);
 
   return {
@@ -81,7 +77,6 @@ export async function fetchObservabilityDashboard(
     nanites,
     runs,
     audit,
-    selectedEvent,
     filterOptions: {
       repositories,
       nanites: naniteOptions,
@@ -90,6 +85,18 @@ export async function fetchObservabilityDashboard(
       surfaces,
     },
   };
+}
+
+export async function fetchObservabilityEventDetail(
+  search: ObservabilitySearch,
+  eventId: string,
+): Promise<ObservabilityEventDetail> {
+  return await parseResponse(
+    httpClient.api.observability.events[":eventId"].$get({
+      param: { eventId },
+      query: requestQuery(search),
+    }),
+  );
 }
 
 async function fetchObservabilityFilterOptions(
