@@ -32,10 +32,10 @@ import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { Popover } from "#/frontend/ui/components/Popover.tsx";
 import {
   ArrowClockwiseIcon,
+  ArrowLeftIcon,
   ArrowSquareOutIcon,
   CaretDownIcon,
   ChatCircleTextIcon,
-  CheckCircleIcon,
   CircleNotchIcon,
   DotOutlineIcon,
   FileIcon,
@@ -547,7 +547,6 @@ function InstallationPicker({
                 </span>
                 <span className="account-menu__header-type">{activeInstallation.account.type}</span>
               </div>
-              <CheckCircleIcon size={14} weight="fill" aria-hidden="true" />
             </div>
 
             {installationsQuery.isFetching && installations.length === 0 ? (
@@ -1440,14 +1439,30 @@ function inferWorkspaceLanguage(path: string): CodeBlockLanguage {
   return "md";
 }
 
+const naniteWorkspaceFallbackRootPath = "/";
+const naniteDefinitionRootPath = "/nanite";
 const naniteWorkspaceDirectoryLimit = 1_000;
 const naniteWorkspaceFilePreviewMaxBytes = 1_000_000;
 const naniteWorkspaceFilterScanEntryLimit = 2_000;
+
+function resolveWorkspaceRoot(info: NaniteWorkspaceInfo | null): string {
+  return info?.repositoryRoot ?? naniteWorkspaceFallbackRootPath;
+}
+
+function stripWorkspaceRootPrefix(path: string, root: string): string {
+  if (path === root) {
+    return "";
+  }
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
 
 type NaniteWorkspaceReviewFile = {
   readonly path: string;
   readonly name: string;
   readonly content: string;
+  readonly error: string | null;
+  readonly truncated: boolean;
   readonly additions: number;
   readonly deletions: number;
 };
@@ -1472,6 +1487,8 @@ function buildNaniteDefinitionFiles(nanite: ManagedNanite | null): NaniteWorkspa
       path: "/nanite/manifest.json",
       name: "manifest.json",
       content: formatWorkspaceJson(nanite.manifest),
+      error: null,
+      truncated: false,
       additions: 0,
       deletions: 0,
     },
@@ -1483,6 +1500,8 @@ function buildNaniteDefinitionFiles(nanite: ManagedNanite | null): NaniteWorkspa
         manifestHash: nanite.latestVersion.manifestHash,
         registeredAt: nanite.latestVersion.registeredAt,
       }),
+      error: null,
+      truncated: false,
       additions: 0,
       deletions: 0,
     },
@@ -1572,12 +1591,11 @@ function NaniteWorkspaceReview({
   const [entriesByDirectory, setEntriesByDirectory] = useState<
     Record<string, readonly NaniteWorkspaceTreeEntry[]>
   >({});
-  const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(new Set(["/workspace"]));
+  const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<"explorer" | "preview">("explorer");
   const [info, setInfo] = useState<NaniteWorkspaceInfo | null>(null);
   const [fileFilter, setFileFilter] = useState("");
-  const [isFileTreeOpen, setFileTreeOpen] = useState(true);
-  const [treeWidth, setTreeWidth] = useState(248);
   const [loading, setLoading] = useState(false);
   const [loadingDirectories, setLoadingDirectories] = useState<ReadonlySet<string>>(new Set());
   const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
@@ -1587,6 +1605,8 @@ function NaniteWorkspaceReview({
   const [filterSearchLoading, setFilterSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadedDirectoriesRef = useRef<ReadonlySet<string>>(new Set());
+
+  const workspaceRoot = resolveWorkspaceRoot(info);
 
   const definitionFiles = useMemo(() => buildNaniteDefinitionFiles(nanite), [nanite]);
   const definitionFilesByPath = useMemo(
@@ -1630,7 +1650,7 @@ function NaniteWorkspaceReview({
   );
 
   const loadFile = useCallback(
-    async (path: string) => {
+    async (path: string, { force = false }: { readonly force?: boolean } = {}) => {
       const definitionFile = definitionFilesByPath.get(path);
       if (definitionFile) {
         setFiles((current) => {
@@ -1640,7 +1660,7 @@ function NaniteWorkspaceReview({
         return;
       }
 
-      if (filesByPath.has(path)) {
+      if (!force && filesByPath.has(path)) {
         return;
       }
 
@@ -1653,13 +1673,7 @@ function NaniteWorkspaceReview({
           path,
           maxBytes: naniteWorkspaceFilePreviewMaxBytes,
         });
-        const content =
-          output.action === "read"
-            ? [
-                output.content ?? "(empty file)",
-                output.truncated ? "\n\n[Preview truncated]" : "",
-              ].join("")
-            : "(empty file)";
+        const content = output.action === "read" ? (output.content ?? "") : "";
         setFiles((current) => {
           const withoutCurrent = current.filter((file) => file.path !== path);
           return [
@@ -1668,6 +1682,8 @@ function NaniteWorkspaceReview({
               path,
               name: path.split("/").filter(Boolean).at(-1) ?? path,
               content,
+              error: null,
+              truncated: output.action === "read" && output.truncated,
               additions: 0,
               deletions: 0,
             },
@@ -1681,7 +1697,9 @@ function NaniteWorkspaceReview({
             {
               path,
               name: path.split("/").filter(Boolean).at(-1) ?? path,
-              content: readError instanceof Error ? readError.message : String(readError),
+              content: "",
+              error: readError instanceof Error ? readError.message : String(readError),
+              truncated: false,
               additions: 0,
               deletions: 0,
             },
@@ -1698,18 +1716,16 @@ function NaniteWorkspaceReview({
     setLoading(true);
     setError(null);
     setFiles(definitionFiles);
-    setSelectedPath(null);
     setEntriesByDirectory({});
-    loadedDirectoriesRef.current = new Set(["/nanite"]);
-    setExpandedPaths(new Set(["/workspace"]));
+    loadedDirectoriesRef.current = new Set([naniteDefinitionRootPath]);
     try {
       if (!naniteAgent) throw new Error("No agent connection");
       const nextInfo = await naniteAgent.stub.getWorkspaceInfo();
       setInfo(nextInfo);
-      await loadDirectory("/", { force: true });
+      await loadDirectory(resolveWorkspaceRoot(nextInfo), { force: true });
     } catch (loadError) {
       setEntriesByDirectory({});
-      loadedDirectoriesRef.current = new Set(["/nanite"]);
+      loadedDirectoriesRef.current = new Set([naniteDefinitionRootPath]);
       setInfo(null);
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -1718,8 +1734,24 @@ function NaniteWorkspaceReview({
   }, [definitionFiles, loadDirectory, naniteAgent]);
 
   const refresh = useCallback(() => {
-    void loadWorkspaceRoot();
-  }, [loadWorkspaceRoot]);
+    void (async () => {
+      if (selectedPath && !definitionFilesByPath.has(selectedPath)) {
+        setLoadingFilePath(selectedPath);
+      }
+      await loadWorkspaceRoot();
+      await Promise.all([...expandedPaths].map((path) => loadDirectory(path, { force: true })));
+      if (selectedPath) {
+        await loadFile(selectedPath, { force: true });
+      }
+    })();
+  }, [
+    definitionFilesByPath,
+    expandedPaths,
+    loadDirectory,
+    loadFile,
+    loadWorkspaceRoot,
+    selectedPath,
+  ]);
 
   useEffect(() => {
     void loadWorkspaceRoot();
@@ -1738,13 +1770,13 @@ function NaniteWorkspaceReview({
       setFilterSearchLoading(true);
       void (async () => {
         const matches: NaniteWorkspaceTreeEntry[] = [];
-        const directories = ["/"];
+        const directories = [workspaceRoot];
         let scannedEntries = 0;
 
         try {
           while (directories.length > 0 && scannedEntries < naniteWorkspaceFilterScanEntryLimit) {
             if (!naniteAgent) break;
-            const directory = directories.shift() ?? "/";
+            const directory = directories.shift() ?? workspaceRoot;
             const output = await naniteAgent.stub.exploreWorkspace({
               action: "list",
               path: directory,
@@ -1788,44 +1820,36 @@ function NaniteWorkspaceReview({
       canceled = true;
       window.clearTimeout(timeout);
     };
-  }, [fileFilter, naniteAgent]);
+  }, [fileFilter, naniteAgent, workspaceRoot]);
 
   const loadedFileEntries = useMemo(() => {
     const entries = Object.values(entriesByDirectory).flat();
     return entries.filter((entry) => entry.type !== "directory");
   }, [entriesByDirectory]);
-  const definitionFileEntries = useMemo(
-    () =>
-      definitionFiles.map((file) => ({
-        path: file.path,
-        name: file.name,
-        type: "file" as const,
-      })),
-    [definitionFiles],
-  );
   const filteredFileEntries = useMemo(() => {
     const filter = fileFilter.trim().toLowerCase();
     if (!filter) {
       return loadedFileEntries;
     }
     return uniqueWorkspaceEntries(
-      [...definitionFileEntries, ...loadedFileEntries, ...filterSearchEntries].filter((entry) =>
+      [...loadedFileEntries, ...filterSearchEntries].filter((entry) =>
         entry.path.toLowerCase().includes(filter),
       ),
     );
-  }, [definitionFileEntries, fileFilter, filterSearchEntries, loadedFileEntries]);
+  }, [fileFilter, filterSearchEntries, loadedFileEntries]);
   const selectedFile = selectedPath ? (filesByPath.get(selectedPath) ?? null) : null;
   const selectedFileIsLoading = selectedPath !== null && loadingFilePath === selectedPath;
   const hasWorkspaceEntries =
-    (entriesByDirectory["/"]?.length ?? 0) > 0 || definitionFiles.length > 0;
+    (entriesByDirectory[workspaceRoot]?.length ?? 0) > 0 || definitionFiles.length > 0;
   const visibleTreeEntries = useMemo(
-    () => (fileFilter.trim() ? filteredFileEntries : (entriesByDirectory["/"] ?? [])),
-    [entriesByDirectory, fileFilter, filteredFileEntries],
+    () => (fileFilter.trim() ? filteredFileEntries : (entriesByDirectory[workspaceRoot] ?? [])),
+    [entriesByDirectory, fileFilter, filteredFileEntries, workspaceRoot],
   );
 
   const handleSelectFile = useCallback(
     (path: string) => {
       setSelectedPath(path);
+      setWorkspaceView("preview");
       void loadFile(path);
     },
     [loadFile],
@@ -1833,12 +1857,10 @@ function NaniteWorkspaceReview({
 
   const handleExpandedChange = useCallback(
     (next: Set<string>) => {
-      const normalized = new Set(next);
-      normalized.add("/workspace");
-      setExpandedPaths(normalized);
+      setExpandedPaths(next);
 
-      for (const path of normalized) {
-        if (path === "/workspace" || path === "/nanite" || expandedPaths.has(path)) {
+      for (const path of next) {
+        if (path === naniteDefinitionRootPath || expandedPaths.has(path)) {
           continue;
         }
         void loadDirectory(path);
@@ -1863,33 +1885,17 @@ function NaniteWorkspaceReview({
     [entriesByDirectory],
   );
 
-  const renderWorkspaceTree = useCallback(() => {
-    const filter = fileFilter.trim();
-    const definitionFolder = (
-      <FileTreeFolder key="/nanite" path="/nanite" name="nanite">
-        {definitionFiles.map((file) => (
-          <FileTreeFile key={file.path} path={file.path} name={file.name} />
-        ))}
-      </FileTreeFolder>
-    );
+  const definitionEntries = useMemo(() => {
+    const filter = fileFilter.trim().toLowerCase();
+    if (!filter) return definitionFiles;
+    return definitionFiles.filter((file) => file.path.toLowerCase().includes(filter));
+  }, [definitionFiles, fileFilter]);
 
-    if (filter) {
-      return (
-        <FileTreeFolder path="/workspace" name="workspace">
-          {filteredFileEntries.map((entry) => (
-            <FileTreeFile key={entry.path} path={entry.path} name={entry.path.replace(/^\//, "")} />
-          ))}
-        </FileTreeFolder>
-      );
-    }
-
-    return (
-      <FileTreeFolder path="/workspace" name="workspace">
-        {definitionFolder}
-        {visibleTreeEntries.map(renderWorkspaceEntry)}
-      </FileTreeFolder>
-    );
-  }, [definitionFiles, fileFilter, filteredFileEntries, renderWorkspaceEntry, visibleTreeEntries]);
+  const selectedPathLabel = selectedPath
+    ? selectedPath.startsWith(`${naniteDefinitionRootPath}/`)
+      ? `Nanite definition / ${selectedPath.slice(naniteDefinitionRootPath.length + 1)}`
+      : stripWorkspaceRootPrefix(selectedPath, workspaceRoot)
+    : "";
 
   return (
     <section className="nanites-workspace__workbench app__pane" aria-label="Nanite workspace">
@@ -1897,7 +1903,11 @@ function NaniteWorkspaceReview({
         <div className="app__workbench-heading">
           <div className="nanites-workspace__review-title">
             <span>Workspace</span>
-            {info ? <span className="app__tools-count">{info.fileCount}</span> : null}
+            {info ? (
+              <span className="nanites-workspace__file-count">
+                {info.fileCount.toLocaleString()} files
+              </span>
+            ) : null}
           </div>
           <div className="app__workbench-actions">
             <Button
@@ -1906,6 +1916,7 @@ function NaniteWorkspaceReview({
               size="sm"
               onClick={refresh}
               disabled={loading}
+              aria-label="Refresh workspace"
               title="Refresh workspace"
             >
               <ArrowClockwiseIcon size={14} aria-hidden="true" />
@@ -1918,40 +1929,40 @@ function NaniteWorkspaceReview({
         <div className="app__workbench-panel" role="tabpanel" aria-label="Workspace artifacts">
           {error ? <div className="app__workspace-empty">{error}</div> : null}
           {!error && hasWorkspaceEntries ? (
-            <div
-              className="nanites-workspace__review-grid"
-              data-file-tree-open={isFileTreeOpen}
-              style={{ "--nanites-tree-w": `${treeWidth}px` } as CSSProperties}
-            >
+            workspaceView === "preview" && selectedPath ? (
               <div className="nanites-workspace__review-file">
                 <div className="nanites-workspace__review-file-header">
-                  <span className="app__preview-url-text" title={selectedPath ?? "Workspace"}>
-                    {selectedPath ? selectedPath.replace(/^\//, "") : "Select a file"}
-                  </span>
-                  {selectedFile && (selectedFile.additions > 0 || selectedFile.deletions > 0) ? (
-                    <>
-                      <span className="nanites-workspace__review-stat" data-tone="success">
-                        +{selectedFile.additions}
-                      </span>
-                      <span className="nanites-workspace__review-stat" data-tone="danger">
-                        -{selectedFile.deletions}
-                      </span>
-                    </>
-                  ) : null}
                   <Button
-                    className="nanites-workspace__review-tree-toggle"
                     variant="ghost"
                     color="neutral"
                     size="sm"
-                    onClick={() => setFileTreeOpen(!isFileTreeOpen)}
-                    title={isFileTreeOpen ? "Hide file tree" : "Show file tree"}
+                    onClick={() => setWorkspaceView("explorer")}
+                    aria-label="Back to files"
+                    title="Back to files"
                   >
-                    <SidebarSimpleIcon size={14} aria-hidden="true" />
+                    <ArrowLeftIcon size={14} aria-hidden="true" />
                   </Button>
+                  <span className="app__preview-url-text" title={selectedPath}>
+                    {selectedPathLabel}
+                  </span>
                 </div>
                 <div className="app__workspace-code-pane">
-                  {selectedFile ? (
+                  {selectedFileIsLoading ? (
+                    <div className="app__workspace-empty">Loading file...</div>
+                  ) : selectedFile?.error ? (
+                    <div className="app__workspace-empty" role="alert">
+                      Could not preview this file: {selectedFile.error}
+                    </div>
+                  ) : selectedFile && selectedFile.content.length === 0 ? (
+                    <div className="app__workspace-empty">This file is empty.</div>
+                  ) : selectedFile ? (
                     <div className="app__workspace-code-shell">
+                      {selectedFile.truncated ? (
+                        <div className="nanites-workspace__preview-notice">
+                          Preview truncated at {naniteWorkspaceFilePreviewMaxBytes.toLocaleString()}{" "}
+                          bytes.
+                        </div>
+                      ) : null}
                       <CodeBlock
                         className="app__workspace-code-block"
                         code={selectedFile.content}
@@ -1964,66 +1975,73 @@ function NaniteWorkspaceReview({
                       </CodeBlock>
                     </div>
                   ) : (
-                    <div className="app__workspace-empty">
-                      {selectedFileIsLoading ? "Loading file..." : "Select a file to preview"}
-                    </div>
+                    <div className="app__workspace-empty">File preview is unavailable.</div>
                   )}
                 </div>
               </div>
+            ) : (
+              <div className="nanites-workspace__review-tree">
+                <label className="nanites-workspace__review-filter">
+                  <MagnifyingGlassIcon size={13} aria-hidden="true" />
+                  <input
+                    type="search"
+                    value={fileFilter}
+                    onChange={(event) => setFileFilter(event.currentTarget.value)}
+                    placeholder="Filter files..."
+                    aria-label="Filter workspace files"
+                  />
+                </label>
+                <div className="app__workspace-body app__workspace-body--tree">
+                  {definitionEntries.length > 0 ? (
+                    <section className="nanites-workspace__explorer-group">
+                      <h2>Nanite definition</h2>
+                      <FileTree
+                        className="app__workspace-tree"
+                        selectedPath={selectedPath}
+                        onSelect={handleSelectFile}
+                        aria-label="Nanite definition files"
+                      >
+                        {definitionEntries.map((file) => (
+                          <FileTreeFile key={file.path} path={file.path} name={file.name} />
+                        ))}
+                      </FileTree>
+                    </section>
+                  ) : null}
 
-              {isFileTreeOpen ? (
-                <button
-                  type="button"
-                  className="nanites-workspace__resizer nanites-workspace__resizer--tree"
-                  style={{ insetInlineEnd: `${treeWidth}px` }}
-                  aria-label="Resize file tree"
-                  onPointerDown={(event) =>
-                    beginColumnResize(event, {
-                      current: treeWidth,
-                      min: 180,
-                      max: 420,
-                      grow: -1,
-                      apply: setTreeWidth,
-                    })
-                  }
-                />
-              ) : null}
-
-              {isFileTreeOpen ? (
-                <div className="nanites-workspace__review-tree">
-                  <label className="nanites-workspace__review-filter">
-                    <MagnifyingGlassIcon size={13} aria-hidden="true" />
-                    <input
-                      type="search"
-                      value={fileFilter}
-                      onChange={(event) => setFileFilter(event.currentTarget.value)}
-                      placeholder="Filter files..."
-                      aria-label="Filter workspace files"
-                    />
-                  </label>
-                  <div className="app__workspace-body app__workspace-body--tree">
-                    {(!fileFilter.trim() && hasWorkspaceEntries) ||
-                    filteredFileEntries.length > 0 ? (
+                  {visibleTreeEntries.length > 0 ? (
+                    <section className="nanites-workspace__explorer-group">
+                      <h2>Project files</h2>
                       <FileTree
                         className="app__workspace-tree"
                         expanded={new Set(expandedPaths)}
                         selectedPath={selectedPath}
                         onExpandedChange={handleExpandedChange}
                         onSelect={handleSelectFile}
+                        aria-label="Project files"
                       >
-                        {renderWorkspaceTree()}
+                        {fileFilter.trim()
+                          ? filteredFileEntries.map((entry) => (
+                              <FileTreeFile
+                                key={entry.path}
+                                path={entry.path}
+                                name={stripWorkspaceRootPrefix(entry.path, workspaceRoot)}
+                              />
+                            ))
+                          : visibleTreeEntries.map(renderWorkspaceEntry)}
                       </FileTree>
-                    ) : (
-                      <div className="app__workspace-empty">
-                        {loading || loadingDirectories.size > 0 || filterSearchLoading
-                          ? "Loading workspace..."
-                          : "No matching files"}
-                      </div>
-                    )}
-                  </div>
+                    </section>
+                  ) : null}
+
+                  {definitionEntries.length === 0 && visibleTreeEntries.length === 0 ? (
+                    <div className="app__workspace-empty">
+                      {loading || loadingDirectories.size > 0 || filterSearchLoading
+                        ? "Loading workspace..."
+                        : "No matching files"}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            )
           ) : null}
           {!error && !hasWorkspaceEntries ? (
             <div className="app__workspace-empty">
@@ -2283,10 +2301,7 @@ function NanitesRuntimeSurface({
   }, []);
   const [isAsideOpen, setIsAsideOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(248);
-  const [detailsWidth, setDetailsWidth] = useState(340);
-  const [filesWidth, setFilesWidth] = useState(560);
-  const asideWidth = desktopPanel === "files" ? filesWidth : detailsWidth;
-  const setAsideWidth = desktopPanel === "files" ? setFilesWidth : setDetailsWidth;
+  const [asideWidth, setAsideWidth] = useState(340);
   const mobileTouchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
   const managerStateQuery = useQuery({
     queryKey: ["nanites", "manager", managerName],
@@ -2510,8 +2525,8 @@ function NanitesRuntimeSurface({
           onPointerDown={(event) =>
             beginColumnResize(event, {
               current: asideWidth,
-              min: desktopPanel === "files" ? 380 : 280,
-              max: desktopPanel === "files" ? 820 : 560,
+              min: 300,
+              max: 600,
               grow: -1,
               apply: setAsideWidth,
             })
@@ -2708,8 +2723,8 @@ function NanitesRuntimeSurface({
               type="button"
               data-selected={desktopPanel === "files"}
               onClick={() => setDesktopPanel("files")}
-              aria-label="Review"
-              title="Review"
+              aria-label="Workspace"
+              title="Workspace"
             >
               <FileIcon size={14} aria-hidden="true" />
             </button>

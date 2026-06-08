@@ -27,8 +27,8 @@
     var(--nanites-sidebar-w, 15.5rem)
     minmax(28rem, 1fr)
     var(--nanites-aside-w, 21rem);
-  --nanites-review-bg: var(--sigvelo-paper-color);
-  --nanites-review-panel: var(--app-paper-warm);
+  --nanites-review-bg: var(--app-sidebar);
+  --nanites-review-panel: var(--app-sidebar);
   --nanites-review-tree: var(--app-sidebar);
   --nanites-review-border: color-mix(in srgb, var(--app-sidebar-border) 62%, white);
   --nanites-review-text: var(--app-charcoal);
@@ -38,21 +38,12 @@
   transition: grid-template-columns 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.nanites-workspace[data-desktop-panel="files"] {
-  grid-template-columns:
-    var(--nanites-sidebar-w, 15.5rem)
-    minmax(22rem, 1fr)
-    var(--nanites-aside-w, 34rem);
-}
-
-.nanites-workspace[data-aside-open="false"],
-.nanites-workspace[data-aside-open="false"][data-desktop-panel="files"] {
+.nanites-workspace[data-aside-open="false"] {
   grid-template-columns: var(--nanites-sidebar-w, 15.5rem) minmax(28rem, 1fr) 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nanites-workspace,
-  .nanites-workspace__review-grid {
+  .nanites-workspace {
     transition: none;
   }
 
@@ -104,8 +95,7 @@ body.is-resizing-columns {
 
 /* While dragging a resizer, track the pointer instantly. Easing only applies to
    discrete actions like collapsing the rail or toggling the file tree. */
-body.is-resizing-columns .nanites-workspace,
-body.is-resizing-columns .nanites-workspace__review-grid {
+body.is-resizing-columns .nanites-workspace {
   transition: none;
 }
 
@@ -477,7 +467,7 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
-  background: var(--app-paper-warm);
+  background: var(--sigvelo-paper-color);
 }
 
 .nanites-workspace__panel-toggle {
@@ -568,7 +558,7 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
-  background: var(--app-paper-warm);
+  background: var(--sigvelo-paper-color);
   overflow: hidden;
 }
 
@@ -604,7 +594,7 @@ body.is-resizing-columns .nanites-workspace__review-grid {
 .nanites-workspace__chat .app__composer {
   min-block-size: 0;
   padding: 0.5rem 1rem 0.75rem;
-  background: var(--app-paper-warm);
+  background: var(--sigvelo-paper-color);
 }
 
 .nanites-workspace__chat .app__composer .prompt-input {
@@ -1269,7 +1259,7 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   grid-column: 1;
   grid-row: 1;
   background: var(--app-sidebar);
-  border-inline-end: 0;
+  border-inline-end: 1px solid var(--app-sidebar-border);
 }
 
 .nanites-workspace__runtime {
@@ -1285,7 +1275,8 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  background: var(--sigvelo-paper-color);
+  border-inline-start: 1px solid var(--app-sidebar-border);
+  background: var(--app-sidebar);
 }
 
 .nanites-workspace__aside-header {
@@ -1382,7 +1373,7 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   min-block-size: 0;
   flex: 1;
   overflow: hidden;
-  background: var(--app-paper-warm);
+  background: var(--app-sidebar);
 }
 
 .nanites-workspace__masthead {
@@ -1410,6 +1401,220 @@ body.is-resizing-columns .nanites-workspace__review-grid {
 
 .nanites-workspace__masthead .app__brand-title {
   font-size: 0.8125rem;
+}
+
+.account-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid transparent;
+  border-radius: var(--sigvelo-border-radius-md);
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--app-dark-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.account-menu__trigger:hover,
+.account-menu__trigger[data-popup-open] {
+  border-color: var(--app-dark-border);
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.account-menu__trigger-avatar {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  font-size: 0.625rem;
+}
+
+.account-menu__trigger-label {
+  max-inline-size: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu__popup {
+  inline-size: min(20rem, calc(100vw - 1rem));
+  min-inline-size: 0;
+  max-inline-size: 22rem;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: var(--sigvelo-border-radius-md);
+  background-color: var(--sigvelo-paper-color);
+  color: var(--app-charcoal);
+  box-shadow: var(--sigvelo-shadow-loud, 0 12px 32px rgba(15, 23, 42, 0.18));
+}
+
+.account-menu__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--sigvelo-border-radius-sm);
+  background-color: var(--app-accent-soft);
+}
+
+.account-menu__header-avatar {
+  inline-size: 2rem;
+  block-size: 2rem;
+  flex-shrink: 0;
+}
+
+.account-menu__header-info {
+  min-inline-size: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-menu__header-login {
+  overflow: hidden;
+  color: var(--app-charcoal);
+  font-size: 0.9375rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu__header-type {
+  color: var(--app-text-muted);
+  font-size: 0.75rem;
+}
+
+.account-menu__empty {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-radius: var(--sigvelo-border-radius-sm);
+  background-color: var(--app-surface);
+}
+
+.account-menu__empty-title {
+  color: var(--app-charcoal);
+  font-size: 0.875rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+}
+
+.account-menu__divider {
+  block-size: 1px;
+  margin-block: 0.25rem;
+  background-color: var(--app-border-soft);
+}
+
+.account-menu__section-label {
+  padding: 0.375rem 0.75rem 0.25rem;
+  color: var(--app-text-muted);
+  font-size: 0.6875rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.account-menu__list {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  list-style: none;
+}
+
+.account-menu__account-row {
+  inline-size: 100%;
+  padding: 0.5rem 0.625rem;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border: 0;
+  border-radius: var(--sigvelo-border-radius-sm);
+  background-color: transparent;
+  color: var(--app-charcoal);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.account-menu__account-row:hover,
+.account-menu__account-row:focus-visible {
+  outline: none;
+  background-color: var(--app-surface);
+}
+
+.account-menu__account-row:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.account-menu__row-avatar {
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  flex-shrink: 0;
+}
+
+.account-menu__row-info {
+  min-inline-size: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-menu__row-login {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: var(--sigvelo-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu__row-type {
+  color: var(--app-text-muted);
+  font-size: 0.75rem;
+}
+
+.account-menu__action {
+  inline-size: 100%;
+  padding: 0.5rem 0.625rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 0;
+  border-radius: var(--sigvelo-border-radius-sm);
+  background: none;
+  color: var(--app-charcoal);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: start;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.account-menu__action:hover,
+.account-menu__action:focus-visible {
+  outline: none;
+  background-color: var(--app-surface);
+}
+
+.account-menu__action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.account-menu__action > span {
+  min-inline-size: 0;
+  flex: 1;
 }
 
 .account-menu__trigger--nanites {
@@ -1456,24 +1661,17 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   background: var(--sigvelo-paper-color);
-  /* The shared .app__pane--chat class adds a right divider. The description view
-     blends seamlessly into the rail, so suppress it; the files/Review view keeps
-     it so the diff reads as its own section. */
   border-inline-end: 0;
 }
 
-.nanites-workspace[data-desktop-panel="files"] .nanites-workspace__runtime {
-  border-inline-end: 1px solid var(--app-sidebar-border);
-}
-
 .nanites-workspace__info-rail {
-  align-self: start;
+  align-self: stretch;
   inline-size: 100%;
-  max-block-size: calc(100vh - 4.75rem);
+  max-block-size: none;
   min-width: 0;
   min-block-size: 0;
   overflow: auto;
-  padding-block: 1rem;
+  padding: 0 0.75rem 1rem;
   background: transparent;
   scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
   scrollbar-width: thin;
@@ -1481,19 +1679,15 @@ body.is-resizing-columns .nanites-workspace__review-grid {
 
 .nanites-workspace__info-card {
   max-inline-size: none;
-  margin-inline: auto 0;
-  padding: 0.75rem 0.8125rem;
+  margin: 0;
+  padding: 0.5rem 0;
   display: grid;
-  gap: 0.6875rem;
-  border: 1px solid color-mix(in srgb, var(--app-chat-surface-border) 74%, white);
-  border-radius: 0.8125rem;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--app-chat-surface) 92%, white),
-    var(--sigvelo-paper-color)
-  );
+  gap: 0.75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--app-charcoal);
-  box-shadow: 0 1px 1px color-mix(in srgb, var(--app-charcoal) 6%, transparent);
+  box-shadow: none;
 }
 
 .nanites-workspace__info-section {
@@ -1811,15 +2005,10 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   font-size: 0.6875rem;
 }
 
-.nanites-workspace .app__tools-count {
-  margin-inline-start: 0.375rem;
-  padding: 0 0.35rem;
-  border: 1px solid color-mix(in srgb, var(--app-control) 18%, white);
-  border-radius: 999px;
-  background: var(--app-control-soft);
-  color: var(--app-control-dark);
+.nanites-workspace__file-count {
+  color: var(--nanites-review-muted);
   font-size: 0.6875rem;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1rem;
 }
 
@@ -1848,29 +2037,13 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   color: var(--app-status-danger);
 }
 
-.nanites-workspace__review-grid {
-  position: relative;
-  min-width: 0;
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--nanites-tree-w, 14rem);
-  overflow: hidden;
-  background: var(--nanites-review-bg);
-  transition: grid-template-columns 200ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.nanites-workspace__review-grid[data-file-tree-open="false"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .nanites-workspace__review-file {
+  flex: 1;
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  border-inline-end: 1px solid color-mix(in srgb, var(--app-sidebar-border) 62%, white);
   background: var(--nanites-review-bg);
 }
 
@@ -1886,19 +2059,19 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   font-size: 0.75rem;
 }
 
-.nanites-workspace__review-tree-toggle {
+.nanites-workspace__review-file-header .button {
   flex: 0 0 auto;
   min-block-size: 1.625rem;
   padding-inline: 0.3125rem;
   color: var(--app-chat-muted);
 }
 
-.nanites-workspace__review-tree-toggle:hover,
-.nanites-workspace__review-tree-toggle:focus-visible {
+.nanites-workspace__review-file-header .button:hover,
+.nanites-workspace__review-file-header .button:focus-visible {
   color: var(--app-control-dark);
 }
 
-.nanites-workspace__review-tree-toggle svg {
+.nanites-workspace__review-file-header .button svg {
   display: block;
 }
 
@@ -1913,6 +2086,7 @@ body.is-resizing-columns .nanites-workspace__review-grid {
 .nanites-workspace__review-tree {
   position: relative;
   z-index: 1;
+  flex: 1;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -1988,8 +2162,28 @@ body.is-resizing-columns .nanites-workspace__review-grid {
 }
 
 .nanites-workspace__review-tree .app__workspace-body {
-  padding: 0.125rem 0.375rem 0.625rem;
+  padding: 0.25rem 0.5rem 1rem;
   background: transparent;
+}
+
+.nanites-workspace__explorer-group {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.nanites-workspace__explorer-group + .nanites-workspace__explorer-group {
+  margin-block-start: 0.75rem;
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--nanites-review-border);
+}
+
+.nanites-workspace__explorer-group h2 {
+  margin: 0;
+  padding-inline: 0.5rem;
+  color: var(--nanites-review-muted);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
 .nanites-workspace__review-tree .app__workspace-tree .file-tree__node {
@@ -2021,6 +2215,15 @@ body.is-resizing-columns .nanites-workspace__review-grid {
   min-width: 0;
   min-height: 100%;
   max-width: 100%;
+}
+
+.nanites-workspace__preview-notice {
+  padding: 0.5rem 0.75rem;
+  border-block-end: 1px solid var(--nanites-review-border);
+  background: color-mix(in srgb, var(--app-control-soft) 58%, var(--nanites-review-bg));
+  color: var(--app-chat-muted);
+  font-size: 0.6875rem;
+  line-height: 1.4;
 }
 
 .nanites-workspace .app__workspace-code-block {
@@ -2201,15 +2404,6 @@ body.is-resizing-columns .nanites-workspace__review-grid {
     border-inline-start: 0;
   }
 
-  .nanites-workspace__review-grid,
-  .nanites-workspace__review-grid[data-file-tree-open="false"] {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .nanites-workspace__review-tree {
-    display: none;
-  }
-
   .nanites-workspace__review-file {
     border-inline-end: 0;
   }
@@ -2262,9 +2456,11 @@ body.is-resizing-columns .nanites-workspace__review-grid {
     max-inline-size: none;
     margin-block-start: 0;
     margin-inline: 0;
-    padding: 0.875rem;
+    padding: 0.5rem 0;
     gap: 0.875rem;
-    border-radius: 0.75rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     box-shadow: none;
   }
 
