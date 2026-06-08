@@ -1,15 +1,15 @@
-# Sigvelo Agent App
+# SigVelo Agent App
 
-The repository root is the Cloudflare Worker app that runs Sigvelo.
+The repository root is the Cloudflare Worker app that runs SigVelo.
 
-It owns GitHub auth, installation selection, Nanite manager Durable Objects, Think sub-agents, generated trigger execution, the Sigvelo MCP server, product UI, admin views, and observability.
+It owns GitHub auth, installation selection, Nanite manager Durable Objects, Think sub-agents, generated trigger execution, the SigVelo MCP server, product UI, admin views, and observability.
 
 ## Runtime Shape
 
 ```mermaid
 flowchart LR
   Browser["Browser UI"] --> Manager["SigveloNaniteManager<br/>installation-scoped DO"]
-  MCP["Sigvelo MCP /mcp"] --> Manager
+  MCP["SigVelo MCP /mcp"] --> Manager
   GitHub["GitHub webhooks"] --> Manager
   Manager --> Loader["Worker Loader<br/>generated trigger code"]
   Manager --> Nanite["SigveloNaniteAgent<br/>Think sub-agent"]
@@ -26,7 +26,7 @@ The manager owns policy and aggregate state. Think Nanites own transcript, strea
 - `src/backend/agents/SigveloNaniteManager.ts` - installation manager, registry, routing, run summaries, and GitHub feedback.
 - `src/backend/agents/SigveloNaniteAgent.ts` - stable Think Nanite runtime, workspace tools, GitHub-aware git auth, GitHub MCP attachment, lifecycle tools.
 - `src/backend/nanites/triggers.ts` - Worker Loader execution for generated inbound trigger handlers.
-- `src/backend/mcp/index.ts` - Sigvelo MCP tools for model operators.
+- `src/backend/mcp/index.ts` - SigVelo MCP tools for model operators.
 - `src/frontend/routes/_authenticated/nanites/route.tsx` - Nanites product UI.
 - `wrangler.jsonc` - Cloudflare bindings, Durable Object migrations, vars, and required secrets.
 
@@ -111,7 +111,7 @@ Keep non-sensitive runtime settings such as `SENTRY_ENVIRONMENT` and `SENTRY_TRA
 
 ## GitHub App Setup
 
-Sigvelo needs a GitHub App installed on the repositories Nanites may maintain.
+SigVelo needs a GitHub App installed on the repositories Nanites may maintain.
 
 Use the deployed origin for URLs:
 
@@ -136,7 +136,7 @@ gh api /user/installations/<installation_id>/repositories --paginate
 
 The Nanite runtime should prefer Workspace git plus GitHub MCP/Octokit for GitHub API work. Do not assume shell `gh` is authenticated inside a Nanite unless `GH_TOKEN` injection is explicitly added.
 
-## Sigvelo MCP
+## SigVelo MCP
 
 The app exposes the model control plane at:
 
@@ -165,8 +165,8 @@ capability blocks.
 
 Create and test Nanites one at a time. For related Nanite fleets, call `sigvelo_create_nanite` for
 one Nanite, run `sigvelo_test_nanite_trigger` for that Nanite, then move to the next Nanite. Do not
-try to call Sigvelo tools from inside `execute`; `execute` is Worker-compatible JavaScript for
-workspace and git provider work, and it does not expose Sigvelo control-plane tools as top-level
+try to call SigVelo tools from inside `execute`; `execute` is Worker-compatible JavaScript for
+workspace and git provider work, and it does not expose SigVelo control-plane tools as top-level
 functions.
 
 For `sigvelo_test_nanite_trigger`, fixture overrides may use provider-shaped nested objects such as

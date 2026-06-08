@@ -8,6 +8,8 @@ interface PromptCachedWorkersAIModelInput {
   binding: WorkersAIBinding;
   model: string;
   sessionAffinity: string;
+  gatewayId?: string;
+  gatewayMetadata?: Record<string, string>;
 }
 
 function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput) {
@@ -15,12 +17,21 @@ function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput
   // repeated turns for the same durable agent instance can reuse prefix-cache state.
   return createWorkersAI({ binding: input.binding })(input.model, {
     sessionAffinity: input.sessionAffinity,
+    ...(input.gatewayId
+      ? {
+          gateway: {
+            id: input.gatewayId,
+            metadata: input.gatewayMetadata,
+          },
+        }
+      : {}),
   });
 }
 
 interface SigveloAgentLanguageModelInput {
   env: Env;
   sessionAffinity: string;
+  gatewayMetadata?: Record<string, string>;
 }
 
 export function createSigveloAgentLanguageModel(
@@ -55,6 +66,8 @@ export function createSigveloAgentLanguageModel(
     binding: input.env.AI,
     model: "@cf/moonshotai/kimi-k2.6",
     sessionAffinity: input.sessionAffinity,
+    gatewayId: input.env.NANITES_AI_GATEWAY_ID || undefined,
+    gatewayMetadata: input.gatewayMetadata,
   });
 }
 

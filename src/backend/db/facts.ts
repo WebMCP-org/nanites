@@ -7,6 +7,16 @@ type Defined<T> = Exclude<T, undefined>;
 type PlatformUsageFactInsert = InferInsertModel<typeof platformUsageFacts>;
 type AuthFunnelFactInsert = InferInsertModel<typeof authFunnelFacts>;
 
+type VisibleInstallationProjection = {
+  id: number;
+  account: {
+    id: number;
+    login: string;
+    type: string;
+    avatar_url: string | null;
+  };
+};
+
 type AuthFunnelFactInput = {
   accountId?: AuthFunnelFactInsert["accountId"];
   githubInstallationId?: AuthFunnelFactInsert["githubInstallationId"];
@@ -32,7 +42,7 @@ type PlatformUsageFactInput = {
   occurredAt?: Defined<PlatformUsageFactInsert["occurredAt"]>;
 };
 
-async function findAccountIdByInstallationId(
+export async function findAccountIdByInstallationId(
   db: DbClient,
   githubInstallationId: number,
 ): Promise<string | null> {
@@ -91,7 +101,11 @@ async function normalizeOptionalInstallationScope(
   };
 }
 
-async function touchAccountActivity(db: DbClient, accountId: string, at: Date): Promise<void> {
+export async function touchAccountActivity(
+  db: DbClient,
+  accountId: string,
+  at: Date,
+): Promise<void> {
   await db
     .update(accounts)
     .set({
@@ -100,6 +114,64 @@ async function touchAccountActivity(db: DbClient, accountId: string, at: Date): 
     })
     .where(eq(accounts.id, accountId))
     .run();
+}
+
+export async function recordVisibleInstallationSnapshots(
+  db: DbClient,
+  installations: readonly VisibleInstallationProjection[],
+  observedAt = new Date(),
+): Promise<void> {
+  for (const installation of installations) {
+    const accountId = `github-account:${installation.account.id}`;
+    await db
+      .insert(accounts)
+      .values({
+        id: accountId,
+        githubAccountId: installation.account.id,
+        githubAccountLogin: installation.account.login,
+        githubAccountType: installation.account.type === "Organization" ? "Organization" : "User",
+        githubAccountAvatarUrl: installation.account.avatar_url,
+        lastActiveAt: observedAt,
+        firstSeenAt: observedAt,
+        createdAt: observedAt,
+        updatedAt: observedAt,
+      })
+      .onConflictDoUpdate({
+        target: accounts.githubAccountId,
+        set: {
+          githubAccountLogin: installation.account.login,
+          githubAccountType: installation.account.type === "Organization" ? "Organization" : "User",
+          githubAccountAvatarUrl: installation.account.avatar_url,
+          lastActiveAt: observedAt,
+          updatedAt: observedAt,
+        },
+      })
+      .run();
+
+    await db
+      .insert(accountInstallations)
+      .values({
+        id: `github-installation:${installation.id}`,
+        accountId,
+        githubInstallationId: installation.id,
+        status: "active",
+        firstSeenAt: observedAt,
+        lastSeenAt: observedAt,
+        createdAt: observedAt,
+        updatedAt: observedAt,
+      })
+      .onConflictDoUpdate({
+        target: accountInstallations.githubInstallationId,
+        set: {
+          accountId,
+          status: "active",
+          lastSeenAt: observedAt,
+          removedAt: null,
+          updatedAt: observedAt,
+        },
+      })
+      .run();
+  }
 }
 
 export async function recordAuthFunnelFact(

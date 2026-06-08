@@ -98,7 +98,7 @@ Recommended label changes:
 - `Signal Nanite` -> `Start run`
 - `Starting…` -> `Starting run…`
 - `What is a lane?` -> `How runs work`
-- `A lane is one repo-scoped nanite with a stable support PR and transcript that can be superseded by new attempts over time.` -> `A Nanite is a repo helper. Each trigger starts a new run. If the run publishes code, Sigvelo may reuse the current change proposal instead of opening a new one.`
+- `A lane is one repo-scoped nanite with a stable support PR and transcript that can be superseded by new attempts over time.` -> `A Nanite is a repo helper. Each trigger starts a new run. If the run publishes code, SigVelo may reuse the current change proposal instead of opening a new one.`
 - `Selected backend` -> `Execution backend`
 - `Work` -> `Work log`
 - `PR` -> `Change proposal`

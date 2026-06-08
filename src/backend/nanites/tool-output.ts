@@ -137,7 +137,7 @@ function truncateMatchText(text: string): string {
   if (text.length <= maxChars) {
     return text;
   }
-  return `${text.slice(0, 1_000)}\n[Sigvelo artifact_read truncated ${text.length - maxChars} characters from this matching line.]\n${text.slice(-1_000)}`;
+  return `${text.slice(0, 1_000)}\n[SigVelo artifact_read truncated ${text.length - maxChars} characters from this matching line.]\n${text.slice(-1_000)}`;
 }
 
 function includesPattern(
@@ -264,7 +264,7 @@ export class NaniteToolOutputArtifactStore {
       tools: {
         read: {
           description:
-            "Inspect saved Sigvelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a slice. With pattern, grep-searches one artifact or all current-run artifacts.",
+            "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a slice. With pattern, grep-searches one artifact or all current-run artifacts.",
           execute: async (args) => this.read(parseReadArgs(args)),
         },
       },
@@ -455,11 +455,11 @@ const sigveloToolInputControlSchema = z
           .positive()
           .optional()
           .describe(
-            "Optional Sigvelo inline response budget for this tool call. Large outputs are saved as current-run Sigvelo artifacts; this controls how many characters are returned inline.",
+            "Optional SigVelo inline response budget for this tool call. Large outputs are saved as current-run SigVelo artifacts; this controls how many characters are returned inline.",
           ),
       })
       .optional()
-      .describe("Reserved Sigvelo tool-call controls."),
+      .describe("Reserved SigVelo tool-call controls."),
   })
   .partial();
 
@@ -527,7 +527,7 @@ function buildPreview(text: string, maxResponseChars: number): string {
     return text;
   }
 
-  const separator = `\n\n[Sigvelo truncated ${text.length - maxResponseChars} characters from this tool result. Head and tail preserved.]\n\n`;
+  const separator = `\n\n[SigVelo truncated ${text.length - maxResponseChars} characters from this tool result. Head and tail preserved.]\n\n`;
   const contentBudget = Math.max(maxResponseChars - separator.length, 0);
   const headChars = Math.ceil(contentBudget * 0.7);
   const tailChars = Math.max(contentBudget - headChars, 0);
@@ -541,7 +541,7 @@ function buildTruncationNotice(input: {
   preview: string;
 }): string {
   return [
-    "Sigvelo saved the full tool result as a current-run artifact:",
+    "SigVelo saved the full tool result as a current-run artifact:",
     input.artifactId,
     "",
     `The full result is ${input.originalChars.toLocaleString()} characters. The inline preview below is capped at ${input.maxResponseChars.toLocaleString()} characters.`,

@@ -3,7 +3,7 @@
 Status: reference note
 Date: 2026-05-22
 
-This note captures the current direction for agent-facing Sigvelo MCP authentication. It is not an
+This note captures the current direction for agent-facing SigVelo MCP authentication. It is not an
 implementation plan yet. The goal is to preserve the product reasoning before the MCP auth extension
 surface moves again.
 
@@ -15,15 +15,15 @@ clients.
 The preferred shape is:
 
 1. A human or installation admin approves an agent client for a GitHub installation.
-2. The client authenticates to Sigvelo's OAuth token endpoint with `private_key_jwt`.
-3. Sigvelo verifies the JWT assertion against the client's registered public key, usually discovered
+2. The client authenticates to SigVelo's OAuth token endpoint with `private_key_jwt`.
+3. SigVelo verifies the JWT assertion against the client's registered public key, usually discovered
    through CIMD/JWKS.
-4. Sigvelo issues a short-lived MCP access token scoped to the approved installation and scopes.
-5. The client calls Sigvelo MCP with `Authorization: Bearer <access_token>`.
+4. SigVelo issues a short-lived MCP access token scoped to the approved installation and scopes.
+5. The client calls SigVelo MCP with `Authorization: Bearer <access_token>`.
 
 Use client secrets only as a compatibility fallback. The better long-term default is
 `private_key_jwt` plus Client ID Metadata Documents (CIMD), because the long-lived private key never
-crosses the network and Sigvelo only needs the public key.
+crosses the network and SigVelo only needs the public key.
 
 ## Why This Fits Nanites
 
@@ -31,7 +31,7 @@ Most Nanite operators will be other agents: coding agents, CI agents, hosted aut
 developer agents. Browser-based OAuth is fine for initial setup, but it is awkward for recurring
 machine work.
 
-Sigvelo already has the right product boundary:
+SigVelo already has the right product boundary:
 
 - the GitHub installation is the authority boundary
 - the MCP server is the agent-facing control plane
@@ -57,7 +57,7 @@ The OAuth layer still helps because it standardizes discovery, scopes, token lif
 binding, and MCP extension negotiation.
 
 If the client authenticates with `private_key_jwt`, it is meaningfully stronger. The client signs a
-short-lived assertion with its private key. Sigvelo verifies that assertion with the registered
+short-lived assertion with its private key. SigVelo verifies that assertion with the registered
 public key. The reusable private key is never transmitted.
 
 ## Private Key JWT
@@ -67,7 +67,7 @@ public key. The reusable private key is never transmitted.
 The client owns:
 
 - a private key, kept in its own secret store
-- a public key, registered with Sigvelo directly or exposed through a JWKS URL
+- a public key, registered with SigVelo directly or exposed through a JWKS URL
 
 When the client wants an access token, it creates a short-lived JWT assertion:
 
@@ -95,17 +95,17 @@ grant_type=client_credentials
 &resource=https://app.sigvelo.com/mcp
 ```
 
-Sigvelo should validate:
+SigVelo should validate:
 
 - JWT signature against the registered public key
 - `iss` and `sub` match the approved client identity
-- `aud` is the Sigvelo token endpoint
+- `aud` is the SigVelo token endpoint
 - `exp` and `iat` are within the accepted clock window
 - `jti` has not been replayed, at least within the assertion lifetime
-- requested `resource` is the Sigvelo MCP resource
+- requested `resource` is the SigVelo MCP resource
 - requested scopes are allowed for the client and installation
 
-If valid, Sigvelo issues a short-lived access token whose props bind the request to the service
+If valid, SigVelo issues a short-lived access token whose props bind the request to the service
 client, GitHub installation, scopes, and authorization time.
 
 ## CIMD and DCR
@@ -118,13 +118,13 @@ authentication.
 Client ID Metadata Documents let a client use an HTTPS URL as its `client_id`. The document can
 publish metadata such as client name, redirect URIs, token endpoint auth method, and JWKS location.
 
-For Sigvelo, CIMD is useful because an agent client can identify itself with a URL such as:
+For SigVelo, CIMD is useful because an agent client can identify itself with a URL such as:
 
 ```text
 https://agent.example.com/.well-known/sigvelo-client.json
 ```
 
-That metadata can point to the client's JWKS. Sigvelo can fetch the public keys and verify
+That metadata can point to the client's JWKS. SigVelo can fetch the public keys and verify
 `private_key_jwt` assertions without manually copying keys.
 
 ### DCR
@@ -143,7 +143,7 @@ authority must remain an approved binding:
 client identity -> GitHub installation -> allowed scopes -> policy constraints
 ```
 
-## Recommended Sigvelo Model
+## Recommended SigVelo Model
 
 Add a service-client concept under the GitHub installation boundary.
 
@@ -226,20 +226,20 @@ The Enterprise-Managed Authorization flow is roughly:
    grant.
 5. The MCP authorization server validates the ID-JAG and issues an access token for the MCP server.
 
-This could matter for Sigvelo enterprise accounts later. It would let a company's IdP control which
-employees and MCP clients can access Sigvelo MCP, without each employee separately authorizing every
+This could matter for SigVelo enterprise accounts later. It would let a company's IdP control which
+employees and MCP clients can access SigVelo MCP, without each employee separately authorizing every
 MCP server.
 
 It is not the first thing to build for Nanites machine clients. Service-client credentials are the
 more direct path for coding agents, CI, and scheduled automation. ID-JAG becomes relevant when
 enterprise customers want central IdP policy over human employee access through approved MCP clients.
 
-## Current Sigvelo State
+## Current SigVelo State
 
-Sigvelo currently has a working HTTP MCP OAuth code flow:
+SigVelo currently has a working HTTP MCP OAuth code flow:
 
 - dynamic public-client registration
-- browser consent through the Sigvelo MCP authorization UI
+- browser consent through the SigVelo MCP authorization UI
 - GitHub user and installation binding
 - `nanites:read` and `nanites:write` scopes
 - bearer-token MCP calls
@@ -280,7 +280,7 @@ Missing pieces for this direction:
 - Should a service client be allowed to create another service client? Default answer should be no.
 - Should service-client grants be visible in the product UI before write access exists? Default
   answer should be yes.
-- Should Sigvelo accept only CIMD URL `client_id`s for `private_key_jwt`, or also manually registered
+- Should SigVelo accept only CIMD URL `client_id`s for `private_key_jwt`, or also manually registered
   opaque client IDs?
 - How much replay tracking is needed for JWT assertions at expected token request volume?
 - Can the current OAuth provider library support this directly, or do we need a custom token path

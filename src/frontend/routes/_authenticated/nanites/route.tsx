@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useLocation } from "@tanstack/react-router";
+import { Link, createFileRoute, useLocation } from "@tanstack/react-router";
 import { useAgent } from "agents/react";
 import { DetailedError, parseResponse } from "hono/client";
 import type { InferRequestType } from "hono/client";
@@ -35,6 +35,7 @@ import {
   ArrowLeftIcon,
   ArrowSquareOutIcon,
   CaretDownIcon,
+  ChartBarIcon,
   ChatCircleTextIcon,
   CircleNotchIcon,
   DotOutlineIcon,
@@ -2376,6 +2377,14 @@ function NanitesRuntimeSurface({
       const output = (await manager.stub.deprovisionNanite({
         naniteId: input.naniteId,
         reason: `Deleted from the Nanites UI for ${activeInstallation.account.login}.`,
+        actor: {
+          kind: "github_user",
+          source: "browser",
+          githubUserId: actor.id,
+          githubLogin: actor.login,
+          actorId: `github:${actor.id}`,
+          actorLogin: actor.login,
+        },
       })) as DeprovisionNaniteOutput;
       if (output.deprovisionedNaniteId !== input.naniteId) {
         const skipped = output.skippedNanite;
@@ -2554,7 +2563,21 @@ function NanitesRuntimeSurface({
               <InstallationPicker activeInstallation={activeInstallation} />
             </div>
           </div>
-          <span className="nanites-workspace__count">{naniteItems.length}</span>
+          <div className="nanites-workspace__masthead-actions">
+            <Link
+              className="nanites-workspace__nav-link"
+              to="/observability"
+              search={{
+                installationId: activeInstallation.id,
+                range: "7d",
+              }}
+              aria-label="Open observability"
+              title="Open observability"
+            >
+              <ChartBarIcon size={14} aria-hidden="true" />
+            </Link>
+            <span className="nanites-workspace__count">{naniteItems.length}</span>
+          </div>
         </div>
 
         <div className="nanites-workspace__list">

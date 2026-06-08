@@ -11,11 +11,16 @@ import {
   parseAppIsoDate,
 } from "#/backend/errors.ts";
 import { encodeHex } from "#/backend/crypto.ts";
+import { createDbClient } from "#/backend/db/index.ts";
 import { LOG_EVENTS } from "#/backend/logging.ts";
 import { LOGGING } from "#/backend/logging.ts";
 import { OTEL_ATTRS } from "#/backend/logging.ts";
-import type { GitHubAppPermissions } from "#/backend/github/index.ts";
-import { listReposAccessibleToInstallation } from "#/backend/github/index.ts";
+import {
+  fetchGitHubPullRequestImpact,
+  listReposAccessibleToInstallation,
+  type GitHubAppPermissions,
+  type GitHubPullRequestImpact,
+} from "#/backend/github/index.ts";
 import {
   SigveloNaniteAgent,
   type NaniteAgentMaintenanceOutput,
@@ -50,6 +55,16 @@ import {
   getGitHubWebhookRepositoryFullName,
   snapshotGitHubWebhookEvent,
 } from "#/github.ts";
+import {
+  deleteNaniteCatalogProjection,
+  manualActorFromId,
+  naniteTriggerActor,
+  recordAuditEvent,
+  recordNaniteCatalogProjection,
+  recordNaniteRunFact,
+  systemActor,
+  type ObservabilityActor,
+} from "#/backend/observability/recorders.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -70,6 +85,7 @@ const naniteManagerLogger = getLogger(LOGGING.NANITES_CATEGORY);
 
 type ManagerWebhookDispatcher = {
   handleGitHubWebhook(input: HandleGitHubWebhookInput): Promise<GitHubWebhookRunDispatch[]>;
+  dispatchRun(input: DispatchNaniteRunInput): Promise<NaniteRunRecord>;
 };
 type GeneratedTriggerSuccess = Extract<
   Awaited<ReturnType<typeof runGeneratedTrigger>>,
@@ -110,7 +126,7 @@ export async function dispatchGitHubWebhookToNaniteManager({
       continue;
     }
 
-    await manager.dispatchRun({ runId: dispatch.run.runId });
+    await dispatcher.dispatchRun({ runId: dispatch.run.runId });
   }
 
   return dispatches;
@@ -162,6 +178,7 @@ export type StartNaniteManualRunInput = {
   message: string;
   manualRequestId?: string;
   actorId: string | null;
+  actor?: ObservabilityActor | null;
   waitForTerminalOutcome?: boolean;
   timeoutMs?: number;
 };
@@ -185,6 +202,7 @@ export type TestNaniteTriggerInput = {
       };
   testInstruction?: string;
   actorId: string | null;
+  actor?: ObservabilityActor | null;
   requestId?: string;
   waitForTerminalOutcome?: boolean;
   timeoutMs?: number;
@@ -339,11 +357,14 @@ export type NaniteManagerState = {
 export type RegisterNaniteInput = {
   manifest: NaniteManifest;
   enabled?: boolean;
+  actor?: ObservabilityActor | null;
+  requestId?: string;
 };
 
 export type StartNaniteRunInput = {
   naniteId: string;
   trigger: NaniteTriggerEvent;
+  actor?: ObservabilityActor | null;
 };
 
 export type HandleGitHubWebhookInput = {
@@ -444,6 +465,8 @@ export type CancelNaniteRunsInput = {
   olderThanIso?: string;
   limit?: number;
   reason: string;
+  actor?: ObservabilityActor | null;
+  requestId?: string;
 };
 
 export type CancelNaniteRunsOutput = {
@@ -490,6 +513,8 @@ export type NaniteManagerMaintenanceOutput = {
 export type DeprovisionNaniteInput = {
   naniteId: string;
   reason: string;
+  actor?: ObservabilityActor | null;
+  requestId?: string;
 };
 
 export type DeprovisionNaniteOutput = {
@@ -1004,22 +1029,6 @@ function resolveTriggerTestCompletion(input: {
   };
 }
 
-async function resolveTriggerTestRuns(input: {
-  manager: Pick<SigveloNaniteManager, "waitForTerminalRuns">;
-  dispatchedRuns: NaniteRunRecord[];
-  waitForTerminalOutcome: boolean | undefined;
-  timeoutMs: number | undefined;
-}): Promise<NaniteRunRecord[]> {
-  if (!input.waitForTerminalOutcome) {
-    return input.dispatchedRuns;
-  }
-
-  return input.manager.waitForTerminalRuns({
-    runIds: input.dispatchedRuns.map((run) => run.runId),
-    timeoutMs: input.timeoutMs ?? NANITE_TRIGGER_TEST_TIMEOUT_MS,
-  });
-}
-
 function triggerTestReachedTerminalOutcome(runs: readonly NaniteRunRecord[]): boolean {
   return runs.length > 0 && runs.every((run) => isTerminalNaniteRunStatus(run.status));
 }
@@ -1259,7 +1268,7 @@ function renderManagerChatReply(input: {
     .map((runId) => input.state.runs[runId])
     .filter((run) => run && !isTerminalNaniteRunStatus(run.status))
     .slice(0, 5);
-  const lines = [`Sigvelo manager received this in \`${repository}\`.`, ""];
+  const lines = [`SigVelo manager received this in \`${repository}\`.`, ""];
 
   if (repositoryNanites.length === 0) {
     lines.push("No Nanites are currently scoped to this repository.");
@@ -1307,6 +1316,118 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     }
 
     return this.subAgent(SigveloNaniteAgent, naniteId);
+  }
+
+  private async recordObservabilityFact(
+    operation: string,
+    record: (db: ReturnType<typeof createDbClient>, githubInstallationId: number) => Promise<void>,
+  ): Promise<void> {
+    const githubInstallationId = getGitHubInstallationIdFromManagerName(this.name);
+    if (!githubInstallationId) {
+      return;
+    }
+
+    try {
+      await record(createDbClient(this.env.DB), githubInstallationId);
+    } catch (error) {
+      naniteManagerLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+        ...createManagerLogContext(this.name),
+        operation,
+        error: describeError(error),
+      });
+    }
+  }
+
+  private async recordCatalogAndAudit(input: {
+    nanite: ManagedNanite;
+    existing: ManagedNanite | undefined;
+    actor?: ObservabilityActor | null;
+    requestId?: string;
+  }): Promise<void> {
+    const actor = input.actor ?? systemActor("maintenance");
+    await this.recordObservabilityFact(
+      input.existing ? "nanite.updated" : "nanite.created",
+      async (db, githubInstallationId) => {
+        await recordNaniteCatalogProjection(db, {
+          githubInstallationId,
+          nanite: input.nanite,
+          actor,
+        });
+        await recordAuditEvent(db, {
+          eventName: input.existing ? "audit.nanite.updated" : "audit.nanite.created",
+          githubInstallationId,
+          naniteId: input.nanite.manifest.id,
+          actor,
+          targetType: "nanite",
+          targetId: input.nanite.manifest.id,
+          outcome: "success",
+          requestId: input.requestId,
+          metadata: {
+            enabled: input.nanite.enabled,
+            eventSourceType: input.nanite.manifest.eventSource.type,
+            latestVersionId: input.nanite.latestVersion.versionId,
+          },
+        });
+      },
+    );
+  }
+
+  private async recordRunFact(input: {
+    run: NaniteRunRecord;
+    nanite?: ManagedNanite | null;
+    actor?: ObservabilityActor | null;
+  }): Promise<void> {
+    await this.recordObservabilityFact("nanite.run_fact", async (db, githubInstallationId) => {
+      const outputPullRequest = await this.fetchRunOutputPullRequestImpact(
+        input.run,
+        githubInstallationId,
+      );
+
+      await recordNaniteRunFact(db, {
+        githubInstallationId,
+        run: input.run,
+        nanite: input.nanite,
+        actor: input.actor ?? naniteTriggerActor(input.run.trigger),
+        outputPullRequest,
+      });
+    });
+  }
+
+  private async fetchRunOutputPullRequestImpact(
+    run: NaniteRunRecord,
+    githubInstallationId: number,
+  ): Promise<GitHubPullRequestImpact | null> {
+    if (!run.outputUrl) {
+      return null;
+    }
+
+    try {
+      return await fetchGitHubPullRequestImpact({
+        env: this.env,
+        installationId: githubInstallationId,
+        outputUrl: run.outputUrl,
+      });
+    } catch (error) {
+      naniteManagerLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+        ...createManagerLogContext(this.name, { run }),
+        operation: "nanite.run_output_pull_request",
+        error: describeError(error),
+      });
+      return null;
+    }
+  }
+
+  private async setStateAndRecordRunFact(
+    nextState: NaniteManagerState,
+    runId: string,
+  ): Promise<NaniteRunRecord> {
+    this.setState(nextState);
+    const run = getRunOrThrow(nextState, runId);
+    await this.recordRunFact({
+      run,
+      nanite: nextState.nanites[run.naniteId],
+    });
+    return run;
   }
 
   private async recordRejectedGitHubTriggerRun(input: {
@@ -1690,12 +1811,12 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       dispatches,
       createdDispatches,
     });
-    const runs = await resolveTriggerTestRuns({
-      manager: this,
-      dispatchedRuns,
-      waitForTerminalOutcome: input.waitForTerminalOutcome,
-      timeoutMs: input.timeoutMs,
-    });
+    const runs = input.waitForTerminalOutcome
+      ? await this.waitForTerminalRuns({
+          runIds: dispatchedRuns.map((run) => run.runId),
+          timeoutMs: input.timeoutMs ?? NANITE_TRIGGER_TEST_TIMEOUT_MS,
+        })
+      : dispatchedRuns;
     const terminalOutcomeReached = triggerTestReachedTerminalOutcome(runs);
     const successfulTerminalOutcome = triggerTestCompletedSuccessfully({
       terminalOutcomeReached,
@@ -1808,13 +1929,37 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       this.setState(nextState);
     }
 
+    for (const run of canceledRuns) {
+      const actor = input.actor ?? systemActor("maintenance");
+      await this.recordRunFact({
+        run,
+        nanite: nextState.nanites[run.naniteId],
+        actor,
+      });
+      await this.recordObservabilityFact("run.canceled.audit", async (db, githubInstallationId) => {
+        await recordAuditEvent(db, {
+          eventName: "audit.run.canceled",
+          githubInstallationId,
+          naniteId: run.naniteId,
+          runKey: run.runId,
+          actor,
+          targetType: "run",
+          targetId: run.runId,
+          outcome: "success",
+          reasonCode: input.reason,
+          requestId: input.requestId,
+        });
+      });
+    }
+
     return { canceledRuns, skippedRuns };
   }
 
   @callable()
   async deprovisionNanite(input: DeprovisionNaniteInput): Promise<DeprovisionNaniteOutput> {
     const current = await this.getSnapshot();
-    const skippedNanite: DeprovisionNaniteOutput["skippedNanite"] = current.nanites[input.naniteId]
+    const naniteToDelete = current.nanites[input.naniteId];
+    const skippedNanite: DeprovisionNaniteOutput["skippedNanite"] = naniteToDelete
       ? null
       : { naniteId: input.naniteId, reason: "unknown_nanite" };
 
@@ -1866,6 +2011,29 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       deprovisionedNaniteId: input.naniteId,
       removedRunIds,
       skippedNanite: null,
+    });
+
+    await this.recordObservabilityFact("nanite.deprovisioned", async (db, githubInstallationId) => {
+      const actor = input.actor ?? systemActor("maintenance");
+      await deleteNaniteCatalogProjection(db, {
+        githubInstallationId,
+        naniteId: input.naniteId,
+      });
+      await recordAuditEvent(db, {
+        eventName: "audit.nanite.deprovisioned",
+        githubInstallationId,
+        naniteId: input.naniteId,
+        actor,
+        targetType: "nanite",
+        targetId: input.naniteId,
+        outcome: "success",
+        reasonCode: input.reason,
+        requestId: input.requestId,
+        metadata: {
+          removedRunCount: removedRunIds.length,
+          latestVersionId: naniteToDelete?.latestVersion.versionId,
+        },
+      });
     });
 
     return { deprovisionedNaniteId: input.naniteId, removedRunIds, skippedNanite: null };
@@ -1957,6 +2125,13 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       });
     }
 
+    await this.recordCatalogAndAudit({
+      nanite,
+      existing,
+      actor: input.actor,
+      requestId: input.requestId,
+    });
+
     return nanite;
   }
 
@@ -2045,6 +2220,25 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       chatUrl: run.chatUrl,
     });
 
+    const actor = input.actor ?? naniteTriggerActor(run.trigger);
+    await this.recordRunFact({ run, nanite, actor });
+    await this.recordObservabilityFact("run.started.audit", async (db, githubInstallationId) => {
+      await recordAuditEvent(db, {
+        eventName: "audit.run.started",
+        githubInstallationId,
+        naniteId: run.naniteId,
+        runKey: run.runId,
+        actor,
+        targetType: "run",
+        targetId: run.runId,
+        outcome: "success",
+        requestId: run.trigger.type === "manual" ? run.trigger.requestId : undefined,
+        metadata: {
+          triggerType: run.trigger.type,
+        },
+      });
+    });
+
     return run;
   }
 
@@ -2119,6 +2313,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   ): Promise<StartNaniteManualRunOutput> {
     const run = await this.startRun({
       naniteId: input.naniteId,
+      actor: input.actor ?? manualActorFromId(input.actorId),
       trigger: {
         type: "manual",
         requestId: input.manualRequestId ?? crypto.randomUUID(),
@@ -2220,6 +2415,12 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       status: run.status,
       source: "unreported_submission",
       error: input.error ?? undefined,
+    });
+
+    await this.recordRunFact({
+      run,
+      nanite: nextState.nanites[run.naniteId],
+      actor: naniteTriggerActor(run.trigger),
     });
 
     return run;
@@ -2391,8 +2592,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       createdAt,
     );
 
-    this.setState(nextState);
-    return getRunOrThrow(nextState, input.runId);
+    return this.setStateAndRecordRunFact(nextState, input.runId);
   }
 
   @callable()
@@ -2427,8 +2627,23 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       resolvedAt,
     );
 
-    this.setState(nextState);
-    return getRunOrThrow(nextState, input.runId);
+    const run = await this.setStateAndRecordRunFact(nextState, input.runId);
+    await this.recordObservabilityFact(
+      "human_checkpoint.resolved.audit",
+      async (db, githubInstallationId) => {
+        await recordAuditEvent(db, {
+          eventName: "audit.human_checkpoint.resolved",
+          githubInstallationId,
+          naniteId: run.naniteId,
+          runKey: run.runId,
+          actor: naniteTriggerActor(run.trigger),
+          targetType: "run",
+          targetId: run.runId,
+          outcome: "success",
+        });
+      },
+    );
+    return run;
   }
 
   @callable()
@@ -2474,6 +2689,12 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       source: "lifecycle_tool",
       hasOutputUrl: completedRun.outputUrl !== null,
       hasAgentFeedback: completedRun.agentFeedback !== null,
+    });
+
+    await this.recordRunFact({
+      run: completedRun,
+      nanite: nextState.nanites[completedRun.naniteId],
+      actor: naniteTriggerActor(completedRun.trigger),
     });
 
     return completedRun;

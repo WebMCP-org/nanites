@@ -147,7 +147,7 @@ Local source:
 
 This matters if Nanites remain modeled as child agents under a manager. The Nanite agent can own the logical watchdog even though the parent owns the physical alarm.
 
-## Sigvelo code links
+## SigVelo code links
 
 Nanite agent runtime:
 

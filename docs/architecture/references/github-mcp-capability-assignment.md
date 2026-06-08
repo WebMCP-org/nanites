@@ -2,7 +2,7 @@
 
 Nanites should get GitHub API capability through scoped installation tokens plus an explicit MCP
 tool inventory derived for that Nanite. The model that creates a Nanite declares repositories and
-GitHub App permission grants; Sigvelo derives the MCP inventory from those grants and runtime
+GitHub App permission grants; SigVelo derives the MCP inventory from those grants and runtime
 policy.
 
 This keeps the runtime shape simple:
@@ -38,7 +38,7 @@ from our installation boundary, and they would be a worse automation primitive f
 
 Fine-grained PATs and GitHub App installation tokens do not expose OAuth scopes in the same way.
 The official GitHub MCP server will not automatically hide tools for those tokens. GitHub will still
-reject unauthorized API calls, but the model may see tools it cannot successfully use unless Sigvelo
+reject unauthorized API calls, but the model may see tools it cannot successfully use unless SigVelo
 filters the MCP inventory first.
 
 ## Official GitHub MCP behavior
@@ -58,7 +58,7 @@ grants, not every issue, project, notification, gist, and repository mutation su
 Cloudflare Think can connect to MCP servers through the Agents SDK. Think automatically merges MCP
 tools into each turn, and `waitForMcpConnections` can make the inference loop wait for MCP discovery
 before the model starts. That means GitHub MCP capability can be attached to the Nanite sub-agent
-without adding another Sigvelo-specific tool registry.
+without adding another SigVelo-specific tool registry.
 
 ## Permission-Derived Inventory
 
@@ -125,22 +125,22 @@ This is a prompt-level contract, not a manager-owned PR harness.
 
 ## Recommended implementation shape
 
-The best production shape is a thin Sigvelo GitHub MCP proxy rather than storing short-lived GitHub
+The best production shape is a thin SigVelo GitHub MCP proxy rather than storing short-lived GitHub
 installation tokens inside durable MCP connection options.
 
 ```text
 Think Nanite
   -> addMcpServer("github", "https://app.sigvelo.com/internal/nanites/{naniteId}/github-mcp")
-  -> Sigvelo validates Nanite identity and permission-derived inventory
-  -> Sigvelo issues a fresh installation token for the Nanite's repo and permission scope
-  -> Sigvelo forwards to official GitHub MCP with locked MCP headers
+  -> SigVelo validates Nanite identity and permission-derived inventory
+  -> SigVelo issues a fresh installation token for the Nanite's repo and permission scope
+  -> SigVelo forwards to official GitHub MCP with locked MCP headers
 ```
 
 Reasons:
 
 - GitHub App installation tokens expire.
 - The official GitHub MCP server does not scope-filter `ghs_` tokens.
-- Sigvelo already knows the Nanite id, installation id, repositories, and GitHub App permissions.
+- SigVelo already knows the Nanite id, installation id, repositories, and GitHub App permissions.
 - A proxy can enforce a hard upper bound even if the model tries to request additional tools.
 - The Nanite still gets first-party GitHub MCP tool semantics.
 
@@ -151,7 +151,7 @@ treated as temporary.
 ## Nanite Definition Impact
 
 The generated Nanite authoring model should not parameterize GitHub MCP separately. It declares
-repository scope and GitHub App permission grants. Sigvelo derives the MCP tool inventory.
+repository scope and GitHub App permission grants. SigVelo derives the MCP tool inventory.
 
 Example:
 

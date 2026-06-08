@@ -17,21 +17,23 @@ const deprovisionToolInputSchema = z
 
 export const deprovisionTool = defineSigveloMcpTool({
   name: "sigvelo_deprovision_nanite",
-  title: "Deprovision a Sigvelo Nanite",
+  title: "Deprovision a SigVelo Nanite",
   description:
     "Permanently removes one registered Nanite, deletes its child agent, clears runtime activity, and removes its run history.",
   inputSchema: deprovisionToolInputSchema,
-  outputSchema: createObjectOutputSchema("Sigvelo Nanite deprovisioning result."),
+  outputSchema: createObjectOutputSchema("SigVelo Nanite deprovisioning result."),
   annotations: {
     readOnlyHint: false,
     destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true,
   },
-  async execute(input, { manager }) {
+  async execute(input, { context, manager }) {
     return manager.deprovisionNanite({
       naniteId: input.naniteId,
       reason: input.reason,
+      actor: context.actor,
+      requestId: context.requestId,
     });
   },
 } satisfies SigveloMcpToolDefinition<typeof deprovisionToolInputSchema, DeprovisionNaniteOutput>);

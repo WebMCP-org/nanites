@@ -1,5 +1,5 @@
 ---
-description: Test a Sigvelo Nanite through the MCP acceptance loop.
+description: Test a SigVelo Nanite through the MCP acceptance loop.
 ---
 
 Use the `nanites` skill. Test this Nanite or scenario: $ARGUMENTS. Prefer `sigvelo_test_nanite_trigger` for generated trigger code, with fixture overrides that should satisfy repository, branch, action, and path filters. Use `sigvelo_start_nanite_run` for manual behavior. Treat terminal run status and `agentFeedback` as the acceptance result.

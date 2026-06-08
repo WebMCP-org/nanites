@@ -32,7 +32,7 @@ export function resolveGrantedMcpScopes(requestedScopes: readonly string[]): Sig
     const scopes = [...new Set(unsupportedScopes)];
     throw new AppError("unsupportedMcpScope", {
       details: { scopes },
-      message: `Unsupported Sigvelo MCP scopes requested: ${scopes.join(", ")}`,
+      message: `Unsupported SigVelo MCP scopes requested: ${scopes.join(", ")}`,
     });
   }
 

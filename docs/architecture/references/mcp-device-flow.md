@@ -3,38 +3,38 @@
 Status: reference note
 Date: 2026-05-23
 
-This note captures how Sigvelo should add Device Authorization Grant support for MCP clients.
-Sigvelo already has working MCP OAuth. Device Flow should extend that surface for clients that
+This note captures how SigVelo should add Device Authorization Grant support for MCP clients.
+SigVelo already has working MCP OAuth. Device Flow should extend that surface for clients that
 cannot reliably complete a browser redirect, such as local agent clients, CLI tools, IDE plugins,
 remote sandboxes, and headless automation.
 
 ## Short version
 
-Device Flow should be a Sigvelo OAuth flow, not a shortcut that gives MCP clients raw GitHub tokens.
+Device Flow should be a SigVelo OAuth flow, not a shortcut that gives MCP clients raw GitHub tokens.
 
 The preferred shape is:
 
 ```text
 MCP client
-  -> asks Sigvelo for a device code
+  -> asks SigVelo for a device code
   -> shows the user a verification URL and code
-  -> polls Sigvelo token endpoint
+  -> polls SigVelo token endpoint
 
 User
-  -> opens Sigvelo verification URL
+  -> opens SigVelo verification URL
   -> signs in with GitHub if needed
   -> selects a GitHub installation
   -> approves MCP scopes
 
-Sigvelo
-  -> issues a Sigvelo MCP access token
+SigVelo
+  -> issues a SigVelo MCP access token
   -> token is bound to user, installation, client, scopes, and resource
 ```
 
-The MCP client calls `/mcp` with the Sigvelo bearer token. Sigvelo continues to own installation
+The MCP client calls `/mcp` with the SigVelo bearer token. SigVelo continues to own installation
 policy, scope enforcement, audit, and revocation.
 
-## Why this fits Sigvelo MCP
+## Why this fits SigVelo MCP
 
 MCP clients often run outside the browser. A redirect-based OAuth flow works for web apps, but it is
 awkward when the client is Claude Desktop, a terminal agent, an IDE extension, a remote coding
@@ -43,11 +43,11 @@ environment, or a sandboxed worker.
 Device Flow gives those clients a clean human approval path without asking them to run a localhost
 callback server.
 
-Sigvelo already has the right authority model:
+SigVelo already has the right authority model:
 
 - GitHub is the upstream identity provider.
 - The GitHub installation is the product permission boundary.
-- Sigvelo issues MCP tokens with Sigvelo scopes.
+- SigVelo issues MCP tokens with SigVelo scopes.
 - The Nanite manager validates and executes privileged actions.
 - External clients never receive raw GitHub installation tokens.
 
@@ -73,17 +73,17 @@ POST /oauth/token
   grant_type=urn:ietf:params:oauth:grant-type:device_code
 ```
 
-Both flows should issue the same Sigvelo MCP token shape. Tool authorization should not care whether
+Both flows should issue the same SigVelo MCP token shape. Tool authorization should not care whether
 the token came from redirect OAuth or Device Flow, except for audit metadata.
 
 ## User story
 
-A developer configures a local MCP client with Sigvelo:
+A developer configures a local MCP client with SigVelo:
 
-1. The MCP client discovers Sigvelo's OAuth metadata.
+1. The MCP client discovers SigVelo's OAuth metadata.
 2. The client requests a device code for `resource=https://app.sigvelo.com/mcp` and scopes such as
    `nanites:read`.
-3. Sigvelo returns:
+3. SigVelo returns:
    - `device_code`
    - `user_code`
    - `verification_uri`
@@ -98,7 +98,7 @@ A developer configures a local MCP client with Sigvelo:
 
 5. The user opens the URL, signs in with GitHub, selects the installation, and approves scopes.
 6. The client polls `/oauth/token` with the device code.
-7. Sigvelo returns a short-lived MCP access token.
+7. SigVelo returns a short-lived MCP access token.
 8. The MCP client calls `/mcp` with `Authorization: Bearer <token>`.
 
 ## Endpoint sketch
@@ -169,7 +169,7 @@ The consent screen should show:
 - Whether the request can read or mutate Nanites.
 - Expiration time for the device request.
 
-The UI should avoid implying that the client receives GitHub credentials. It receives a Sigvelo MCP
+The UI should avoid implying that the client receives GitHub credentials. It receives a SigVelo MCP
 token.
 
 ## Token props
@@ -254,7 +254,7 @@ The OAuth authorization server metadata should advertise Device Flow only after 
 ```
 
 The MCP protected resource metadata should continue to point clients at the same authorization
-server. MCP clients should not need a Sigvelo-specific auth branch once discovery is correct.
+server. MCP clients should not need a SigVelo-specific auth branch once discovery is correct.
 
 ## Security rules
 
@@ -262,7 +262,7 @@ server. MCP clients should not need a Sigvelo-specific auth branch once discover
 - Bind every issued token to an MCP resource audience.
 - Require GitHub sign-in before approval.
 - Require an active GitHub installation before approval.
-- Clamp requested scopes to the scopes allowed by Sigvelo.
+- Clamp requested scopes to the scopes allowed by SigVelo.
 - Make `nanites:write` visibly different from `nanites:read`.
 - Hash device codes and user codes at rest.
 - Expire device requests quickly, around 10 minutes.
@@ -274,11 +274,11 @@ server. MCP clients should not need a Sigvelo-specific auth branch once discover
 
 Device Flow should not be MCP-only internally.
 
-Sigvelo can expose future raw APIs with the same OAuth server and token policy:
+SigVelo can expose future raw APIs with the same OAuth server and token policy:
 
 ```text
-/mcp             accepts Sigvelo OAuth tokens
-/api or /rpc     accepts Sigvelo OAuth tokens
+/mcp             accepts SigVelo OAuth tokens
+/api or /rpc     accepts SigVelo OAuth tokens
 ```
 
 The token's `resource` or audience should decide where it is valid. A token minted for
@@ -286,10 +286,10 @@ The token's `resource` or audience should decide where it is valid. A token mint
 
 ## Non-goals
 
-- Do not replace browser GitHub OAuth for the Sigvelo web app.
+- Do not replace browser GitHub OAuth for the SigVelo web app.
 - Do not replace the existing MCP authorization code flow.
 - Do not implement machine-to-machine service clients through Device Flow.
-- Do not use GitHub Device Flow tokens directly against Sigvelo MCP.
+- Do not use GitHub Device Flow tokens directly against SigVelo MCP.
 - Do not grant installation-wide write access without explicit user consent.
 
 ## Implementation slices
@@ -301,7 +301,7 @@ The token's `resource` or audience should decide where it is valid. A token mint
 - Store pending device request with TTL.
 - Add `/oauth/device` verification UI.
 - Add token endpoint handling for `device_code`.
-- Issue existing Sigvelo MCP access tokens.
+- Issue existing SigVelo MCP access tokens.
 - Add tests for pending, approved, denied, expired, consumed, and slow polling.
 
 ### Slice 2: Discovery and client polish

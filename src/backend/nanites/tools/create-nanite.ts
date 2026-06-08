@@ -92,20 +92,22 @@ const createNaniteToolInputSchema = z
 
 export const createNaniteTool = defineSigveloMcpTool({
   name: "sigvelo_create_nanite",
-  title: "Create or update a Sigvelo Nanite",
+  title: "Create or update a SigVelo Nanite",
   description: "Registers a stable Nanite spec with the authorized installation-scoped manager.",
   inputSchema: createNaniteToolInputSchema,
-  outputSchema: createObjectOutputSchema("Registered Sigvelo Nanite record."),
+  outputSchema: createObjectOutputSchema("Registered SigVelo Nanite record."),
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
     openWorldHint: true,
   },
-  async execute(input, { manager }) {
+  async execute(input, { context, manager }) {
     return manager.registerNanite({
       manifest: input.manifest,
       enabled: input.enabled,
+      actor: context.actor,
+      requestId: context.requestId,
     });
   },
 } satisfies SigveloMcpToolDefinition<typeof createNaniteToolInputSchema, ManagedNanite>);

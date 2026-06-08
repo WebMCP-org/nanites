@@ -36,12 +36,12 @@ of platform primitives over compatibility shims, mirrored schemas, or speculativ
 Use these rules when changing Nanites:
 
 - **Use Cloudflare primitives directly.** Reach for Agents SDK state, Think turns, Workspace,
-  Dynamic Workers, Durable Object facets, Wrangler, and Cloudflare MCP before inventing Sigvelo
+  Dynamic Workers, Durable Object facets, Wrangler, and Cloudflare MCP before inventing SigVelo
   wrappers. Add a wrapper only when it owns policy, auth, lifecycle, retries, or cleanup.
 - **Use Octokit at GitHub boundaries.** Constrain GitHub event names, permission names, check
   statuses, deployment states, and request payloads with Octokit types and `satisfies`. Keep
   GitHub-owned data in Octokit/webhook shapes until a concrete non-GitHub boundary requires a
-  projection. Do not create Sigvelo DTOs that rename, subset, or normalize standard GitHub facts.
+  projection. Do not create SigVelo DTOs that rename, subset, or normalize standard GitHub facts.
 - **Validate untrusted boundaries, then trust internal owners.** Validate MCP `create_nanite`
   inputs, generated Nanite lifecycle tool calls, GitHub webhooks, external API responses, and browser
   route/search input. Do not make the manager re-parse state it owns, mirror TypeScript types with
@@ -249,7 +249,7 @@ The current recommended direction is:
 - use GitHub CI as the default source of lint, typecheck, and test truth
 - keep stable completion boundaries for final success, failure, and no-change outcomes
 
-This keeps Sigvelo on the code-intelligence layer and avoids carrying a container runtime as a default product dependency.
+This keeps SigVelo on the code-intelligence layer and avoids carrying a container runtime as a default product dependency.
 
 ### GitHub MCP capability
 
@@ -261,7 +261,7 @@ an MCP tier or individual MCP tools.
 
 Use GitHub App installation tokens, not classic PATs. Installation tokens can be downscoped to the
 Nanite's repositories and app permissions. The official GitHub MCP server accepts app tokens, but it
-does not automatically hide tools based on app-token permissions, so Sigvelo must provide an explicit
+does not automatically hide tools based on app-token permissions, so SigVelo must provide an explicit
 `X-MCP-Tools`/`X-MCP-Exclude-Tools` inventory.
 
 Default guidance:
@@ -292,7 +292,7 @@ Installation repository data now stays Octokit-shaped. [src/backend/github/index
 returns the full GitHub installation repository objects, and
 [src/backend/db/schema.ts](/src/backend/db/schema.ts) persists the full repository
 JSON alongside relational indexes. Future routing should read GitHub-owned metadata from those
-provider-shaped objects instead of extending a Sigvelo repository DTO.
+provider-shaped objects instead of extending a SigVelo repository DTO.
 
 Add:
 
@@ -325,7 +325,7 @@ For browser-facing maintenance Nanites, preview verification remains:
 3. inspect GitHub-native evidence such as checks, logs, comments, or deployment links
 4. verify one real preview candidate when the repository exposes one
 
-Do not broaden the product into “Sigvelo boots every customer app itself.” The immediate job is a Think/Workspace runtime that can use GitHub-native signals when local process execution would otherwise be tempting.
+Do not broaden the product into “SigVelo boots every customer app itself.” The immediate job is a Think/Workspace runtime that can use GitHub-native signals when local process execution would otherwise be tempting.
 
 ## Observability requirements
 
@@ -340,7 +340,7 @@ Every Nanite Run should make these things legible:
 - verification state
 - change proposal outcome
 
-GitHub stays thin. Sigvelo carries the full runtime story.
+GitHub stays thin. SigVelo carries the full runtime story.
 
 ## UX implications
 

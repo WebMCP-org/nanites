@@ -25,11 +25,11 @@ const testNaniteTriggerToolInputSchema = z.object({
 
 export const testNaniteTriggerTool = defineSigveloMcpTool({
   name: "sigvelo_test_nanite_trigger",
-  title: "Test a Sigvelo Nanite trigger",
+  title: "Test a SigVelo Nanite trigger",
   description:
     "Builds a realistic fixture event, runs generated trigger code, dispatches accepted runs, and optionally waits for a terminal Nanite outcome.",
   inputSchema: testNaniteTriggerToolInputSchema,
-  outputSchema: createObjectOutputSchema("Sigvelo Nanite trigger test result."),
+  outputSchema: createObjectOutputSchema("SigVelo Nanite trigger test result."),
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,

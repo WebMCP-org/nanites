@@ -308,7 +308,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           context,
           authRequest,
           "access_denied",
-          "The user denied the Sigvelo MCP authorization request.",
+          "The user denied the SigVelo MCP authorization request.",
         );
       }
 
@@ -333,7 +333,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           context,
           authRequest,
           "access_denied",
-          "The selected GitHub installation has no repositories shared with Sigvelo.",
+          "The selected GitHub installation has no repositories shared with SigVelo.",
         );
       }
 

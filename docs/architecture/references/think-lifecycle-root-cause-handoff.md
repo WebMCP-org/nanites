@@ -5,7 +5,7 @@ Created: 2026-05-24
 ## Purpose
 
 Implement the next Nanite reliability pass. The problem is not that Think lacks long-running
-primitives. The problem is that Sigvelo currently treats Nanite lifecycle completion as mostly
+primitives. The problem is that SigVelo currently treats Nanite lifecycle completion as mostly
 prompt-level guidance during the active Think turn, then hard-fails only after the turn ends without
 a lifecycle tool call.
 
@@ -478,7 +478,7 @@ Reference:
 
 - `/tmp/cloudflare-agents-review/packages/shell/src/git/index.ts`
 
-Sigvelo exposes `git.*` through `execute`.
+SigVelo exposes `git.*` through `execute`.
 
 Decision:
 
@@ -527,7 +527,7 @@ If GitHub MCP already exposes enough git-data API tools for:
 
 then update prompt/tool guidance to prefer those.
 
-If not, add a narrow Sigvelo/Nanite tool:
+If not, add a narrow SigVelo/Nanite tool:
 
 ```text
 github.createEmptyCommit({ repository, branch, message })
@@ -583,7 +583,7 @@ Reference:
 
 ## Source Links
 
-### Sigvelo Runtime
+### SigVelo Runtime
 
 - `/src/backend/nanites/nanite-agent.ts`
 - `/src/backend/nanites/manager.ts`
@@ -713,7 +713,7 @@ Do not do these in the first implementation pass:
 - Do not increase `maxSteps` as the primary fix.
 - Do not mirror full transcripts into GitHub.
 - Do not solve all GitHub write operations at once.
-- Do not generalize into a large Sigvelo tool framework.
+- Do not generalize into a large SigVelo tool framework.
 - Do not commit `/tmp` debug artifacts or OAuth credentials.
 
 ## Expected Outcome

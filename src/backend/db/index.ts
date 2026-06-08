@@ -1,5 +1,5 @@
 /**
- * Shared Drizzle client factory for the Sigvelo DB package.
+ * Shared Drizzle client factory for the SigVelo DB package.
  *
  * Rules:
  * - Compose the client from authoritative Drizzle tables only.
@@ -16,9 +16,10 @@ import {
   accountPeople,
   accountRepositories,
   accounts,
-  aiPricingSnapshots,
+  auditEvents,
   aiUsageFacts,
   authFunnelFacts,
+  naniteCatalog,
   naniteRunFacts,
   platformUsageFacts,
 } from "./schema.ts";
@@ -29,9 +30,10 @@ const schema = {
   accountPeople,
   accountRepositories,
   accounts,
-  aiPricingSnapshots,
+  auditEvents,
   aiUsageFacts,
   authFunnelFacts,
+  naniteCatalog,
   naniteRunFacts,
   platformUsageFacts,
 };

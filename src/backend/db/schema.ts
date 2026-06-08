@@ -1,5 +1,5 @@
 /**
- * Authoritative Drizzle schema for Sigvelo business and reporting tables.
+ * Authoritative Drizzle schema for SigVelo business and reporting tables.
  *
  * Ownership:
  * - This file owns persistence structure: table names, columns, defaults, constraints, and enum
@@ -13,10 +13,29 @@ import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
 export const GITHUB_ACCOUNT_TYPES = ["User", "Organization"] as const;
 export const INSTALLATION_STATUSES = ["active", "suspended", "removed"] as const;
 export const PERSON_RELATIONSHIPS = ["sign_in_user", "github_actor"] as const;
-export const RUN_TRIGGER_KINDS = ["manual", "github-pull-request"] as const;
+export const RUN_TRIGGER_KINDS = [
+  "manual",
+  "github",
+  "github-pull-request",
+  "schedule",
+  "scheduleEvery",
+] as const;
 export const CONFIG_SOURCES = ["default"] as const;
-export const RUN_STATUSES = ["queued", "in_progress", "completed", "stale"] as const;
-export const RUN_CONCLUSIONS = ["success", "failure", "neutral"] as const;
+export const RUN_STATUSES = [
+  "running",
+  "waiting_for_human",
+  "complete",
+  "no_change",
+  "fail",
+  "canceled",
+] as const;
+export const RUN_CONCLUSIONS = [
+  "success",
+  "failure",
+  "no_change",
+  "waiting_for_human",
+  "canceled",
+] as const;
 export const RUN_PHASES = [
   "queued",
   "preparing",
@@ -37,6 +56,31 @@ export const PLATFORM_USAGE_CATEGORIES = [
   "auth",
   "ui",
 ] as const;
+export const NANITE_EVENT_SOURCE_TYPES = ["manual", "github", "schedule", "scheduleEvery"] as const;
+export const OBSERVABILITY_ACTOR_KINDS = [
+  "github_user",
+  "github_webhook",
+  "schedule",
+  "system",
+  "agent",
+] as const;
+export const OBSERVABILITY_ACTOR_SOURCES = [
+  "browser",
+  "mcp",
+  "manager_chat",
+  "github_webhook",
+  "schedule",
+  "maintenance",
+] as const;
+export const AUDIT_EVENT_OUTCOMES = ["success", "failure", "denied", "noop"] as const;
+export const AUDIT_TARGET_TYPES = [
+  "nanite",
+  "run",
+  "trigger_source",
+  "permissions",
+  "auth",
+  "installation",
+] as const;
 
 export type GitHubAccountType = (typeof GITHUB_ACCOUNT_TYPES)[number];
 export type InstallationStatus = (typeof INSTALLATION_STATUSES)[number];
@@ -48,6 +92,28 @@ export type RunConclusion = (typeof RUN_CONCLUSIONS)[number];
 export type RunPhase = (typeof RUN_PHASES)[number];
 export type NaniteVariant = (typeof NANITE_VARIANTS)[number];
 export type PlatformUsageCategory = (typeof PLATFORM_USAGE_CATEGORIES)[number];
+export type NaniteEventSourceType = (typeof NANITE_EVENT_SOURCE_TYPES)[number];
+export type ObservabilityActorKind = (typeof OBSERVABILITY_ACTOR_KINDS)[number];
+export type ObservabilityActorSource = (typeof OBSERVABILITY_ACTOR_SOURCES)[number];
+export type AuditEventOutcome = (typeof AUDIT_EVENT_OUTCOMES)[number];
+export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];
+
+function observabilityActorColumns() {
+  return {
+    actorKind: text("actor_kind", { enum: OBSERVABILITY_ACTOR_KINDS }),
+    actorGithubUserId: integer("actor_github_user_id"),
+    actorGithubLogin: text("actor_github_login"),
+    actorSource: text("actor_source", { enum: OBSERVABILITY_ACTOR_SOURCES }),
+  };
+}
+
+function billingAttributionColumns() {
+  return {
+    billingGithubUserId: integer("billing_github_user_id"),
+    billingGithubLogin: text("billing_github_login"),
+    billingAttributionBasis: text("billing_attribution_basis"),
+  };
+}
 
 export const accounts = sqliteTable(
   "accounts",
@@ -175,7 +241,7 @@ export const naniteRunFacts = sqliteTable(
       .notNull()
       .references(() => accountInstallations.githubInstallationId, { onDelete: "cascade" }),
     githubRepositoryId: integer("github_repository_id").notNull(),
-    full_name: text("full_name").notNull(),
+    repositoryFullName: text("full_name").notNull(),
     runKey: text("run_key").notNull(),
     naniteId: text("nanite_id").notNull(),
     variant: text("variant", { enum: NANITE_VARIANTS }).notNull(),
@@ -183,11 +249,20 @@ export const naniteRunFacts = sqliteTable(
     triggerPullRequestNumber: integer("trigger_pull_request_number"),
     triggeredByGithubUserId: integer("triggered_by_github_user_id"),
     triggeredByGithubLogin: text("triggered_by_github_login"),
+    ...observabilityActorColumns(),
+    ...billingAttributionColumns(),
     status: text("status", { enum: RUN_STATUSES }).notNull(),
     conclusion: text("conclusion", { enum: RUN_CONCLUSIONS }),
     phase: text("phase", { enum: RUN_PHASES }).notNull(),
     task: text("task").notNull(),
     summary: text("summary"),
+    outputUrl: text("output_url"),
+    outputPullRequestNumber: integer("output_pull_request_number"),
+    outputPullRequestMerged: integer("output_pull_request_merged", { mode: "boolean" }),
+    outputPullRequestMergedAt: integer("output_pull_request_merged_at", { mode: "timestamp" }),
+    outputAdditions: integer("output_additions"),
+    outputDeletions: integer("output_deletions"),
+    outputChangedFiles: integer("output_changed_files"),
     configSource: text("config_source", { enum: CONFIG_SOURCES }),
     implicitFailureReason: text("implicit_failure_reason"),
     missingExitToolReminderCount: integer("missing_exit_tool_reminder_count").notNull().default(0),
@@ -222,34 +297,6 @@ export const naniteRunFacts = sqliteTable(
   ],
 );
 
-export const aiPricingSnapshots = sqliteTable(
-  "ai_pricing_snapshots",
-  {
-    id: text("id").primaryKey(),
-    provider: text("provider").notNull(),
-    model: text("model").notNull(),
-    effectiveAt: integer("effective_at", { mode: "timestamp" }).notNull(),
-    inputTokenCostPerMillionUsdMicros: integer("input_token_cost_per_million_usd_micros").notNull(),
-    cachedInputTokenCostPerMillionUsdMicros: integer(
-      "cached_input_token_cost_per_million_usd_micros",
-    ),
-    outputTokenCostPerMillionUsdMicros: integer(
-      "output_token_cost_per_million_usd_micros",
-    ).notNull(),
-    reasoningTokenCostPerMillionUsdMicros: integer("reasoning_token_cost_per_million_usd_micros"),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-  },
-  (table) => [
-    uniqueIndex("ai_pricing_snapshots_provider_model_effective_unique").on(
-      table.provider,
-      table.model,
-      table.effectiveAt,
-    ),
-  ],
-);
-
 export const aiUsageFacts = sqliteTable(
   "ai_usage_facts",
   {
@@ -261,6 +308,7 @@ export const aiUsageFacts = sqliteTable(
       .notNull()
       .references(() => accountInstallations.githubInstallationId, { onDelete: "cascade" }),
     githubRepositoryId: integer("github_repository_id"),
+    naniteId: text("nanite_id"),
     runKey: text("run_key"),
     requestId: text("request_id").notNull(),
     provider: text("provider").notNull(),
@@ -278,6 +326,10 @@ export const aiUsageFacts = sqliteTable(
     rawUsageJson: text("raw_usage_json"),
     providerMetadataJson: text("provider_metadata_json"),
     providerBilledTotalCostUsdMicros: integer("provider_billed_total_cost_usd_micros"),
+    aiGatewayLogId: text("ai_gateway_log_id"),
+    aiGatewayEventId: text("ai_gateway_event_id"),
+    ...observabilityActorColumns(),
+    ...billingAttributionColumns(),
     estimatedInputCostUsdMicros: integer("estimated_input_cost_usd_micros"),
     estimatedOutputCostUsdMicros: integer("estimated_output_cost_usd_micros"),
     estimatedTotalCostUsdMicros: integer("estimated_total_cost_usd_micros"),
@@ -289,6 +341,65 @@ export const aiUsageFacts = sqliteTable(
   },
   (table) => [uniqueIndex("ai_usage_facts_request_id_unique").on(table.requestId)],
 );
+
+export const naniteCatalog = sqliteTable(
+  "nanite_catalog",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    githubInstallationId: integer("github_installation_id").notNull(),
+    naniteId: text("nanite_id").notNull(),
+    name: text("name").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull(),
+    eventSourceType: text("event_source_type", { enum: NANITE_EVENT_SOURCE_TYPES }).notNull(),
+    latestVersionId: text("latest_version_id").notNull(),
+    repositoryFullNamesJson: text("repository_full_names_json").notNull().default("[]"),
+    repositoryCount: integer("repository_count").notNull().default(0),
+    triggerEventCount: integer("trigger_event_count").notNull().default(0),
+    permissionCount: integer("permission_count").notNull().default(0),
+    lastRunAt: integer("last_run_at", { mode: "timestamp" }),
+    lastRunStatus: text("last_run_status", { enum: RUN_STATUSES }),
+    createdByGithubUserId: integer("created_by_github_user_id"),
+    createdByGithubLogin: text("created_by_github_login"),
+    updatedByGithubUserId: integer("updated_by_github_user_id"),
+    updatedByGithubLogin: text("updated_by_github_login"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("nanite_catalog_installation_nanite_unique").on(
+      table.githubInstallationId,
+      table.naniteId,
+    ),
+  ],
+);
+
+export const auditEvents = sqliteTable("audit_events", {
+  id: text("id").primaryKey(),
+  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+  eventName: text("event_name").notNull(),
+  accountId: text("account_id").references(() => accounts.id, { onDelete: "set null" }),
+  githubInstallationId: integer("github_installation_id"),
+  githubRepositoryId: integer("github_repository_id"),
+  repositoryFullName: text("repository_full_name"),
+  naniteId: text("nanite_id"),
+  runKey: text("run_key"),
+  actorKind: text("actor_kind", { enum: OBSERVABILITY_ACTOR_KINDS }).notNull(),
+  actorId: text("actor_id"),
+  actorLogin: text("actor_login"),
+  actorGithubUserId: integer("actor_github_user_id"),
+  actorGithubLogin: text("actor_github_login"),
+  billingGithubUserId: integer("billing_github_user_id"),
+  billingGithubLogin: text("billing_github_login"),
+  billingBasis: text("billing_basis"),
+  surface: text("surface", { enum: OBSERVABILITY_ACTOR_SOURCES }).notNull(),
+  targetType: text("target_type", { enum: AUDIT_TARGET_TYPES }).notNull(),
+  targetId: text("target_id"),
+  outcome: text("outcome", { enum: AUDIT_EVENT_OUTCOMES }).notNull(),
+  reasonCode: text("reason_code"),
+  requestId: text("request_id"),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+});
 
 export const platformUsageFacts = sqliteTable("platform_usage_facts", {
   id: text("id").primaryKey(),

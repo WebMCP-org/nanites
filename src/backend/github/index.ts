@@ -37,6 +37,19 @@ export type GitHubInstallationRepository =
 export type GitHubVisibleInstallation =
   RestEndpointMethodTypes["apps"]["listInstallationsForAuthenticatedUser"]["response"]["data"]["installations"][number];
 export type GitHubAppPermissions = GitHubInstallationTokenPermissions;
+export type GitHubPullRequestImpact = {
+  pullRequestNumber: number;
+  merged: boolean;
+  mergedAt: string | null;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+};
+type GitHubPullRequestReference = {
+  owner: string;
+  repo: string;
+  pullRequestNumber: number;
+};
 type GitHubOperationLogContext = {
   operation: string;
   githubInstallationId?: number;
@@ -147,6 +160,79 @@ function readGitHubInstallationTokenRepositoryName(repositoryFullName: string): 
   return repo ?? repositoryFullName;
 }
 
+export function readGitHubPullRequestReference(
+  outputUrl: string | null | undefined,
+): GitHubPullRequestReference | null {
+  if (!outputUrl) {
+    return null;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(outputUrl);
+  } catch {
+    return null;
+  }
+
+  if (url.hostname !== "github.com" && url.hostname !== "www.github.com") {
+    return null;
+  }
+
+  const [, owner, repo, kind, numberText] = url.pathname.split("/");
+  const pullRequestNumber = Number(numberText);
+  if (!owner || !repo || kind !== "pull" || !Number.isInteger(pullRequestNumber)) {
+    return null;
+  }
+
+  return {
+    owner: decodeURIComponent(owner),
+    repo: decodeURIComponent(repo),
+    pullRequestNumber,
+  };
+}
+
+export async function fetchGitHubPullRequestImpact({
+  env,
+  installationId,
+  outputUrl,
+}: {
+  env: Env;
+  installationId: number;
+  outputUrl: string | null | undefined;
+}): Promise<GitHubPullRequestImpact | null> {
+  const reference = readGitHubPullRequestReference(outputUrl);
+  if (!reference) {
+    return null;
+  }
+
+  const repository = `${reference.owner}/${reference.repo}`;
+  const octokit = createGitHubInstallationOctokit({ env, installationId });
+  const response = await observeGitHubOperation(
+    {
+      operation: "pulls.get",
+      githubInstallationId: installationId,
+      repository,
+      metadata: { pullRequestNumber: reference.pullRequestNumber },
+    },
+    () =>
+      octokit.rest.pulls.get({
+        owner: reference.owner,
+        repo: reference.repo,
+        pull_number: reference.pullRequestNumber,
+      }),
+  );
+  const pullRequest = response.data;
+
+  return {
+    pullRequestNumber: reference.pullRequestNumber,
+    merged: pullRequest.merged_at !== null,
+    mergedAt: pullRequest.merged_at,
+    additions: pullRequest.additions,
+    deletions: pullRequest.deletions,
+    changedFiles: pullRequest.changed_files,
+  };
+}
+
 export async function issueScopedGitHubInstallationToken({
   env,
   installationId,
@@ -205,6 +291,26 @@ function createGitHubUserOctokit(accessToken: string): Octokit {
     },
     userAgent: GITHUB_USER_USER_AGENT,
   });
+}
+
+async function fetchGitHubUserApiJson<TResponse>(
+  accessToken: string,
+  path: string,
+): Promise<TResponse> {
+  const response = await fetch(new URL(path, GITHUB_REST_API_BASE_URL), {
+    headers: {
+      accept: GITHUB_REST_API_ACCEPT_HEADER,
+      authorization: `Bearer ${accessToken}`,
+      "user-agent": GITHUB_USER_USER_AGENT,
+      "x-github-api-version": GITHUB_REST_API_VERSION,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub API request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json<TResponse>();
 }
 
 export async function exchangeGitHubOAuthCode({
@@ -275,19 +381,13 @@ export async function fetchGitHubViewer(accessToken: string): Promise<GitHubView
 
 export async function listVisibleInstallations(accessToken: string) {
   return observeGitHubOperation({ operation: "user.installations.list" }, async () => {
-    const octokit = createGitHubUserOctokit(accessToken);
     const visibleInstallations: GitHubVisibleInstallation[] = [];
-    let pageCount = 0;
-
-    for await (const response of octokit.paginate.iterator(
-      octokit.rest.apps.listInstallationsForAuthenticatedUser,
-      {
-        per_page: GITHUB_API_PAGE_SIZE,
-      },
-    )) {
-      visibleInstallations.push(...response.data);
-      pageCount += 1;
-      if (pageCount >= GITHUB_MAX_PAGINATION_PAGES) {
+    for (let page = 1; page <= GITHUB_MAX_PAGINATION_PAGES; page += 1) {
+      const response = await fetchGitHubUserApiJson<{
+        installations: GitHubVisibleInstallation[];
+      }>(accessToken, `/user/installations?per_page=${GITHUB_API_PAGE_SIZE}&page=${page}`);
+      visibleInstallations.push(...response.installations);
+      if (response.installations.length < GITHUB_API_PAGE_SIZE) {
         break;
       }
     }
@@ -306,20 +406,16 @@ export async function listInstallationRepositories(
       githubInstallationId,
     },
     async () => {
-      const octokit = createGitHubUserOctokit(accessToken);
       const repositories: GitHubInstallationRepository[] = [];
-      let pageCount = 0;
-
-      for await (const response of octokit.paginate.iterator(
-        octokit.rest.apps.listInstallationReposForAuthenticatedUser,
-        {
-          installation_id: githubInstallationId,
-          per_page: GITHUB_API_PAGE_SIZE,
-        },
-      )) {
-        repositories.push(...response.data);
-        pageCount += 1;
-        if (pageCount >= GITHUB_MAX_PAGINATION_PAGES) {
+      for (let page = 1; page <= GITHUB_MAX_PAGINATION_PAGES; page += 1) {
+        const response = await fetchGitHubUserApiJson<{
+          repositories: GitHubInstallationRepository[];
+        }>(
+          accessToken,
+          `/user/installations/${githubInstallationId}/repositories?per_page=${GITHUB_API_PAGE_SIZE}&page=${page}`,
+        );
+        repositories.push(...response.repositories);
+        if (response.repositories.length < GITHUB_API_PAGE_SIZE) {
           break;
         }
       }

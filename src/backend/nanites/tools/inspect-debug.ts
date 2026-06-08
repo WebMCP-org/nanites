@@ -56,11 +56,11 @@ const inspectDebugToolInputSchema = z
 
 export const inspectDebugTool = defineSigveloMcpTool({
   name: "sigvelo_debug_nanites",
-  title: "Debug Sigvelo Nanites",
+  title: "Debug SigVelo Nanites",
   description:
     "Inspects manager-owned Nanite state and, when requested, delegates to the child Think sub-agent for transcript and submission inspection.",
   inputSchema: inspectDebugToolInputSchema,
-  outputSchema: createObjectOutputSchema("Sigvelo Nanite debug inspection output."),
+  outputSchema: createObjectOutputSchema("SigVelo Nanite debug inspection output."),
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,

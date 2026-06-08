@@ -25,7 +25,7 @@ They:
 - own one vertical maintenance responsibility
 - receive GitHub events, schedules, manual messages, or generated trigger dispatches
 - can reuse one durable change-proposal surface when code changes exist
-- stream the live agent chat in Sigvelo
+- stream the live agent chat in SigVelo
 - keep GitHub as the clean artifact and feedback surface
 - can propose child Nanites when a vertical should split
 
@@ -46,7 +46,7 @@ Nanite definitions should stay thin:
 - stop conditions
 
 Capabilities should come primarily from the pulled repo, configured MCP servers, permission-derived
-tool inventory, and runtime-owned CLI surfaces rather than an ever-growing Sigvelo-authored tool
+tool inventory, and runtime-owned CLI surfaces rather than an ever-growing SigVelo-authored tool
 manifest.
 
 Generated Dynamic Worker code should be used for each Nanite's inbound trigger handler:
@@ -59,7 +59,7 @@ Generated Dynamic Worker code should be used for each Nanite's inbound trigger h
 The installation manager validates generated trigger output before dispatching work.
 
 For GitHub trigger handlers, generated code should use the `@sigvelo/nanite-trigger` authoring
-facade. Sigvelo should provide the Worker Loader runtime wrapper, Octokit-backed webhook/REST types,
+facade. SigVelo should provide the Worker Loader runtime wrapper, Octokit-backed webhook/REST types,
 and the manager intent API; a live scoped Octokit runtime client is separate authority work.
 
 Human prompts are not trigger events. Manual chats and manual run prompts go directly through the stable Think Nanite.
@@ -109,7 +109,7 @@ Make generated inbound triggers and GitHub MCP capability feel routine rather th
 - GitHub repository metadata from installation repository objects where it affects routing
 - hydration telemetry and failure history
 - pre-work escalation policy based on repo size, prior behavior, and task needs
-- workspace bootstrap that layers Sigvelo identity over repo-local `AGENTS.md` / `.codex` / `.agents`
+- workspace bootstrap that layers SigVelo identity over repo-local `AGENTS.md` / `.codex` / `.agents`
 - Nanite-scoped completion boundary for publish, inspect, verify, complete, and fail
 - MCP and skill bootstrap as the default capability path
 
@@ -117,7 +117,7 @@ Make generated inbound triggers and GitHub MCP capability feel routine rather th
 
 - no perfect heuristic on day one
 - no heavy scoring model for repo selection
-- no giant Sigvelo-specific agent manifest for Nanite capabilities
+- no giant SigVelo-specific agent manifest for Nanite capabilities
 - no generated trigger handler with raw GitHub write authority
 
 ## Outcome-first product pass
@@ -152,7 +152,7 @@ Make the product outcome-first instead of operator-first.
 
 ## Explicit non-goals for now
 
-- do not turn Sigvelo into a generic PR annotation bot
+- do not turn SigVelo into a generic PR annotation bot
 - do not make GitHub the primary runtime observability surface
 - do not generate Nanite runtime classes by default
 - do not give generated trigger handlers root lifecycle or GitHub write authority

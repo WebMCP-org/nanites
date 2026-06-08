@@ -84,12 +84,12 @@ export const APP_ERRORS = {
   chatIngressNotFound: {
     code: "chat_ingress_not_found",
     status: 404,
-    message: "Sigvelo chat ingress route not found.",
+    message: "SigVelo chat ingress route not found.",
   },
   chatIngressUnavailable: {
     code: "chat_ingress_unavailable",
     status: 500,
-    message: "Sigvelo chat ingress is not configured.",
+    message: "SigVelo chat ingress is not configured.",
   },
   chatIngressInvalidGitHubMessage: {
     code: "chat_ingress_invalid_github_message",
@@ -260,7 +260,7 @@ export const APP_ERRORS = {
   naniteToolInstallationRequired: {
     code: "nanite_tool_installation_required",
     status: 401,
-    message: "Sigvelo manager tools require a connected GitHub installation.",
+    message: "SigVelo manager tools require a connected GitHub installation.",
   },
   testAuthTokenRequired: {
     code: "test_auth_token_required",
@@ -292,7 +292,7 @@ export const APP_ERRORS = {
   unsupportedMcpScope: {
     code: "unsupported_mcp_scope",
     status: 400,
-    message: "Unsupported Sigvelo MCP scope.",
+    message: "Unsupported SigVelo MCP scope.",
     publicDetailKeys: ["scopes"],
   },
   mcpOAuthProviderUnavailable: {
@@ -303,7 +303,7 @@ export const APP_ERRORS = {
   mcpTokenScopeUnavailable: {
     code: "mcp_token_scope_unavailable",
     status: 400,
-    message: "The requested token scope is not available on this Sigvelo MCP grant.",
+    message: "The requested token scope is not available on this SigVelo MCP grant.",
   },
   internalServerError: {
     code: "internal_server_error",
