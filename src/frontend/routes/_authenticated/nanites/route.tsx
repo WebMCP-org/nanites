@@ -2556,6 +2556,7 @@ function NanitesRuntimeSurface({
                 installationId: activeInstallation.id,
                 range: "7d",
               }}
+              aria-label="Open observability"
               title="Open observability"
             >
               <ChartBarIcon size={14} aria-hidden="true" />
