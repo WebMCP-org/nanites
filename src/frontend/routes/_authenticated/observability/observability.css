@@ -1,0 +1,845 @@
+.app-shell:has(.observability-shell) {
+  min-block-size: 100dvh;
+  background: var(--app-bg);
+}
+
+.app-shell:has(.observability-shell) .app-main {
+  padding: 0;
+}
+
+.app-shell:has(.observability-shell) .app-main > * {
+  max-inline-size: none;
+  margin-inline: 0;
+}
+
+.observability-shell {
+  inline-size: min(100%, 92rem);
+  min-block-size: 100dvh;
+  margin-inline: auto;
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--app-bg);
+  color: var(--app-charcoal);
+}
+
+.observability-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.observability-header h1 {
+  margin: 0;
+  color: var(--app-charcoal);
+  font-size: 1.75rem;
+  font-weight: 760;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.observability-header nav,
+.observability-header__meta,
+.observability-tabs,
+.observability-filter-chips,
+.observability-filter-actions,
+.observability-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.observability-header nav {
+  margin-block-start: 0.35rem;
+}
+
+.observability-header nav a {
+  color: var(--app-text-muted);
+  font-size: 0.875rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.observability-header nav a[data-active="true"] {
+  color: var(--app-charcoal);
+}
+
+.observability-filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(8rem, 1fr)) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.observability-filter {
+  min-inline-size: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.observability-filter > span,
+.observability-summary__eyebrow,
+.observability-summary-metric > span:nth-child(2),
+.observability-bar-section h3,
+.observability-table-panel th,
+.observability-github-person span,
+.observability-impact-metric small,
+.observability-footer {
+  color: var(--app-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.observability-filter .select__trigger {
+  min-inline-size: 0;
+}
+
+.observability-filter-actions {
+  justify-content: end;
+}
+
+.observability-filter-chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.observability-tabs {
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: var(--sigvelo-border-radius-md);
+  background: color-mix(in srgb, var(--app-bg) 72%, var(--sigvelo-paper-color));
+}
+
+.observability-tab {
+  min-block-size: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0.75rem;
+  border-radius: var(--sigvelo-border-radius-sm);
+  color: var(--app-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.observability-tab[data-active="true"] {
+  background: var(--sigvelo-paper-color);
+  color: var(--app-charcoal);
+  box-shadow: var(--sigvelo-shadow-softer);
+}
+
+.observability-summary,
+.observability-panel,
+.observability-breakdown-board,
+.observability-event-panel,
+.observability-github-panel,
+.observability-impact-board,
+.observability-table-panel,
+.observability-detail {
+  border-color: var(--app-border-soft);
+  background: var(--sigvelo-paper-color);
+  box-shadow: var(--sigvelo-shadow-softer);
+}
+
+.observability-summary {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1.15fr) minmax(0, 2fr);
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.observability-summary__primary {
+  min-block-size: 10.5rem;
+  display: grid;
+  align-content: end;
+  gap: 0.4rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--app-control-dark) 18%, var(--app-border-soft));
+  border-radius: var(--sigvelo-border-radius-md);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--app-control-dark) 9%, transparent),
+      color-mix(in srgb, var(--sigvelo-success-fill-mid) 7%, transparent)
+    ),
+    var(--sigvelo-paper-color);
+}
+
+.observability-summary__primary strong {
+  color: var(--app-charcoal);
+  font-size: 2.8rem;
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.observability-summary__primary > span:last-child {
+  color: var(--app-text-muted);
+  font-size: 0.875rem;
+}
+
+.observability-summary__metrics {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.observability-summary-metric {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 0.7rem;
+  row-gap: 0.2rem;
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--app-border-soft) 76%, transparent);
+  border-radius: var(--sigvelo-border-radius-md);
+  background: color-mix(in srgb, var(--app-bg) 64%, var(--sigvelo-paper-color));
+}
+
+.observability-summary-metric__icon {
+  grid-row: 1 / span 2;
+  inline-size: 2rem;
+  block-size: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: var(--sigvelo-border-radius-md);
+  background: color-mix(in srgb, var(--app-control-dark) 8%, var(--app-bg));
+  color: var(--app-control-dark);
+}
+
+.observability-summary-metric > span:nth-child(2),
+.observability-summary-metric strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-summary-metric strong {
+  color: var(--app-charcoal);
+  font-size: 1.35rem;
+  font-weight: 780;
+  line-height: 1.1;
+}
+
+.observability-focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(20rem, 0.9fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.observability-panel {
+  min-block-size: 18rem;
+  min-inline-size: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.875rem;
+  padding: 1rem;
+}
+
+.observability-panel--hero {
+  min-block-size: 25rem;
+}
+
+.observability-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-block-size: 1.75rem;
+  color: var(--app-text-muted);
+}
+
+.observability-panel__header h2,
+.observability-table-panel h2 {
+  margin: 0;
+  min-inline-size: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--app-charcoal);
+  font-size: 1rem;
+  font-weight: 740;
+  letter-spacing: 0;
+}
+
+.observability-chart {
+  min-inline-size: 0;
+  inline-size: 100%;
+  block-size: 15rem;
+}
+
+.observability-chart--area {
+  block-size: 18.5rem;
+}
+
+.observability-chart--donut {
+  position: relative;
+  block-size: 13rem;
+}
+
+.observability-chart-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.observability-chart-stats span {
+  min-inline-size: 0;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--app-border-soft) 76%, transparent);
+  border-radius: var(--sigvelo-border-radius-sm);
+  background: color-mix(in srgb, var(--app-bg) 66%, var(--sigvelo-paper-color));
+}
+
+.observability-chart-stats strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--app-charcoal);
+  font-size: 1rem;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-chart-stats small {
+  color: var(--app-text-muted);
+  font-size: 0.72rem;
+}
+
+.observability-shell .recharts-surface {
+  overflow: visible;
+}
+
+.observability-shell .recharts-cartesian-axis-tick-value {
+  fill: var(--app-text-muted);
+  font-size: 0.75rem;
+}
+
+.observability-shell .recharts-default-tooltip {
+  border-color: var(--app-border-soft) !important;
+  border-radius: var(--sigvelo-border-radius-sm);
+  background: var(--sigvelo-paper-color) !important;
+  box-shadow: var(--sigvelo-shadow-soft);
+  color: var(--app-charcoal);
+  font-size: 0.75rem;
+}
+
+.observability-outcome-chart {
+  min-block-size: 0;
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+
+.observability-chart-legend {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+  list-style: none;
+}
+
+.observability-chart-legend li {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--app-text-muted);
+  font-size: 0.8125rem;
+}
+
+.observability-chart-legend li > span:first-child {
+  inline-size: 0.65rem;
+  block-size: 0.65rem;
+  border-radius: var(--sigvelo-border-radius-pill);
+}
+
+.observability-chart-legend li > span:nth-child(2) {
+  overflow: hidden;
+  color: var(--app-charcoal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-chart-legend strong {
+  color: var(--app-charcoal);
+  font-weight: 700;
+}
+
+.observability-donut-total {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  pointer-events: none;
+  text-align: center;
+}
+
+.observability-donut-total strong,
+.observability-donut-total span {
+  display: block;
+}
+
+.observability-donut-total strong {
+  color: var(--app-charcoal);
+  font-size: 1.35rem;
+  font-weight: 780;
+  line-height: 1;
+}
+
+.observability-donut-total span {
+  color: var(--app-text-muted);
+  font-size: 0.75rem;
+}
+
+.observability-breakdown-board {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.observability-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.observability-bar-section {
+  min-inline-size: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--app-border-soft) 78%, transparent);
+  border-radius: var(--sigvelo-border-radius-md);
+  background: color-mix(in srgb, var(--app-bg) 68%, var(--sigvelo-paper-color));
+}
+
+.observability-bar-section h3 {
+  margin: 0;
+}
+
+.observability-bar-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+  list-style: none;
+}
+
+.observability-bar-list li {
+  min-inline-size: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.observability-bar-list li[data-selected="true"] .observability-bar-list__track {
+  background: color-mix(in srgb, var(--app-control-dark) 18%, var(--app-border-soft));
+}
+
+.observability-bar-list__button {
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: inherit;
+}
+
+.observability-bar-list__label {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.observability-bar-list__label span {
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--app-charcoal);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-bar-list__label strong {
+  color: var(--app-charcoal);
+  font-size: 0.78rem;
+  font-weight: 740;
+  white-space: nowrap;
+}
+
+.observability-bar-list__track {
+  overflow: hidden;
+  block-size: 0.5rem;
+  border-radius: var(--sigvelo-border-radius-pill);
+  background: color-mix(in srgb, var(--app-border-soft) 55%, transparent);
+}
+
+.observability-bar-list__track span {
+  display: block;
+  block-size: 100%;
+  min-inline-size: 0.15rem;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--app-control-dark) 74%, var(--app-accent));
+}
+
+.observability-github-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.observability-github-person {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.observability-github-avatar {
+  inline-size: 3rem;
+  block-size: 3rem;
+}
+
+.observability-github-person div,
+.observability-github-actions {
+  min-inline-size: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.observability-github-actions {
+  display: flex;
+  justify-content: end;
+  flex-wrap: wrap;
+}
+
+.observability-github-person strong {
+  overflow: hidden;
+  color: var(--app-charcoal);
+  font-size: 1rem;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-github-person small,
+.observability-github-person a {
+  color: var(--app-text-muted);
+  font-size: 0.8125rem;
+}
+
+.observability-github-person a,
+.observability-table-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--app-control-dark);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.observability-impact-board {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.observability-impact-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.observability-impact-metric {
+  min-inline-size: 0;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--app-border-soft) 78%, transparent);
+  border-radius: var(--sigvelo-border-radius-md);
+  background: color-mix(in srgb, var(--app-bg) 68%, var(--sigvelo-paper-color));
+}
+
+.observability-impact-metric > span {
+  inline-size: 2rem;
+  block-size: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: var(--sigvelo-border-radius-md);
+  background: color-mix(in srgb, var(--app-control-dark) 8%, var(--app-bg));
+  color: var(--app-control-dark);
+}
+
+.observability-impact-metric strong {
+  color: var(--app-charcoal);
+  font-size: 1.55rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.observability-event-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.observability-events {
+  min-block-size: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.observability-events .observability-event {
+  min-inline-size: 0;
+  min-block-size: 7.75rem;
+  display: grid;
+  align-content: start;
+  justify-content: stretch;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--app-border-soft) 78%, transparent);
+  border-radius: var(--sigvelo-border-radius-sm);
+  background: color-mix(in srgb, var(--app-bg) 64%, var(--sigvelo-paper-color));
+  color: inherit;
+  text-align: start;
+  white-space: normal;
+}
+
+.observability-events .observability-event[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--app-control-dark) 44%, var(--app-border-soft));
+  background: var(--app-control-soft);
+}
+
+.observability-events .observability-event span,
+.observability-events .observability-event small {
+  color: var(--app-text-muted);
+  font-size: 0.75rem;
+}
+
+.observability-events .observability-event strong {
+  overflow: hidden;
+  color: var(--app-charcoal);
+  font-size: 0.9rem;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-tables {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.observability-table-panel {
+  min-width: 0;
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+  padding: 1rem;
+}
+
+.observability-table-panel:first-child {
+  grid-column: 1 / -1;
+}
+
+.observability-table-wrap {
+  overflow: auto;
+}
+
+.observability-table-panel table {
+  inline-size: 100%;
+  min-inline-size: 34rem;
+  border-collapse: collapse;
+}
+
+.observability-table-panel th,
+.observability-table-panel td {
+  padding: 0.72rem 0.55rem;
+  border-block-start: 1px solid color-mix(in srgb, var(--app-border-soft) 72%, transparent);
+  font-size: 0.8125rem;
+  text-align: start;
+  vertical-align: top;
+}
+
+.observability-table-panel td strong,
+.observability-table-panel td span {
+  display: block;
+  max-inline-size: 15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-table-panel td strong {
+  color: var(--app-charcoal);
+  font-weight: 700;
+}
+
+.observability-table-panel td span {
+  color: var(--app-text-muted);
+  font-size: 0.75rem;
+}
+
+.observability-table-panel td .badge {
+  display: inline-flex;
+  max-inline-size: 100%;
+}
+
+.observability-detail {
+  position: fixed;
+  inset: auto 1rem 1rem auto;
+  z-index: 10;
+  inline-size: min(42rem, calc(100vw - 2rem));
+  max-block-size: min(70vh, 42rem);
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  box-shadow: 0 1rem 3rem color-mix(in srgb, var(--app-charcoal) 16%, transparent);
+}
+
+.observability-detail .button {
+  justify-self: end;
+}
+
+.observability-detail pre {
+  min-block-size: 0;
+  margin: 0;
+  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.observability-empty-row {
+  display: grid;
+  min-block-size: 2.75rem;
+  place-items: center;
+  border: 1px dashed var(--app-border-soft);
+  border-radius: var(--sigvelo-border-radius-sm);
+  color: var(--app-text-muted);
+  font-size: 0.8125rem;
+}
+
+.observability-empty-row--chart {
+  min-block-size: 12rem;
+}
+
+.observability-footer {
+  justify-content: flex-start;
+}
+
+@media (max-width: 84rem) {
+  .observability-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .observability-github-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .observability-github-actions {
+    grid-column: 1 / -1;
+    justify-content: start;
+  }
+
+  .observability-breakdown-grid,
+  .observability-events,
+  .observability-impact-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 78rem) {
+  .observability-filters {
+    grid-template-columns: repeat(3, minmax(9rem, 1fr));
+  }
+
+  .observability-filter-actions {
+    justify-content: start;
+  }
+
+  .observability-focus-grid,
+  .observability-tables {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .observability-table-panel:first-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 48rem) {
+  .observability-shell {
+    padding: 0.8rem;
+  }
+
+  .observability-header,
+  .observability-header__meta,
+  .observability-filter-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .observability-header h1 {
+    font-size: 1.45rem;
+  }
+
+  .observability-filters,
+  .observability-github-panel,
+  .observability-summary__metrics,
+  .observability-chart-stats,
+  .observability-breakdown-grid,
+  .observability-events,
+  .observability-impact-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .observability-tabs {
+    overflow-x: visible;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .observability-tab {
+    flex: 1 1 calc(33.333% - 0.35rem);
+  }
+
+  .observability-github-actions {
+    grid-column: auto;
+    justify-content: stretch;
+  }
+
+  .observability-summary__primary {
+    min-block-size: 8.5rem;
+  }
+
+  .observability-summary__primary strong {
+    font-size: 2.1rem;
+  }
+}

@@ -17,6 +17,7 @@ import {
 import { LOG_EVENTS } from "#/backend/logging.ts";
 import { LOGGING } from "#/backend/logging.ts";
 import { OTEL_ATTRS } from "#/backend/logging.ts";
+import { createDbClient } from "#/backend/db/index.ts";
 import { callable } from "agents";
 import { hasToolCall, tool, type LanguageModel, type ToolSet, type UIMessage } from "ai";
 import { z } from "zod";
@@ -46,6 +47,13 @@ import type {
   NaniteTriggerEvent,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getDispatchIntents, runGeneratedTrigger } from "#/backend/nanites/triggers.ts";
+import { getGitHubWebhookRepositoryFullName, getGitHubWebhookRepositoryId } from "#/github.ts";
+import {
+  buildNaniteAiGatewayMetadata,
+  naniteTriggerActor,
+  recordAiUsageFact,
+  resolveNaniteBillingAttribution,
+} from "#/backend/observability/recorders.ts";
 import type {
   ChatResponseResult,
   StepContext,
@@ -66,6 +74,19 @@ export type NaniteAgentState = {
   summary: string | null;
   outputUrl: string | null;
   updatedAt: string | null;
+};
+
+type AiGatewayLogDetail = {
+  id?: string;
+  provider?: string;
+  model?: string;
+  tokens_in?: number;
+  tokens_out?: number;
+  cost?: number;
+  cached?: boolean;
+  duration?: number;
+  success?: boolean;
+  status_code?: number;
 };
 
 export type NaniteLifecycleWatchdog = {
@@ -270,6 +291,62 @@ function getUsageNumber(
 ): number | null {
   const value = usage[field];
   return typeof value === "number" ? value : null;
+}
+
+function readGatewayNumber(
+  log: AiGatewayLogDetail | null,
+  field: "tokens_in" | "tokens_out" | "cost",
+): number | undefined {
+  const value = log?.[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function gatewayCostUsdMicros(log: AiGatewayLogDetail | null): number | undefined {
+  const costUsd = readGatewayNumber(log, "cost");
+  return costUsd === undefined ? undefined : Math.round(costUsd * 1_000_000);
+}
+
+function usageWithGatewayTokens(
+  usage: StepContext["usage"],
+  log: AiGatewayLogDetail | null,
+): StepContext["usage"] {
+  const inputTokens = readGatewayNumber(log, "tokens_in") ?? usage.inputTokens;
+  const outputTokens = readGatewayNumber(log, "tokens_out") ?? usage.outputTokens;
+  const totalTokens =
+    typeof inputTokens === "number" && typeof outputTokens === "number"
+      ? inputTokens + outputTokens
+      : usage.totalTokens;
+
+  return { ...usage, inputTokens, outputTokens, totalTokens };
+}
+
+function isMetadataRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function providerMetadataWithGatewayLog(
+  providerMetadata: unknown,
+  log: AiGatewayLogDetail | null,
+): unknown {
+  if (!log) {
+    return providerMetadata;
+  }
+
+  const metadata = isMetadataRecord(providerMetadata) ? providerMetadata : {};
+  const gatewayMetadata = isMetadataRecord(metadata.gateway) ? metadata.gateway : {};
+
+  return {
+    ...metadata,
+    gateway: {
+      ...gatewayMetadata,
+      logId: log.id,
+      cached: log.cached,
+      durationMs: log.duration,
+      success: log.success,
+      statusCode: log.status_code,
+      costUsd: log.cost,
+    },
+  };
 }
 
 function createRunLogContext(agent: SigveloNaniteAgent, runId = agent.state.activeRunId) {
@@ -643,6 +720,23 @@ function parseManagerInstallationId(managerName: string) {
   return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
 }
 
+function getRunRepository(input: NaniteRunRecord): {
+  githubRepositoryId: number | null;
+  repository: string | null;
+} {
+  if (input.trigger.type !== "github") {
+    return {
+      githubRepositoryId: null,
+      repository: null,
+    };
+  }
+
+  return {
+    githubRepositoryId: getGitHubWebhookRepositoryId(input.trigger.event),
+    repository: getGitHubWebhookRepositoryFullName(input.trigger.event),
+  };
+}
+
 function isLifecycleTerminalStatus(status: NaniteRunRecord["status"]): boolean {
   return (
     status === "complete" || status === "no_change" || status === "fail" || status === "canceled"
@@ -661,9 +755,132 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       getParentManagerName(this),
     ) as unknown as ParentManagerCalls;
   }
+
+  private async readActiveRun(runId: string | null): Promise<NaniteRunRecord | null> {
+    if (!runId) {
+      return null;
+    }
+
+    return (await this.parentManager().getSnapshot()).runs[runId] ?? null;
+  }
+
+  private async buildTurnGatewayMetadata(
+    runId: string | null,
+  ): Promise<Record<string, string> | undefined> {
+    try {
+      const managerName = this.state.managerName ?? getParentManagerName(this);
+      const githubInstallationId = parseManagerInstallationId(managerName);
+      const naniteId = this.state.naniteId;
+      const run = await this.readActiveRun(runId);
+
+      if (!githubInstallationId || !naniteId || !run) {
+        return undefined;
+      }
+
+      const db = createDbClient(this.env.DB);
+      const billing = await resolveNaniteBillingAttribution(db, {
+        githubInstallationId,
+        naniteId,
+        actor: naniteTriggerActor(run.trigger),
+      });
+      const repository = getRunRepository(run).repository;
+
+      return buildNaniteAiGatewayMetadata({
+        githubInstallationId,
+        naniteId,
+        runKey: run.runId,
+        billingGithubUserId: billing.githubUserId,
+        repository,
+      });
+    } catch (error) {
+      naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+        ...createRunLogContext(this),
+        operation: "ai_gateway.metadata",
+        error: describeError(error),
+      });
+      return undefined;
+    }
+  }
+
+  private async getTurnModel(runId: string | null): Promise<LanguageModel> {
+    return createSigveloAgentLanguageModel({
+      env: this.env,
+      sessionAffinity: runId ?? this.name,
+      gatewayMetadata: await this.buildTurnGatewayMetadata(runId),
+    });
+  }
+
+  private async readAiGatewayLogDetail(
+    logId: string | undefined,
+  ): Promise<AiGatewayLogDetail | null> {
+    const gatewayId = this.env.NANITES_AI_GATEWAY_ID;
+    if (!gatewayId || !logId) {
+      return null;
+    }
+
+    try {
+      return (await this.env.AI.gateway(gatewayId).getLog(logId)) as AiGatewayLogDetail;
+    } catch (error) {
+      naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+        ...createRunLogContext(this),
+        operation: "ai_gateway.get_log",
+        aiGatewayLogId: logId,
+        error: describeError(error),
+      });
+      return null;
+    }
+  }
+
+  private async recordStepUsage(ctx: StepContext): Promise<void> {
+    const runId = this.state.activeRunId;
+    const managerName = this.state.managerName ?? getParentManagerName(this);
+    const githubInstallationId = parseManagerInstallationId(managerName);
+    const run = await this.readActiveRun(runId);
+
+    if (!githubInstallationId || !run) {
+      return;
+    }
+
+    const repository = getRunRepository(run);
+    const requestId = `${run.runId}:step:${ctx.stepNumber}:${ctx.response.id}`;
+    const aiGatewayLogId = this.env.AI.aiGatewayLogId || undefined;
+    const aiGatewayLog = await this.readAiGatewayLogDetail(aiGatewayLogId);
+    const actor = naniteTriggerActor(run.trigger);
+    const db = createDbClient(this.env.DB);
+    const billing = await resolveNaniteBillingAttribution(db, {
+      githubInstallationId,
+      naniteId: run.naniteId,
+      actor,
+    });
+
+    await recordAiUsageFact(db, {
+      githubInstallationId,
+      githubRepositoryId: repository.githubRepositoryId,
+      naniteId: run.naniteId,
+      runKey: run.runId,
+      requestId,
+      provider: aiGatewayLog?.provider ?? ctx.model.provider,
+      model: aiGatewayLog?.model ?? ctx.model.modelId,
+      sessionAffinity: run.runId,
+      isContinuation: this.currentTurnContinuation,
+      stepCount: ctx.stepNumber + 1,
+      finishReason: ctx.finishReason,
+      usage: usageWithGatewayTokens(ctx.usage, aiGatewayLog),
+      providerMetadata: providerMetadataWithGatewayLog(ctx.providerMetadata, aiGatewayLog),
+      providerBilledTotalCostUsdMicros: gatewayCostUsdMicros(aiGatewayLog),
+      aiGatewayLogId: aiGatewayLog?.id ?? aiGatewayLogId,
+      aiGatewayEventId: requestId,
+      actor,
+      billing,
+      startedAt: ctx.response.timestamp,
+      completedAt: new Date(),
+    });
+  }
+
   override classifyChatError = defaultContextOverflowClassifier;
   override contextOverflow = { reactive: true, maxRetries: 2 };
   private lastStepDiagnostic: LastStepDiagnostic | null = null;
+  private currentTurnContinuation = false;
   private completedResponsesWithoutLifecycle = new Set<string>();
 
   override workspace = new Workspace({
@@ -859,6 +1076,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   override async beforeTurn(ctx: TurnContext): Promise<TurnConfig> {
+    this.currentTurnContinuation = ctx.continuation;
     await this.refreshManifestFromManager();
     const runId = getRunIdFromTurn(ctx);
     if (runId && runId !== this.state.activeRunId) {
@@ -883,7 +1101,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return {
       maxSteps: this.maxSteps,
-      model: this.getModel(),
+      model: await this.getTurnModel(runId ?? this.state.activeRunId),
       sendReasoning: true,
       tools: this.wrapTurnToolsForOutputBudget(ctx.tools),
       stopWhen: naniteLifecycleTools.map((toolName) => hasToolCall(toolName)),
@@ -954,6 +1172,15 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       totalTokens: diagnostic.totalTokens ?? undefined,
       maxSteps: this.maxSteps,
     });
+    this.ctx.waitUntil(
+      this.recordStepUsage(ctx).catch((error: unknown) => {
+        naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+          ...createRunLogContext(this),
+          operation: "ai_usage.step",
+          error: describeError(error),
+        });
+      }),
+    );
   }
 
   override async onChatResponse(result: ChatResponseResult): Promise<void> {

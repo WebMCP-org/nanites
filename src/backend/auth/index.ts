@@ -19,7 +19,7 @@ import {
   appendExpiredAuthCookies,
   requireSession,
 } from "#/backend/auth/session.ts";
-import { recordAuthFunnelFact } from "#/backend/db/facts.ts";
+import { recordAuthFunnelFact, recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import {
   exchangeGitHubOAuthCode,
   fetchGitHubViewer,
@@ -168,6 +168,7 @@ export async function completeGitHubOAuthCallback({
   const visibleInstallations = await listVisibleInstallations(githubUserToken.accessToken);
   const sessionInstallationSnapshots = readSessionInstallationSnapshots(visibleInstallations);
   const db = createDbClient(env.DB);
+  await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
   const session = nanitesSessionSchema.parse({
     githubViewer: actor,
     activeGithubInstallationId: sessionInstallationSnapshots[0]?.id ?? null,

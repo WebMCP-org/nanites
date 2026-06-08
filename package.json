@@ -74,6 +74,7 @@
     "octokit": "^5.0.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "recharts": "^3.8.1",
     "shiki": "^4.2.0",
     "streamdown": "^2.5.0",
     "workers-ai-provider": "^3.1.14",

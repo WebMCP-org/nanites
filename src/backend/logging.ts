@@ -52,6 +52,7 @@ export const LOG_EVENTS = {
   MCP_SERVER_ADD_FAILED: "mcp.server.add.failed",
   MCP_SERVER_REMOVE_FAILED: "mcp.server.remove.failed",
   OAUTH_ERROR_RESPONSE: "oauth.error_response",
+  OBSERVABILITY_FACT_RECORD_FAILED: "observability.fact.record_failed",
   NANITE_AGENT_RUN_ACCEPTED: "nanite.agent.run.accepted",
   NANITE_AGENT_RUN_SUBMITTED: "nanite.agent.run.submitted",
   NANITE_CHAT_ERROR: "nanite.chat.error",

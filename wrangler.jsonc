@@ -38,6 +38,7 @@
     "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
     "NANITES_LLM_BASE_URL": "",
     "NANITES_LLM_FIXTURE": "",
+    "NANITES_AI_GATEWAY_ID": "",
   },
   "d1_databases": [
     {
@@ -250,6 +251,7 @@
         "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
         "NANITES_LLM_BASE_URL": "",
         "NANITES_LLM_FIXTURE": "",
+        "NANITES_AI_GATEWAY_ID": "",
       },
       "browser": {
         "binding": "BROWSER",
@@ -349,6 +351,7 @@
         "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
         "NANITES_LLM_BASE_URL": "",
         "NANITES_LLM_FIXTURE": "",
+        "NANITES_AI_GATEWAY_ID": "",
       },
       "browser": {
         "binding": "BROWSER",
@@ -447,6 +450,7 @@
         "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
         "NANITES_LLM_BASE_URL": "",
         "NANITES_LLM_FIXTURE": "",
+        "NANITES_AI_GATEWAY_ID": "",
       },
       "browser": {
         "binding": "BROWSER",

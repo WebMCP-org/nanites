@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
+import { createDbClient } from "#/backend/db/index.ts";
+import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import { AppError } from "#/backend/errors.ts";
 import {
   completeGitHubOAuthCallback,
@@ -178,6 +180,7 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
     const installations = readSessionInstallationSnapshots(
       await listVisibleInstallations(context.get("githubUserToken").accessToken),
     );
+    await recordVisibleInstallationSnapshots(createDbClient(context.env.DB), installations);
     await clearRevokedSessionSelectionIfNeeded({
       req: context.req.raw,
       env: context.env,
@@ -193,6 +196,7 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
     const installations = readSessionInstallationSnapshots(
       await listVisibleInstallations(context.get("githubUserToken").accessToken),
     );
+    await recordVisibleInstallationSnapshots(createDbClient(context.env.DB), installations);
     const activeInstallation =
       installations.find((installation) => installation.id === githubInstallationId) ?? null;
 

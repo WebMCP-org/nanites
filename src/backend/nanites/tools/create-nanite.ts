@@ -102,10 +102,12 @@ export const createNaniteTool = defineSigveloMcpTool({
     idempotentHint: false,
     openWorldHint: true,
   },
-  async execute(input, { manager }) {
+  async execute(input, { context, manager }) {
     return manager.registerNanite({
       manifest: input.manifest,
       enabled: input.enabled,
+      actor: context.actor,
+      requestId: context.requestId,
     });
   },
 } satisfies SigveloMcpToolDefinition<typeof createNaniteToolInputSchema, ManagedNanite>);
