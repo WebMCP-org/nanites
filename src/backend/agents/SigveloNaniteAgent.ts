@@ -101,6 +101,7 @@ export type NaniteWorkspaceInfo = {
   directoryCount: number;
   totalBytes: number;
   r2FileCount: number;
+  repositoryRoot: string | null;
 };
 
 export type StartNaniteAgentInput = {
@@ -455,6 +456,20 @@ export function inspectTranscript(
 function workspaceRootPath(path: string | undefined): string {
   return path?.trim() || "/";
 }
+
+const NANITE_NON_REPOSITORY_DIRECTORIES = new Set([
+  "bin",
+  "dev",
+  "etc",
+  "lib",
+  "proc",
+  "root",
+  "sbin",
+  "sys",
+  "tmp",
+  "usr",
+  "var",
+]);
 
 function createInitialNaniteAgentState(): NaniteAgentState {
   return {
@@ -1414,7 +1429,25 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
   @callable()
   async getWorkspaceInfo(): Promise<NaniteWorkspaceInfo> {
-    return this.workspace.getWorkspaceInfo();
+    const info = await this.workspace.getWorkspaceInfo();
+    return {
+      ...info,
+      repositoryRoot: await this.findRepositoryRoot(),
+    };
+  }
+
+  private async findRepositoryRoot(): Promise<string | null> {
+    const topLevel = await this.workspace.readDir("/", { limit: 1_000 });
+    for (const entry of topLevel) {
+      if (entry.type !== "directory" || NANITE_NON_REPOSITORY_DIRECTORIES.has(entry.name)) {
+        continue;
+      }
+      const children = await this.workspace.readDir(entry.path, { limit: 1_000 });
+      if (children.some((child) => child.name === ".git")) {
+        return entry.path;
+      }
+    }
+    return null;
   }
 
   @callable()

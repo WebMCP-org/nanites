@@ -27,6 +27,7 @@
     "ready": "vp check && vp test && vp build",
     "dev": "vp dev",
     "build": "vp build",
+    "db:migrate": "vp exec wrangler d1 migrations apply DB --local --config wrangler.jsonc",
     "deploy": "vp build && vp exec wrangler deploy dist/nanites_app/index.js --assets dist/client --config wrangler.jsonc",
     "deploy:preview": "vp build && vp exec wrangler versions upload dist/nanites_app/index.js --assets dist/client --config wrangler.jsonc",
     "deploy:staging": "CLOUDFLARE_ENV=staging VITE_SENTRY_ENVIRONMENT=staging VITE_SENTRY_TRACES_SAMPLE_RATE=0.2 vp build && vp exec wrangler deploy dist/nanites_app/index.js --assets dist/client --config wrangler.jsonc --env staging",
