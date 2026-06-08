@@ -6,7 +6,9 @@ import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
 import { callable, getAgentByName } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
+import type { TurnConfig, TurnContext } from "@cloudflare/think";
 import { AppError } from "#/backend/errors.ts";
+import { createDbClient } from "#/backend/db/index.ts";
 import {
   issueScopedGitHubInstallationToken,
   type GitHubInstallationRepository,
@@ -16,6 +18,7 @@ import type { SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts"
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
 import { sigveloMcpAuthPropsSchema, type SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
+import { readInstallationModelSettings } from "#/backend/nanites/model-settings.ts";
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
 import {
   getGitHubManagerChatThreadType,
@@ -134,6 +137,29 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       env: this.env,
       sessionAffinity: this.sessionAffinity,
     });
+  }
+
+  private async getTurnModel(): Promise<LanguageModel> {
+    const modelSettings =
+      this.state.status === "connected"
+        ? await readInstallationModelSettings(
+            createDbClient(this.env.DB),
+            this.state.githubInstallationId,
+          )
+        : undefined;
+
+    return createSigveloAgentLanguageModel({
+      env: this.env,
+      sessionAffinity: this.sessionAffinity,
+      modelSettings,
+    });
+  }
+
+  override async beforeTurn(_ctx: TurnContext): Promise<TurnConfig> {
+    return {
+      maxSteps: this.maxSteps,
+      model: await this.getTurnModel(),
+    };
   }
 
   override configureSession(session: Session): Session {

@@ -73,6 +73,7 @@ export const OBSERVABILITY_ACTOR_SOURCES = [
   "maintenance",
 ] as const;
 export const AUDIT_EVENT_OUTCOMES = ["success", "failure", "denied", "noop"] as const;
+export const MODEL_TEST_STATUSES = ["success", "failure"] as const;
 export const AUDIT_TARGET_TYPES = [
   "nanite",
   "run",
@@ -341,6 +342,29 @@ export const aiUsageFacts = sqliteTable(
   },
   (table) => [uniqueIndex("ai_usage_facts_request_id_unique").on(table.requestId)],
 );
+
+export const installationModelSettings = sqliteTable("installation_model_settings", {
+  githubInstallationId: integer("github_installation_id").primaryKey(),
+  accountId: text("account_id").references(() => accounts.id, { onDelete: "set null" }),
+  provider: text("provider").notNull(),
+  providerLabel: text("provider_label").notNull(),
+  modelId: text("model_id").notNull(),
+  modelName: text("model_name").notNull(),
+  gatewayId: text("gateway_id").notNull(),
+  byokAlias: text("byok_alias"),
+  updatedByGithubUserId: integer("updated_by_github_user_id"),
+  updatedByGithubLogin: text("updated_by_github_login"),
+  lastTestedAt: integer("last_tested_at", { mode: "timestamp" }),
+  lastTestStatus: text("last_test_status", { enum: MODEL_TEST_STATUSES }),
+  lastTestMessage: text("last_test_message"),
+  lastTestLatencyMs: integer("last_test_latency_ms"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
 
 export const naniteCatalog = sqliteTable(
   "nanite_catalog",

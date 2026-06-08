@@ -1,6 +1,10 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
+import {
+  DEFAULT_NANITES_MODEL_SETTINGS,
+  type InstallationModelSettings,
+} from "#/backend/nanites/model-settings.ts";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 
@@ -10,6 +14,7 @@ interface PromptCachedWorkersAIModelInput {
   sessionAffinity: string;
   gatewayId?: string;
   gatewayMetadata?: Record<string, string>;
+  byokAlias?: string | null;
 }
 
 function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput) {
@@ -21,7 +26,15 @@ function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput
       ? {
           gateway: {
             id: input.gatewayId,
+            skipCache: true,
             metadata: input.gatewayMetadata,
+          },
+        }
+      : {}),
+    ...(input.byokAlias
+      ? {
+          extraHeaders: {
+            "cf-aig-byok-alias": input.byokAlias,
           },
         }
       : {}),
@@ -32,6 +45,7 @@ interface SigveloAgentLanguageModelInput {
   env: Env;
   sessionAffinity: string;
   gatewayMetadata?: Record<string, string>;
+  modelSettings?: InstallationModelSettings;
 }
 
 export function createSigveloAgentLanguageModel(
@@ -62,12 +76,19 @@ export function createSigveloAgentLanguageModel(
     }).chat("gpt-4o-mini");
   }
 
+  const modelSettings = input.modelSettings ?? DEFAULT_NANITES_MODEL_SETTINGS;
+  const gatewayId =
+    input.modelSettings?.source === "saved"
+      ? modelSettings.gatewayId
+      : input.env.NANITES_AI_GATEWAY_ID || modelSettings.gatewayId;
+
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,
-    model: "@cf/moonshotai/kimi-k2.6",
+    model: modelSettings.modelId,
     sessionAffinity: input.sessionAffinity,
-    gatewayId: input.env.NANITES_AI_GATEWAY_ID || undefined,
+    gatewayId: gatewayId || undefined,
     gatewayMetadata: input.gatewayMetadata,
+    byokAlias: modelSettings.byokAlias,
   });
 }
 

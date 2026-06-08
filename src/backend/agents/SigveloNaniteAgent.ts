@@ -28,6 +28,7 @@ import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabi
 import { NaniteToolOutputArtifactStore } from "#/backend/nanites/tool-output.ts";
 import { wrapToolSetForNaniteOutputBudget } from "#/backend/nanites/tool-output.ts";
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
+import { readInstallationModelSettings } from "#/backend/nanites/model-settings.ts";
 import type {
   AskHumanInput,
   CompleteNaniteRunInput,
@@ -818,10 +819,17 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private async getTurnModel(runId: string | null): Promise<LanguageModel> {
+    const managerName = this.state.managerName ?? getParentManagerName(this);
+    const githubInstallationId = parseManagerInstallationId(managerName);
+    const modelSettings = githubInstallationId
+      ? await readInstallationModelSettings(createDbClient(this.env.DB), githubInstallationId)
+      : undefined;
+
     return createSigveloAgentLanguageModel({
       env: this.env,
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(runId),
+      modelSettings,
     });
   }
 

@@ -203,6 +203,12 @@ export const APP_ERRORS = {
     status: 500,
     message: "SigveloNaniteAgent has no active run.",
   },
+  nanitesModelSelectionInvalid: {
+    code: "nanites_model_selection_invalid",
+    status: 400,
+    message: "Nanites model selection is invalid.",
+    publicDetailKeys: ["reason", "modelId"],
+  },
   generatedTriggerBundleFailed: {
     code: "generated_trigger_bundle_failed",
     status: 500,

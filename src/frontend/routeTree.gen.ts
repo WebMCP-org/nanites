@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from "./routes/__root";
 import { Route as McpAuthorizeRouteImport } from "./routes/mcp-authorize";
 import { Route as AuthenticatedRouteRouteImport } from "./routes/_authenticated/route";
 import { Route as IndexRouteImport } from "./routes/index";
+import { Route as AuthenticatedSettingsRouteRouteImport } from "./routes/_authenticated/settings/route";
 import { Route as AuthenticatedObservabilityRouteRouteImport } from "./routes/_authenticated/observability/route";
 import { Route as AuthenticatedNanitesRouteRouteImport } from "./routes/_authenticated/nanites/route";
 
@@ -29,6 +30,12 @@ const IndexRoute = IndexRouteImport.update({
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any);
+const AuthenticatedSettingsRouteRoute =
+  AuthenticatedSettingsRouteRouteImport.update({
+    id: "/settings",
+    path: "/settings",
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any);
 const AuthenticatedObservabilityRouteRoute =
   AuthenticatedObservabilityRouteRouteImport.update({
     id: "/observability",
@@ -47,12 +54,14 @@ export interface FileRoutesByFullPath {
   "/mcp-authorize": typeof McpAuthorizeRoute;
   "/nanites": typeof AuthenticatedNanitesRouteRoute;
   "/observability": typeof AuthenticatedObservabilityRouteRoute;
+  "/settings": typeof AuthenticatedSettingsRouteRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/mcp-authorize": typeof McpAuthorizeRoute;
   "/nanites": typeof AuthenticatedNanitesRouteRoute;
   "/observability": typeof AuthenticatedObservabilityRouteRoute;
+  "/settings": typeof AuthenticatedSettingsRouteRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
@@ -61,19 +70,26 @@ export interface FileRoutesById {
   "/mcp-authorize": typeof McpAuthorizeRoute;
   "/_authenticated/nanites": typeof AuthenticatedNanitesRouteRoute;
   "/_authenticated/observability": typeof AuthenticatedObservabilityRouteRoute;
+  "/_authenticated/settings": typeof AuthenticatedSettingsRouteRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/mcp-authorize" | "/nanites" | "/observability";
+  fullPaths:
+    | "/"
+    | "/mcp-authorize"
+    | "/nanites"
+    | "/observability"
+    | "/settings";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/mcp-authorize" | "/nanites" | "/observability";
+  to: "/" | "/mcp-authorize" | "/nanites" | "/observability" | "/settings";
   id:
     | "__root__"
     | "/"
     | "/_authenticated"
     | "/mcp-authorize"
     | "/_authenticated/nanites"
-    | "/_authenticated/observability";
+    | "/_authenticated/observability"
+    | "/_authenticated/settings";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
@@ -105,6 +121,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/_authenticated/settings": {
+      id: "/_authenticated/settings";
+      path: "/settings";
+      fullPath: "/settings";
+      preLoaderRoute: typeof AuthenticatedSettingsRouteRouteImport;
+      parentRoute: typeof AuthenticatedRouteRoute;
+    };
     "/_authenticated/observability": {
       id: "/_authenticated/observability";
       path: "/observability";
@@ -125,11 +148,13 @@ declare module "@tanstack/react-router" {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedNanitesRouteRoute: typeof AuthenticatedNanitesRouteRoute;
   AuthenticatedObservabilityRouteRoute: typeof AuthenticatedObservabilityRouteRoute;
+  AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRoute;
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedNanitesRouteRoute: AuthenticatedNanitesRouteRoute,
   AuthenticatedObservabilityRouteRoute: AuthenticatedObservabilityRouteRoute,
+  AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRoute,
 };
 
 const AuthenticatedRouteRouteWithChildren =

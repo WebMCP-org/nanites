@@ -36,6 +36,19 @@ export const ChevronRightIcon = (props: IconProps) => (
   </Icon>
 );
 
+export const ChevronDownIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3.5 6L8 10.5L12.5 6" />
+  </Icon>
+);
+
+export const SearchIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="7" cy="7" r="4.5" />
+    <path d="M10.5 10.5L14 14" />
+  </Icon>
+);
+
 export const CheckIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M3 8.5L6.5 12L13 4.5" />
