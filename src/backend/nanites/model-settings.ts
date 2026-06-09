@@ -4,7 +4,7 @@ import { isKeyedAiProvider, type KeyedAiProvider } from "#/backend/nanites/provi
 
 const defaultCatalogPageSize = 200;
 
-const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/moonshotai/kimi-k2.6";
+const DEFAULT_SIGVELO_AGENT_MODEL_ID = "deepseek/deepseek-v4-pro";
 const DEFAULT_NANITES_MODEL_GATEWAY_ID = "default";
 
 export type NanitesModelSource = "cloudflare-hosted" | "third-party";
@@ -67,14 +67,19 @@ const cloudflareModelSearchResultSchema = z
 
 const cloudflareModelSearchResponseSchema = z.array(z.unknown());
 
+const providerNativeModelIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/i);
+
 type CloudflareModelSearchResult = z.output<typeof cloudflareModelSearchResultSchema>;
 type CloudflareModelSearchProperty = z.output<typeof cloudflareModelSearchPropertySchema>;
 
 export const DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS = {
-  provider: "kimi",
-  providerLabel: "Moonshot AI",
+  provider: "deepseek",
+  providerLabel: "DeepSeek",
   modelId: DEFAULT_SIGVELO_AGENT_MODEL_ID,
-  modelName: "Kimi K2.6",
+  modelName: "DeepSeek V4 Pro",
   gatewayId: DEFAULT_NANITES_MODEL_GATEWAY_ID,
 } as const;
 
@@ -118,20 +123,14 @@ function providerLabel(provider: string): string {
   );
 }
 
-function catalogModelName(id: string, name: string | null): string {
-  if (name) {
-    return name;
-  }
-
-  return modelNameFromId(id);
-}
-
 function modelNameFromId(modelId: string): string {
-  return modelId
+  const name = modelId
     .split("/")
     .at(-1)!
     .replaceAll("-", " ")
     .replace(/\b\w/g, (match) => match.toUpperCase());
+
+  return name.replace(/\bDeepseek\b/g, "DeepSeek");
 }
 
 function looksLikeModelId(value: string): boolean {
@@ -140,19 +139,6 @@ function looksLikeModelId(value: string): boolean {
     value.startsWith("@hf/") ||
     /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*/i.test(value)
   );
-}
-
-function readModelId(input: CloudflareModelSearchResult): string | null {
-  const candidates = [input.name, input.id].map((value) => value.trim());
-  return candidates.find((candidate) => looksLikeModelId(candidate)) ?? null;
-}
-
-function readDisplayName(input: CloudflareModelSearchResult, modelId: string): string | null {
-  const name = input.name.trim();
-  if (!name || name === modelId || looksLikeModelId(name)) {
-    return null;
-  }
-  return name;
 }
 
 function inferProvider(modelId: string): string {
@@ -219,19 +205,26 @@ function toCatalogItem(model: CloudflareModelSearchResult): NanitesModelCatalogI
     return null;
   }
 
-  const id = readModelId(model);
+  const id = [model.name, model.id]
+    .map((value) => value.trim())
+    .find((candidate) => looksLikeModelId(candidate));
   if (!id) {
     return null;
   }
   const provider = inferProvider(id);
   const tags = [...new Set(model.tags)];
+  const displayName = model.name.trim();
+  const name =
+    displayName && displayName !== id && !looksLikeModelId(displayName)
+      ? displayName
+      : modelNameFromId(id);
   const capabilities = tags.filter(
     (tag) => tag !== "Cloudflare-hosted" && tag !== "Third-party" && tag !== "Beta",
   );
 
   return {
     id,
-    name: catalogModelName(id, readDisplayName(model, id)),
+    name,
     provider,
     providerLabel: providerLabel(provider),
     source: inferSource(id),
@@ -292,13 +285,18 @@ export async function validateNanitesModelId(env: Env, modelId: string): Promise
 
   const catalog = await fetchNanitesModelCatalog(env);
   const model = catalog.models.find((candidate) => candidate.id === cleanModelId);
-  if (!model) {
-    throw new AppError("nanitesModelSelectionInvalid", {
-      details: { reason: "Model is not available in the Cloudflare catalog.", modelId },
-    });
+  if (model) {
+    return cleanModelId;
   }
 
-  return cleanModelId;
+  const providerNativeModelId = providerNativeModelIdSchema.safeParse(cleanModelId);
+  if (providerNativeModelId.success && keyedAiProviderForNanitesModelId(cleanModelId)) {
+    return cleanModelId;
+  }
+
+  throw new AppError("nanitesModelSelectionInvalid", {
+    details: { reason: "Model is not available in the Cloudflare catalog.", modelId },
+  });
 }
 
 export function resolveDefaultSigveloAgentModelSettings(env: Env): NanitesRuntimeModelSettings {

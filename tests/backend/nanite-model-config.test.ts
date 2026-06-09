@@ -14,6 +14,8 @@ const kimiCatalogModel = {
   properties: [{ property_id: "context-window", value: "262,100" }],
 };
 
+const deepSeekModel = "deepseek/deepseek-v4-pro";
+
 function envWithModelCatalog(models: unknown[], overrides: Record<string, unknown> = {}): Env {
   return {
     ...env,
@@ -57,6 +59,36 @@ test("Nanite model id resolves through the Cloudflare catalog", async () => {
   });
 });
 
+test("Nanite provider-native model id resolves without a Cloudflare catalog row", async () => {
+  const manifest = await normalizeNaniteManifestModelConfig(envWithModelCatalog([]), {
+    id: "selected-deepseek",
+    name: "Selected DeepSeek",
+    description: "Uses a provider-native DeepSeek model.",
+    model: ` ${deepSeekModel} `,
+    eventSource: { type: "manual" },
+    permissions: {},
+  });
+
+  const snapshot = await resolveNaniteRunModelSnapshot({
+    env: envWithModelCatalog([], {
+      NANITES_AI_GATEWAY_ID: "deployment_gateway",
+    }),
+    manifest,
+    manifestVersionId: "manifest-selected",
+    resolvedAt: "2026-06-08T00:00:00.000Z",
+  });
+
+  expect(manifest.model).toBe(deepSeekModel);
+  expect(snapshot).toMatchObject({
+    runtimePath: "ai_gateway_openai_compat",
+    effectiveModelId: deepSeekModel,
+    effectiveProvider: "deepseek",
+    effectiveModelName: "DeepSeek V4 Pro",
+    effectiveGatewayId: "deployment_gateway",
+    manifestVersionId: "manifest-selected",
+  });
+});
+
 test("Nanite manifests missing model id are rejected", async () => {
   const missingModelManifest = {
     id: "missing-model-config",
@@ -77,7 +109,7 @@ test("Nanite model id rejects models missing from the catalog", async () => {
       id: "missing-model",
       name: "Missing model",
       description: "Should fail before registration.",
-      model: "deepseek/not-in-catalog",
+      model: "@cf/example/not-in-catalog",
       eventSource: { type: "manual" },
       permissions: {},
     }),

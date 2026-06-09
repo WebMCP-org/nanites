@@ -34,7 +34,7 @@ Example:
 
 ```json
 {
-  "model": "@cf/moonshotai/kimi-k2.6"
+  "model": "deepseek/deepseek-v4-pro"
 }
 ```
 
@@ -43,8 +43,8 @@ provider key in the manifest. If a model is not valid or runnable, registration 
 fail normally.
 
 The manager authoring prompt should tell agents to inspect the current Cloudflare model catalog and
-pick the cheapest reliable model for the Nanite's job. Prefer DeepSeek only when it is suitable and
-present in the current Cloudflare catalog.
+provider-native AI Gateway surfaces, then pick the cheapest reliable model for the Nanite's job.
+Prefer DeepSeek when it is suitable and available.
 
 ## Validation
 
@@ -52,13 +52,15 @@ At registration:
 
 1. Require `manifest.model`.
 2. Trim the model id.
-3. Verify the model exists in Cloudflare's supported model surface.
+3. Verify the model exists in Cloudflare's supported model surface or is a supported provider-native
+   AI Gateway model id.
 
 Registration also verifies that keyed third-party model providers have an API key for the selected
 GitHub installation. Workers AI models are deployment-owned and do not require installation keys.
 
-Do not keep a local fallback catalog. If Cloudflare catalog validation is unavailable, use a cheap
-gateway smoke test or let the run fail with the provider error.
+Do not keep a local fallback catalog. If Cloudflare catalog validation is unavailable for a
+provider-native id, require the installation provider key and let the gateway/provider response own
+the runtime truth.
 
 ## Hosted BYOK Direction
 
@@ -109,7 +111,8 @@ Cloudflare-hosted Workers AI models on the deployment-owned binding path.
 - `sigvelo_create_nanite` accepts an explicit model id string.
 - `sigvelo_create_nanite` rejects manifests missing `model`.
 - `sigvelo_create_nanite` rejects credential fields in manifests.
-- Registration trims and validates the model id through Cloudflare's model surface.
+- Registration trims and validates the model id through Cloudflare's model surface or supported
+  provider-native id shape.
 - Runtime uses the Nanite manifest model for every run turn.
 - Run records include an immutable resolved model snapshot.
 - AI usage facts include the actual request model and gateway id.

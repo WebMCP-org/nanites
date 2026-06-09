@@ -4,7 +4,7 @@ import { createSigveloNanitesMcpServer, registerSigveloNaniteTools } from "#/bac
 import { createSigveloThinkTools, naniteTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_SCOPES } from "#/mcp.ts";
 
-const naniteModel = "@cf/moonshotai/kimi-k2.6";
+const naniteModel = "deepseek/deepseek-v4-pro";
 
 test("Nanite tool registry declares the canonical manager tools explicitly", () => {
   expect(naniteTools.map((tool) => tool.name)).toEqual([
@@ -216,7 +216,7 @@ test("Nanite create schema accepts model ids but rejects credential fields", () 
       id: "selected-model",
       name: "Selected model",
       description: "Uses a selected model.",
-      model: " @cf/moonshotai/kimi-k2.6 ",
+      model: " deepseek/deepseek-v4-pro ",
       eventSource: { type: "manual" },
       permissions: {},
     },
@@ -226,7 +226,7 @@ test("Nanite create schema accepts model ids but rejects credential fields", () 
   if (selected?.success) {
     expect(selected.data).toMatchObject({
       manifest: {
-        model: "@cf/moonshotai/kimi-k2.6",
+        model: "deepseek/deepseek-v4-pro",
       },
     });
   }
@@ -236,7 +236,7 @@ test("Nanite create schema accepts model ids but rejects credential fields", () 
       id: "selected-model-with-key",
       name: "Selected model with key",
       description: "Should fail because credentials stay out of manifests.",
-      model: "@cf/moonshotai/kimi-k2.6",
+      model: "deepseek/deepseek-v4-pro",
       byokAlias: "prod-key",
       eventSource: { type: "manual" },
       permissions: {},

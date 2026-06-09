@@ -26,9 +26,9 @@ Avoid:
 Use the live MCP schema as the final authority. The create schema is strict: unexpected fields are rejected.
 
 Every manifest includes `model` as an explicit Cloudflare model id string. Pick the cheapest reliable
-model for the Nanite's job from the current Cloudflare model catalog; prefer DeepSeek when it is
-suitable and available. Do not put gateway ids, BYOK aliases, provider API keys, or auth headers in
-the manifest.
+model for the Nanite's job from the current Cloudflare model catalog or provider-native AI Gateway
+surface; prefer DeepSeek when it is suitable and available. Do not put gateway ids, BYOK aliases,
+provider API keys, or auth headers in the manifest.
 
 GitHub machine-source Nanite:
 
@@ -38,7 +38,7 @@ GitHub machine-source Nanite:
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP docs aligned with package changes.",
-    "model": "/moonshotai/kimi-k2.6",
+    "model": "deepseek/deepseek-v4-pro",
     "eventSource": {
       "type": "github",
       "events": ["push"],
@@ -69,7 +69,7 @@ Manual Nanite:
     "id": "repo-health-checker",
     "name": "Repo Health Checker",
     "description": "Answers manual maintenance questions for one repo surface.",
-    "model": "/moonshotai/kimi-k2.6",
+    "model": "deepseek/deepseek-v4-pro",
     "eventSource": {
       "type": "manual"
     },
@@ -96,7 +96,7 @@ Schedule source shape:
     "type": "scheduleEvery",
     "intervalSeconds": 86400
   },
-  "model": "/moonshotai/kimi-k2.6",
+  "model": "deepseek/deepseek-v4-pro",
   "triggerSource": "export default { async handle(event, ctx) { return ctx.dispatchSelf({ reason: 'Daily scheduled check' }); } };"
 }
 ```

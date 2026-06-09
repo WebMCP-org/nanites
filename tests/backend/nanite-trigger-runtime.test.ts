@@ -26,7 +26,7 @@ beforeAll(async () => {
     AI: {
       models: async () => [
         {
-          id: naniteModel,
+          id: "@cf/moonshotai/kimi-k2.6",
           name: "Kimi K2.6",
           task: { name: "Text Generation" },
           tags: ["Cloudflare-hosted"],
@@ -122,7 +122,7 @@ export default {
 
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
-const naniteModel = "@cf/moonshotai/kimi-k2.6";
+const naniteModel = "deepseek/deepseek-v4-pro";
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,

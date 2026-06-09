@@ -112,6 +112,10 @@ test("model validation trims and checks the Cloudflare catalog", async () => {
 
   await expect(
     validateNanitesModelId(envWithModelCatalog([]), "deepseek/not-in-catalog"),
+  ).resolves.toBe("deepseek/not-in-catalog");
+
+  await expect(
+    validateNanitesModelId(envWithModelCatalog([]), "@cf/example/not-in-catalog"),
   ).rejects.toThrow("Nanites model selection is invalid");
 });
 
@@ -121,8 +125,9 @@ test("runtime settings resolve from env and explicit model id", () => {
       envWithModelCatalog([], { NANITES_AI_GATEWAY_ID: "deployment-gateway" }),
     ),
   ).toMatchObject({
-    modelId: "@cf/moonshotai/kimi-k2.6",
-    provider: "kimi",
+    modelId: "deepseek/deepseek-v4-pro",
+    modelName: "DeepSeek V4 Pro",
+    provider: "deepseek",
     gatewayId: "deployment-gateway",
   });
 

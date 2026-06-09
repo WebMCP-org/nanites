@@ -81,18 +81,24 @@ export type NaniteAgentState = {
   updatedAt: string | null;
 };
 
-type AiGatewayLogDetail = {
-  id?: string;
-  provider?: string;
-  model?: string;
-  tokens_in?: number;
-  tokens_out?: number;
-  cost?: number;
-  cached?: boolean;
-  duration?: number;
-  success?: boolean;
-  status_code?: number;
-};
+const aiGatewayLogDetailSchema = z
+  .object({
+    id: z.string().optional(),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    tokens_in: z.number().finite().optional(),
+    tokens_out: z.number().finite().optional(),
+    cost: z.number().finite().optional(),
+    cached: z.boolean().optional(),
+    duration: z.number().finite().optional(),
+    success: z.boolean().optional(),
+    status_code: z.number().int().optional(),
+  })
+  .passthrough();
+
+const metadataRecordSchema = z.record(z.string(), z.unknown());
+
+type AiGatewayLogDetail = z.output<typeof aiGatewayLogDetailSchema>;
 
 export type NaniteLifecycleWatchdog = {
   runId: string;
@@ -299,16 +305,8 @@ function getUsageNumber(
   return typeof value === "number" ? value : null;
 }
 
-function readGatewayNumber(
-  log: AiGatewayLogDetail | null,
-  field: "tokens_in" | "tokens_out" | "cost",
-): number | undefined {
-  const value = log?.[field];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 function gatewayCostUsdMicros(log: AiGatewayLogDetail | null): number | undefined {
-  const costUsd = readGatewayNumber(log, "cost");
+  const costUsd = log?.cost;
   return costUsd === undefined ? undefined : Math.round(costUsd * 1_000_000);
 }
 
@@ -316,18 +314,14 @@ function usageWithGatewayTokens(
   usage: StepContext["usage"],
   log: AiGatewayLogDetail | null,
 ): StepContext["usage"] {
-  const inputTokens = readGatewayNumber(log, "tokens_in") ?? usage.inputTokens;
-  const outputTokens = readGatewayNumber(log, "tokens_out") ?? usage.outputTokens;
+  const inputTokens = log?.tokens_in ?? usage.inputTokens;
+  const outputTokens = log?.tokens_out ?? usage.outputTokens;
   const totalTokens =
     typeof inputTokens === "number" && typeof outputTokens === "number"
       ? inputTokens + outputTokens
       : usage.totalTokens;
 
   return { ...usage, inputTokens, outputTokens, totalTokens };
-}
-
-function isMetadataRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function providerMetadataWithGatewayLog(
@@ -338,8 +332,8 @@ function providerMetadataWithGatewayLog(
     return providerMetadata;
   }
 
-  const metadata = isMetadataRecord(providerMetadata) ? providerMetadata : {};
-  const gatewayMetadata = isMetadataRecord(metadata.gateway) ? metadata.gateway : {};
+  const metadata = metadataRecordSchema.safeParse(providerMetadata).data ?? {};
+  const gatewayMetadata = metadataRecordSchema.safeParse(metadata.gateway).data ?? {};
 
   return {
     ...metadata,
@@ -870,7 +864,10 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     }
 
     try {
-      return (await this.env.AI.gateway(gatewayId).getLog(logId)) as AiGatewayLogDetail;
+      const result = aiGatewayLogDetailSchema.safeParse(
+        await this.env.AI.gateway(gatewayId).getLog(logId),
+      );
+      return result.success ? result.data : null;
     } catch (error) {
       naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
         ...createRunLogContext(this),
