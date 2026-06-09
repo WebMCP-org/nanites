@@ -27,16 +27,19 @@ beforeEach(() => {
       models: async () => [
         {
           id: "openai/gpt-5.5",
+          name: "GPT 5.5",
           task: { name: "Text Generation" },
           tags: ["Third-party"],
         },
         {
           id: "google/gemini-2.5-pro",
+          name: "Gemini 2.5 Pro",
           task: { name: "Text Generation" },
           tags: ["Third-party"],
         },
         {
           id: "@cf/moonshotai/kimi-k2.6",
+          name: "Kimi K2.6",
           task: { name: "Text Generation" },
           tags: ["Cloudflare-hosted"],
         },

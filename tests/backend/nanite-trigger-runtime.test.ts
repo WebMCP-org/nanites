@@ -27,8 +27,9 @@ beforeAll(async () => {
       models: async () => [
         {
           id: naniteModel,
+          name: "Kimi K2.6",
           task: { name: "Text Generation" },
-          tags: ["Third-party"],
+          tags: ["Cloudflare-hosted"],
         },
       ],
     },

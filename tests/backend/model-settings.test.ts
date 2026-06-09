@@ -6,7 +6,7 @@ import {
   validateNanitesModelId,
 } from "#/backend/nanites/model-settings.ts";
 
-function envWithModelCatalog(models: unknown[], overrides: Record<string, unknown> = {}): Env {
+function envWithModelCatalog(models: unknown, overrides: Record<string, unknown> = {}): Env {
   return {
     ...env,
     ...overrides,
@@ -53,6 +53,12 @@ test("model catalog reads Cloudflare text-generation search results", async () =
         task: { name: "Text Generation" },
         tags: ["Third-party"],
       },
+      {
+        id: "@cf/example/malformed-model",
+        name: "@cf/example/malformed-model",
+        task: { name: 123 },
+        tags: ["Cloudflare-hosted"],
+      },
     ]),
   );
 
@@ -80,6 +86,13 @@ test("model catalog reads Cloudflare text-generation search results", async () =
   expect(catalog.models.map((model) => model.id)).not.toContain(
     "02c16efa-29f5-4304-8e6c-3d188889f875",
   );
+  expect(catalog.models.map((model) => model.id)).not.toContain("@cf/example/malformed-model");
+});
+
+test("model catalog rejects malformed Cloudflare model search responses", async () => {
+  const catalog = await fetchNanitesModelCatalog(envWithModelCatalog({ models: [] }));
+
+  expect(catalog.models).toEqual([]);
 });
 
 test("model validation trims and checks the Cloudflare catalog", async () => {

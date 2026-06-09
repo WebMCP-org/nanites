@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
 import { isKeyedAiProvider, type KeyedAiProvider } from "#/backend/nanites/provider-keys.ts";
 
@@ -35,10 +36,39 @@ export type NanitesRuntimeModelSettings = {
 };
 
 type CloudflareAiModelsApi = {
-  models?: (params?: { hide_experimental?: boolean; per_page?: number }) => Promise<unknown[]>;
+  models?: (params?: { hide_experimental?: boolean; per_page?: number }) => Promise<unknown>;
 };
 
-type CloudflareModelSearchObject = Record<string, unknown>;
+const cloudflareModelSearchPropertySchema = z
+  .object({
+    property_id: z.string().trim().min(1),
+    value: z.union([z.string(), z.number()]),
+  })
+  .passthrough();
+
+const cloudflareModelSearchResultSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    description: z
+      .string()
+      .nullable()
+      .default("")
+      .transform((value) => value ?? ""),
+    task: z
+      .object({
+        name: z.string().trim().min(1),
+      })
+      .passthrough(),
+    tags: z.array(z.string()).default([]),
+    properties: z.array(cloudflareModelSearchPropertySchema).default([]),
+  })
+  .passthrough();
+
+const cloudflareModelSearchResponseSchema = z.array(z.unknown());
+
+type CloudflareModelSearchResult = z.output<typeof cloudflareModelSearchResultSchema>;
+type CloudflareModelSearchProperty = z.output<typeof cloudflareModelSearchPropertySchema>;
 
 export const DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS = {
   provider: "kimi",
@@ -112,24 +142,13 @@ function looksLikeModelId(value: string): boolean {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readModelId(input: CloudflareModelSearchObject): string | null {
-  const candidates = [input.name, input.id]
-    .filter((value): value is string => typeof value === "string")
-    .map((value) => value.trim());
+function readModelId(input: CloudflareModelSearchResult): string | null {
+  const candidates = [input.name, input.id].map((value) => value.trim());
   return candidates.find((candidate) => looksLikeModelId(candidate)) ?? null;
 }
 
-function readCatalogTaskName(input: CloudflareModelSearchObject): string {
-  const task = input.task;
-  return isRecord(task) && typeof task.name === "string" ? task.name : "";
-}
-
-function readDisplayName(input: CloudflareModelSearchObject, modelId: string): string | null {
-  const name = typeof input.name === "string" ? input.name.trim() : "";
+function readDisplayName(input: CloudflareModelSearchResult, modelId: string): string | null {
+  const name = input.name.trim();
   if (!name || name === modelId || looksLikeModelId(name)) {
     return null;
   }
@@ -166,21 +185,13 @@ export function keyedAiProviderForNanitesModelId(modelId: string): KeyedAiProvid
   return isKeyedAiProvider(provider) ? provider : null;
 }
 
-function parseContextWindow(properties: unknown): number | null {
-  if (!Array.isArray(properties)) {
-    return null;
-  }
-
+function parseContextWindow(properties: readonly CloudflareModelSearchProperty[]): number | null {
   for (const property of properties) {
-    if (typeof property !== "object" || property === null) {
-      continue;
-    }
-    const record = property as { property_id?: unknown; value?: unknown };
-    const key = typeof record.property_id === "string" ? record.property_id.toLowerCase() : "";
+    const key = property.property_id.toLowerCase();
     if (!key.includes("context")) {
       continue;
     }
-    const raw = typeof record.value === "string" ? record.value : "";
+    const raw = String(property.value);
     const numeric = Number(raw.replace(/[^0-9.]/g, ""));
     if (Number.isFinite(numeric) && numeric > 0) {
       return Math.round(numeric);
@@ -190,43 +201,44 @@ function parseContextWindow(properties: unknown): number | null {
   return null;
 }
 
-function readTags(tags: unknown): string[] {
-  if (!Array.isArray(tags)) {
+function parseCloudflareModelSearchResults(input: unknown): CloudflareModelSearchResult[] {
+  const response = cloudflareModelSearchResponseSchema.safeParse(input);
+  if (!response.success) {
     return [];
   }
-  return [...new Set(tags.filter((tag): tag is string => typeof tag === "string"))];
+
+  return response.data.flatMap((item) => {
+    const result = cloudflareModelSearchResultSchema.safeParse(item);
+    return result.success ? [result.data] : [];
+  });
 }
 
-function readCatalogItem(input: unknown): NanitesModelCatalogItem | null {
-  if (!isRecord(input)) {
-    return null;
-  }
-
-  const task = readCatalogTaskName(input);
+function toCatalogItem(model: CloudflareModelSearchResult): NanitesModelCatalogItem | null {
+  const task = model.task.name;
   if (task !== "Text Generation") {
     return null;
   }
 
-  const id = readModelId(input);
+  const id = readModelId(model);
   if (!id) {
     return null;
   }
   const provider = inferProvider(id);
-  const tags = readTags(input.tags);
+  const tags = [...new Set(model.tags)];
   const capabilities = tags.filter(
     (tag) => tag !== "Cloudflare-hosted" && tag !== "Third-party" && tag !== "Beta",
   );
 
   return {
     id,
-    name: catalogModelName(id, readDisplayName(input, id)),
+    name: catalogModelName(id, readDisplayName(model, id)),
     provider,
     providerLabel: providerLabel(provider),
     source: inferSource(id),
     task,
-    description: typeof input.description === "string" ? input.description : "",
+    description: model.description,
     capabilities,
-    contextWindowTokens: parseContextWindow(input.properties),
+    contextWindowTokens: parseContextWindow(model.properties),
     deprecated: tags.includes("Deprecated"),
   };
 }
@@ -255,16 +267,17 @@ export async function fetchNanitesModelCatalog(env: Env): Promise<NanitesModelCa
     };
   }
 
-  const models = await ai.models({
-    hide_experimental: true,
-    per_page: defaultCatalogPageSize,
-  });
+  const models = parseCloudflareModelSearchResults(
+    await ai.models({
+      hide_experimental: true,
+      per_page: defaultCatalogPageSize,
+    }),
+  );
+
   return {
     fetchedAt,
     models: sortCatalogModels(
-      models
-        .map((model) => readCatalogItem(model))
-        .filter((model): model is NanitesModelCatalogItem => Boolean(model)),
+      models.map(toCatalogItem).filter((model): model is NanitesModelCatalogItem => Boolean(model)),
     ),
   };
 }
