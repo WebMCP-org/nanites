@@ -28,6 +28,12 @@ import {
 import { listVisibleInstallations } from "#/backend/github/index.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
+  KEYED_AI_PROVIDER_OPTIONS,
+  listInstallationAiProviderKeySummaries,
+  saveInstallationAiProviderKey,
+} from "#/backend/nanites/provider-keys.ts";
+import { KEYED_AI_PROVIDERS } from "#/backend/db/schema.ts";
+import {
   AUTH_RETURN_TO_PARAM,
   GITHUB_OAUTH_CALLBACK_PATH,
   GITHUB_OAUTH_LOGIN_PATH,
@@ -59,6 +65,14 @@ const activeInstallationInput = zValidator(
   "json",
   z.object({
     githubInstallationId: z.number().int().positive(),
+  }),
+);
+
+const aiProviderKeyInput = zValidator(
+  "json",
+  z.object({
+    provider: z.enum(KEYED_AI_PROVIDERS),
+    apiKey: z.string().trim().min(1),
   }),
 );
 
@@ -231,6 +245,48 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
       expiresAt: nextSession.expiresAt,
     });
   })
+  .get("/installation/ai-provider-keys", activeGithubInstallationRequired, async (context) => {
+    const githubInstallationId = context.get("activeGithubInstallationId");
+    const summaries =
+      (
+        await listInstallationAiProviderKeySummaries(createDbClient(context.env.DB), [
+          githubInstallationId,
+        ])
+      ).get(githubInstallationId) ?? [];
+
+    return context.json({
+      providers: KEYED_AI_PROVIDER_OPTIONS,
+      keys: summaries,
+    });
+  })
+  .post(
+    "/installation/ai-provider-keys",
+    aiProviderKeyInput,
+    activeGithubInstallationRequired,
+    async (context) => {
+      const githubInstallationId = context.get("activeGithubInstallationId");
+      const input = context.req.valid("json");
+      const summary = await saveInstallationAiProviderKey({
+        db: createDbClient(context.env.DB),
+        env: context.env,
+        githubInstallationId,
+        provider: input.provider,
+        apiKey: input.apiKey,
+      });
+      const summaries =
+        (
+          await listInstallationAiProviderKeySummaries(createDbClient(context.env.DB), [
+            githubInstallationId,
+          ])
+        ).get(githubInstallationId) ?? [];
+
+      return context.json({
+        providers: KEYED_AI_PROVIDER_OPTIONS,
+        keys: summaries,
+        saved: summary,
+      });
+    },
+  )
   .post("/session/logout", (context) => {
     context.res.headers.append("Set-Cookie", clearSessionCookie(context.req.raw));
     context.res.headers.append("Set-Cookie", clearGitHubUserTokenCookie(context.req.raw));

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -31,10 +32,21 @@ import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx"
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { Popover } from "#/frontend/ui/components/Popover.tsx";
 import {
+  Select,
+  SelectList,
+  SelectOption,
+  SelectPopup,
+  SelectPortal,
+  SelectPositioner,
+  SelectTrigger,
+  SelectValue,
+} from "#/frontend/ui/components/Select.tsx";
+import {
   ArrowClockwiseIcon,
   ArrowLeftIcon,
   ArrowSquareOutIcon,
   CaretDownIcon,
+  CheckCircleIcon,
   ChartBarIcon,
   ChatCircleTextIcon,
   CircleNotchIcon,
@@ -44,6 +56,7 @@ import {
   GitBranchIcon,
   GitPullRequestIcon,
   GithubLogoIcon,
+  KeyIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   SlidersHorizontalIcon,
@@ -65,6 +78,7 @@ import type {
   TestNaniteTriggerOutput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import type { NaniteWorkspaceInfo } from "#/backend/agents/SigveloNaniteAgent.ts";
+import type { KeyedAiProvider } from "#/backend/nanites/provider-keys.ts";
 import type { FileInfo } from "@cloudflare/shell";
 import {
   ManagerRuntimeChatConnector,
@@ -101,12 +115,17 @@ const emptyState: NaniteManagerState = {
   updatedAt: null,
 };
 const visibleInstallationsQueryKey = ["auth", "installations", "visible"] as const;
+const installationAiProviderKeysQueryKey = (githubInstallationId: number) =>
+  ["auth", "installation", githubInstallationId, "ai-provider-keys"] as const;
 
 type VisibleInstallationsResponse = {
   installations: SessionInstallationSnapshot[];
 };
 type SetActiveInstallationInput = InferRequestType<
   typeof httpClient.api.auth.installations.active.$post
+>["json"];
+type SaveInstallationAiProviderKeyInput = InferRequestType<
+  (typeof httpClient.api.auth.installation)["ai-provider-keys"]["$post"]
 >["json"];
 type ManagerStateResponse = {
   managerName: string;
@@ -118,6 +137,30 @@ type JsonResponseLike = {
   readonly statusText: string;
   json(): Promise<unknown>;
 };
+
+const keyedAiProviders = ["deepseek", "openai", "anthropic", "google"] as const satisfies readonly [
+  KeyedAiProvider,
+  ...KeyedAiProvider[],
+];
+const keyedAiProviderSchema = z.enum(keyedAiProviders);
+const installationAiProviderOptionSchema = z.object({
+  provider: keyedAiProviderSchema,
+  label: z.string(),
+});
+const installationAiProviderKeySummarySchema = z.object({
+  provider: keyedAiProviderSchema,
+  keyLast4: z.string(),
+  updatedAt: z.string(),
+});
+const installationAiProviderKeysResponseSchema = z
+  .object({
+    providers: z.array(installationAiProviderOptionSchema),
+    keys: z.array(installationAiProviderKeySummarySchema),
+  })
+  .passthrough();
+
+type InstallationAiProviderOption = z.output<typeof installationAiProviderOptionSchema>;
+type InstallationAiProviderKeysResponse = z.output<typeof installationAiProviderKeysResponseSchema>;
 
 async function fetchVisibleInstallations(): Promise<VisibleInstallationsResponse> {
   const data = await readJsonResponse(httpClient.api.auth.installations.visible.$get());
@@ -139,6 +182,30 @@ async function setActiveInstallation(
   }
 
   return data;
+}
+
+async function fetchInstallationAiProviderKeys(): Promise<InstallationAiProviderKeysResponse> {
+  const data = await readJsonResponse(httpClient.api.auth.installation["ai-provider-keys"].$get());
+  const result = installationAiProviderKeysResponseSchema.safeParse(data);
+  if (!result.success) {
+    throw new Error("Installation AI provider keys response was malformed.");
+  }
+
+  return result.data;
+}
+
+async function saveInstallationAiProviderKey(
+  input: SaveInstallationAiProviderKeyInput,
+): Promise<InstallationAiProviderKeysResponse> {
+  const data = await readJsonResponse(
+    httpClient.api.auth.installation["ai-provider-keys"].$post({ json: input }),
+  );
+  const result = installationAiProviderKeysResponseSchema.safeParse(data);
+  if (!result.success) {
+    throw new Error("Installation AI provider keys response was malformed.");
+  }
+
+  return result.data;
 }
 
 async function logoutSession(): Promise<void> {
@@ -1083,6 +1150,155 @@ function pickManagerState({
   return initialState;
 }
 
+function providerLabel(
+  provider: KeyedAiProvider,
+  providers: readonly InstallationAiProviderOption[],
+): string {
+  return providers.find((option) => option.provider === provider)?.label ?? provider;
+}
+
+function InstallationAiProviderKeysPanel({
+  activeInstallation,
+}: {
+  readonly activeInstallation: SessionInstallationSnapshot;
+}) {
+  const queryClient = useQueryClient();
+  const [provider, setProvider] = useState<KeyedAiProvider>("deepseek");
+  const [apiKey, setApiKey] = useState("");
+  const queryKey = installationAiProviderKeysQueryKey(activeInstallation.id);
+  const providerLabelId = `ai-provider-key-provider-${activeInstallation.id}`;
+  const apiKeyInputId = `ai-provider-key-input-${activeInstallation.id}`;
+  const providerKeysQuery = useQuery({
+    queryKey,
+    queryFn: fetchInstallationAiProviderKeys,
+  });
+  const saveProviderKey = useMutation({
+    mutationFn: saveInstallationAiProviderKey,
+    onSuccess: async () => {
+      setApiKey("");
+      await queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  const providers = providerKeysQuery.data?.providers ?? [];
+  const keys = providerKeysQuery.data?.keys ?? [];
+  const providerItems = providers.map((option) => ({
+    value: option.provider,
+    label: option.label,
+  }));
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanApiKey = apiKey.trim();
+    if (!cleanApiKey || providerKeysQuery.isPending) {
+      return;
+    }
+
+    saveProviderKey.mutate({
+      provider,
+      apiKey: cleanApiKey,
+    });
+  }
+
+  return (
+    <div className="nanites-workspace__provider-keys">
+      <div className="nanites-workspace__provider-key-list" aria-label="Configured AI keys">
+        {providerKeysQuery.isPending ? (
+          <p className="nanites-workspace__provider-key-empty">Loading provider keys...</p>
+        ) : keys.length > 0 ? (
+          keys.map((key) => (
+            <div className="nanites-workspace__provider-key-row" key={key.provider}>
+              <span>
+                <CheckCircleIcon size={14} weight="fill" aria-hidden="true" />
+                {providerLabel(key.provider, providers)}
+              </span>
+              <span title={`Updated ${formatDate(key.updatedAt)}`}>**** {key.keyLast4}</span>
+            </div>
+          ))
+        ) : (
+          <p className="nanites-workspace__provider-key-empty">
+            No provider keys saved for this installation.
+          </p>
+        )}
+      </div>
+
+      <form className="nanites-workspace__provider-key-form" onSubmit={handleSubmit}>
+        <div className="nanites-workspace__provider-key-field">
+          <span id={providerLabelId}>Provider</span>
+          <Select
+            items={providerItems}
+            value={provider}
+            onValueChange={(value) => {
+              const nextProvider = keyedAiProviderSchema.safeParse(value);
+              if (nextProvider.success) {
+                setProvider(nextProvider.data);
+              }
+            }}
+            disabled={providerKeysQuery.isPending || saveProviderKey.isPending}
+          >
+            <SelectTrigger size="sm" aria-labelledby={providerLabelId}>
+              <SelectValue placeholder="Select provider" />
+            </SelectTrigger>
+            <SelectPortal>
+              <SelectPositioner sideOffset={4}>
+                <SelectPopup>
+                  <SelectList>
+                    {providers.map((option) => (
+                      <SelectOption key={option.provider} value={option.provider}>
+                        {option.label}
+                      </SelectOption>
+                    ))}
+                  </SelectList>
+                </SelectPopup>
+              </SelectPositioner>
+            </SelectPortal>
+          </Select>
+        </div>
+
+        <label className="nanites-workspace__provider-key-field" htmlFor={apiKeyInputId}>
+          <span>API key</span>
+          <input
+            id={apiKeyInputId}
+            className="nanites-workspace__provider-key-input"
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.currentTarget.value)}
+            placeholder="Paste provider API key"
+            aria-label="API key"
+            autoComplete="off"
+            disabled={providerKeysQuery.isPending || saveProviderKey.isPending}
+          />
+        </label>
+
+        <Button
+          color="primary"
+          size="sm"
+          type="submit"
+          disabled={!apiKey.trim() || providerKeysQuery.isPending || saveProviderKey.isPending}
+        >
+          {saveProviderKey.isPending ? (
+            <CircleNotchIcon size={14} aria-hidden="true" />
+          ) : (
+            <KeyIcon size={14} aria-hidden="true" />
+          )}
+          <span>{saveProviderKey.isPending ? "Saving..." : "Save key"}</span>
+        </Button>
+      </form>
+
+      {providerKeysQuery.error ? (
+        <p className="nanites-workspace__action-error" role="alert">
+          {getErrorMessage(providerKeysQuery.error)}
+        </p>
+      ) : null}
+      {saveProviderKey.error ? (
+        <p className="nanites-workspace__action-error" role="alert">
+          {getErrorMessage(saveProviderKey.error)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function ManagerInfoPanel({
   activeInstallation,
   naniteCount,
@@ -1135,6 +1351,10 @@ function ManagerInfoPanel({
               }}
             />
           </div>
+        </InfoSection>
+
+        <InfoSection title="AI keys">
+          <InstallationAiProviderKeysPanel activeInstallation={activeInstallation} />
         </InfoSection>
 
         <InfoSection title="Controls">
