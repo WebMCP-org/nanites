@@ -55,10 +55,10 @@ async function recordGitHubInstallationRepairSignal({
   readonly githubInstallationId: number;
   readonly reason: GitHubInstallationRepairReason;
 }): Promise<void> {
-  const setupAgent = (await getAgentByName<Env, NanitesSetupAgent>(
+  const setupAgent = await getAgentByName<Env, NanitesSetupAgent>(
     env.NanitesSetupAgent,
     NANITES_SETUP_AGENT_INSTANCE_NAME,
-  )) as unknown as Pick<NanitesSetupAgent, "recordGitHubInstallationRepairRequired">;
+  );
 
   await setupAgent.recordGitHubInstallationRepairRequired({
     githubInstallationId,

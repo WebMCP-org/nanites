@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import type { DbClient } from "#/backend/db/index.ts";
 import { deploymentGitHubAppConfig } from "#/backend/db/schema.ts";
 import { AppError } from "#/backend/errors.ts";
@@ -39,27 +40,25 @@ export type SaveDeploymentGitHubAppConfigInput = {
   readonly events: readonly string[];
 };
 
-function readJsonRecord(value: string): Record<string, string> {
-  const parsed: unknown = JSON.parse(value);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return {};
-  }
-
-  const record: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(parsed)) {
-    if (typeof entry === "string") {
-      record[key] = entry;
+const deploymentGitHubAppPermissionsJsonSchema = z
+  .record(z.string(), z.unknown())
+  .catch({})
+  .transform((record): Record<string, string> => {
+    const permissions: Record<string, string> = {};
+    for (const [permission, access] of Object.entries(record)) {
+      if (typeof access === "string") {
+        permissions[permission] = access;
+      }
     }
-  }
-  return record;
-}
+    return permissions;
+  });
 
-function readJsonStringArray(value: string): readonly string[] {
-  const parsed: unknown = JSON.parse(value);
-  return Array.isArray(parsed)
-    ? parsed.filter((entry): entry is string => typeof entry === "string")
-    : [];
-}
+const deploymentGitHubAppEventsJsonSchema = z
+  .array(z.unknown())
+  .catch([])
+  .transform((events): readonly string[] =>
+    events.filter((event): event is string => typeof event === "string"),
+  );
 
 function readConfiguredSecret(env: Env, key: keyof Env): string | null {
   const value = env[key];
@@ -88,8 +87,8 @@ export async function readDeploymentGitHubAppMetadata(
     ownerType: row.ownerType,
     selectedGithubInstallationId: row.selectedGithubInstallationId,
     clientId: row.clientId,
-    permissions: readJsonRecord(row.permissionsJson),
-    events: readJsonStringArray(row.eventsJson),
+    permissions: deploymentGitHubAppPermissionsJsonSchema.parse(JSON.parse(row.permissionsJson)),
+    events: deploymentGitHubAppEventsJsonSchema.parse(JSON.parse(row.eventsJson)),
     configUpdatedAt: row.updatedAt,
   };
 }

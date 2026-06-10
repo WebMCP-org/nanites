@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { parse } from "hono/utils/cookie";
 import { getAgentByName } from "agents";
+import { z } from "zod";
 import { APP_ERRORS, AppError, type AppErrorKind } from "#/backend/errors.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import {
@@ -31,6 +32,18 @@ import {
 const GITHUB_APP_INSTALL_VERIFY_PATH = "/setup/github/verify";
 const UPSTREAM_STAR_MISSING_MESSAGE =
   "GitHub did not confirm that this user starred WebMCP-org/nanites.";
+const githubInstallationIdQueryValueSchema = z
+  .string()
+  .min(1)
+  .transform((value) => Number(value))
+  .pipe(z.number().int().positive());
+const gitHubSetupVerificationQuerySchema = z.object({
+  installation_id: githubInstallationIdQueryValueSchema,
+  state: z.string().min(1).nullable(),
+});
+const gitHubAppSetupCallbackQuerySchema = gitHubSetupVerificationQuerySchema.extend({
+  setup_action: z.enum(["install", "update"]),
+});
 const SETUP_AGENT_REMOTE_ERROR_MESSAGES: readonly [message: string, kind: AppErrorKind][] = [
   [APP_ERRORS.invalidSetupState.message, "invalidSetupState"],
   [APP_ERRORS.setupOwnerProofRequired.message, "setupOwnerProofRequired"],
@@ -69,38 +82,59 @@ function mapSetupAgentError(error: unknown): never {
   throw error;
 }
 
-function readGitHubInstallationId(url: URL): number | null {
-  const installationId = Number(url.searchParams.get("installation_id"));
-  return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
-}
+type GitHubSetupVerificationQuery = z.infer<typeof gitHubSetupVerificationQuerySchema>;
 
-function requireGitHubInstallationId(url: URL): number {
-  const installationId = readGitHubInstallationId(url);
-  if (installationId === null) {
+function requireGitHubSetupVerificationQuery(request: Request): GitHubSetupVerificationQuery {
+  const url = new URL(request.url);
+  const result = gitHubSetupVerificationQuerySchema.safeParse({
+    installation_id: url.searchParams.get("installation_id"),
+    state: url.searchParams.get("state"),
+  });
+  if (!result.success) {
     throw new AppError("setupInstallationVerificationFailed", {
       details: { githubInstallationId: null },
     });
   }
 
-  return installationId;
+  return result.data;
 }
 
-function buildGitHubSetupVerificationPath(request: Request): string {
+function requireGitHubAppSetupCallbackQuery(request: Request): GitHubSetupVerificationQuery {
+  const url = new URL(request.url);
+  const result = gitHubAppSetupCallbackQuerySchema.safeParse({
+    installation_id: url.searchParams.get("installation_id"),
+    setup_action: url.searchParams.get("setup_action"),
+    state: url.searchParams.get("state"),
+  });
+  if (!result.success) {
+    throw new AppError("setupInstallationVerificationFailed", {
+      details: { githubInstallationId: null },
+    });
+  }
+
+  return result.data;
+}
+
+function buildGitHubSetupVerificationPath(
+  request: Request,
+  query: GitHubSetupVerificationQuery,
+): string {
   const requestUrl = new URL(request.url);
-  const installationId = requireGitHubInstallationId(requestUrl);
   const verifyUrl = new URL(GITHUB_APP_INSTALL_VERIFY_PATH, requestUrl.origin);
-  verifyUrl.searchParams.set("installation_id", String(installationId));
-  const installState = requestUrl.searchParams.get("state");
-  if (installState) {
-    verifyUrl.searchParams.set("state", installState);
+  verifyUrl.searchParams.set("installation_id", String(query.installation_id));
+  if (query.state) {
+    verifyUrl.searchParams.set("state", query.state);
   }
 
   return `${verifyUrl.pathname}${verifyUrl.search}`;
 }
 
-function buildGitHubSetupVerificationLoginUrl(request: Request): URL {
+function buildGitHubSetupVerificationLoginUrl(
+  request: Request,
+  query: GitHubSetupVerificationQuery = requireGitHubSetupVerificationQuery(request),
+): URL {
   const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, request.url);
-  loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, buildGitHubSetupVerificationPath(request));
+  loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, buildGitHubSetupVerificationPath(request, query));
   return loginUrl;
 }
 
@@ -224,10 +258,15 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
   })
   .get("/setup/github/installed", async (context) => {
     requireSetupClaimToken(context.req.raw);
-    return context.redirect(buildGitHubSetupVerificationLoginUrl(context.req.raw).toString(), 302);
+    const callbackQuery = requireGitHubAppSetupCallbackQuery(context.req.raw);
+    return context.redirect(
+      buildGitHubSetupVerificationLoginUrl(context.req.raw, callbackQuery).toString(),
+      302,
+    );
   })
   .get("/setup/github/verify", async (context) => {
     const setupClaimToken = requireSetupClaimToken(context.req.raw);
+    const verificationQuery = requireGitHubSetupVerificationQuery(context.req.raw);
     let session: Awaited<ReturnType<typeof requireSession>>;
     let githubUserToken: Awaited<ReturnType<typeof requireGitHubUserToken>>;
     try {
@@ -237,13 +276,15 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       });
     } catch (error) {
       if (error instanceof AppError && error.kind === "authenticationRequired") {
-        return context.redirect(buildGitHubSetupVerificationLoginUrl(context.req.raw).toString());
+        return context.redirect(
+          buildGitHubSetupVerificationLoginUrl(context.req.raw, verificationQuery).toString(),
+        );
       }
       throw error;
     }
 
-    const requestedInstallationId = requireGitHubInstallationId(new URL(context.req.raw.url));
-    const installState = new URL(context.req.raw.url).searchParams.get("state");
+    const requestedInstallationId = verificationQuery.installation_id;
+    const installState = verificationQuery.state;
     const setupAgent = await getSetupAgent(context.env);
     const deploymentGitHubAppConfigReadable =
       (await readDeploymentGitHubAppConfig(createDbClient(context.env.DB), context.env)) !== null;

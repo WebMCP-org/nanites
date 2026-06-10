@@ -1268,6 +1268,26 @@ test("GitHub setup URL requires GitHub's returned installation id", async () => 
   });
 });
 
+test("GitHub setup URL requires GitHub's setup action", async () => {
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+  const setupClaim = await issueSetupClaim(setupAgent);
+
+  const response = await nanitesHttpApp.request(
+    "https://sigvelo-agent-tests.example.workers.dev/setup/github/installed?installation_id=42",
+    {
+      headers: { Cookie: setupClaim.cookieHeader },
+    },
+    env,
+  );
+
+  expect(response.status).toBe(403);
+  await expect(response.json()).resolves.toEqual({
+    code: "setup_installation_verification_failed",
+    githubInstallationId: null,
+  });
+});
+
 test("GitHub setup verification requires the install nonce for claimed setup", async () => {
   const request = new Request(
     "https://sigvelo-agent-tests.example.workers.dev/setup/github/verify?installation_id=42",

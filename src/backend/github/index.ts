@@ -16,7 +16,7 @@ const GITHUB_REST_API_BASE_URL = "https://api.github.com";
 const GITHUB_REST_API_ACCEPT_HEADER = "application/vnd.github+json";
 const GITHUB_REST_API_VERSION = "2026-03-10";
 const GITHUB_API_PAGE_SIZE = 100;
-const GITHUB_API_TIMEOUT_MS = 10_000;
+const GITHUB_API_TIMEOUT_MS = 60_000;
 const GITHUB_MAX_PAGINATION_PAGES = 20;
 const GITHUB_INSTALLATION_USER_AGENT = "nanites-control-plane";
 const GITHUB_SETUP_USER_AGENT = "nanites-setup";
@@ -452,11 +452,21 @@ export async function listVisibleInstallations(
 ): Promise<GitHubVisibleInstallation[]> {
   return observeGitHubOperation({ operation: "user.installations.list" }, async () => {
     const octokit = createGitHubUserOctokit(accessToken);
-    return octokit.paginate(
-      octokit.rest.apps.listInstallationsForAuthenticatedUser,
-      { per_page: GITHUB_API_PAGE_SIZE },
-      (response) => response.data.installations,
-    );
+    const installations: GitHubVisibleInstallation[] = [];
+
+    for (let page = 1; page <= GITHUB_MAX_PAGINATION_PAGES; page += 1) {
+      const response = await octokit.rest.apps.listInstallationsForAuthenticatedUser({
+        page,
+        per_page: GITHUB_API_PAGE_SIZE,
+      });
+      installations.push(...response.data.installations);
+
+      if (response.data.installations.length < GITHUB_API_PAGE_SIZE) {
+        break;
+      }
+    }
+
+    return installations;
   });
 }
 
@@ -471,11 +481,22 @@ export async function listInstallationRepositories(
     },
     async () => {
       const octokit = createGitHubUserOctokit(accessToken);
-      return octokit.paginate(
-        octokit.rest.apps.listInstallationReposForAuthenticatedUser,
-        { installation_id: githubInstallationId, per_page: GITHUB_API_PAGE_SIZE },
-        (response) => response.data.repositories,
-      );
+      const repositories: GitHubInstallationRepository[] = [];
+
+      for (let page = 1; page <= GITHUB_MAX_PAGINATION_PAGES; page += 1) {
+        const response = await octokit.rest.apps.listInstallationReposForAuthenticatedUser({
+          installation_id: githubInstallationId,
+          page,
+          per_page: GITHUB_API_PAGE_SIZE,
+        });
+        repositories.push(...response.data.repositories);
+
+        if (response.data.repositories.length < GITHUB_API_PAGE_SIZE) {
+          break;
+        }
+      }
+
+      return repositories;
     },
   );
 }

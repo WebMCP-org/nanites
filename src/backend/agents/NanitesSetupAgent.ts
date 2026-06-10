@@ -37,12 +37,12 @@ const GITHUB_APP_MANIFEST_CALLBACK_PATH = "/setup/github/manifest/callback";
 const GITHUB_APP_INSTALL_CALLBACK_PATH = "/setup/github/installed";
 const GENERATED_AUTH_SECRET_BYTE_LENGTH = 48;
 const SETUP_OWNER_TOKEN_BYTE_LENGTH = 32;
-const SETUP_OWNER_TTL_MS = 30 * 60 * 1_000;
+const SETUP_OWNER_TTL_MS = 60 * 60 * 1_000;
 const SETUP_OWNER_STORAGE_KEY = "nanites:setup:owner";
 const SETUP_CLAIM_TOKEN_BYTE_LENGTH = 32;
-const SETUP_CLAIM_TTL_MS = 30 * 60 * 1_000;
+const SETUP_CLAIM_TTL_MS = 60 * 60 * 1_000;
 const SETUP_CLAIM_STORAGE_KEY = "nanites:setup:claim";
-const CLOUDFLARE_MCP_EXECUTE_TIMEOUT_MS = 15_000;
+const CLOUDFLARE_MCP_EXECUTE_TIMEOUT_MS = 15 * 60 * 1_000;
 const CLOUDFLARE_SETUP_OAUTH_SCOPE =
   "offline_access user:read account:read workers:read workers_scripts:write";
 const GITHUB_APP_SECRET_PROPAGATION_RETRY_AFTER_MS = 2 * 60 * 1_000;
@@ -572,7 +572,7 @@ function createSetupCompletionState(input: {
   const upstreamStarComplete = input.upstreamStar.status === "complete";
   const upstreamStarReady = input.hasRuntimeConfig && repositoryInstalled;
   const setupComplete = upstreamStarReady && upstreamStarComplete;
-  const upstreamStar =
+  const upstreamStar: NanitesSetupAgentState["upstreamStar"] =
     upstreamStarReady && upstreamStarComplete
       ? input.upstreamStar
       : upstreamStarReady
@@ -772,8 +772,58 @@ function githubPermissionRank(permission: string | undefined): number {
   }
 }
 
+function requireGitHubAppManifestString(
+  githubApp: GitHubAppManifestConversion,
+  field: "client_id" | "client_secret" | "pem" | "slug" | "webhook_secret",
+): string {
+  const value = githubApp[field];
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+
+  throw new AppError("githubAppManifestConversionFailed", {
+    details: {
+      githubResponseStatus: null,
+      reason: "missing_required_field",
+      field,
+    },
+  });
+}
+
+function readGitHubAppManifestPermissions(
+  permissions: GitHubAppManifestConversion["permissions"],
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [permission, access] of Object.entries(permissions ?? {})) {
+    if (typeof access === "string") {
+      result[permission] = access;
+    }
+  }
+  return result;
+}
+
+function readGitHubAppManifestEvents(
+  events: GitHubAppManifestConversion["events"],
+): readonly string[] {
+  return Array.isArray(events)
+    ? events.filter((event): event is string => typeof event === "string")
+    : [];
+}
+
+function readGitHubAppManifestOwnerLogin(
+  owner: GitHubAppManifestConversion["owner"],
+): string | null {
+  return owner && "login" in owner ? owner.login : null;
+}
+
+function readGitHubAppManifestOwnerType(
+  owner: GitHubAppManifestConversion["owner"],
+): string | null {
+  return owner && "type" in owner ? owner.type : null;
+}
+
 function requireGitHubAppManifestMeetsMinimums(githubApp: GitHubAppManifestConversion): void {
-  const permissions = githubApp.permissions ?? {};
+  const permissions = readGitHubAppManifestPermissions(githubApp.permissions);
   for (const [permission, requiredAccess] of Object.entries(DEFAULT_GITHUB_APP_PERMISSIONS)) {
     const actualAccess = permissions[permission];
     if (githubPermissionRank(actualAccess) < githubPermissionRank(requiredAccess)) {
@@ -787,7 +837,7 @@ function requireGitHubAppManifestMeetsMinimums(githubApp: GitHubAppManifestConve
     }
   }
 
-  const returnedEvents = new Set(githubApp.events ?? []);
+  const returnedEvents = new Set(readGitHubAppManifestEvents(githubApp.events));
   for (const event of DEFAULT_GITHUB_APP_EVENTS) {
     if (!returnedEvents.has(event)) {
       throw new AppError("githubAppManifestConversionFailed", {
@@ -1384,27 +1434,36 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       const githubApp = await convertGitHubAppManifestCode(input.code);
       convertedGitHubApp = githubApp;
       requireGitHubAppManifestMeetsMinimums(githubApp);
+      const appSlug = requireGitHubAppManifestString(githubApp, "slug");
+      const clientId = requireGitHubAppManifestString(githubApp, "client_id");
+      const clientSecret = requireGitHubAppManifestString(githubApp, "client_secret");
+      const privateKey = requireGitHubAppManifestString(githubApp, "pem");
+      const webhookSecret = requireGitHubAppManifestString(githubApp, "webhook_secret");
+      const appPermissions = readGitHubAppManifestPermissions(githubApp.permissions);
+      const appEvents = readGitHubAppManifestEvents(githubApp.events);
+      const ownerLogin = readGitHubAppManifestOwnerLogin(githubApp.owner);
+      const ownerType = readGitHubAppManifestOwnerType(githubApp.owner);
       await this.writeGeneratedWorkerSecrets({
         accountId: this.state.cloudflare.accountId,
         scriptName: this.state.cloudflare.scriptName,
         secrets: {
           [AUTH_COOKIE_SECRET_BINDING]: generateAuthCookieSecret(),
-          [GITHUB_APP_PRIVATE_KEY_BINDING]: githubApp.pem,
-          [GITHUB_CLIENT_SECRET_BINDING]: githubApp.client_secret,
-          [GITHUB_WEBHOOK_SECRET_BINDING]: githubApp.webhook_secret,
+          [GITHUB_APP_PRIVATE_KEY_BINDING]: privateKey,
+          [GITHUB_CLIENT_SECRET_BINDING]: clientSecret,
+          [GITHUB_WEBHOOK_SECRET_BINDING]: webhookSecret,
         },
       });
 
       const db = createDbClient(this.env.DB);
       await saveDeploymentGitHubAppConfig(db, {
         appId: githubApp.id,
-        slug: githubApp.slug,
+        slug: appSlug,
         htmlUrl: githubApp.html_url,
-        ownerLogin: githubApp.owner?.login ?? null,
-        ownerType: githubApp.owner?.type ?? null,
-        clientId: githubApp.client_id,
-        permissions: githubApp.permissions,
-        events: githubApp.events,
+        ownerLogin,
+        ownerType,
+        clientId,
+        permissions: appPermissions,
+        events: appEvents,
       });
 
       const generationKey = buildGitHubAppGenerationKey(githubApp.id);
@@ -1431,14 +1490,14 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
             manifestSetupClaimHash: null,
             manifestSetupClaimExpiresAt: null,
             generationKey,
-            slug: githubApp.slug,
+            slug: appSlug,
             htmlUrl: githubApp.html_url,
             installUrl: buildGitHubAppInstallHref({
-              appSlug: githubApp.slug,
+              appSlug,
               state: completionState.repositories.installState,
             }),
-            ownerLogin: githubApp.owner?.login ?? null,
-            ownerType: githubApp.owner?.type ?? null,
+            ownerLogin,
+            ownerType,
             orphanedHtmlUrl: null,
             cleanupInstructions: null,
             error: null,
@@ -1458,7 +1517,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       return {
         ok: true,
         installUrl: buildGitHubAppInstallHref({
-          appSlug: githubApp.slug,
+          appSlug,
           state: completionState.repositories.installState,
         }),
         deploymentConfigured: runtimeConfig !== null,

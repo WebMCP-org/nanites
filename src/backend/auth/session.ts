@@ -17,10 +17,10 @@ import {
 /**
  * GitHub OAuth state lifetime in seconds.
  *
- * Arbitrary Nanites app policy: ten minutes is long enough for a normal GitHub
- * round-trip without leaving abandoned login state in the browser for too long.
+ * Arbitrary Nanites app policy: first-time setup can include GitHub App install
+ * and repository-selection detours, so keep the browser state deliberately lax.
  */
-const GITHUB_OAUTH_STATE_TTL_SECONDS = 10 * 60;
+const GITHUB_OAUTH_STATE_TTL_SECONDS = 60 * 60;
 
 /**
  * Nanites-owned browser session lifetime in seconds.

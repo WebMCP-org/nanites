@@ -35,6 +35,24 @@ test("GitHub OAuth callback reroutes install callbacks into setup verification l
   );
 });
 
+test("GitHub OAuth callback preserves install callback state during setup verification login", async () => {
+  const response = await nanitesHttpApp.request(
+    "http://localhost:5173/auth/github/callback?code=test-code&installation_id=139264883&setup_action=install&state=test-install-state",
+    {},
+    env,
+  );
+
+  expect(response.status).toBe(302);
+  expect(response.headers.get("Set-Cookie")).toContain("nanites_github_oauth_state=");
+
+  const location = new URL(response.headers.get("Location") ?? "");
+  expect(location.origin).toBe("http://localhost:5173");
+  expect(location.pathname).toBe("/auth/github/login");
+  expect(location.searchParams.get("returnTo")).toBe(
+    "/setup/github/verify?installation_id=139264883&state=test-install-state",
+  );
+});
+
 test("GitHub OAuth callback reports token exchange errors without a raw 500", async () => {
   const loginResponse = await nanitesHttpApp.request(
     "http://localhost:5173/auth/github/login?returnTo=/nanites",
