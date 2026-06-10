@@ -1738,16 +1738,14 @@ body.is-resizing-columns .nanites-workspace {
 .nanites-workspace__summary-card .nanites-workspace__info-rail {
   max-block-size: 100%;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--app-sidebar-border) 78%, white);
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--app-paper-warm) 94%, white);
-  box-shadow:
-    0 1px 2px color-mix(in srgb, var(--app-charcoal) 8%, transparent),
-    0 18px 42px color-mix(in srgb, var(--app-charcoal) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-sidebar-border) 82%, white);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--app-paper-warm) 91%, white);
+  box-shadow: none;
 }
 
 .nanites-workspace__summary-card .nanites-workspace__info-card {
-  padding: 0.875rem;
+  padding: 0.75rem 0.8125rem;
 }
 
 .nanites-workspace__info-section {
