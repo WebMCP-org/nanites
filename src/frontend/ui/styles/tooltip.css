@@ -1,5 +1,8 @@
+.tooltip__positioner {
+  z-index: 100;
+}
+
 .tooltip__popup {
-  z-index: 50;
   padding-block: 0.375rem;
   padding-inline: 0.75rem;
   font-family: var(--sigvelo-font-family);

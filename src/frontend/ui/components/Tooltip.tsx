@@ -5,6 +5,10 @@ export interface TooltipPopupProps extends Omit<BaseTooltip.Popup.Props, "classN
   className?: string;
 }
 
+export interface TooltipPositionerProps extends Omit<BaseTooltip.Positioner.Props, "className"> {
+  className?: string;
+}
+
 /**
  * A tooltip component for displaying helpful information on hover.
  *
@@ -30,7 +34,15 @@ export interface TooltipPopupProps extends Omit<BaseTooltip.Popup.Props, "classN
 export const Tooltip = BaseTooltip.Root;
 export const TooltipTrigger = BaseTooltip.Trigger;
 export const TooltipPortal = BaseTooltip.Portal;
-export const TooltipPositioner = BaseTooltip.Positioner;
+
+export function TooltipPositioner({
+  className = "",
+  ref,
+  ...props
+}: TooltipPositionerProps & { ref?: React.Ref<HTMLDivElement> }) {
+  const classes = ["tooltip__positioner", className].filter(Boolean).join(" ");
+  return <BaseTooltip.Positioner ref={ref} className={classes} {...props} />;
+}
 
 export function TooltipPopup({
   className = "",
