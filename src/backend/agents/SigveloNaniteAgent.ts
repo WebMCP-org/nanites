@@ -457,6 +457,8 @@ function workspaceRootPath(path: string | undefined): string {
   return path?.trim() || "/";
 }
 
+const NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT = 50_000;
+
 const NANITE_NON_REPOSITORY_DIRECTORIES = new Set([
   "bin",
   "dev",
@@ -1430,10 +1432,48 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   @callable()
   async getWorkspaceInfo(): Promise<NaniteWorkspaceInfo> {
     const info = await this.workspace.getWorkspaceInfo();
+    const repositoryRoot = await this.findRepositoryRoot();
+    if (!repositoryRoot) {
+      return { ...info, repositoryRoot: null };
+    }
+
+    const scoped = await this.measureWorkspaceSubtree(repositoryRoot);
     return {
       ...info,
-      repositoryRoot: await this.findRepositoryRoot(),
+      ...scoped,
+      r2FileCount: info.r2FileCount,
+      repositoryRoot,
     };
+  }
+
+  private async measureWorkspaceSubtree(
+    root: string,
+  ): Promise<Pick<NaniteWorkspaceInfo, "fileCount" | "directoryCount" | "totalBytes">> {
+    let fileCount = 0;
+    let directoryCount = 0;
+    let totalBytes = 0;
+    let scanned = 0;
+    const directories = [root];
+
+    while (directories.length > 0 && scanned < NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT) {
+      const directory = directories.shift() ?? root;
+      const entries = await this.workspace.readDir(directory, { limit: 1_000 });
+      for (const entry of entries) {
+        scanned += 1;
+        if (entry.type === "directory") {
+          directoryCount += 1;
+          directories.push(entry.path);
+        } else {
+          fileCount += 1;
+          totalBytes += entry.size ?? 0;
+        }
+        if (scanned >= NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT) {
+          break;
+        }
+      }
+    }
+
+    return { fileCount, directoryCount, totalBytes };
   }
 
   private async findRepositoryRoot(): Promise<string | null> {

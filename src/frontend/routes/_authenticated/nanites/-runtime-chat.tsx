@@ -51,6 +51,13 @@ import {
   ToolInput,
   ToolOutput,
 } from "#/frontend/ui/components/Tool.tsx";
+import {
+  Tooltip,
+  TooltipPopup,
+  TooltipPortal,
+  TooltipPositioner,
+  TooltipTrigger,
+} from "#/frontend/ui/components/Tooltip.tsx";
 import { formatStructuredCodeDisplay } from "#/frontend/ui/code-display/structured-code.ts";
 import {
   ArrowsClockwiseIcon,
@@ -646,16 +653,26 @@ function RuntimeConversation({
               data-empty={onClearConversation ? undefined : "true"}
             >
               {onClearConversation ? (
-                <button
-                  type="button"
-                  className="nanites-workspace__chat-tool-button"
-                  aria-label="Reset chat"
-                  title="Reset chat"
-                  disabled={isStreaming}
-                  onClick={onClearConversation}
-                >
-                  <TrashIcon size={14} aria-hidden="true" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        className="nanites-workspace__chat-tool-button"
+                        aria-label="Reset chat"
+                        disabled={isStreaming}
+                        onClick={onClearConversation}
+                      >
+                        <TrashIcon size={14} aria-hidden="true" />
+                      </button>
+                    }
+                  />
+                  <TooltipPortal>
+                    <TooltipPositioner side="top" sideOffset={6}>
+                      <TooltipPopup>Reset chat</TooltipPopup>
+                    </TooltipPositioner>
+                  </TooltipPortal>
+                </Tooltip>
               ) : null}
             </PromptInputTools>
             <PromptInputBody>

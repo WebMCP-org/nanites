@@ -26,10 +26,18 @@ import {
   CodeBlockContent,
   type CodeBlockLanguage,
 } from "#/frontend/ui/components/CodeBlock.tsx";
+import { CheckIcon, CopyIcon } from "#/frontend/ui/components/_internal/icons.tsx";
 import { FileTree, FileTreeFile, FileTreeFolder } from "#/frontend/ui/components/FileTree.tsx";
 import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { Popover } from "#/frontend/ui/components/Popover.tsx";
+import {
+  Tooltip,
+  TooltipPopup,
+  TooltipPortal,
+  TooltipPositioner,
+  TooltipTrigger,
+} from "#/frontend/ui/components/Tooltip.tsx";
 import {
   ArrowClockwiseIcon,
   ArrowLeftIcon,
@@ -74,6 +82,11 @@ import {
   NaniteRuntimeChatPlaceholder,
   useNaniteAgent,
 } from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
+import {
+  getNextNaniteDesktopPanel,
+  NaniteDesktopPanelControls,
+  type NaniteDesktopPanel,
+} from "#/frontend/routes/_authenticated/nanites/-layout-controls.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import {
   AUTH_SESSION_QUERY_KEY,
@@ -182,10 +195,9 @@ async function readJsonResponse<TResponse extends JsonResponseLike>(
   return response.json();
 }
 
-const naniteMobileViews: readonly NaniteMobileView[] = ["nanites", "chat", "files", "details"];
+const naniteMobileViews: readonly NaniteMobileView[] = ["nanites", "chat", "files", "summary"];
 const naniteMobileSwipeThreshold = 64;
 const naniteActiveActivityMs = 30_000;
-type NaniteDesktopPanel = "details" | "files";
 
 // Drag-to-resize a workspace section. `grow` is 1 when the section widens as the
 // pointer moves right (left-anchored panes) and -1 when it widens moving left.
@@ -231,7 +243,7 @@ type NaniteRepositoryGroup = {
 };
 
 type NaniteEventSource = NaniteManifest["eventSource"];
-type NaniteMobileView = "nanites" | "chat" | "files" | "details";
+type NaniteMobileView = "nanites" | "chat" | "files" | "summary";
 type BrowserTriggerTestEvent = TestNaniteTriggerInput["event"];
 
 export const Route = createFileRoute("/_authenticated/nanites")({
@@ -1604,8 +1616,10 @@ function NaniteWorkspaceReview({
     readonly NaniteWorkspaceTreeEntry[]
   >([]);
   const [filterSearchLoading, setFilterSearchLoading] = useState(false);
+  const [copiedFile, setCopiedFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadedDirectoriesRef = useRef<ReadonlySet<string>>(new Set());
+  const copiedFileTimeoutRef = useRef<number | null>(null);
 
   const workspaceRoot = resolveWorkspaceRoot(info);
 
@@ -1759,6 +1773,22 @@ function NaniteWorkspaceReview({
   }, [loadWorkspaceRoot, refreshKey]);
 
   useEffect(() => {
+    setCopiedFile(false);
+    if (copiedFileTimeoutRef.current !== null) {
+      window.clearTimeout(copiedFileTimeoutRef.current);
+      copiedFileTimeoutRef.current = null;
+    }
+  }, [selectedPath]);
+
+  useEffect(() => {
+    return () => {
+      if (copiedFileTimeoutRef.current !== null) {
+        window.clearTimeout(copiedFileTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const filter = fileFilter.trim().toLowerCase();
     if (!filter) {
       setFilterSearchEntries([]);
@@ -1898,6 +1928,23 @@ function NaniteWorkspaceReview({
       : stripWorkspaceRootPrefix(selectedPath, workspaceRoot)
     : "";
 
+  const copySelectedFile = useCallback(async () => {
+    if (!selectedFile) return;
+    try {
+      await navigator.clipboard.writeText(selectedFile.content);
+      setCopiedFile(true);
+      if (copiedFileTimeoutRef.current !== null) {
+        window.clearTimeout(copiedFileTimeoutRef.current);
+      }
+      copiedFileTimeoutRef.current = window.setTimeout(() => {
+        setCopiedFile(false);
+        copiedFileTimeoutRef.current = null;
+      }, 1500);
+    } catch {
+      /* ignore */
+    }
+  }, [selectedFile]);
+
   return (
     <section className="nanites-workspace__workbench app__pane" aria-label="Nanite workspace">
       <div className="app__workbench-shell">
@@ -1911,17 +1958,27 @@ function NaniteWorkspaceReview({
             ) : null}
           </div>
           <div className="app__workbench-actions">
-            <Button
-              variant="ghost"
-              color="neutral"
-              size="sm"
-              onClick={refresh}
-              disabled={loading}
-              aria-label="Refresh workspace"
-              title="Refresh workspace"
-            >
-              <ArrowClockwiseIcon size={14} aria-hidden="true" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    color="neutral"
+                    size="sm"
+                    onClick={refresh}
+                    disabled={loading}
+                    aria-label="Refresh workspace"
+                  >
+                    <ArrowClockwiseIcon size={14} aria-hidden="true" />
+                  </Button>
+                }
+              />
+              <TooltipPortal>
+                <TooltipPositioner side="bottom" sideOffset={6}>
+                  <TooltipPopup>Refresh workspace</TooltipPopup>
+                </TooltipPositioner>
+              </TooltipPortal>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -1933,19 +1990,53 @@ function NaniteWorkspaceReview({
             workspaceView === "preview" && selectedPath ? (
               <div className="nanites-workspace__review-file">
                 <div className="nanites-workspace__review-file-header">
-                  <Button
-                    variant="ghost"
-                    color="neutral"
-                    size="sm"
-                    onClick={() => setWorkspaceView("explorer")}
-                    aria-label="Back to files"
-                    title="Back to files"
-                  >
-                    <ArrowLeftIcon size={14} aria-hidden="true" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          color="neutral"
+                          size="sm"
+                          onClick={() => setWorkspaceView("explorer")}
+                          aria-label="Back to files"
+                        >
+                          <ArrowLeftIcon size={14} aria-hidden="true" />
+                        </Button>
+                      }
+                    />
+                    <TooltipPortal>
+                      <TooltipPositioner side="bottom" sideOffset={6}>
+                        <TooltipPopup>Back to files</TooltipPopup>
+                      </TooltipPositioner>
+                    </TooltipPortal>
+                  </Tooltip>
                   <span className="app__preview-url-text" title={selectedPath}>
                     {selectedPathLabel}
                   </span>
+                  {selectedFile ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            color="neutral"
+                            size="sm"
+                            onClick={() => void copySelectedFile()}
+                            aria-label={copiedFile ? "Copied file contents" : "Copy file contents"}
+                          >
+                            {copiedFile ? <CheckIcon /> : <CopyIcon />}
+                          </Button>
+                        }
+                      />
+                      <TooltipPortal>
+                        <TooltipPositioner side="bottom" sideOffset={6}>
+                          <TooltipPopup>
+                            {copiedFile ? "Copied" : "Copy file contents"}
+                          </TooltipPopup>
+                        </TooltipPositioner>
+                      </TooltipPortal>
+                    </Tooltip>
+                  ) : null}
                 </div>
                 <div className="app__workspace-code-pane">
                   {selectedFileIsLoading ? (
@@ -2287,7 +2378,7 @@ function NanitesRuntimeSurface({
 }) {
   const navigate = Route.useNavigate();
   const [mobileView, setMobileView] = useState<NaniteMobileView>("chat");
-  const [desktopPanel, setDesktopPanel] = useState<NaniteDesktopPanel>("details");
+  const [desktopPanel, setDesktopPanel] = useState<NaniteDesktopPanel>("summary");
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set());
   const toggleGroupCollapsed = useCallback((repository: string) => {
     setCollapsedGroups((previous) => {
@@ -2300,7 +2391,7 @@ function NanitesRuntimeSurface({
       return next;
     });
   }, []);
-  const [isAsideOpen, setIsAsideOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(248);
   const [asideWidth, setAsideWidth] = useState(340);
   const mobileTouchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
@@ -2477,8 +2568,8 @@ function NanitesRuntimeSurface({
   const main = (
     <main
       className="nanites-workspace"
-      data-desktop-panel={desktopPanel}
-      data-aside-open={isAsideOpen}
+      data-desktop-panel={desktopPanel ?? "closed"}
+      data-sidebar-open={isSidebarOpen}
       data-mobile-view={mobileView}
       aria-label="Nanite runtime"
       style={
@@ -2510,22 +2601,24 @@ function NanitesRuntimeSurface({
         moveMobileView(deltaX < 0 ? 1 : -1);
       }}
     >
-      <button
-        type="button"
-        className="nanites-workspace__resizer nanites-workspace__resizer--sidebar"
-        style={{ insetInlineStart: `${sidebarWidth}px` }}
-        aria-label="Resize Nanites list"
-        onPointerDown={(event) =>
-          beginColumnResize(event, {
-            current: sidebarWidth,
-            min: 200,
-            max: 380,
-            grow: 1,
-            apply: setSidebarWidth,
-          })
-        }
-      />
-      {isAsideOpen ? (
+      {isSidebarOpen ? (
+        <button
+          type="button"
+          className="nanites-workspace__resizer nanites-workspace__resizer--sidebar"
+          style={{ insetInlineStart: `${sidebarWidth}px` }}
+          aria-label="Resize Nanites list"
+          onPointerDown={(event) =>
+            beginColumnResize(event, {
+              current: sidebarWidth,
+              min: 200,
+              max: 380,
+              grow: 1,
+              apply: setSidebarWidth,
+            })
+          }
+        />
+      ) : null}
+      {desktopPanel === "files" ? (
         <button
           type="button"
           className="nanites-workspace__resizer nanites-workspace__resizer--aside"
@@ -2543,39 +2636,75 @@ function NanitesRuntimeSurface({
         />
       ) : null}
 
-      {!isAsideOpen ? (
-        <button
-          type="button"
-          className="nanites-workspace__aside-reveal"
-          onClick={() => setIsAsideOpen(true)}
-          aria-label="Show details panel"
-          title="Show panel"
-        >
-          <SidebarSimpleIcon size={16} aria-hidden="true" />
-        </button>
-      ) : null}
+      <header className="nanites-workspace__toolbar">
+        <div className="nanites-workspace__toolbar-start">
+          <div
+            className="nanites-workspace__panel-toggle nanites-workspace__panel-toggle--sidebar"
+            aria-label="Sidebar"
+          >
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={isSidebarOpen ? "Hide Nanites sidebar" : "Show Nanites sidebar"}
+                    aria-pressed={isSidebarOpen}
+                    data-selected={isSidebarOpen}
+                    onClick={() => setIsSidebarOpen((current) => !current)}
+                  >
+                    <SidebarSimpleIcon size={14} aria-hidden="true" />
+                  </button>
+                }
+              />
+              <TooltipPortal>
+                <TooltipPositioner side="bottom" sideOffset={6}>
+                  <TooltipPopup>
+                    {isSidebarOpen ? "Hide Nanites sidebar" : "Show Nanites sidebar"}
+                  </TooltipPopup>
+                </TooltipPositioner>
+              </TooltipPortal>
+            </Tooltip>
+          </div>
+          <h1 className="nanites-workspace__toolbar-title">Nanites</h1>
+        </div>
+        <div className="nanites-workspace__toolbar-actions">
+          <NaniteDesktopPanelControls
+            activePanel={desktopPanel}
+            onToggle={(panel) =>
+              setDesktopPanel((current) => getNextNaniteDesktopPanel(current, panel))
+            }
+          />
+        </div>
+      </header>
 
       <aside className="nanites-workspace__sidebar app__pane" aria-label="Nanites">
         <div className="nanites-workspace__masthead">
           <div className="app__brand">
-            <div className="app__brand-copy">
-              <h1 className="app__brand-title">Nanites</h1>
-              <InstallationPicker activeInstallation={activeInstallation} />
-            </div>
+            <InstallationPicker activeInstallation={activeInstallation} />
           </div>
           <div className="nanites-workspace__masthead-actions">
-            <Link
-              className="nanites-workspace__nav-link"
-              to="/observability"
-              search={{
-                installationId: activeInstallation.id,
-                range: "7d",
-              }}
-              aria-label="Open observability"
-              title="Open observability"
-            >
-              <ChartBarIcon size={14} aria-hidden="true" />
-            </Link>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Link
+                    className="nanites-workspace__nav-link"
+                    to="/observability"
+                    search={{
+                      installationId: activeInstallation.id,
+                      range: "7d",
+                    }}
+                    aria-label="Open observability"
+                  >
+                    <ChartBarIcon size={14} aria-hidden="true" />
+                  </Link>
+                }
+              />
+              <TooltipPortal>
+                <TooltipPositioner side="bottom" sideOffset={6}>
+                  <TooltipPopup>Open observability</TooltipPopup>
+                </TooltipPositioner>
+              </TooltipPortal>
+            </Tooltip>
             <span className="nanites-workspace__count">{naniteItems.length}</span>
           </div>
         </div>
@@ -2706,7 +2835,7 @@ function NanitesRuntimeSurface({
       </aside>
 
       <section className="nanites-workspace__runtime app__pane--chat" aria-label="Nanite chat">
-        <div className="nanites-workspace__runtime-body" data-info-open={true}>
+        <div className="nanites-workspace__runtime-body">
           <div className="nanites-workspace__chat">
             {isManagerSelected ? (
               <Suspense
@@ -2730,42 +2859,12 @@ function NanitesRuntimeSurface({
         </div>
       </section>
 
-      <aside className="nanites-workspace__aside" aria-label="Nanite details and review">
-        <div className="nanites-workspace__aside-header">
-          <div className="nanites-workspace__panel-toggle" aria-label="Right panel">
-            <button
-              type="button"
-              data-selected={desktopPanel === "details"}
-              onClick={() => setDesktopPanel("details")}
-              aria-label="Details"
-              title="Details"
-            >
-              <SlidersHorizontalIcon size={14} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              data-selected={desktopPanel === "files"}
-              onClick={() => setDesktopPanel("files")}
-              aria-label="Workspace"
-              title="Workspace"
-            >
-              <FileIcon size={14} aria-hidden="true" />
-            </button>
-          </div>
-          <div className="nanites-workspace__aside-actions">
-            <button
-              type="button"
-              className="nanites-workspace__aside-collapse"
-              onClick={() => setIsAsideOpen(false)}
-              aria-label="Collapse details panel"
-              title="Collapse panel"
-            >
-              <SidebarSimpleIcon size={14} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-
-        <div className="nanites-workspace__details-slot" data-active={desktopPanel === "details"}>
+      <section
+        className="nanites-workspace__summary-layer"
+        data-open={desktopPanel === "summary"}
+        aria-label="Nanite summary"
+      >
+        <div className="nanites-workspace__summary-card">
           {isManagerSelected ? (
             <ManagerInfoPanel
               activeInstallation={activeInstallation}
@@ -2798,8 +2897,14 @@ function NanitesRuntimeSurface({
             />
           )}
         </div>
+      </section>
 
-        <div className="nanites-workspace__files-slot" data-active={desktopPanel === "files"}>
+      <aside
+        className="nanites-workspace__aside"
+        data-open={desktopPanel === "files"}
+        aria-label="File explorer"
+      >
+        <div className="nanites-workspace__files-slot">
           {isManagerSelected ? (
             <NaniteWorkspacePanel nanite={null} naniteId={null} refreshKey="manager" />
           ) : (
@@ -2839,11 +2944,11 @@ function NanitesRuntimeSurface({
         </button>
         <button
           type="button"
-          data-selected={mobileView === "details"}
-          onClick={() => selectMobileView("details")}
+          data-selected={mobileView === "summary"}
+          onClick={() => selectMobileView("summary")}
         >
           <SlidersHorizontalIcon size={18} aria-hidden="true" />
-          <span>Details</span>
+          <span>Summary</span>
         </button>
       </nav>
     </main>
