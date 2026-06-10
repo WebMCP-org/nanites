@@ -1,6 +1,10 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
+import {
+  type NanitesRuntimeModelSettings,
+  resolveDefaultSigveloAgentModelSettings,
+} from "#/backend/nanites/model-settings.ts";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 
@@ -21,6 +25,7 @@ function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput
       ? {
           gateway: {
             id: input.gatewayId,
+            skipCache: true,
             metadata: input.gatewayMetadata,
           },
         }
@@ -34,9 +39,11 @@ interface SigveloAgentLanguageModelInput {
   gatewayMetadata?: Record<string, string>;
 }
 
-export function createSigveloAgentLanguageModel(
-  input: SigveloAgentLanguageModelInput,
-): LanguageModel {
+interface NaniteRunLanguageModelInput extends SigveloAgentLanguageModelInput {
+  modelSettings: NanitesRuntimeModelSettings;
+}
+
+function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel | null {
   const testFixture = String(input.env.NANITES_LLM_FIXTURE);
   if (
     testFixture === "complete" ||
@@ -62,11 +69,41 @@ export function createSigveloAgentLanguageModel(
     }).chat("gpt-4o-mini");
   }
 
+  return null;
+}
+
+export function createSigveloAgentLanguageModel(
+  input: SigveloAgentLanguageModelInput,
+): LanguageModel {
+  const testLanguageModel = createConfiguredTestLanguageModel(input);
+  if (testLanguageModel) {
+    return testLanguageModel;
+  }
+
+  const modelSettings = resolveDefaultSigveloAgentModelSettings(input.env);
+
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,
-    model: "@cf/moonshotai/kimi-k2.6",
+    model: modelSettings.modelId,
     sessionAffinity: input.sessionAffinity,
-    gatewayId: input.env.NANITES_AI_GATEWAY_ID || undefined,
+    gatewayId: modelSettings.gatewayId || undefined,
+    gatewayMetadata: input.gatewayMetadata,
+  });
+}
+
+export async function createNaniteRunLanguageModel(
+  input: NaniteRunLanguageModelInput,
+): Promise<LanguageModel> {
+  const testLanguageModel = createConfiguredTestLanguageModel(input);
+  if (testLanguageModel) {
+    return testLanguageModel;
+  }
+
+  return createPromptCachedWorkersAIModel({
+    binding: input.env.AI,
+    model: input.modelSettings.modelId,
+    sessionAffinity: input.sessionAffinity,
+    gatewayId: input.modelSettings.gatewayId || undefined,
     gatewayMetadata: input.gatewayMetadata,
   });
 }

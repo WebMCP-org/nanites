@@ -1,11 +1,24 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { validateGeneratedTriggerSource } from "#/backend/nanites/triggers.ts";
-import {
-  shouldResyncNaniteDuringMaintenance,
-  type SigveloNaniteManager,
-} from "#/backend/agents/SigveloNaniteManager.ts";
+import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
+
+beforeAll(async () => {
+  await env.DB.exec("CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY);");
+  Object.assign(env, {
+    AI: {
+      models: async () => [
+        {
+          id: "@cf/moonshotai/kimi-k2.6",
+          name: "Kimi K2.6",
+          task: { name: "Text Generation" },
+          tags: ["Cloudflare-hosted"],
+        },
+      ],
+    },
+  });
+});
 
 function getManager() {
   return getAgentByName(
@@ -14,10 +27,11 @@ function getManager() {
   );
 }
 
-function getInstallationManager() {
+async function getInstallationManager() {
+  const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
   return getAgentByName(
     env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-    `installation:${Math.floor(Math.random() * 1_000_000) + 1}`,
+    `installation:${githubInstallationId}`,
   );
 }
 
@@ -79,6 +93,7 @@ export default {
 
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
+const naniteModel = "deepseek/deepseek-v4-pro";
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,
@@ -93,6 +108,7 @@ async function registerPackageDocsSyncer(
       id: input.id,
       name: input.name,
       description: "Keeps package docs aligned with package changes.",
+      model: naniteModel,
       eventSource: {
         type: "github",
       },
@@ -269,28 +285,6 @@ export default {
   }
 });
 
-test("maintenance resync predicate tolerates persisted nanites without event sources", () => {
-  const staleNanite = {
-    manifest: {
-      id: "stale-missing-event-source",
-      name: "Stale missing event source",
-      description: "Persisted before eventSource was required.",
-      permissions: {},
-    },
-    latestVersion: {
-      versionId: "manifest-stale",
-      manifestHash: "stale",
-      registeredAt: "2026-01-01T00:00:00.000Z",
-    },
-    enabled: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  } as unknown as Parameters<typeof shouldResyncNaniteDuringMaintenance>[0];
-
-  expect(() => shouldResyncNaniteDuringMaintenance(staleNanite)).not.toThrow();
-  expect(shouldResyncNaniteDuringMaintenance(staleNanite)).toBe(true);
-});
-
 test("nanite registration stores generated triggers only after validation passes", async () => {
   const manager = await getManager();
 
@@ -299,6 +293,7 @@ test("nanite registration stores generated triggers only after validation passes
       id: "valid-generated-trigger",
       name: "Valid generated trigger",
       description: "Registers source that satisfies the trigger runtime contract.",
+      model: naniteModel,
       eventSource: {
         type: "github",
         events: ["push"],

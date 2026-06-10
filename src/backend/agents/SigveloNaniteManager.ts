@@ -65,6 +65,10 @@ import {
   systemActor,
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
+import {
+  resolveNanitesModelSettings,
+  validateNanitesModelId,
+} from "#/backend/nanites/model-settings.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -83,14 +87,14 @@ const NANITE_MANAGER_TERMINAL_SUBMISSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const NANITE_MANAGER_MAINTENANCE_SUBMISSION_DELETE_LIMIT = 100;
 const naniteManagerLogger = getLogger(LOGGING.NANITES_CATEGORY);
 
-type ManagerWebhookDispatcher = {
-  handleGitHubWebhook(input: HandleGitHubWebhookInput): Promise<GitHubWebhookRunDispatch[]>;
-  dispatchRun(input: DispatchNaniteRunInput): Promise<NaniteRunRecord>;
-};
 type GeneratedTriggerSuccess = Extract<
   Awaited<ReturnType<typeof runGeneratedTrigger>>,
   { ok: true }
 >;
+type ManagerWebhookRpc = {
+  handleGitHubWebhook: SigveloNaniteManager["handleGitHubWebhook"];
+  dispatchRun: SigveloNaniteManager["dispatchRun"];
+};
 type GeneratedTriggerEvaluation =
   | {
       ok: false;
@@ -115,8 +119,8 @@ export async function dispatchGitHubWebhookToNaniteManager({
     env.SigveloNaniteManager,
     buildNaniteManagerKey(githubInstallationId),
   );
-  const dispatcher = manager as unknown as ManagerWebhookDispatcher;
-  const dispatches = await dispatcher.handleGitHubWebhook({
+  const managerRpc = manager as unknown as ManagerWebhookRpc;
+  const dispatches = await managerRpc.handleGitHubWebhook({
     githubInstallationId,
     event,
   });
@@ -126,7 +130,7 @@ export async function dispatchGitHubWebhookToNaniteManager({
       continue;
     }
 
-    await dispatcher.dispatchRun({ runId: dispatch.run.runId });
+    await managerRpc.dispatchRun({ runId: dispatch.run.runId });
   }
 
   return dispatches;
@@ -287,6 +291,7 @@ type NaniteManifestBase = {
   id: string;
   name: string;
   description: string;
+  model: string;
   permissions: NanitePermissionSpec;
 };
 
@@ -332,6 +337,7 @@ export type NaniteRunRecord = {
   runId: string;
   naniteId: string;
   versionId: string;
+  model: NaniteRunModelSnapshot;
   triggerKey: string;
   trigger: NaniteTriggerEvent;
   status: NaniteRunStatus;
@@ -344,6 +350,17 @@ export type NaniteRunRecord = {
   dispatchError: string | null;
   updatedAt: string;
   completedAt: string | null;
+};
+
+export type NaniteRunModelSnapshot = {
+  runtimePath: "workers_ai_gateway";
+  effectiveModelId: string;
+  effectiveProvider: string;
+  effectiveProviderLabel: string;
+  effectiveModelName: string;
+  effectiveGatewayId: string;
+  manifestVersionId: string;
+  resolvedAt: string;
 };
 
 export type NaniteManagerState = {
@@ -706,6 +723,43 @@ function isRecurringScheduleWhen(when: NaniteScheduleWhen): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export async function normalizeNaniteManifestModelConfig(
+  env: Env,
+  manifest: NaniteManifest,
+): Promise<NaniteManifest> {
+  if (typeof manifest.model !== "string") {
+    throw new AppError("nanitesModelSelectionInvalid", {
+      details: { reason: "Nanite manifests must include a model id.", modelId: null },
+    });
+  }
+
+  const modelId = await validateNanitesModelId(env, manifest.model);
+  return {
+    ...manifest,
+    model: modelId,
+  };
+}
+
+export async function resolveNaniteRunModelSnapshot(input: {
+  env: Env;
+  manifest: NaniteManifest;
+  manifestVersionId: string;
+  resolvedAt: string;
+}): Promise<NaniteRunModelSnapshot> {
+  const modelSettings = resolveNanitesModelSettings(input.env, input.manifest.model);
+
+  return {
+    runtimePath: "workers_ai_gateway",
+    effectiveModelId: modelSettings.modelId,
+    effectiveProvider: modelSettings.provider,
+    effectiveProviderLabel: modelSettings.providerLabel,
+    effectiveModelName: modelSettings.modelName,
+    effectiveGatewayId: modelSettings.gatewayId,
+    manifestVersionId: input.manifestVersionId,
+    resolvedAt: input.resolvedAt,
+  };
 }
 
 function isGitHubEventSource(
@@ -2059,7 +2113,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   @callable()
   async registerNanite(input: RegisterNaniteInput): Promise<ManagedNanite> {
     const current = await this.getSnapshot();
-    const manifest = input.manifest;
+    const manifest = await normalizeNaniteManifestModelConfig(this.env, input.manifest);
 
     const githubInstallationId = getGitHubInstallationIdFromManagerName(this.name);
     if (githubInstallationId) {
@@ -2168,10 +2222,17 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     const startedAt = nowIso();
     const runId = crypto.randomUUID();
+    const model = await resolveNaniteRunModelSnapshot({
+      env: this.env,
+      manifest: nanite.manifest,
+      manifestVersionId: nanite.latestVersion.versionId,
+      resolvedAt: startedAt,
+    });
     const run: NaniteRunRecord = {
       runId,
       naniteId: input.naniteId,
       versionId: nanite.latestVersion.versionId,
+      model,
       triggerKey,
       trigger: input.trigger,
       status: "running",

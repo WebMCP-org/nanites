@@ -116,6 +116,7 @@ export type RecordAiUsageFactInput = {
   usage: LanguageModelUsage;
   providerMetadata?: unknown;
   providerBilledTotalCostUsdMicros?: number | null;
+  aiGatewayId?: string | null;
   aiGatewayLogId?: string | null;
   aiGatewayEventId?: string | null;
   actor?: ObservabilityActor | null;
@@ -407,6 +408,7 @@ export async function recordNaniteCatalogProjection(
     enabled: input.nanite.enabled,
     eventSourceType: readEventSourceType(input.nanite.manifest),
     latestVersionId: input.nanite.latestVersion.versionId,
+    modelId: input.nanite.manifest.model,
     repositoryFullNamesJson: JSON.stringify(repositories),
     repositoryCount: repositories.length,
     triggerEventCount: countNaniteTriggerEvents(input.nanite.manifest),
@@ -432,6 +434,7 @@ export async function recordNaniteCatalogProjection(
         enabled: values.enabled,
         eventSourceType: values.eventSourceType,
         latestVersionId: values.latestVersionId,
+        modelId: values.modelId,
         repositoryFullNamesJson: values.repositoryFullNamesJson,
         repositoryCount: values.repositoryCount,
         triggerEventCount: values.triggerEventCount,
@@ -632,6 +635,13 @@ export async function recordNaniteRunFact(
     outputAdditions: input.outputPullRequest?.additions ?? null,
     outputDeletions: input.outputPullRequest?.deletions ?? null,
     outputChangedFiles: input.outputPullRequest?.changedFiles ?? null,
+    modelRuntimePath: input.run.model.runtimePath,
+    effectiveModelId: input.run.model.effectiveModelId,
+    effectiveProvider: input.run.model.effectiveProvider,
+    effectiveModelName: input.run.model.effectiveModelName,
+    effectiveGatewayId: input.run.model.effectiveGatewayId,
+    modelManifestVersionId: input.run.model.manifestVersionId,
+    modelResolvedAt: new Date(input.run.model.resolvedAt),
     configSource: "default",
     implicitFailureReason: input.run.dispatchError,
     startedAt: new Date(input.run.startedAt),
@@ -662,6 +672,13 @@ export async function recordNaniteRunFact(
         outputAdditions: values.outputAdditions,
         outputDeletions: values.outputDeletions,
         outputChangedFiles: values.outputChangedFiles,
+        modelRuntimePath: values.modelRuntimePath,
+        effectiveModelId: values.effectiveModelId,
+        effectiveProvider: values.effectiveProvider,
+        effectiveModelName: values.effectiveModelName,
+        effectiveGatewayId: values.effectiveGatewayId,
+        modelManifestVersionId: values.modelManifestVersionId,
+        modelResolvedAt: values.modelResolvedAt,
         implicitFailureReason: values.implicitFailureReason,
         completedAt: values.completedAt,
         lastUpdatedAt: values.lastUpdatedAt,
@@ -753,6 +770,7 @@ function buildAiUsageFactInsert(input: BuildAiUsageFactInsertInput): AiUsageFact
     rawUsageJson: stringifyJson(usage.raw),
     providerMetadataJson: stringifyJson(input.input.providerMetadata),
     providerBilledTotalCostUsdMicros: nullable(input.input.providerBilledTotalCostUsdMicros),
+    aiGatewayId: nullable(input.input.aiGatewayId),
     aiGatewayLogId: nullable(input.input.aiGatewayLogId),
     aiGatewayEventId: nullable(input.input.aiGatewayEventId),
     actorKind: nullable(actor?.kind),
@@ -791,6 +809,7 @@ function aiUsageFactUpdate(values: AiUsageFactInsert) {
     rawUsageJson: values.rawUsageJson,
     providerMetadataJson: values.providerMetadataJson,
     providerBilledTotalCostUsdMicros: values.providerBilledTotalCostUsdMicros,
+    aiGatewayId: values.aiGatewayId,
     aiGatewayLogId: values.aiGatewayLogId,
     aiGatewayEventId: values.aiGatewayEventId,
     actorKind: values.actorKind,

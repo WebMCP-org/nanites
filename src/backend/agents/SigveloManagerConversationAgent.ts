@@ -6,6 +6,7 @@ import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
 import { callable, getAgentByName } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
+import type { TurnConfig, TurnContext } from "@cloudflare/think";
 import { AppError } from "#/backend/errors.ts";
 import {
   issueScopedGitHubInstallationToken,
@@ -134,6 +135,20 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       env: this.env,
       sessionAffinity: this.sessionAffinity,
     });
+  }
+
+  private getTurnModel(): LanguageModel {
+    return createSigveloAgentLanguageModel({
+      env: this.env,
+      sessionAffinity: this.sessionAffinity,
+    });
+  }
+
+  override async beforeTurn(_ctx: TurnContext): Promise<TurnConfig> {
+    return {
+      maxSteps: this.maxSteps,
+      model: this.getTurnModel(),
+    };
   }
 
   override configureSession(session: Session): Session {

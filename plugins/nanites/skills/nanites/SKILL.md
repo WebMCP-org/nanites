@@ -17,7 +17,7 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 
 ## Operating Model
 
-- Keep the Nanite definition thin: identity, scope, purpose, stop conditions, `eventSource`, `permissions`, and root `triggerSource` when the source is machine-originated.
+- Keep the Nanite definition thin: identity, scope, purpose, stop conditions, `model`, `eventSource`, `permissions`, and root `triggerSource` when the source is machine-originated.
 - Generated trigger code routes machine-originated events. It does not own maintenance work, repository writes, cross-Nanite fanout, or lifecycle state.
 - Human prompts go directly to the Think Nanite through chat or `sigvelo_start_nanite_run`.
 - The installation manager owns policy, capability validation, dispatch, dedupe, and GitHub feedback surfaces.
@@ -36,7 +36,7 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 
 1. Verify access with `sigvelo_whoami`.
 2. Inspect existing Nanites with `sigvelo_debug_nanites` before creating or changing one.
-3. Draft a strict `sigvelo_create_nanite` payload: `manifest.id`, `name`, `description`, `eventSource`, `permissions`, and `triggerSource` for GitHub or schedule sources.
+3. Draft a strict `sigvelo_create_nanite` payload: `manifest.id`, `name`, `description`, `model`, `eventSource`, `permissions`, and `triggerSource` for GitHub or schedule sources.
 4. Register or update one Nanite with `sigvelo_create_nanite`. For related fleets, create and validate one Nanite before moving to the next.
 5. Test generated triggers with `sigvelo_test_nanite_trigger`. Use fixture overrides that satisfy the trigger's repository, branch, action, and path filters.
 6. Test manual behavior with `sigvelo_start_nanite_run`.
@@ -47,6 +47,7 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 
 - Create many small Nanites instead of one broad maintainer.
 - Use `eventSource` as a coarse candidate filter and `triggerSource` as the real generated TypeScript decision. Do not use legacy `trigger` or `inboundTrigger` fields.
+- Always include `manifest.model` as an explicit Cloudflare model id string. Pick the cheapest reliable model for the Nanite's job from the current Cloudflare model catalog or provider-native AI Gateway surface; prefer DeepSeek when it is suitable and available.
 - Prefer `import { defineGitHubTrigger } from "@sigvelo/nanite-trigger"` for GitHub triggers.
 - Return `ctx.noop(...)` with a useful reason for irrelevant events.
 - Keep `ctx.dispatchSelf(...)` input small, flat, and JSON-serializable.

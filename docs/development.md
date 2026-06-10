@@ -81,22 +81,26 @@ Apply database migrations before relying on an environment:
 vp exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
 ```
 
-## Required Secrets
+## Local Runtime Secrets
 
-Set runtime secrets with Wrangler:
+Fresh self-hosted deploys should use the Deploy to Cloudflare button and `/setup`; that path creates
+the customer-owned GitHub App and generated runtime secrets without copy-paste. Set runtime secrets
+with Wrangler only when operating named environments that already have deployment metadata:
 
 ```bash
 vp exec wrangler secret put AUTH_COOKIE_SECRET --config wrangler.jsonc
-vp exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc
 ```
 
-For local development, copy the local template and fill in the required values:
+For local development, reset disposable Wrangler state and apply the current baseline migration
+instead of adding compatibility code for old local D1 or Durable Object state:
 
 ```bash
-cp .dev.vars.example .dev.vars
+rm -rf .wrangler
+cp docs/dev.vars.local.example .dev.vars
+vp run db:migrate:local
 ```
 
 Optional Sentry:
@@ -109,9 +113,19 @@ vp exec wrangler secret put SENTRY_DSN --config wrangler.jsonc --env production
 
 Keep non-sensitive runtime settings such as `SENTRY_ENVIRONMENT` and `SENTRY_TRACES_SAMPLE_RATE` in `wrangler.jsonc` vars. Named Cloudflare environments do not inherit top-level vars, so each environment needs explicit values.
 
-## GitHub App Setup
+For local browser SDK or source-map upload settings, copy the Sentry/browser template only when you
+need it:
 
-SigVelo needs a GitHub App installed on the repositories Nanites may maintain.
+```bash
+cp docs/env.local.example .env
+```
+
+## Manual GitHub App Setup
+
+SigVelo needs a GitHub App installed on the repositories Nanites may maintain. For normal
+self-hosted deployments, `/setup` creates the GitHub App from a manifest and stores generated
+credentials as Worker Secrets. Use this manual path for local development, named SigVelo
+environments, and fallback debugging only.
 
 Use the deployed origin for URLs:
 
@@ -238,6 +252,7 @@ Generated trigger handlers route events. They should not edit repositories, own 
 Run the app:
 
 ```bash
+vp run db:migrate:local
 vp run dev
 ```
 
@@ -282,6 +297,5 @@ Nanites runtime changes should favor end-to-end tests that exercise real Worker/
 - `docs/architecture/execution-architecture.md`
 - `docs/architecture/roadmap.md`
 - `docs/architecture/user-stories.md`
-- `docs/admin-access.md`
 - `docs/nanites-auth-slice.md`
 - `docs/testing-golden-standard.md`

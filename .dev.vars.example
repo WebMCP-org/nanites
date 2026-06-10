@@ -1,14 +1,8 @@
-# Copy to .dev.vars for local development. Do not commit .dev.vars.
-
-# Required runtime secrets
-AUTH_COOKIE_SECRET="replace-with-a-long-random-value"
-CLOUDFLARE_ACCOUNT_ID="replace-with-your-cloudflare-account-id"
-GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nreplace-with-your-github-app-private-key\n-----END PRIVATE KEY-----"
-GITHUB_CLIENT_SECRET="replace-with-your-github-app-client-secret"
-GITHUB_WEBHOOK_SECRET="replace-with-your-github-app-webhook-secret"
-
-# Required only when using ALLOW_TEST_AUTH=true for local MCP/browser smoke tests.
-GITHUB_TEST_USER_TOKEN=""
-
-# Optional Sentry runtime secret
-SENTRY_DSN=""
+# Intentionally empty.
+#
+# Cloudflare Deploy to Cloudflare reads `.dev.vars.example` as deploy-time secret prompts.
+# Fresh self-hosted Nanites deploys should not ask for any runtime secrets up front; `/setup`
+# generates the auth cookie secret and customer-owned GitHub App credentials after Cloudflare
+# ownership is verified.
+#
+# For local development details, see `docs/development.md`.

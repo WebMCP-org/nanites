@@ -25,6 +25,7 @@ import {
   fetchGitHubViewer,
   listVisibleInstallations,
 } from "#/backend/github/index.ts";
+import { requireDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH, normalizeAuthenticatedReturnToPath } from "#/auth.ts";
 import {
@@ -76,13 +77,14 @@ export async function startGitHubOAuthLogin({
     returnToPath: normalizeAuthenticatedReturnToPath(requestedReturnToPath),
     expiresAt: buildOAuthStateExpiration(),
   });
+  const db = createDbClient(env.DB);
+  const githubAppConfig = await requireDeploymentGitHubAppConfig(db, env);
   const { url: authorizationUrl } = getWebFlowAuthorizationUrl({
     clientType: "github-app",
-    clientId: env.GITHUB_CLIENT_ID,
+    clientId: githubAppConfig.clientId,
     redirectUrl: buildGitHubOAuthCallbackUrl(request),
     state: githubOAuthState.state,
   });
-  const db = createDbClient(env.DB);
   await recordAccountAuthFunnelEvent(db, {
     eventType: "github_oauth_started",
     metadata: {

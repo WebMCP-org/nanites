@@ -62,3 +62,15 @@ test("Nanite plugin examples avoid legacy manifest fields", () => {
     expect(manifest).not.toHaveProperty("capabilities");
   }
 });
+
+test("Nanite plugin examples include explicit model ids", () => {
+  for (const { source } of exampleFiles) {
+    const payload = JSON.parse(source) as {
+      manifest?: {
+        model?: unknown;
+      };
+    };
+
+    expect(payload.manifest?.model).toBe("@cf/moonshotai/kimi-k2.6");
+  }
+});

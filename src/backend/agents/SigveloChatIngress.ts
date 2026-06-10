@@ -15,6 +15,8 @@ import {
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
+import { createDbClient } from "#/backend/db/index.ts";
+import { requireDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
 
 const SIGVELO_GITHUB_BOT_USERNAME = "sigvelo";
 const MANAGER_REPLY_POLL_INTERVAL_SECONDS = 2;
@@ -124,13 +126,11 @@ function readGitHubManagerChatInput(
 
 export class SigveloChatIngress extends Agent<Env> {
   private runtime: ChatIngressRuntimeState = { status: "not_started" };
+  private runtimePromise: Promise<ChatIngressRuntimeState> | null = null;
 
   onStart(): void {
-    try {
-      this.runtime = this.createRuntime();
-    } catch (error) {
-      this.runtime = { status: "failed", error: toError(error) };
-    }
+    this.runtime = { status: "not_started" };
+    this.runtimePromise = null;
   }
 
   async onRequest(request: Request): Promise<Response> {
@@ -139,7 +139,7 @@ export class SigveloChatIngress extends Agent<Env> {
       return setupErrorResponse(new AppError("chatIngressNotFound"));
     }
 
-    const bot = this.getBot();
+    const bot = await this.getBot();
     if (bot instanceof Error) {
       return setupErrorResponse(bot);
     }
@@ -149,11 +149,15 @@ export class SigveloChatIngress extends Agent<Env> {
     });
   }
 
-  private createRuntime(): ChatIngressRuntimeState {
+  private async createRuntime(): Promise<ChatIngressRuntimeState> {
+    const githubAppConfig = await requireDeploymentGitHubAppConfig(
+      createDbClient(this.env.DB),
+      this.env,
+    );
     const github = createGitHubAdapter({
-      appId: this.env.GITHUB_APP_ID,
-      privateKey: this.env.GITHUB_APP_PRIVATE_KEY,
-      webhookSecret: this.env.GITHUB_WEBHOOK_SECRET,
+      appId: String(githubAppConfig.appId),
+      privateKey: githubAppConfig.privateKey,
+      webhookSecret: githubAppConfig.webhookSecret,
       userName: SIGVELO_GITHUB_BOT_USERNAME,
     });
 
@@ -179,6 +183,19 @@ export class SigveloChatIngress extends Agent<Env> {
       bot: bot.registerSingleton(),
       github,
     };
+  }
+
+  private async getRuntimeState(): Promise<ChatIngressRuntimeState> {
+    if (this.runtime.status === "ready" || this.runtime.status === "failed") {
+      return this.runtime;
+    }
+
+    this.runtimePromise ??= this.createRuntime().catch((error: unknown) => ({
+      status: "failed" as const,
+      error: toError(error),
+    }));
+    this.runtime = await this.runtimePromise;
+    return this.runtime;
   }
 
   private async acceptManagerRequest(
@@ -313,7 +330,7 @@ export class SigveloChatIngress extends Agent<Env> {
   }
 
   private async editStatusMessage(input: ManagerReplyPublication, text: string): Promise<void> {
-    const bot = this.getBot();
+    const bot = await this.getBot();
     if (bot instanceof Error) {
       throw bot;
     }
@@ -373,9 +390,10 @@ export class SigveloChatIngress extends Agent<Env> {
     return this.runtime.github;
   }
 
-  private getBot(): Chat | AppError {
-    if (this.runtime.status === "ready") {
-      return this.runtime.bot;
+  private async getBot(): Promise<Chat | AppError> {
+    const runtime = await this.getRuntimeState();
+    if (runtime.status === "ready") {
+      return runtime.bot;
     }
 
     return this.getRuntimeError();

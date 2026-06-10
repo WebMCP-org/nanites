@@ -28,11 +28,8 @@
     "remote": true,
   },
   "vars": {
-    "GITHUB_APP_ID": "3280686",
-    "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app",
     "ALLOW_TEST_AUTH": "false",
-    "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "",
-    "CLOUDFLARE_ACCESS_AUD": "",
     "SENTRY_ENVIRONMENT": "development",
     "SENTRY_TRACES_SAMPLE_RATE": "1",
     "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
@@ -44,14 +41,12 @@
     {
       "binding": "DB",
       "database_name": "nanites-db",
-      "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
       "migrations_dir": "src/backend/db/migrations",
     },
   ],
   "r2_buckets": [
     {
       "binding": "WORKSPACE_FILES",
-      "bucket_name": "nanites-workspace-files",
     },
   ],
   "assets": {
@@ -64,6 +59,7 @@
       "/admin/rpc/*",
       "/agents/*",
       "/auth/*",
+      "/setup/*",
       "/authorize",
       "/mcp",
       "/oauth/*",
@@ -71,19 +67,11 @@
     ],
   },
   "kv_namespaces": [
-    /**
-     * Replace placeholder ids with real Cloudflare KV namespace ids before deploying MCP OAuth.
-     * The binding name is fixed by @cloudflare/workers-oauth-provider.
-     */
     {
       "binding": "OAUTH_KV",
-      "id": "332558f8cf684876878b33baed2354be",
-      "preview_id": "332558f8cf684876878b33baed2354be",
     },
     {
       "binding": "TOOL_OUTPUTS",
-      "id": "856a7500658a4b6aa767198933d01edf",
-      "preview_id": "856a7500658a4b6aa767198933d01edf",
     },
   ],
   "durable_objects": {
@@ -99,6 +87,10 @@
       {
         "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
+      },
+      {
+        "class_name": "NanitesSetupAgent",
+        "name": "NanitesSetupAgent",
       },
     ],
   },
@@ -190,16 +182,11 @@
       ],
       "tag": "v14",
     },
+    {
+      "new_sqlite_classes": ["NanitesSetupAgent"],
+      "tag": "v15",
+    },
   ],
-  "secrets": {
-    "required": [
-      "AUTH_COOKIE_SECRET",
-      "CLOUDFLARE_ACCOUNT_ID",
-      "GITHUB_APP_PRIVATE_KEY",
-      "GITHUB_CLIENT_SECRET",
-      "GITHUB_WEBHOOK_SECRET",
-    ],
-  },
   "observability": {
     "enabled": true,
     "logs": {
@@ -241,11 +228,8 @@
         "remote": true,
       },
       "vars": {
-        "GITHUB_APP_ID": "3280686",
-        "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+        "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-local",
         "ALLOW_TEST_AUTH": "true",
-        "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "",
-        "CLOUDFLARE_ACCESS_AUD": "",
         "SENTRY_ENVIRONMENT": "local",
         "SENTRY_TRACES_SAMPLE_RATE": "1",
         "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
@@ -264,7 +248,6 @@
           "GITHUB_CLIENT_SECRET",
           "GITHUB_WEBHOOK_SECRET",
           "GITHUB_TEST_USER_TOKEN",
-          "CLOUDFLARE_ACCOUNT_ID",
         ],
       },
       "d1_databases": [
@@ -307,6 +290,10 @@
             "class_name": "SigveloNaniteManager",
             "name": "SigveloNaniteManager",
           },
+          {
+            "class_name": "NanitesSetupAgent",
+            "name": "NanitesSetupAgent",
+          },
         ],
       },
       "observability": {
@@ -341,11 +328,8 @@
         "remote": true,
       },
       "vars": {
-        "GITHUB_APP_ID": "3280686",
-        "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+        "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-staging",
         "ALLOW_TEST_AUTH": "false",
-        "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "",
-        "CLOUDFLARE_ACCESS_AUD": "",
         "SENTRY_ENVIRONMENT": "staging",
         "SENTRY_TRACES_SAMPLE_RATE": "0.2",
         "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
@@ -360,7 +344,6 @@
       "secrets": {
         "required": [
           "AUTH_COOKIE_SECRET",
-          "CLOUDFLARE_ACCOUNT_ID",
           "GITHUB_APP_PRIVATE_KEY",
           "GITHUB_CLIENT_SECRET",
           "GITHUB_WEBHOOK_SECRET",
@@ -406,6 +389,10 @@
             "class_name": "SigveloNaniteManager",
             "name": "SigveloNaniteManager",
           },
+          {
+            "class_name": "NanitesSetupAgent",
+            "name": "NanitesSetupAgent",
+          },
         ],
       },
       "observability": {
@@ -440,11 +427,8 @@
         "remote": true,
       },
       "vars": {
-        "GITHUB_APP_ID": "3280686",
-        "GITHUB_CLIENT_ID": "Iv23livMdvwnhX6rzSeX",
+        "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
         "ALLOW_TEST_AUTH": "false",
-        "CLOUDFLARE_ACCESS_TEAM_DOMAIN": "alexnahasprojects.cloudflareaccess.com",
-        "CLOUDFLARE_ACCESS_AUD": "6c619369cab2e7e805261ca8f2b9e20e2022fa5ccf083bd476dffb0681eae1a2",
         "SENTRY_ENVIRONMENT": "production",
         "SENTRY_TRACES_SAMPLE_RATE": "0.1",
         "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
@@ -459,7 +443,6 @@
       "secrets": {
         "required": [
           "AUTH_COOKIE_SECRET",
-          "CLOUDFLARE_ACCOUNT_ID",
           "GITHUB_APP_PRIVATE_KEY",
           "GITHUB_CLIENT_SECRET",
           "GITHUB_WEBHOOK_SECRET",
@@ -504,6 +487,10 @@
           {
             "class_name": "SigveloNaniteManager",
             "name": "SigveloNaniteManager",
+          },
+          {
+            "class_name": "NanitesSetupAgent",
+            "name": "NanitesSetupAgent",
           },
         ],
       },

@@ -16,6 +16,12 @@ The core model should stay simple:
 
 Everything else is implementation detail unless it changes trust, timing, cost, or the user's next decision.
 
+For the self-hosted bootstrap direction, see
+[Zero-Config Self-Hosting Plan](./zero-config-self-hosting-plan.md) and
+[Zero-Config Self-Hosting Edge Cases](./zero-config-self-hosting-edge-cases.md). The north star is
+a Cloudflare-owned deploy plus setup flow where customers click through first-party Cloudflare and
+GitHub screens without copying secrets or entering API keys.
+
 ## System map
 
 ```mermaid
@@ -160,8 +166,8 @@ owns policy and GitHub feedback. GitHub remains the artifact and CI truth surfac
 ## What Gets Authored
 
 Nanite creation authors a thin manifest and generated trigger source for machine-originated event
-sources. The manifest describes identity, coarse event intake, and repository/token permission
-scope. The generated trigger source handles machine-originated behavior.
+sources. The manifest describes identity, model policy, coarse event intake, and repository/token
+permission scope. The generated trigger source handles machine-originated behavior.
 
 Do not give the authoring model a manager name, MCP tier, tool allowlist, factory topology, or
 cross-Nanite routing plan. The active installation already selects the manager. GitHub MCP tools are
@@ -174,6 +180,7 @@ path filters, debounce rules, and other behavior belong in `triggerSource` code.
     id: "docs-syncer-react-webmcp",
     name: "React WebMCP docs syncer",
     description: "Keeps React WebMCP docs aligned with package changes.",
+    model: "@cf/moonshotai/kimi-k2.6",
     eventSource: {
       type: "github",
       events: ["push"],
@@ -288,10 +295,11 @@ Do not build code around the generated-owner future until the stable path stops 
 
 ## Active documents
 
-This directory has six active documents.
+This directory has seven active documents.
 
 - `architecture.md` - long-term product model and durable boundaries
 - `execution-architecture.md` - current runtime shape, centered on Think sub-agents and Workspace
+- `nanite-model-config-plan.md` - MCP/manager-authored model selection for Nanite manifests
 - `observability-plan.md` - cost, audit, telemetry, and dashboard planning for Nanites
 - `tool-surface-lld.md` - low-level design for shared MCP/browser/manager-chat Nanite tools
 - `roadmap.md` - the next few sprints, current milestone, and explicit non-goals
@@ -319,6 +327,7 @@ Do not let this directory turn back into a stack of overlapping plans.
 
 - Product truth belongs in `architecture.md`.
 - Build-now runtime truth belongs in `execution-architecture.md`.
+- Future Nanite model-selection implementation detail belongs in `nanite-model-config-plan.md`.
 - Observability and reporting planning belongs in `observability-plan.md`.
 - Shared manager tool-surface implementation detail belongs in `tool-surface-lld.md`.
 - Near-term sequencing belongs in `roadmap.md`.

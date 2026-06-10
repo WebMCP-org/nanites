@@ -105,6 +105,54 @@ const githubOAuthCallbackQueryInput = zValidator(
   }),
 );
 
+const githubInstallationIdQueryValueSchema = z
+  .string()
+  .min(1)
+  .transform((value) => Number(value))
+  .pipe(z.number().int().positive());
+
+const gitHubAppInstallCallbackQuerySchema = z.object({
+  installation_id: githubInstallationIdQueryValueSchema,
+  setup_action: z.enum(["install", "update"]),
+  state: z.string().min(1).nullable(),
+});
+
+type GitHubAppInstallCallbackQuery = z.infer<typeof gitHubAppInstallCallbackQuerySchema>;
+
+function readGitHubAppInstallCallbackQuery(request: Request): GitHubAppInstallCallbackQuery | null {
+  const callbackUrl = new URL(request.url);
+  if (!callbackUrl.searchParams.has("setup_action")) {
+    return null;
+  }
+
+  const result = gitHubAppInstallCallbackQuerySchema.safeParse({
+    installation_id: callbackUrl.searchParams.get("installation_id"),
+    setup_action: callbackUrl.searchParams.get("setup_action"),
+    state: callbackUrl.searchParams.get("state"),
+  });
+  return result.success ? result.data : null;
+}
+
+function buildGitHubInstallVerificationLoginUrl(
+  request: Request,
+  callbackQuery: GitHubAppInstallCallbackQuery,
+): URL {
+  const verifyUrl = new URL("/setup/github/verify", request.url);
+  verifyUrl.searchParams.set("installation_id", String(callbackQuery.installation_id));
+  if (callbackQuery.state) {
+    verifyUrl.searchParams.set("state", callbackQuery.state);
+  }
+
+  const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, request.url);
+  loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, `${verifyUrl.pathname}${verifyUrl.search}`);
+  return loginUrl;
+}
+
+function buildGitHubInstallCallbackLoginUrl(request: Request): URL | null {
+  const callbackQuery = readGitHubAppInstallCallbackQuery(request);
+  return callbackQuery ? buildGitHubInstallVerificationLoginUrl(request, callbackQuery) : null;
+}
+
 export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
   .get(TEST_AUTH_MINT_SESSION_PATH, testAuthQueryInput, async (context) => {
     if (context.env.ALLOW_TEST_AUTH !== "true") {
@@ -137,17 +185,33 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
       return context.redirect(requestUrl.toString(), 302);
     }
 
-    const login = await startGitHubOAuthLogin({
-      request: context.req.raw,
-      env: context.env,
-      requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
-    });
+    let login: Awaited<ReturnType<typeof startGitHubOAuthLogin>>;
+    try {
+      login = await startGitHubOAuthLogin({
+        request: context.req.raw,
+        env: context.env,
+        requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.kind === "deploymentGitHubAppSetupRequired") {
+        return context.redirect("/setup", 302);
+      }
+      throw error;
+    }
 
     context.header("Set-Cookie", login.stateCookie);
     return context.redirect(login.authorizationUrl, 302);
   })
   .get(GITHUB_OAUTH_CALLBACK_PATH, githubOAuthCallbackQueryInput, async (context) => {
     const callbackQuery = context.req.valid("query");
+    const setupVerificationLoginUrl = buildGitHubInstallCallbackLoginUrl(context.req.raw);
+    if (setupVerificationLoginUrl !== null) {
+      context.header("Set-Cookie", clearGitHubOAuthStateCookie(context.req.raw), {
+        append: true,
+      });
+      return context.redirect(setupVerificationLoginUrl.toString(), 302);
+    }
+
     const result = await completeGitHubOAuthCallback({
       request: context.req.raw,
       env: context.env,

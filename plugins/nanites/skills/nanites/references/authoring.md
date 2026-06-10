@@ -25,6 +25,12 @@ Avoid:
 
 Use the live MCP schema as the final authority. The create schema is strict: unexpected fields are rejected.
 
+Every manifest includes `model` as an explicit Cloudflare model id string. Pick the cheapest reliable
+function-calling text model for the Nanite's job from the current Cloudflare model catalog or
+provider-native AI Gateway surface. Prefer Cloudflare-hosted function-calling models unless a
+provider-native model is known to support Nanites' tool loop. Do not put gateway ids, BYOK aliases,
+provider API keys, or auth headers in the manifest.
+
 GitHub machine-source Nanite:
 
 ```json
@@ -33,6 +39,7 @@ GitHub machine-source Nanite:
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP docs aligned with package changes.",
+    "model": "@cf/moonshotai/kimi-k2.6",
     "eventSource": {
       "type": "github",
       "events": ["push"],
@@ -63,6 +70,7 @@ Manual Nanite:
     "id": "repo-health-checker",
     "name": "Repo Health Checker",
     "description": "Answers manual maintenance questions for one repo surface.",
+    "model": "@cf/moonshotai/kimi-k2.6",
     "eventSource": {
       "type": "manual"
     },
@@ -89,6 +97,7 @@ Schedule source shape:
     "type": "scheduleEvery",
     "intervalSeconds": 86400
   },
+  "model": "@cf/moonshotai/kimi-k2.6",
   "triggerSource": "export default { async handle(event, ctx) { return ctx.dispatchSelf({ reason: 'Daily scheduled check' }); } };"
 }
 ```
@@ -98,6 +107,7 @@ For `eventSource.type: "schedule"`, use `when` with a delayed seconds number, a 
 Authoring checklist:
 
 - identity: stable `id`, `name`, and `description`
+- model: explicit Cloudflare model id string
 - scope: repositories and owned files, packages, docs, workflows, or product surfaces
 - intake: `eventSource` as the coarse candidate filter
 - behavior: root `triggerSource` for machine-originated sources
@@ -109,6 +119,7 @@ Do not include:
 - `trigger`
 - `inboundTrigger`
 - `capabilities`
+- gateway ids, BYOK aliases, provider API keys, or provider auth headers
 - `manager`
 - MCP tiers or tool allowlists
 - generated runtime classes
@@ -279,7 +290,7 @@ After `sigvelo_create_nanite`, test the real path:
 }
 ```
 
-If the test returns `triggerAcceptedEvent: false`, read `acceptance.triggerRejectionReason` before changing code. If it dispatches a model, use terminal run status and `agentFeedback` as the acceptance result.
+If the test returns `triggerAcceptedEvent: false`, read `acceptance.triggerRejectionReason` before changing code. If the trigger dispatches a Nanite run, use terminal run status and `agentFeedback` as the acceptance result.
 
 ## Bundle Examples
 

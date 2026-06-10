@@ -24,9 +24,12 @@ import {
 } from "#/backend/logging.ts";
 import { ChatSdkStateAgent, SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
+import { createDbClient } from "#/backend/db/index.ts";
+import { readDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
 import { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
+import { NanitesSetupAgent } from "#/backend/agents/NanitesSetupAgent.ts";
 
 configureAgentLogging("info");
 
@@ -44,6 +47,7 @@ const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-prote
 export {
   ChatSdkStateAgent,
   HostBridgeLoopback,
+  NanitesSetupAgent,
   SigveloChatIngress,
   SigveloManagerConversationAgent,
   SigveloNaniteAgent,
@@ -242,6 +246,13 @@ const oauthProvider = new OAuthProvider<Env>({
 const handler = {
   async fetch(request: Request, env: Env, executionContext: ExecutionContext): Promise<Response> {
     const oauthProviderRoute = getOAuthProviderRequestRoute(new URL(request.url));
+    if (
+      oauthProviderRoute === MCP_ROUTE &&
+      (await readDeploymentGitHubAppConfig(createDbClient(env.DB), env)) === null
+    ) {
+      return Response.json({ code: "deployment_github_app_setup_required" }, { status: 403 });
+    }
+
     const requestId = oauthProviderRoute ? createWorkerRequestId(request) : undefined;
     const startTime = performance.now();
     const response = await oauthProvider.fetch(request, env, executionContext);

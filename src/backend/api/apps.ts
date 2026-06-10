@@ -10,6 +10,8 @@ import { githubWebhookRoutes } from "#/backend/api/routes/github.ts";
 import { mcpOAuthRoutes } from "#/backend/api/routes/mcp.ts";
 import { nanitesApiRoutes } from "#/backend/api/routes/nanites.ts";
 import { observabilityApiRoutes } from "#/backend/api/routes/observability.ts";
+import { setupRoutes } from "#/backend/api/routes/setup.ts";
+import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import {
   createWorkerRequestId,
   getApiRequestLogEvent,
@@ -57,6 +59,7 @@ function createRequestLogProperties(context: HonoContext, responseTime: number) 
 }
 
 const app = new Hono<WorkerHonoEnv>();
+const SETUP_AGENT_ROUTE_PREFIX = `/agents/${NANITES_SETUP_AGENT_NAME}/${NANITES_SETUP_AGENT_INSTANCE_NAME}`;
 
 app.onError(handleAppError);
 
@@ -79,11 +82,17 @@ export const nanitesHttpApp = app
   .route("/", browserAuthRoutes)
   .route("/", mcpOAuthRoutes)
   .route("/", githubWebhookRoutes)
+  .route("/", setupRoutes)
   .route("/api/auth", browserAuthApiRoutes)
   .route("/api/nanites", nanitesApiRoutes)
   .route("/api/observability", observabilityApiRoutes);
 
 nanitesHttpApp.use("/agents/*", async (context, next) => {
+  if (new URL(context.req.url).pathname.startsWith(SETUP_AGENT_ROUTE_PREFIX)) {
+    const middleware = agentsMiddleware<WorkerHonoEnv>();
+    return middleware(context, next);
+  }
+
   const middleware = agentsMiddleware<WorkerHonoEnv>({
     options: {
       onBeforeConnect: (request) => authorizeAgentRequest(request, context.env),

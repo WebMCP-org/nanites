@@ -663,8 +663,6 @@ Default rules:
   organization owner, installation admin, repository admin, or repository maintain access when that
   distinction becomes necessary.
 - The GitHub App owner is not automatically a customer-route superuser.
-- Platform support access belongs behind `/admin` or another internal support route, protected by
-  Cloudflare Access and audited separately.
 
 When the current GitHub token is missing, expired, cannot see the installation, cannot see the
 repository, or does not have a required admin signal, deny the read. Do not fall back to cached
@@ -672,11 +670,8 @@ database relationships as authorization.
 
 ## Access Control Sequence
 
-Do not start with Cloudflare Access.
-
-First build the route and data model so local development is simple. Fixture and local-only states
-can render without production data, but real observability rows require the GitHub-authenticated
-session.
+Build the route and data model so local development is simple. Fixture and local-only states can
+render without production data, but real observability rows require the GitHub-authenticated session.
 
 For real installation data, use the existing GitHub-authenticated session first:
 
@@ -686,10 +681,6 @@ For real installation data, use the existing GitHub-authenticated session first:
 4. Backend clips repository-scoped rows to repositories the viewer can see.
 5. Later, tighten installation-wide views to GitHub organization owner, repository admin,
    repository maintain, or installation admin when the product needs an admin-only view.
-
-Cloudflare Access should stay a later edge gate for internal admin/support surfaces. It can protect
-`/admin` or an internal support dashboard, but it should not be the first dependency for the customer
-Nanites observability page.
 
 When the product needs enterprise identity beyond GitHub OAuth, revisit GitHub OIDC or IdP-backed
 access. Do not block the first dashboard on that decision.
@@ -762,4 +753,3 @@ Keep validation focused on the ingestion pipeline:
 - no generic APM page
 - no raw payload viewer
 - no perfect billing reconciliation
-- no Cloudflare Access dependency before the route and facts work

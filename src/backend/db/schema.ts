@@ -73,6 +73,7 @@ export const OBSERVABILITY_ACTOR_SOURCES = [
   "maintenance",
 ] as const;
 export const AUDIT_EVENT_OUTCOMES = ["success", "failure", "denied", "noop"] as const;
+export const NANITE_MODEL_RUNTIME_PATHS = ["workers_ai_gateway"] as const;
 export const AUDIT_TARGET_TYPES = [
   "nanite",
   "run",
@@ -230,6 +231,28 @@ export const accountPeople = sqliteTable(
   ],
 );
 
+export const deploymentGitHubAppConfig = sqliteTable("deployment_github_app_config", {
+  id: text("id").primaryKey(),
+  appId: integer("app_id").notNull(),
+  slug: text("slug").notNull(),
+  htmlUrl: text("html_url").notNull(),
+  ownerLogin: text("owner_login"),
+  ownerType: text("owner_type"),
+  selectedGithubInstallationId: integer("selected_github_installation_id"),
+  clientId: text("client_id").notNull(),
+  clientSecretBinding: text("client_secret_binding").notNull(),
+  webhookSecretBinding: text("webhook_secret_binding").notNull(),
+  privateKeyBinding: text("private_key_binding").notNull(),
+  permissionsJson: text("permissions_json").notNull(),
+  eventsJson: text("events_json").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const naniteRunFacts = sqliteTable(
   "nanite_run_facts",
   {
@@ -263,6 +286,13 @@ export const naniteRunFacts = sqliteTable(
     outputAdditions: integer("output_additions"),
     outputDeletions: integer("output_deletions"),
     outputChangedFiles: integer("output_changed_files"),
+    modelRuntimePath: text("model_runtime_path", { enum: NANITE_MODEL_RUNTIME_PATHS }),
+    effectiveModelId: text("effective_model_id"),
+    effectiveProvider: text("effective_provider"),
+    effectiveModelName: text("effective_model_name"),
+    effectiveGatewayId: text("effective_gateway_id"),
+    modelManifestVersionId: text("model_manifest_version_id"),
+    modelResolvedAt: integer("model_resolved_at", { mode: "timestamp" }),
     configSource: text("config_source", { enum: CONFIG_SOURCES }),
     implicitFailureReason: text("implicit_failure_reason"),
     missingExitToolReminderCount: integer("missing_exit_tool_reminder_count").notNull().default(0),
@@ -326,6 +356,7 @@ export const aiUsageFacts = sqliteTable(
     rawUsageJson: text("raw_usage_json"),
     providerMetadataJson: text("provider_metadata_json"),
     providerBilledTotalCostUsdMicros: integer("provider_billed_total_cost_usd_micros"),
+    aiGatewayId: text("ai_gateway_id"),
     aiGatewayLogId: text("ai_gateway_log_id"),
     aiGatewayEventId: text("ai_gateway_event_id"),
     ...observabilityActorColumns(),
@@ -353,6 +384,7 @@ export const naniteCatalog = sqliteTable(
     enabled: integer("enabled", { mode: "boolean" }).notNull(),
     eventSourceType: text("event_source_type", { enum: NANITE_EVENT_SOURCE_TYPES }).notNull(),
     latestVersionId: text("latest_version_id").notNull(),
+    modelId: text("model_id").notNull().default(""),
     repositoryFullNamesJson: text("repository_full_names_json").notNull().default("[]"),
     repositoryCount: integer("repository_count").notNull().default(0),
     triggerEventCount: integer("trigger_event_count").notNull().default(0),

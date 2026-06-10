@@ -17,5 +17,6 @@
 @import "./prompt-input.css" layer(components);
 @import "./reasoning.css" layer(components);
 @import "./select.css" layer(components);
+@import "./stepper.css" layer(components);
 @import "./tooltip.css" layer(components);
 @import "./tool.css" layer(components);

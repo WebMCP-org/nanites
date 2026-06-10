@@ -64,6 +64,7 @@ const naniteManifestBaseSchema = z.object({
   id: nonEmptyStringSchema,
   name: nonEmptyStringSchema,
   description: nonEmptyStringSchema,
+  model: z.string().trim().min(1),
   permissions: nanitePermissionSpecSchema,
 });
 

@@ -278,11 +278,10 @@ vp exec wrangler kv namespace create TOOL_OUTPUTS
 vp exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
 ```
 
-Required Worker secrets:
+Manual/local fallback Worker secrets:
 
 ```bash
 vp exec wrangler secret put AUTH_COOKIE_SECRET --config wrangler.jsonc
-vp exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
 vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc

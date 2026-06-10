@@ -1,7 +1,7 @@
 import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webhooks";
 
-const SIGVELO_GITHUB_APP_SLUG = "sigvelo";
-export const SIGVELO_GITHUB_APP_URL = `https://github.com/apps/${SIGVELO_GITHUB_APP_SLUG}`;
+const DEFAULT_GITHUB_APP_SLUG = "sigvelo";
+export const SIGVELO_GITHUB_APP_URL = `https://github.com/apps/${DEFAULT_GITHUB_APP_SLUG}`;
 
 const SIGVELO_GITHUB_APP_INSTALL_PATH = "/installations/new";
 const SIGVELO_GITHUB_APP_PERMISSIONS_PATH = `${SIGVELO_GITHUB_APP_INSTALL_PATH}/permissions`;
@@ -9,20 +9,23 @@ const SIGVELO_GITHUB_APP_PERMISSIONS_PATH = `${SIGVELO_GITHUB_APP_INSTALL_PATH}/
 export const GITHUB_WEBHOOK_PATH = "/api/github/webhook";
 
 interface BuildGitHubAppInstallHrefOptions {
+  readonly appSlug?: string | null;
   readonly state?: string | null;
   readonly suggestedTargetId?: number | null;
   readonly repositoryIds?: readonly number[];
 }
 
 export function buildGitHubAppInstallHref({
+  appSlug,
   state,
   suggestedTargetId,
   repositoryIds = [],
 }: BuildGitHubAppInstallHrefOptions = {}): string {
+  const githubAppUrl = `https://github.com/apps/${appSlug ?? DEFAULT_GITHUB_APP_SLUG}`;
   const path = suggestedTargetId
     ? SIGVELO_GITHUB_APP_PERMISSIONS_PATH
     : SIGVELO_GITHUB_APP_INSTALL_PATH;
-  const url = new URL(`${SIGVELO_GITHUB_APP_URL}${path}`);
+  const url = new URL(`${githubAppUrl}${path}`);
 
   if (state) {
     url.searchParams.set("state", state);
