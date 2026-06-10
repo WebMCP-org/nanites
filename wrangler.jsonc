@@ -102,6 +102,12 @@
         "SigveloNaniteManagerV1",
         "NanitesSetupAgentV1",
       ],
+      "deleted_classes": [
+        "SigveloChatIngress",
+        "SigveloManagerConversationAgent",
+        "SigveloNaniteManager",
+        "NanitesSetupAgent",
+      ],
       "tag": "v1-durable-object-baseline",
     },
   ],
