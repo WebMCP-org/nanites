@@ -27,6 +27,11 @@ import {
   convertGitHubAppManifestCode,
   type GitHubAppManifestConversion,
 } from "#/backend/github/index.ts";
+import {
+  DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS,
+  fetchNanitesModelCatalog,
+  resolveDefaultSigveloAgentModelSettings,
+} from "#/backend/nanites/model-settings.ts";
 import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
 
@@ -44,7 +49,9 @@ const SETUP_CLAIM_TTL_MS = 60 * 60 * 1_000;
 const SETUP_CLAIM_STORAGE_KEY = "nanites:setup:claim";
 const CLOUDFLARE_MCP_EXECUTE_TIMEOUT_MS = 15 * 60 * 1_000;
 const CLOUDFLARE_SETUP_OAUTH_SCOPE =
-  "offline_access user:read account:read workers:read workers_scripts:write";
+  "offline_access user:read account:read billing:read workers:read workers_scripts:write";
+const CLOUDFLARE_READINESS_WORKER_CACHE_KEY = "nanites-setup-readiness";
+const CLOUDFLARE_READINESS_WORKER_RESPONSE = "nanites-readiness-ok";
 const GITHUB_APP_SECRET_PROPAGATION_RETRY_AFTER_MS = 2 * 60 * 1_000;
 const GITHUB_APP_SECRET_PROPAGATION_CHECK_DELAY_SECONDS = 2;
 const SETUP_CLAIM_COOKIE_PATH = "/";
@@ -68,9 +75,11 @@ const DEFAULT_GITHUB_APP_EVENTS = [
   "workflow_run",
 ] as const;
 
-const cloudflareAccountSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().optional(),
+const cloudflareAccountMembershipSchema = z.object({
+  account: z.object({
+    id: z.string().min(1),
+    name: z.string().optional(),
+  }),
 });
 
 const cloudflareWorkersAccountSubdomainSchema = z.object({
@@ -84,6 +93,18 @@ const cloudflareWorkerSubdomainSchema = z.object({
 const cloudflareWorkerDomainSchema = z.object({
   hostname: z.string().min(1),
   service: z.string().min(1),
+});
+
+const cloudflareAccountSubscriptionSchema = z.object({
+  id: z.string().optional(),
+  state: z.string().optional(),
+  rate_plan: z
+    .object({
+      id: z.string().optional(),
+      public_name: z.string().optional(),
+      is_contract: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 const storedSetupTokenSchema = z.object({
@@ -114,6 +135,36 @@ type CloudflareSetupStatus =
   | "verifying"
   | "verified"
   | "failed";
+export type CloudflareReadinessItemKey =
+  | "worker-ownership"
+  | "workers-paid"
+  | "worker-loader"
+  | "workers-ai"
+  | "kimi-k2"
+  | "ai-gateway"
+  | "browser-run";
+export type CloudflareReadinessItemStatus =
+  | "pending"
+  | "checking"
+  | "ready"
+  | "blocked"
+  | "warning";
+export type CloudflareReadinessSeverity = "required" | "informational";
+export type CloudflareReadinessAction = "reconnect" | "configure" | "retry";
+export type CloudflareReadinessItem = {
+  readonly key: CloudflareReadinessItemKey;
+  readonly status: CloudflareReadinessItemStatus;
+  readonly severity: CloudflareReadinessSeverity;
+  readonly label: string;
+  readonly detail: string;
+  readonly action: CloudflareReadinessAction | null;
+};
+export type CloudflareReadinessStatus = "pending" | "checking" | "ready" | "blocked";
+export type CloudflareReadinessState = {
+  readonly status: CloudflareReadinessStatus;
+  readonly checkedAt: string | null;
+  readonly items: readonly CloudflareReadinessItem[];
+};
 type SetupOwnerStatus = "unclaimed" | "claimed";
 type GitHubAppSetupStatus =
   | "locked"
@@ -140,6 +191,7 @@ type SetupCompletionState = {
   readonly upstreamStar: NanitesSetupAgentState["upstreamStar"];
   readonly launch: NanitesSetupAgentState["launch"];
 };
+type CloudflareAccountSubscription = z.output<typeof cloudflareAccountSubscriptionSchema>;
 export type GitHubInstallationRepairReason =
   | "installation_deleted"
   | "installation_suspended"
@@ -162,6 +214,7 @@ export type NanitesSetupAgentState = {
     readonly accountId: string | null;
     readonly accountName: string | null;
     readonly scriptName: string | null;
+    readonly readiness: CloudflareReadinessState;
     readonly error: string | null;
     readonly connectedAt: string | null;
   };
@@ -271,6 +324,7 @@ export type CompleteGitHubManifestCallbackOutput =
         | "setupOwnerProofRequired"
         | "setupClaimRequired"
         | "cloudflareOAuthFailed"
+        | "cloudflareReadinessRequired"
         | "cloudflareWorkerSecretWriteFailed"
         | "githubAppManifestConversionFailed";
     };
@@ -309,6 +363,7 @@ export function createInitialNanitesSetupState(): NanitesSetupAgentState {
       accountId: null,
       accountName: null,
       scriptName: null,
+      readiness: createInitialCloudflareReadinessState(),
       error: null,
       connectedAt: null,
     },
@@ -345,6 +400,194 @@ export function createInitialNanitesSetupState(): NanitesSetupAgentState {
     error: null,
     updatedAt: null,
   };
+}
+
+const cloudflareReadinessItemDefaults = {
+  "worker-ownership": {
+    severity: "required",
+    label: "Worker ownership",
+    detail: "Connect the Cloudflare account that owns this deployed Worker.",
+    action: null,
+  },
+  "workers-paid": {
+    severity: "required",
+    label: "Workers Paid",
+    detail: "Nanites needs Workers Paid because Dynamic Workers run generated trigger code.",
+    action: "configure",
+  },
+  "worker-loader": {
+    severity: "required",
+    label: "Worker Loader",
+    detail: "Worker Loader runs generated trigger handlers in isolated Dynamic Workers.",
+    action: "retry",
+  },
+  "workers-ai": {
+    severity: "required",
+    label: "Workers AI",
+    detail: "Workers AI provides the default Cloudflare-hosted model binding.",
+    action: "retry",
+  },
+  "kimi-k2": {
+    severity: "required",
+    label: "Kimi K2.6",
+    detail: "The default model is Cloudflare-hosted Kimi K2.6 with function calling.",
+    action: "retry",
+  },
+  "ai-gateway": {
+    severity: "informational",
+    label: "AI Gateway",
+    detail: "Default model requests route through Cloudflare AI Gateway.",
+    action: null,
+  },
+  "browser-run": {
+    severity: "informational",
+    label: "Browser Run",
+    detail: "Browser Run supports later preview verification flows.",
+    action: null,
+  },
+} as const satisfies Record<
+  CloudflareReadinessItemKey,
+  {
+    readonly severity: CloudflareReadinessSeverity;
+    readonly label: string;
+    readonly detail: string;
+    readonly action: CloudflareReadinessAction | null;
+  }
+>;
+
+const cloudflareReadinessItemKeys = [
+  "worker-ownership",
+  "workers-paid",
+  "worker-loader",
+  "workers-ai",
+  "kimi-k2",
+  "ai-gateway",
+  "browser-run",
+] as const satisfies readonly CloudflareReadinessItemKey[];
+
+function createCloudflareReadinessItem(
+  key: CloudflareReadinessItemKey,
+  status: CloudflareReadinessItemStatus,
+  detail: string = cloudflareReadinessItemDefaults[key].detail,
+  action: CloudflareReadinessAction | null = cloudflareReadinessItemDefaults[key].action,
+): CloudflareReadinessItem {
+  const defaults = cloudflareReadinessItemDefaults[key];
+  return {
+    key,
+    status,
+    severity: defaults.severity,
+    label: defaults.label,
+    detail,
+    action,
+  };
+}
+
+function createInitialCloudflareReadinessState(): CloudflareReadinessState {
+  return createCloudflareReadinessState(
+    cloudflareReadinessItemKeys.map((key) => createCloudflareReadinessItem(key, "pending")),
+    null,
+  );
+}
+
+function createCheckingCloudflareReadinessState(): CloudflareReadinessState {
+  return createCloudflareReadinessState(
+    cloudflareReadinessItemKeys.map((key) => createCloudflareReadinessItem(key, "checking")),
+    null,
+  );
+}
+
+function createCloudflareReadinessState(
+  items: readonly CloudflareReadinessItem[],
+  checkedAt: string | null = new Date().toISOString(),
+): CloudflareReadinessState {
+  const requiredItems = items.filter((item) => item.severity === "required");
+  const status: CloudflareReadinessStatus = requiredItems.some((item) => item.status === "blocked")
+    ? "blocked"
+    : items.some((item) => item.status === "checking")
+      ? "checking"
+      : requiredItems.some((item) => item.status === "pending")
+        ? "pending"
+        : "ready";
+
+  return { status, checkedAt, items };
+}
+
+function cloudflareReadinessAllowsGitHubApp(
+  cloudflare: NanitesSetupAgentState["cloudflare"],
+): boolean {
+  return cloudflare.status === "verified" && cloudflare.readiness.status === "ready";
+}
+
+function firstCloudflareReadinessBlocker(
+  readiness: CloudflareReadinessState,
+): CloudflareReadinessItem | null {
+  return (
+    readiness.items.find((item) => item.severity === "required" && item.status === "blocked") ??
+    null
+  );
+}
+
+function cloudflareReadinessNeedsReconnect(readiness: CloudflareReadinessState): boolean {
+  return readiness.items.some((item) => item.status === "blocked" && item.action === "reconnect");
+}
+
+function buildCloudflareReadinessError(readiness: CloudflareReadinessState): string | null {
+  return firstCloudflareReadinessBlocker(readiness)?.detail ?? null;
+}
+
+function cleanLower(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+const workersPaidRatePlanIds = new Set([
+  "workers_paid",
+  "partners_workers_ent",
+  "partners_workers_ss",
+  "partners_workers_basic",
+]);
+
+function isActiveCloudflareSubscription(subscription: CloudflareAccountSubscription): boolean {
+  const state = cleanLower(subscription.state);
+  return state === "paid" || state === "active" || state === "provisioned";
+}
+
+function isWorkersPaidSubscription(subscription: CloudflareAccountSubscription): boolean {
+  if (!isActiveCloudflareSubscription(subscription)) {
+    return false;
+  }
+
+  const ratePlan = subscription.rate_plan;
+  const ratePlanId = cleanLower(ratePlan?.id);
+  const publicName = cleanLower(ratePlan?.public_name);
+  if (workersPaidRatePlanIds.has(ratePlanId)) {
+    return true;
+  }
+
+  if (
+    ratePlanId.includes("workers") &&
+    !ratePlanId.includes("free") &&
+    (ratePlanId.includes("paid") ||
+      ratePlanId.includes("ent") ||
+      ratePlanId.includes("ss") ||
+      ratePlanId.includes("basic"))
+  ) {
+    return true;
+  }
+
+  return (
+    ratePlan?.is_contract === true &&
+    (ratePlanId.includes("workers") || publicName.includes("workers"))
+  );
+}
+
+function describeCloudflareWorkersSubscription(
+  subscription: CloudflareAccountSubscription,
+): string {
+  return (
+    subscription.rate_plan?.public_name?.trim() ||
+    subscription.rate_plan?.id?.trim() ||
+    "Workers Paid"
+  );
 }
 
 function randomBase64Url(byteLength = 32): string {
@@ -547,7 +790,7 @@ function buildCurrentStep(state: NanitesSetupAgentState): SetupStep {
   if (state.githubApp.status === "complete" && state.upstreamStar.status !== "complete") {
     return "upstream-star";
   }
-  if (state.cloudflare.status !== "verified") {
+  if (!cloudflareReadinessAllowsGitHubApp(state.cloudflare)) {
     return "cloudflare";
   }
   if (state.githubApp.status !== "complete") {
@@ -680,7 +923,7 @@ function buildUnconfiguredGitHubAppState(
       ? "creating"
       : failed
         ? "failed"
-        : state.cloudflare.status === "verified"
+        : cloudflareReadinessAllowsGitHubApp(state.cloudflare)
           ? "ready"
           : "locked",
     manifestState: manifestInFlight ? state.githubApp.manifestState : null,
@@ -1215,6 +1458,26 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     } catch (error) {
       const setupError =
         error instanceof AppError ? error : new AppError("invalidSetupState", { cause: error });
+      if (setupError.kind === "cloudflareReadinessRequired") {
+        const reason =
+          typeof setupError.details?.reason === "string"
+            ? setupError.details.reason
+            : setupError.message;
+        this.setState(
+          withDerivedState({
+            ...this.state,
+            cloudflare: {
+              ...this.state.cloudflare,
+              error: reason,
+            },
+            error: {
+              step: "cloudflare",
+              message: setupError.message,
+            },
+          }),
+        );
+        throw setupError;
+      }
       this.markGitHubAppFailed(setupError.message);
       throw setupError;
     }
@@ -1251,6 +1514,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
           status: "authenticating",
           authorizationUrl: existingServer.auth_url,
           scriptName: currentWorker.scriptName,
+          readiness: createCheckingCloudflareReadinessState(),
           error: existingServer.error,
         },
         error: null,
@@ -1267,7 +1531,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       await this.removeMcpServer(CLOUDFLARE_API_MCP_SERVER_ID);
     }
 
-    if (existingServer?.state === "ready") {
+    if (
+      existingServer?.state === "ready" &&
+      cloudflareReadinessNeedsReconnect(this.state.cloudflare.readiness)
+    ) {
+      await this.removeMcpServer(CLOUDFLARE_API_MCP_SERVER_ID);
+    } else if (existingServer?.state === "ready") {
       await this.verifyCloudflareWorkerOwnershipOrFail(currentWorker);
       return { state: this.state, authorizationUrl: null };
     }
@@ -1284,6 +1553,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
           status: "connecting",
           authorizationUrl: null,
           scriptName: currentWorker.scriptName,
+          readiness: createCheckingCloudflareReadinessState(),
           error: null,
         },
         error: null,
@@ -1300,6 +1570,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
           status: "authenticating",
           authorizationUrl: result.authUrl,
           scriptName: currentWorker.scriptName,
+          readiness: createCheckingCloudflareReadinessState(),
           error: null,
         },
       });
@@ -1324,8 +1595,14 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     } else {
       setupClaim = await this.requireSetupClaimedConnection();
     }
-    if (this.state.cloudflare.status !== "verified") {
-      throw new AppError("setupOwnerProofRequired");
+    if (!cloudflareReadinessAllowsGitHubApp(this.state.cloudflare)) {
+      throw new AppError("cloudflareReadinessRequired", {
+        details: {
+          reason:
+            buildCloudflareReadinessError(this.state.cloudflare.readiness) ??
+            "Cloudflare readiness checks have not completed.",
+        },
+      });
     }
     await requireDeploymentGitHubAppConfigTableReady(createDbClient(this.env.DB));
     if (
@@ -1412,6 +1689,9 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       !this.state.cloudflare.scriptName
     ) {
       return { ok: false, errorKind: "setupOwnerProofRequired" };
+    }
+    if (!cloudflareReadinessAllowsGitHubApp(this.state.cloudflare)) {
+      return { ok: false, errorKind: "cloudflareReadinessRequired" };
     }
     if (this.state.githubApp.status !== "creating") {
       return { ok: false, errorKind: "invalidSetupState" };
@@ -1854,6 +2134,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
             ...this.state.cloudflare,
             status: "authenticating",
             authorizationUrl: cloudflareServer.auth_url,
+            readiness: createCheckingCloudflareReadinessState(),
             error: cloudflareServer.error,
           },
         }),
@@ -1881,6 +2162,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
           ...this.state.cloudflare,
           status: "failed",
           authorizationUrl: null,
+          readiness: createInitialCloudflareReadinessState(),
           error: message,
         },
         error: {
@@ -1937,6 +2219,216 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     );
   }
 
+  private async checkCloudflareWorkersPaid(accountId: string): Promise<CloudflareReadinessItem> {
+    try {
+      const subscriptions = z.array(cloudflareAccountSubscriptionSchema).parse(
+        await this.executeCloudflareCode({
+          accountId,
+          code: `async () => {
+  const response = await cloudflare.request({
+    method: "GET",
+    path: \`/accounts/\${accountId}/subscriptions\`,
+  });
+  return response.result;
+}`,
+        }),
+      );
+      const workersPaid = subscriptions.find(isWorkersPaidSubscription);
+      if (workersPaid) {
+        return createCloudflareReadinessItem(
+          "workers-paid",
+          "ready",
+          `${describeCloudflareWorkersSubscription(workersPaid)} is active on this account. Cloudflare bills Workers and Dynamic Workers directly to this account.`,
+          null,
+        );
+      }
+
+      return createCloudflareReadinessItem(
+        "workers-paid",
+        "blocked",
+        "Workers Paid was not detected on this account. Add the Workers Paid plan in Cloudflare before launching Nanites; Dynamic Workers require it.",
+        "configure",
+      );
+    } catch {
+      return createCloudflareReadinessItem(
+        "workers-paid",
+        "blocked",
+        "Billing Read did not return account subscriptions. Reconnect Cloudflare and grant Account > Billing > Read.",
+        "reconnect",
+      );
+    }
+  }
+
+  private async checkWorkerLoader(): Promise<CloudflareReadinessItem> {
+    if (!this.env.LOADER || typeof this.env.LOADER.get !== "function") {
+      return createCloudflareReadinessItem(
+        "worker-loader",
+        "blocked",
+        "Worker Loader binding `LOADER` is missing from this deployment.",
+        "retry",
+      );
+    }
+
+    try {
+      const worker = this.env.LOADER.get(CLOUDFLARE_READINESS_WORKER_CACHE_KEY, () => ({
+        compatibilityDate: "2026-06-10",
+        compatibilityFlags: ["nodejs_compat"],
+        mainModule: "index.js",
+        modules: {
+          "index.js": `export default {
+  fetch() {
+    return new Response(${JSON.stringify(CLOUDFLARE_READINESS_WORKER_RESPONSE)});
+  },
+};`,
+        },
+        globalOutbound: null,
+      }));
+      const response = await worker
+        .getEntrypoint()
+        .fetch(new Request("https://nanites.invalid/setup/readiness"));
+      const text = await response.text();
+      if (!response.ok || text !== CLOUDFLARE_READINESS_WORKER_RESPONSE) {
+        throw new Error("worker_loader_smoke_failed");
+      }
+
+      return createCloudflareReadinessItem(
+        "worker-loader",
+        "ready",
+        "Worker Loader ran the setup smoke Worker. Generated trigger handlers can run as Dynamic Workers.",
+        null,
+      );
+    } catch {
+      return createCloudflareReadinessItem(
+        "worker-loader",
+        "blocked",
+        "Worker Loader did not run the setup smoke Worker. Confirm this deployment has Worker Loader and Workers Paid enabled.",
+        "retry",
+      );
+    }
+  }
+
+  private checkWorkersAiBinding(): CloudflareReadinessItem {
+    const ai = this.env.AI as { models?: unknown; run?: unknown } | undefined;
+    if (!ai || typeof ai.models !== "function" || typeof ai.run !== "function") {
+      return createCloudflareReadinessItem(
+        "workers-ai",
+        "blocked",
+        "Workers AI binding `AI` is missing from this deployment.",
+        "retry",
+      );
+    }
+
+    return createCloudflareReadinessItem(
+      "workers-ai",
+      "ready",
+      "Workers AI binding `AI` is present. Default model usage runs in this Cloudflare account.",
+      null,
+    );
+  }
+
+  private async checkDefaultKimiModel(): Promise<CloudflareReadinessItem> {
+    try {
+      const catalog = await fetchNanitesModelCatalog(this.env);
+      const model = catalog.models.find(
+        (candidate) => candidate.id === DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId,
+      );
+      if (!model) {
+        return createCloudflareReadinessItem(
+          "kimi-k2",
+          "blocked",
+          "Cloudflare Workers AI did not list Kimi K2.6 for this account.",
+          "retry",
+        );
+      }
+      if (model.deprecated) {
+        return createCloudflareReadinessItem(
+          "kimi-k2",
+          "blocked",
+          "Cloudflare Workers AI marks Kimi K2.6 deprecated for this account.",
+          "retry",
+        );
+      }
+      if (!model.capabilities.includes("Function calling")) {
+        return createCloudflareReadinessItem(
+          "kimi-k2",
+          "blocked",
+          "Kimi K2.6 is available, but Cloudflare did not report function-calling support.",
+          "retry",
+        );
+      }
+
+      return createCloudflareReadinessItem(
+        "kimi-k2",
+        "ready",
+        "Cloudflare Workers AI lists Kimi K2.6 with function calling. No Moonshot or provider API key is required for the default model.",
+        null,
+      );
+    } catch {
+      return createCloudflareReadinessItem(
+        "kimi-k2",
+        "blocked",
+        "Workers AI model catalog could not be read. Confirm the Workers AI binding is usable and try again.",
+        "retry",
+      );
+    }
+  }
+
+  private checkAiGateway(): CloudflareReadinessItem {
+    const modelSettings = resolveDefaultSigveloAgentModelSettings(this.env);
+    return createCloudflareReadinessItem(
+      "ai-gateway",
+      "ready",
+      `Default model requests use Cloudflare AI Gateway \`${modelSettings.gatewayId}\`; provider API keys are only needed for future non-Workers-AI models.`,
+      null,
+    );
+  }
+
+  private checkBrowserRunBinding(): CloudflareReadinessItem {
+    const browser = this.env.BROWSER as { fetch?: unknown } | undefined;
+    if (browser && typeof browser.fetch === "function") {
+      return createCloudflareReadinessItem(
+        "browser-run",
+        "ready",
+        "Browser Run binding `BROWSER` is present for later preview verification.",
+        null,
+      );
+    }
+
+    return createCloudflareReadinessItem(
+      "browser-run",
+      "warning",
+      "Browser Run binding `BROWSER` was not detected. Setup can continue, but preview verification may be limited.",
+      "retry",
+    );
+  }
+
+  private async checkCloudflareReadiness(accountId: string): Promise<CloudflareReadinessState> {
+    const workersAi = this.checkWorkersAiBinding();
+    const items = [
+      createCloudflareReadinessItem(
+        "worker-ownership",
+        "ready",
+        "Cloudflare confirmed this account owns the deployed Worker route.",
+        null,
+      ),
+      await this.checkCloudflareWorkersPaid(accountId),
+      await this.checkWorkerLoader(),
+      workersAi,
+      workersAi.status === "ready"
+        ? await this.checkDefaultKimiModel()
+        : createCloudflareReadinessItem(
+            "kimi-k2",
+            "blocked",
+            "Kimi K2.6 cannot be checked until the Workers AI binding is available.",
+            "retry",
+          ),
+      this.checkAiGateway(),
+      this.checkBrowserRunBinding(),
+    ];
+
+    return createCloudflareReadinessState(items);
+  }
+
   private async verifyCloudflareWorkerOwnership(currentWorker: CurrentWorkerRoute): Promise<void> {
     this.setState(
       withDerivedState({
@@ -1946,25 +2438,25 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
           status: "verifying",
           authorizationUrl: null,
           scriptName: currentWorker.scriptName,
+          readiness: createCheckingCloudflareReadinessState(),
           error: null,
         },
       }),
     );
 
-    const accounts = z.array(cloudflareAccountSchema).parse(
+    const memberships = z.array(cloudflareAccountMembershipSchema).parse(
       await this.executeCloudflareCode({
         code: `async () => {
   const response = await cloudflare.request({ method: "GET", path: "/memberships" });
-  return response.result.map((membership) => ({
-    id: membership.account.id,
-    name: membership.account.name,
-  }));
+  return response.result;
 }`,
       }),
     );
 
-    for (const account of accounts) {
+    for (const { account } of memberships) {
       if (await this.cloudflareAccountOwnsCurrentWorkerRoute(account.id, currentWorker)) {
+        const readiness = await this.checkCloudflareReadiness(account.id);
+        const readinessError = buildCloudflareReadinessError(readiness);
         const nextState = withDerivedState({
           ...this.state,
           cloudflare: {
@@ -1973,15 +2465,25 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
             accountId: account.id,
             accountName: account.name ?? null,
             scriptName: currentWorker.scriptName,
-            error: null,
+            readiness,
+            error: readinessError,
             connectedAt: new Date().toISOString(),
           },
           githubApp: {
             ...this.state.githubApp,
-            status: this.state.setupComplete ? this.state.githubApp.status : "ready",
+            status: this.state.setupComplete
+              ? this.state.githubApp.status
+              : readiness.status === "ready"
+                ? "ready"
+                : "locked",
             error: null,
           },
-          error: null,
+          error: readinessError
+            ? {
+                step: "cloudflare",
+                message: readinessError,
+              }
+            : null,
         });
         this.setState(nextState);
         return;
@@ -2058,10 +2560,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     method: "GET",
     path: \`/accounts/\${accountId}/workers/domains?\${params.toString()}\`,
   });
-  return response.result.map((domain) => ({
-    hostname: domain.hostname,
-    service: domain.service,
-  }));
+  return response.result;
 }`,
         }),
       );
@@ -2109,14 +2608,16 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     readonly code: string;
     readonly accountId?: string;
   }): Promise<unknown> {
+    const toolArguments: { code: string; account_id?: string } = { code: input.code };
+    if (input.accountId) {
+      toolArguments.account_id = input.accountId;
+    }
+
     const result = await withTimeout(
       this.mcp.callTool({
         serverId: CLOUDFLARE_API_MCP_SERVER_ID,
         name: "execute",
-        arguments: {
-          code: input.code,
-          ...(input.accountId ? { account_id: input.accountId } : {}),
-        },
+        arguments: toolArguments,
       }),
       CLOUDFLARE_MCP_EXECUTE_TIMEOUT_MS,
       () =>

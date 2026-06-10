@@ -53,6 +53,7 @@ const SETUP_AGENT_REMOTE_ERROR_MESSAGES: readonly [message: string, kind: AppErr
     APP_ERRORS.cloudflareWorkerOwnershipVerificationFailed.message,
     "cloudflareWorkerOwnershipVerificationFailed",
   ],
+  [APP_ERRORS.cloudflareReadinessRequired.message, "cloudflareReadinessRequired"],
   [APP_ERRORS.setupDatabaseMigrationRequired.message, "setupDatabaseMigrationRequired"],
   [APP_ERRORS.cloudflareWorkerSecretWriteFailed.message, "cloudflareWorkerSecretWriteFailed"],
   [APP_ERRORS.githubAppManifestConversionFailed.message, "githubAppManifestConversionFailed"],

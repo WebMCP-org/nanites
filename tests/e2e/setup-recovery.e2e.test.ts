@@ -27,6 +27,7 @@ function buildCloudflareVerifiedSetupState(): NanitesSetupAgentState {
       accountId: "test-account",
       accountName: "Test Account",
       scriptName: "sigvelo-agent-tests",
+      readiness: buildCloudflareReadyReadiness(),
       error: null,
       connectedAt: new Date().toISOString(),
     },
@@ -34,6 +35,20 @@ function buildCloudflareVerifiedSetupState(): NanitesSetupAgentState {
       ...initialState.githubApp,
       status: "ready",
     },
+  };
+}
+
+function buildCloudflareReadyReadiness(): NanitesSetupAgentState["cloudflare"]["readiness"] {
+  const readiness = createInitialNanitesSetupState().cloudflare.readiness;
+  return {
+    status: "ready",
+    checkedAt: new Date().toISOString(),
+    items: readiness.items.map((item) => ({
+      ...item,
+      status: "ready" as const,
+      detail: `${item.label} is ready.`,
+      action: null,
+    })),
   };
 }
 

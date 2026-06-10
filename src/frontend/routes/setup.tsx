@@ -20,6 +20,7 @@ import {
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import type {
+  CloudflareReadinessItemStatus,
   NanitesSetupAgent,
   NanitesSetupAgentState,
   StartGitHubManifestOutput,
@@ -31,20 +32,60 @@ export const Route = createFileRoute("/setup")({
   component: SetupPage,
 });
 
-type SetupStepState = "complete" | "ready" | "running" | "locked";
+type SetupStepState = "complete" | "ready" | "running" | "blocked" | "locked";
 type SetupNaniteVariant = "helmet" | "working" | "celebrating";
 
 function statusLabel(state: SetupStepState): string {
   if (state === "complete") return "Done";
   if (state === "ready") return "Ready";
   if (state === "running") return "Working";
+  if (state === "blocked") return "Blocked";
   return "Locked";
 }
 
 function badgeColor(state: SetupStepState): ComponentProps<typeof Badge>["color"] {
   if (state === "complete") return "success";
   if (state === "ready" || state === "running") return "primary";
+  if (state === "blocked") return "destructive";
   return "neutral";
+}
+
+function readinessBadgeColor(
+  status: CloudflareReadinessItemStatus,
+): ComponentProps<typeof Badge>["color"] {
+  if (status === "ready") return "success";
+  if (status === "blocked") return "destructive";
+  if (status === "warning") return "warning";
+  if (status === "checking") return "primary";
+  return "neutral";
+}
+
+function readinessStatusLabel(status: CloudflareReadinessItemStatus): string {
+  if (status === "ready") return "Ready";
+  if (status === "blocked") return "Blocked";
+  if (status === "warning") return "Note";
+  if (status === "checking") return "Checking";
+  return "Pending";
+}
+
+function cloudflareButtonLabel(status: NanitesSetupAgentState["cloudflare"]): string {
+  if (status.status === "connecting" || status.status === "authenticating") {
+    return "Connecting";
+  }
+  if (status.status === "verifying" || status.readiness.status === "checking") {
+    return "Checking";
+  }
+  if (status.status === "verified" && status.readiness.status === "blocked") {
+    return status.readiness.items.some(
+      (item) => item.status === "blocked" && item.action === "reconnect",
+    )
+      ? "Reconnect Cloudflare"
+      : "Check again";
+  }
+  if (status.status === "verified" && status.readiness.status === "ready") {
+    return "Cloudflare Ready";
+  }
+  return status.status === "failed" ? "Retry Cloudflare" : "Connect Cloudflare";
 }
 
 function postGitHubManifest(result: StartGitHubManifestOutput): void {
@@ -114,6 +155,31 @@ function SetupNaniteScene({ variant }: { readonly variant: SetupNaniteVariant })
       <span className="setup-nanite-scene__sparkle setup-nanite-scene__sparkle--one" />
       <span className="setup-nanite-scene__sparkle setup-nanite-scene__sparkle--two" />
     </div>
+  );
+}
+
+function CloudflareReadinessChecklist({
+  readiness,
+}: {
+  readonly readiness: NanitesSetupAgentState["cloudflare"]["readiness"];
+}) {
+  return (
+    <ul className="setup-readiness" aria-label="Cloudflare readiness">
+      {readiness.items.map((item) => (
+        <li className="setup-readiness__item" data-status={item.status} key={item.key}>
+          <div className="setup-readiness__item-heading">
+            <span>{item.label}</span>
+            <Badge color={readinessBadgeColor(item.status)} size="sm" variant="outline">
+              {readinessStatusLabel(item.status)}
+            </Badge>
+          </div>
+          <p>{item.detail}</p>
+          <span className="setup-readiness__scope">
+            {item.severity === "required" ? "Required" : "Informational"}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -200,7 +266,7 @@ function SetupPage() {
     );
   }
 
-  const normalizedOwnerLogin = ownerLogin.trim();
+  const trimmedOwnerLogin = ownerLogin.trim();
   const githubAppComplete = status.githubApp.status === "complete";
   const githubAppFinishing =
     status.githubApp.status === "secrets-writing" ||
@@ -210,22 +276,23 @@ function SetupPage() {
     status.githubApp.status === "creating" ||
     status.githubApp.status === "secrets-propagation-stalled" ||
     status.githubApp.status === "failed";
-  const githubOwnerReady = ownerType === "user" || normalizedOwnerLogin.length > 0;
+  const githubOwnerReady = ownerType === "user" || trimmedOwnerLogin.length > 0;
   const githubManifestCanStart = setupConnectionReady && githubAppCanCreate && githubOwnerReady;
-  const cloudflareConnected = status.cloudflare.status === "verified";
+  const cloudflareVerified = status.cloudflare.status === "verified";
+  const cloudflareReady = cloudflareVerified && status.cloudflare.readiness.status === "ready";
   const setupComplete = status.setupComplete;
   const repositoriesComplete = status.repositories.status === "complete";
   const upstreamStarComplete = status.upstreamStar.status === "complete";
   const naniteVariant: SetupNaniteVariant = setupComplete
     ? "celebrating"
-    : cloudflareConnected
+    : cloudflareVerified
       ? "working"
       : "helmet";
   const githubAppStepState: SetupStepState = githubAppComplete
     ? "complete"
     : githubAppFinishing
       ? "running"
-      : cloudflareConnected && githubAppCanCreate
+      : cloudflareReady && githubAppCanCreate
         ? "ready"
         : "locked";
   const repositoryStepState: SetupStepState = repositoriesComplete
@@ -242,14 +309,19 @@ function SetupPage() {
         : "locked";
   const startStepState: SetupStepState = status.launch.status === "ready" ? "ready" : "locked";
 
-  const cloudflareStepState: SetupStepState = cloudflareConnected
-    ? "complete"
-    : status.cloudflare.status === "connecting" ||
-        status.cloudflare.status === "authenticating" ||
-        status.cloudflare.status === "verifying"
+  const cloudflareStepState: SetupStepState =
+    status.cloudflare.status === "connecting" ||
+    status.cloudflare.status === "authenticating" ||
+    status.cloudflare.status === "verifying" ||
+    status.cloudflare.readiness.status === "checking"
       ? "running"
-      : "ready";
-  const cloudflareCanConnect = setupConnectionReady && cloudflareStepState === "ready";
+      : cloudflareReady
+        ? "complete"
+        : cloudflareVerified && status.cloudflare.readiness.status === "blocked"
+          ? "blocked"
+          : "ready";
+  const cloudflareCanConnect =
+    setupConnectionReady && cloudflareStepState !== "running" && !cloudflareReady;
   const activeStep = stepValueForCurrentStep(status.currentStep);
 
   const steps: readonly SetupStep[] = [
@@ -263,7 +335,7 @@ function SetupPage() {
       step: 2,
       state: cloudflareStepState,
       title: "Cloudflare",
-      description: cloudflareConnected ? "Connected." : "Verify ownership.",
+      description: cloudflareReady ? "Ready." : "Verify readiness.",
     },
     {
       step: 3,
@@ -392,7 +464,7 @@ function SetupPage() {
           <StepperContent value={2}>
             <SetupPanel
               title="Connect Cloudflare"
-              description="Use the Cloudflare account that owns this Worker."
+              description="Use the Cloudflare account that owns this Worker. Nanites checks billing and runtime readiness before creating the GitHub App."
             >
               <Button
                 color="primary"
@@ -404,14 +476,17 @@ function SetupPage() {
                 }}
               >
                 <LockKeyIcon weight="fill" />
-                <span>
-                  {status.cloudflare.status === "connecting" ? "Connecting" : "Connect Cloudflare"}
-                </span>
+                <span>{cloudflareButtonLabel(status.cloudflare)}</span>
               </Button>
               {cloudflareActionError ? (
                 <p className="setup-action-error">{cloudflareActionError}</p>
               ) : null}
-              {localSetupOrigin && !cloudflareConnected ? (
+              <p className="setup-action-note">
+                Cloudflare bills your account directly. Default Kimi K2.6 runs through Workers AI,
+                so no external provider API key is required.
+              </p>
+              <CloudflareReadinessChecklist readiness={status.cloudflare.readiness} />
+              {localSetupOrigin && !cloudflareVerified ? (
                 <p className="setup-action-note">
                   Local dev runs on localhost, so Cloudflare cannot confirm ownership of this
                   Worker. Use the local .dev.vars setup path, or retry from a deployed Cloudflare
@@ -484,7 +559,7 @@ function SetupPage() {
                       void setupAgent.stub
                         ?.startGitHubManifest({
                           ownerType,
-                          ownerLogin: ownerType === "organization" ? normalizedOwnerLogin : null,
+                          ownerLogin: ownerType === "organization" ? trimmedOwnerLogin : null,
                         })
                         .then(postGitHubManifest)
                         .catch(() => undefined);

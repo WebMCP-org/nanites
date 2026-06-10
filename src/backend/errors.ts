@@ -110,6 +110,12 @@ export const APP_ERRORS = {
     message: "Cloudflare did not confirm ownership of this Worker.",
     publicDetailKeys: ["scriptName"],
   },
+  cloudflareReadinessRequired: {
+    code: "cloudflare_readiness_required",
+    status: 403,
+    message: "Cloudflare account is not ready for Nanites setup.",
+    publicDetailKeys: ["reason"],
+  },
   cloudflareWorkerSecretWriteFailed: {
     code: "cloudflare_worker_secret_write_failed",
     status: 500,

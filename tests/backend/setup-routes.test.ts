@@ -312,12 +312,64 @@ function buildCloudflareVerifiedSetupState() {
       accountId: "test-account",
       accountName: "Test Account",
       scriptName: "sigvelo-agent-tests",
+      readiness: buildCloudflareReadyReadiness(),
       error: null,
       connectedAt: new Date().toISOString(),
     },
     githubApp: {
       ...initialState.githubApp,
       status: "ready" as const,
+    },
+  };
+}
+
+function buildCloudflareReadyReadiness(): NanitesSetupAgentState["cloudflare"]["readiness"] {
+  const readiness = createInitialNanitesSetupState().cloudflare.readiness;
+  return {
+    status: "ready",
+    checkedAt: new Date().toISOString(),
+    items: readiness.items.map((item) => ({
+      ...item,
+      status: "ready" as const,
+      detail: `${item.label} is ready.`,
+      action: null,
+    })),
+  };
+}
+
+function buildCloudflareBlockedSetupState(
+  key: NanitesSetupAgentState["cloudflare"]["readiness"]["items"][number]["key"],
+  detail: string,
+): NanitesSetupAgentState {
+  const state = buildCloudflareVerifiedSetupState();
+  return {
+    ...state,
+    currentStep: "cloudflare",
+    cloudflare: {
+      ...state.cloudflare,
+      readiness: {
+        status: "blocked",
+        checkedAt: new Date().toISOString(),
+        items: state.cloudflare.readiness.items.map((item) =>
+          item.key === key
+            ? {
+                ...item,
+                status: "blocked" as const,
+                detail,
+                action: key === "workers-paid" ? "configure" : "retry",
+              }
+            : item,
+        ),
+      },
+      error: detail,
+    },
+    githubApp: {
+      ...state.githubApp,
+      status: "locked",
+    },
+    error: {
+      step: "cloudflare",
+      message: detail,
     },
   };
 }
@@ -800,6 +852,94 @@ test("GitHub manifest callable returns a first-party manifest form target after 
   });
 });
 
+test("setup keeps GitHub App locked while Workers Paid readiness is blocked", async () => {
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(
+    buildCloudflareBlockedSetupState(
+      "workers-paid",
+      "Workers Paid was not detected on this account.",
+    ),
+  );
+
+  await expect(
+    setupAgent.refresh({
+      origin: "https://sigvelo-agent-tests.example.workers.dev",
+    }),
+  ).resolves.toMatchObject({
+    currentStep: "cloudflare",
+    cloudflare: {
+      readiness: {
+        status: "blocked",
+      },
+    },
+    githubApp: {
+      status: "locked",
+    },
+  });
+});
+
+test("setup keeps GitHub App locked while Kimi readiness is blocked", async () => {
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(
+    buildCloudflareBlockedSetupState(
+      "kimi-k2",
+      "Cloudflare Workers AI did not list Kimi K2.6 for this account.",
+    ),
+  );
+
+  await expect(
+    setupAgent.refresh({
+      origin: "https://sigvelo-agent-tests.example.workers.dev",
+    }),
+  ).resolves.toMatchObject({
+    currentStep: "cloudflare",
+    cloudflare: {
+      readiness: {
+        status: "blocked",
+      },
+    },
+    githubApp: {
+      status: "locked",
+    },
+  });
+});
+
+test("GitHub manifest callable ignores informational Cloudflare readiness warnings", async () => {
+  const setupAgent = await getSetupAgent();
+  const state = buildCloudflareVerifiedSetupState();
+  setupAgent.setState({
+    ...state,
+    cloudflare: {
+      ...state.cloudflare,
+      readiness: {
+        status: "ready",
+        checkedAt: new Date().toISOString(),
+        items: state.cloudflare.readiness.items.map((item) =>
+          item.key === "browser-run"
+            ? {
+                ...item,
+                status: "warning" as const,
+                detail: "Browser Run binding `BROWSER` was not detected.",
+                action: "retry" as const,
+              }
+            : item,
+        ),
+      },
+    },
+  });
+  const setupClaim = await issueSetupClaim(setupAgent);
+
+  await expect(
+    setupAgent.startGitHubManifest({
+      origin: "https://sigvelo-agent-tests.example.workers.dev",
+      ownerType: "user",
+      setupClaimToken: setupClaim.token,
+    }),
+  ).resolves.toMatchObject({
+    action: "https://github.com/settings/apps/new",
+  });
+});
+
 test("GitHub manifest callable can retry after an abandoned GitHub form", async () => {
   const setupAgent = await getSetupAgent();
   const setupState = buildCloudflareVerifiedSetupState();
@@ -871,10 +1011,11 @@ test("setup refresh preserves an in-flight GitHub manifest callback state", asyn
 
 test("GitHub manifest callback rejects callbacks that do not match setup Agent state", async () => {
   const setupAgent = await getSetupAgent();
+  const setupState = buildCloudflareVerifiedSetupState();
   setupAgent.setState({
-    ...buildCloudflareVerifiedSetupState(),
+    ...setupState,
     githubApp: {
-      ...buildCloudflareVerifiedSetupState().githubApp,
+      ...setupState.githubApp,
       status: "creating",
       manifestState: "expected-state",
     },

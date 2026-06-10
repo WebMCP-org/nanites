@@ -332,6 +332,56 @@
   line-height: 1.45;
 }
 
+.setup-readiness {
+  display: grid;
+  flex-basis: 100%;
+  max-width: 42rem;
+  margin: 0;
+  padding: 0;
+  border-block: 1px solid var(--sigvelo-neutral-stroke-soft);
+  list-style: none;
+}
+
+.setup-readiness__item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 0;
+  border-block-end: 1px solid var(--sigvelo-neutral-stroke-soft);
+}
+
+.setup-readiness__item:last-child {
+  border-block-end: 0;
+}
+
+.setup-readiness__item-heading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.setup-readiness__item-heading > span {
+  min-width: 0;
+  color: var(--sigvelo-text-body);
+  font-size: 0.96rem;
+  font-weight: 800;
+}
+
+.setup-readiness__item p {
+  margin: 0;
+  color: var(--sigvelo-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.setup-readiness__scope {
+  color: var(--sigvelo-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .setup-github-form {
   display: flex;
   flex-wrap: wrap;
