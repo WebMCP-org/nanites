@@ -22,14 +22,17 @@ import {
   LOGGING,
   OTEL_ATTRS,
 } from "#/backend/logging.ts";
-import { ChatSdkStateAgent, SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
+import {
+  ChatSdkStateAgent,
+  SigveloChatIngress as BaseSigveloChatIngress,
+} from "#/backend/agents/SigveloChatIngress.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { readDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
-import { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
-import { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
+import { SigveloManagerConversationAgent as BaseSigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
+import { SigveloNaniteManager as BaseSigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
-import { NanitesSetupAgent } from "#/backend/agents/NanitesSetupAgent.ts";
+import { NanitesSetupAgent as BaseNanitesSetupAgent } from "#/backend/agents/NanitesSetupAgent.ts";
 
 configureAgentLogging("info");
 
@@ -44,15 +47,12 @@ const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-prote
 
 // Keep Sentry at the Worker boundary. Agents/Think already manages the Durable Object
 // WebSocket context, and Sentry's DO wrapper rewraps waitUntil recursively on those routes.
-export {
-  ChatSdkStateAgent,
-  HostBridgeLoopback,
-  NanitesSetupAgent,
-  SigveloChatIngress,
-  SigveloManagerConversationAgent,
-  SigveloNaniteAgent,
-  SigveloNaniteManager,
-};
+export class SigveloChatIngressV1 extends BaseSigveloChatIngress {}
+export class SigveloManagerConversationAgentV1 extends BaseSigveloManagerConversationAgent {}
+export class SigveloNaniteManagerV1 extends BaseSigveloNaniteManager {}
+export class NanitesSetupAgentV1 extends BaseNanitesSetupAgent {}
+
+export { ChatSdkStateAgent, HostBridgeLoopback, SigveloNaniteAgent };
 
 function parseSamplingRate(value: string | undefined, fallback: number): number {
   if (!value) {
