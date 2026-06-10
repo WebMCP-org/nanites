@@ -671,22 +671,27 @@ body.is-resizing-columns .nanites-workspace {
 }
 
 .nanites-workspace__chat .app__composer-row {
+  --nanites-composer-side: 2.125rem;
   min-block-size: 2.375rem;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns:
+    var(--nanites-composer-side)
+    minmax(0, 1fr)
+    var(--nanites-composer-side);
   align-items: center;
   gap: 0.5rem;
 }
 
 .nanites-workspace__chat .app__composer .prompt-input__tools {
-  min-inline-size: 1.875rem;
+  inline-size: var(--nanites-composer-side);
+  min-inline-size: var(--nanites-composer-side);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .nanites-workspace__chat .app__composer .prompt-input__tools[data-empty="true"] {
-  min-inline-size: 0.625rem;
+  min-inline-size: var(--nanites-composer-side);
 }
 
 .nanites-workspace__chat-tool-button {
