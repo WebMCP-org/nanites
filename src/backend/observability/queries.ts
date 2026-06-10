@@ -931,17 +931,14 @@ async function readEstimatedCostTotal(
   return row?.estimatedCostUsdMicros ?? 0;
 }
 
-async function readRunKpiTotals(
+async function readOverviewKpiTotals(
   db: DbClient,
   scope: ObservabilityVisibilityScope,
-): Promise<
-  Pick<
-    OverviewKpiTotals,
-    "runCount" | "successfulRuns" | "failedRuns" | "noChangeRuns" | "waitingRunFacts"
-  >
-> {
-  const row = (
-    await db
+): Promise<OverviewKpiTotals> {
+  const { start } = resolveWindow(scope);
+  const [estimatedCostUsdMicros, runRow, catalogRow] = await Promise.all([
+    readEstimatedCostTotal(db, scope),
+    db
       .select({
         runCount,
         successfulRuns: countMatching(runSuccessCondition),
@@ -952,24 +949,8 @@ async function readRunKpiTotals(
       .from(naniteRunFacts)
       .where(runWhere(scope))
       .all()
-  )[0];
-
-  return {
-    runCount: row?.runCount ?? 0,
-    successfulRuns: row?.successfulRuns ?? 0,
-    failedRuns: row?.failedRuns ?? 0,
-    noChangeRuns: row?.noChangeRuns ?? 0,
-    waitingRunFacts: row?.waitingRunFacts ?? 0,
-  };
-}
-
-async function readCatalogKpiTotals(
-  db: DbClient,
-  scope: ObservabilityVisibilityScope,
-): Promise<Pick<OverviewKpiTotals, "waitingCatalogRows" | "activeNanites" | "newNanites">> {
-  const { start } = resolveWindow(scope);
-  const row = (
-    await db
+      .then((rows) => rows[0]),
+    db
       .select({
         activeNanites: countMatching(sql`${naniteCatalog.enabled} = 1`),
         newNanites: countMatching(gte(naniteCatalog.createdAt, start)),
@@ -980,35 +961,19 @@ async function readCatalogKpiTotals(
       .from(naniteCatalog)
       .where(catalogWhere(scope))
       .all()
-  )[0];
-
-  return {
-    waitingCatalogRows: row?.waitingCatalogRows ?? 0,
-    activeNanites: row?.activeNanites ?? 0,
-    newNanites: row?.newNanites ?? 0,
-  };
-}
-
-async function readOverviewKpiTotals(
-  db: DbClient,
-  scope: ObservabilityVisibilityScope,
-): Promise<OverviewKpiTotals> {
-  const [estimatedCostUsdMicros, runTotals, catalogTotals] = await Promise.all([
-    readEstimatedCostTotal(db, scope),
-    readRunKpiTotals(db, scope),
-    readCatalogKpiTotals(db, scope),
+      .then((rows) => rows[0]),
   ]);
 
   return {
     estimatedCostUsdMicros,
-    runCount: runTotals.runCount,
-    successfulRuns: runTotals.successfulRuns,
-    failedRuns: runTotals.failedRuns,
-    noChangeRuns: runTotals.noChangeRuns,
-    waitingRunFacts: runTotals.waitingRunFacts,
-    waitingCatalogRows: catalogTotals.waitingCatalogRows,
-    activeNanites: catalogTotals.activeNanites,
-    newNanites: catalogTotals.newNanites,
+    runCount: runRow?.runCount ?? 0,
+    successfulRuns: runRow?.successfulRuns ?? 0,
+    failedRuns: runRow?.failedRuns ?? 0,
+    noChangeRuns: runRow?.noChangeRuns ?? 0,
+    waitingRunFacts: runRow?.waitingRunFacts ?? 0,
+    waitingCatalogRows: catalogRow?.waitingCatalogRows ?? 0,
+    activeNanites: catalogRow?.activeNanites ?? 0,
+    newNanites: catalogRow?.newNanites ?? 0,
   };
 }
 

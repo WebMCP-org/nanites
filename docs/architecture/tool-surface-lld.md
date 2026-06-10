@@ -207,21 +207,9 @@ Use MCP SDK concepts as the shape of the registry.
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-export type NaniteManagerToolRuntime = Pick<
-  NaniteManager,
-  | "cancelRuns"
-  | "deprovisionNanite"
-  | "exploreNaniteWorkspace"
-  | "inspectNaniteDebug"
-  | "registerNanite"
-  | "resetNaniteDebug"
-  | "startNaniteManualRun"
-  | "testNaniteTrigger"
->;
-
 export type NaniteToolRuntime = {
   context: NaniteToolContext;
-  manager: NaniteManagerToolRuntime;
+  manager: NaniteManager;
 };
 
 export type NaniteTool<TInputSchema extends z.ZodType, TOutput> = {

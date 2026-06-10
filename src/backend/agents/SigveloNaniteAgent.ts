@@ -1458,22 +1458,15 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   async getWorkspaceInfo(): Promise<NaniteWorkspaceInfo> {
     const info = await this.workspace.getWorkspaceInfo();
     const repositoryRoot = await this.findRepositoryRoot();
-    if (!repositoryRoot) {
-      return { ...info, repositoryRoot: null };
-    }
-
-    const scoped = await this.measureWorkspaceSubtree(repositoryRoot);
-    return {
-      ...info,
-      ...scoped,
-      r2FileCount: info.r2FileCount,
-      repositoryRoot,
-    };
+    return this.measureWorkspaceSubtree({ ...info, repositoryRoot });
   }
 
-  private async measureWorkspaceSubtree(
-    root: string,
-  ): Promise<Pick<NaniteWorkspaceInfo, "fileCount" | "directoryCount" | "totalBytes">> {
+  private async measureWorkspaceSubtree(info: NaniteWorkspaceInfo): Promise<NaniteWorkspaceInfo> {
+    const root = info.repositoryRoot;
+    if (!root) {
+      return info;
+    }
+
     let fileCount = 0;
     let directoryCount = 0;
     let totalBytes = 0;
@@ -1498,7 +1491,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       }
     }
 
-    return { fileCount, directoryCount, totalBytes };
+    return {
+      fileCount,
+      directoryCount,
+      totalBytes,
+      r2FileCount: info.r2FileCount,
+      repositoryRoot: root,
+    };
   }
 
   private async findRepositoryRoot(): Promise<string | null> {
