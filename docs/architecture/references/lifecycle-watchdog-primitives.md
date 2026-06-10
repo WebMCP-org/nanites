@@ -169,8 +169,7 @@ Nanite manager and run state:
 
 Current tests:
 
-- `tests/backend/nanite-debug-transcript.test.ts`
-- `tests/e2e` currently owns the future full-flow lane config and guidance.
+- `tests/e2e` owns the future full-flow lane config and guidance.
 
 ## Proposed implementation
 

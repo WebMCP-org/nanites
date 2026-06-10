@@ -9,12 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/__root";
+import { Route as SetupRouteImport } from "./routes/setup";
 import { Route as McpAuthorizeRouteImport } from "./routes/mcp-authorize";
 import { Route as AuthenticatedRouteRouteImport } from "./routes/_authenticated/route";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as AuthenticatedObservabilityRouteRouteImport } from "./routes/_authenticated/observability/route";
 import { Route as AuthenticatedNanitesRouteRouteImport } from "./routes/_authenticated/nanites/route";
 
+const SetupRoute = SetupRouteImport.update({
+  id: "/setup",
+  path: "/setup",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const McpAuthorizeRoute = McpAuthorizeRouteImport.update({
   id: "/mcp-authorize",
   path: "/mcp-authorize",
@@ -45,12 +51,14 @@ const AuthenticatedNanitesRouteRoute =
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/mcp-authorize": typeof McpAuthorizeRoute;
+  "/setup": typeof SetupRoute;
   "/nanites": typeof AuthenticatedNanitesRouteRoute;
   "/observability": typeof AuthenticatedObservabilityRouteRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/mcp-authorize": typeof McpAuthorizeRoute;
+  "/setup": typeof SetupRoute;
   "/nanites": typeof AuthenticatedNanitesRouteRoute;
   "/observability": typeof AuthenticatedObservabilityRouteRoute;
 }
@@ -59,19 +67,21 @@ export interface FileRoutesById {
   "/": typeof IndexRoute;
   "/_authenticated": typeof AuthenticatedRouteRouteWithChildren;
   "/mcp-authorize": typeof McpAuthorizeRoute;
+  "/setup": typeof SetupRoute;
   "/_authenticated/nanites": typeof AuthenticatedNanitesRouteRoute;
   "/_authenticated/observability": typeof AuthenticatedObservabilityRouteRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/mcp-authorize" | "/nanites" | "/observability";
+  fullPaths: "/" | "/mcp-authorize" | "/setup" | "/nanites" | "/observability";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/mcp-authorize" | "/nanites" | "/observability";
+  to: "/" | "/mcp-authorize" | "/setup" | "/nanites" | "/observability";
   id:
     | "__root__"
     | "/"
     | "/_authenticated"
     | "/mcp-authorize"
+    | "/setup"
     | "/_authenticated/nanites"
     | "/_authenticated/observability";
   fileRoutesById: FileRoutesById;
@@ -80,10 +90,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren;
   McpAuthorizeRoute: typeof McpAuthorizeRoute;
+  SetupRoute: typeof SetupRoute;
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
+    "/setup": {
+      id: "/setup";
+      path: "/setup";
+      fullPath: "/setup";
+      preLoaderRoute: typeof SetupRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/mcp-authorize": {
       id: "/mcp-authorize";
       path: "/mcp-authorize";
@@ -139,6 +157,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   McpAuthorizeRoute: McpAuthorizeRoute,
+  SetupRoute: SetupRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

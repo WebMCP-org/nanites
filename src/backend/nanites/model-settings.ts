@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
-import { isKeyedAiProvider, type KeyedAiProvider } from "#/backend/nanites/provider-keys.ts";
 
 const defaultCatalogPageSize = 200;
 
-const DEFAULT_SIGVELO_AGENT_MODEL_ID = "deepseek/deepseek-v4-pro";
+const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/moonshotai/kimi-k2.6";
 const DEFAULT_NANITES_MODEL_GATEWAY_ID = "default";
+const FUNCTION_CALLING_CAPABILITY = "Function calling";
 
 export type NanitesModelSource = "cloudflare-hosted" | "third-party";
 
@@ -76,10 +76,10 @@ type CloudflareModelSearchResult = z.output<typeof cloudflareModelSearchResultSc
 type CloudflareModelSearchProperty = z.output<typeof cloudflareModelSearchPropertySchema>;
 
 export const DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS = {
-  provider: "deepseek",
-  providerLabel: "DeepSeek",
+  provider: "kimi",
+  providerLabel: "Moonshot AI",
   modelId: DEFAULT_SIGVELO_AGENT_MODEL_ID,
-  modelName: "DeepSeek V4 Pro",
+  modelName: "Kimi K2.6",
   gatewayId: DEFAULT_NANITES_MODEL_GATEWAY_ID,
 } as const;
 
@@ -159,16 +159,6 @@ function inferSource(modelId: string): NanitesModelSource {
   return modelId.startsWith("@cf/") || modelId.startsWith("@hf/")
     ? "cloudflare-hosted"
     : "third-party";
-}
-
-export function keyedAiProviderForNanitesModelId(modelId: string): KeyedAiProvider | null {
-  const cleanModelId = modelId.trim();
-  if (cleanModelId.startsWith("@cf/") || cleanModelId.startsWith("@hf/")) {
-    return null;
-  }
-
-  const provider = inferProvider(cleanModelId);
-  return isKeyedAiProvider(provider) ? provider : null;
 }
 
 function parseContextWindow(properties: readonly CloudflareModelSearchProperty[]): number | null {
@@ -286,11 +276,19 @@ export async function validateNanitesModelId(env: Env, modelId: string): Promise
   const catalog = await fetchNanitesModelCatalog(env);
   const model = catalog.models.find((candidate) => candidate.id === cleanModelId);
   if (model) {
+    if (!model.capabilities.includes(FUNCTION_CALLING_CAPABILITY)) {
+      throw new AppError("nanitesModelSelectionInvalid", {
+        details: {
+          reason: "Model must support function calling so Nanites can use runtime tools.",
+          modelId,
+        },
+      });
+    }
+
     return cleanModelId;
   }
 
-  const providerNativeModelId = providerNativeModelIdSchema.safeParse(cleanModelId);
-  if (providerNativeModelId.success && keyedAiProviderForNanitesModelId(cleanModelId)) {
+  if (providerNativeModelIdSchema.safeParse(cleanModelId).success) {
     return cleanModelId;
   }
 

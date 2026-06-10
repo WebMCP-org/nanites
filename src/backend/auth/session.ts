@@ -6,6 +6,8 @@ import { AppError } from "#/backend/errors.ts";
 import type { GitHubUserToken } from "#/backend/github/index.ts";
 import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods";
 import type { GitHubVisibleInstallation } from "#/backend/github/index.ts";
+import { createDbClient } from "#/backend/db/index.ts";
+import { requireDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
 import {
   BROWSER_AUTH_COOKIE_NAMES,
   BROWSER_AUTH_COOKIE_PATH,
@@ -75,6 +77,15 @@ const NANITES_BROWSER_AUTH_HKDF_HASH = "SHA-256";
  * This is Nanites-owned application policy, not a GitHub-defined value.
  */
 const NANITES_BROWSER_AUTH_HKDF_SALT = "sigvelo:nanites:browser-auth";
+
+function requireAuthCookieSecret(env: Env): string {
+  const secret = env.AUTH_COOKIE_SECRET;
+  if (typeof secret !== "string" || secret.trim().length === 0) {
+    throw new AppError("deploymentGitHubAppSetupRequired");
+  }
+
+  return secret;
+}
 
 /**
  * Returns the GitHub OAuth state expiry timestamp as an ISO-8601 UTC string.
@@ -222,7 +233,7 @@ async function sealCookieValue<TSchema extends CookiePayloadSchema>(
   expiresAt: string,
 ): Promise<string> {
   const parsedValue = schema.parse(value);
-  const key = await deriveCookieEncryptionKey(env.AUTH_COOKIE_SECRET, purpose);
+  const key = await deriveCookieEncryptionKey(requireAuthCookieSecret(env), purpose);
 
   return new EncryptJWT(parsedValue)
     .setProtectedHeader({
@@ -242,7 +253,7 @@ async function readSealedCookieValue<TSchema extends CookiePayloadSchema>(
   env: Env,
   purpose: string,
 ): Promise<z.output<TSchema> | null> {
-  const key = await deriveCookieEncryptionKey(env.AUTH_COOKIE_SECRET, purpose);
+  const key = await deriveCookieEncryptionKey(requireAuthCookieSecret(env), purpose);
 
   try {
     const { payload } = await jwtDecrypt<z.output<TSchema>>(sealedValue, key, {
@@ -490,10 +501,11 @@ async function refreshGitHubUserToken({
   githubUserToken: RefreshableGitHubUserToken;
   env: Env;
 }): Promise<GitHubUserToken> {
+  const githubAppConfig = await requireDeploymentGitHubAppConfig(createDbClient(env.DB), env);
   const { authentication } = await refreshGitHubOAuthToken({
     clientType: "github-app",
-    clientId: env.GITHUB_CLIENT_ID,
-    clientSecret: env.GITHUB_CLIENT_SECRET,
+    clientId: githubAppConfig.clientId,
+    clientSecret: githubAppConfig.clientSecret,
     refreshToken: githubUserToken.refreshToken,
   });
 

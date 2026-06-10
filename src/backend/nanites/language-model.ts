@@ -1,14 +1,10 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
-import type { DbClient } from "#/backend/db/index.ts";
-import { AppError } from "#/backend/errors.ts";
 import {
-  keyedAiProviderForNanitesModelId,
   type NanitesRuntimeModelSettings,
   resolveDefaultSigveloAgentModelSettings,
 } from "#/backend/nanites/model-settings.ts";
-import { readInstallationAiProviderApiKey } from "#/backend/nanites/provider-keys.ts";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 
@@ -44,8 +40,6 @@ interface SigveloAgentLanguageModelInput {
 }
 
 interface NaniteRunLanguageModelInput extends SigveloAgentLanguageModelInput {
-  db: DbClient;
-  githubInstallationId: number;
   modelSettings: NanitesRuntimeModelSettings;
 }
 
@@ -105,55 +99,13 @@ export async function createNaniteRunLanguageModel(
     return testLanguageModel;
   }
 
-  const keyedProvider = keyedAiProviderForNanitesModelId(input.modelSettings.modelId);
-  if (!keyedProvider) {
-    return createPromptCachedWorkersAIModel({
-      binding: input.env.AI,
-      model: input.modelSettings.modelId,
-      sessionAffinity: input.sessionAffinity,
-      gatewayId: input.modelSettings.gatewayId || undefined,
-      gatewayMetadata: input.gatewayMetadata,
-    });
-  }
-
-  const providerApiKey = await readInstallationAiProviderApiKey({
-    db: input.db,
-    env: input.env,
-    githubInstallationId: input.githubInstallationId,
-    provider: keyedProvider,
+  return createPromptCachedWorkersAIModel({
+    binding: input.env.AI,
+    model: input.modelSettings.modelId,
+    sessionAffinity: input.sessionAffinity,
+    gatewayId: input.modelSettings.gatewayId || undefined,
+    gatewayMetadata: input.gatewayMetadata,
   });
-  if (!providerApiKey) {
-    throw new AppError("nanitesModelSelectionInvalid", {
-      details: {
-        reason: "GitHub installation is missing an API key for the selected model provider.",
-        modelId: input.modelSettings.modelId,
-      },
-    });
-  }
-
-  const cloudflareApiToken = input.env.CLOUDFLARE_API_TOKEN.trim();
-  if (!cloudflareApiToken) {
-    throw new AppError("nanitesModelSelectionInvalid", {
-      details: {
-        reason: "CLOUDFLARE_API_TOKEN is required for AI Gateway provider-key requests.",
-        modelId: input.modelSettings.modelId,
-      },
-    });
-  }
-
-  return createOpenAI({
-    apiKey: providerApiKey,
-    baseURL: `https://gateway.ai.cloudflare.com/v1/${input.env.CLOUDFLARE_ACCOUNT_ID}/${input.modelSettings.gatewayId}/compat`,
-    headers: {
-      "cf-aig-authorization": `Bearer ${cloudflareApiToken}`,
-      ...(input.gatewayMetadata
-        ? {
-            "cf-aig-metadata": JSON.stringify(input.gatewayMetadata),
-          }
-        : {}),
-    },
-    name: "cloudflare-ai-gateway",
-  }).chat(input.modelSettings.modelId);
 }
 
 type NaniteLlmFixture =

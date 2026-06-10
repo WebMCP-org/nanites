@@ -16,6 +16,12 @@ The core model should stay simple:
 
 Everything else is implementation detail unless it changes trust, timing, cost, or the user's next decision.
 
+For the self-hosted bootstrap direction, see
+[Zero-Config Self-Hosting Plan](./zero-config-self-hosting-plan.md) and
+[Zero-Config Self-Hosting Edge Cases](./zero-config-self-hosting-edge-cases.md). The north star is
+a Cloudflare-owned deploy plus setup flow where customers click through first-party Cloudflare and
+GitHub screens without copying secrets or entering API keys.
+
 ## System map
 
 ```mermaid
@@ -174,7 +180,7 @@ path filters, debounce rules, and other behavior belong in `triggerSource` code.
     id: "docs-syncer-react-webmcp",
     name: "React WebMCP docs syncer",
     description: "Keeps React WebMCP docs aligned with package changes.",
-    model: "deepseek/deepseek-v4-pro",
+    model: "@cf/moonshotai/kimi-k2.6",
     eventSource: {
       type: "github",
       events: ["push"],

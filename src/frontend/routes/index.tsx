@@ -3,6 +3,8 @@ import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx"
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { loadSession } from "#/frontend/lib/auth.ts";
+import { httpClient } from "#/frontend/lib/http-client.ts";
+import { parseResponse } from "hono/client";
 import {
   AUTH_RETURN_TO_PARAM,
   GITHUB_OAUTH_LOGIN_PATH,
@@ -13,6 +15,11 @@ import {
 
 export const Route = createFileRoute("/")({
   loader: async ({ context, location }) => {
+    const setupStatus = await parseResponse(httpClient.api.setup.status.$get());
+    if (!setupStatus.setupComplete) {
+      throw redirect({ to: "/setup" });
+    }
+
     const session = await loadSession(context, { force: true });
     if (session) {
       throw redirect({ href: resolveAuthReturnTo(location.href) });

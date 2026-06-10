@@ -1,23 +1,11 @@
 import { env } from "cloudflare:test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
-import { buildBrowserSessionExpiration, sealSessionCookie } from "#/backend/auth/session.ts";
+import { saveTestDeploymentGitHubAppMetadata } from "../helpers/d1-baseline.ts";
 
 const GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token";
 
-beforeAll(async () => {
-  await env.DB.exec(
-    [
-      "CREATE TABLE IF NOT EXISTS installation_ai_provider_keys (",
-      "github_installation_id integer NOT NULL,",
-      "provider text NOT NULL,",
-      "encrypted_api_key text NOT NULL,",
-      "key_last4 text NOT NULL,",
-      "created_at integer NOT NULL,",
-      "updated_at integer NOT NULL,",
-      "PRIMARY KEY(github_installation_id, provider)",
-      ");",
-    ].join(" "),
-  );
+beforeEach(async () => {
+  await saveTestDeploymentGitHubAppMetadata(env.DB);
 });
 
 function readCookieHeader(response: Response): string {
@@ -29,29 +17,23 @@ function readCookieHeader(response: Response): string {
   return setCookie.split(";", 1)[0];
 }
 
-async function browserSessionCookie(githubInstallationId: number): Promise<string> {
-  return sealSessionCookie(
-    {
-      githubViewer: {
-        id: 123,
-        login: "octocat",
-      },
-      activeGithubInstallationId: githubInstallationId,
-      sessionInstallationSnapshot: {
-        id: githubInstallationId,
-        account: {
-          id: 456,
-          login: "octo-org",
-          type: "Organization",
-          avatar_url: null,
-        },
-      },
-      expiresAt: buildBrowserSessionExpiration(),
-    },
-    new Request("http://localhost:5173/api/auth/installation/ai-provider-keys"),
-    env as Env,
+test("GitHub OAuth callback reroutes install callbacks into setup verification login", async () => {
+  const response = await nanitesHttpApp.request(
+    "http://localhost:5173/auth/github/callback?code=test-code&installation_id=139264883&setup_action=update",
+    {},
+    env,
   );
-}
+
+  expect(response.status).toBe(302);
+  expect(response.headers.get("Set-Cookie")).toContain("nanites_github_oauth_state=");
+
+  const location = new URL(response.headers.get("Location") ?? "");
+  expect(location.origin).toBe("http://localhost:5173");
+  expect(location.pathname).toBe("/auth/github/login");
+  expect(location.searchParams.get("returnTo")).toBe(
+    "/setup/github/verify?installation_id=139264883",
+  );
+});
 
 test("GitHub OAuth callback reports token exchange errors without a raw 500", async () => {
   const loginResponse = await nanitesHttpApp.request(
@@ -127,61 +109,6 @@ test("active installation route validates JSON at the Hono boundary", async () =
     error: { name: "ZodError" },
   });
   expect(body.error.message).toContain("githubInstallationId");
-});
-
-test("installation AI provider keys are managed from the active browser installation", async () => {
-  const githubInstallationId = 78_910;
-  const cookie = await browserSessionCookie(githubInstallationId);
-  const listBefore = await nanitesHttpApp.request(
-    "/api/auth/installation/ai-provider-keys",
-    {
-      headers: { Cookie: cookie },
-    },
-    env,
-  );
-
-  expect(listBefore.status).toBe(200);
-  await expect(listBefore.json()).resolves.toMatchObject({
-    providers: expect.arrayContaining([
-      {
-        provider: "deepseek",
-        label: "DeepSeek",
-      },
-    ]),
-    keys: [],
-  });
-
-  const saveResponse = await nanitesHttpApp.request(
-    "/api/auth/installation/ai-provider-keys",
-    {
-      method: "POST",
-      headers: {
-        Cookie: cookie,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        provider: "deepseek",
-        apiKey: "sk-test-deepseek-dashboard-key",
-      }),
-    },
-    env,
-  );
-
-  expect(saveResponse.status).toBe(200);
-  const saveBody = await saveResponse.json();
-  expect(JSON.stringify(saveBody)).not.toContain("sk-test-deepseek-dashboard-key");
-  expect(saveBody).toMatchObject({
-    saved: {
-      provider: "deepseek",
-      keyLast4: "-key",
-    },
-    keys: [
-      {
-        provider: "deepseek",
-        keyLast4: "-key",
-      },
-    ],
-  });
 });
 
 test("test auth token failures bubble through the root error handler", async () => {

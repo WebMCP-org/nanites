@@ -1,27 +1,11 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { validateGeneratedTriggerSource } from "#/backend/nanites/triggers.ts";
-import {
-  shouldResyncNaniteDuringMaintenance,
-  type SigveloNaniteManager,
-} from "#/backend/agents/SigveloNaniteManager.ts";
+import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
 
 beforeAll(async () => {
   await env.DB.exec("CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY);");
-  await env.DB.exec(
-    [
-      "CREATE TABLE IF NOT EXISTS installation_ai_provider_keys (",
-      "github_installation_id integer NOT NULL,",
-      "provider text NOT NULL,",
-      "encrypted_api_key text NOT NULL,",
-      "key_last4 text NOT NULL,",
-      "created_at integer NOT NULL,",
-      "updated_at integer NOT NULL,",
-      "PRIMARY KEY(github_installation_id, provider)",
-      ");",
-    ].join(" "),
-  );
   Object.assign(env, {
     AI: {
       models: async () => [
@@ -45,23 +29,10 @@ function getManager() {
 
 async function getInstallationManager() {
   const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
-  await seedProviderKey(githubInstallationId);
   return getAgentByName(
     env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
     `installation:${githubInstallationId}`,
   );
-}
-
-function seedProviderKey(githubInstallationId: number) {
-  return env.DB.prepare(
-    [
-      "INSERT OR REPLACE INTO installation_ai_provider_keys",
-      "(github_installation_id, provider, encrypted_api_key, key_last4, created_at, updated_at)",
-      "VALUES (?, 'deepseek', 'encrypted-test-key', 'test', 0, 0)",
-    ].join(" "),
-  )
-    .bind(githubInstallationId)
-    .run();
 }
 
 const packageDocsTriggerSource = `
@@ -312,28 +283,6 @@ export default {
     expect(result.error).toContain("phase=static");
     expect(result.error).toContain("eval");
   }
-});
-
-test("maintenance resync predicate tolerates persisted nanites without event sources", () => {
-  const staleNanite = {
-    manifest: {
-      id: "stale-missing-event-source",
-      name: "Stale missing event source",
-      description: "Persisted before eventSource was required.",
-      permissions: {},
-    },
-    latestVersion: {
-      versionId: "manifest-stale",
-      manifestHash: "stale",
-      registeredAt: "2026-01-01T00:00:00.000Z",
-    },
-    enabled: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  } as unknown as Parameters<typeof shouldResyncNaniteDuringMaintenance>[0];
-
-  expect(() => shouldResyncNaniteDuringMaintenance(staleNanite)).not.toThrow();
-  expect(shouldResyncNaniteDuringMaintenance(staleNanite)).toBe(true);
 });
 
 test("nanite registration stores generated triggers only after validation passes", async () => {

@@ -7,6 +7,10 @@ import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloMa
 import { encodeHex } from "#/backend/crypto.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
+import {
+  ensureD1BaselineSchema,
+  saveTestDeploymentGitHubAppMetadata,
+} from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 
 const textEncoder = new TextEncoder();
@@ -20,6 +24,15 @@ async function signGitHubWebhookBody(body: string, secret: string): Promise<stri
     ["sign"],
   );
   return `sha256=${encodeHex(await crypto.subtle.sign("HMAC", key, textEncoder.encode(body)))}`;
+}
+
+function requireTestGitHubWebhookSecret(): string {
+  const secret = env.GITHUB_WEBHOOK_SECRET;
+  if (typeof secret !== "string" || secret.length === 0) {
+    throw new Error("GITHUB_WEBHOOK_SECRET is required for webhook signature tests.");
+  }
+
+  return secret;
 }
 
 function buildGitHubApiJsonResponse(path: string, payload: unknown, init?: ResponseInit): Response {
@@ -293,14 +306,11 @@ test("server exports the Chat SDK ingress Agent classes", () => {
 });
 
 beforeAll(async () => {
-  await env.DB.exec(
-    [
-      "PRAGMA foreign_keys = ON;",
-      "CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, last_active_at INTEGER, updated_at INTEGER);",
-      "CREATE TABLE IF NOT EXISTS account_installations (account_id TEXT, github_installation_id INTEGER PRIMARY KEY, FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE);",
-      "CREATE TABLE IF NOT EXISTS platform_usage_facts (id TEXT PRIMARY KEY, account_id TEXT, github_installation_id INTEGER, github_repository_id INTEGER, run_key TEXT, category TEXT NOT NULL, event_key TEXT NOT NULL, status TEXT, quantity INTEGER NOT NULL DEFAULT 1, duration_ms INTEGER, metadata_json TEXT NOT NULL DEFAULT '{}', occurred_at INTEGER NOT NULL, FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE, FOREIGN KEY(github_installation_id) REFERENCES account_installations(github_installation_id) ON DELETE CASCADE);",
-    ].join("\n"),
-  );
+  await ensureD1BaselineSchema(env.DB);
+});
+
+beforeEach(async () => {
+  await saveTestDeploymentGitHubAppMetadata(env.DB);
 });
 
 test("GitHub issue comments route through Chat SDK ingress", async () => {
@@ -319,7 +329,10 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
           "content-type": "application/json",
           "x-github-delivery": "chat-sdk-delivery-1",
           "x-github-event": "issue_comment",
-          "x-hub-signature-256": await signGitHubWebhookBody(body, env.GITHUB_WEBHOOK_SECRET),
+          "x-hub-signature-256": await signGitHubWebhookBody(
+            body,
+            requireTestGitHubWebhookSecret(),
+          ),
         },
         body,
       }),
@@ -385,7 +398,10 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
           "content-type": "application/json",
           "x-github-delivery": "chat-sdk-delivery-2",
           "x-github-event": "issue_comment",
-          "x-hub-signature-256": await signGitHubWebhookBody(body, env.GITHUB_WEBHOOK_SECRET),
+          "x-hub-signature-256": await signGitHubWebhookBody(
+            body,
+            requireTestGitHubWebhookSecret(),
+          ),
         },
         body,
       }),
@@ -430,7 +446,10 @@ test("GitHub and browser manager chats share the manager conversation behavior",
           "content-type": "application/json",
           "x-github-delivery": "chat-sdk-delivery-same-manager",
           "x-github-event": "issue_comment",
-          "x-hub-signature-256": await signGitHubWebhookBody(body, env.GITHUB_WEBHOOK_SECRET),
+          "x-hub-signature-256": await signGitHubWebhookBody(
+            body,
+            requireTestGitHubWebhookSecret(),
+          ),
         },
         body,
       }),
@@ -482,19 +501,52 @@ test("GitHub and browser manager chats share the manager conversation behavior",
   }
 });
 
-test("GitHub webhook ping is handled before webhook body consumers", async () => {
-  const response = await worker.fetch(
+test("GitHub webhook ping requires a valid signature", async () => {
+  const body = JSON.stringify({
+    zen: "Approachable is better than simple.",
+    hook_id: 123,
+    repository: {
+      id: 456,
+      name: "nanites",
+      full_name: "WebMCP-org/nanites",
+    },
+    sender: {
+      id: 789,
+      login: "alice",
+      type: "User",
+    },
+  });
+  const unsignedResponse = await worker.fetch(
     new Request(`http://example.com${GITHUB_WEBHOOK_PATH}`, {
       method: "POST",
       headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "ping-unsigned",
         "x-github-event": "ping",
       },
-      body: "not-json-and-not-signed",
+      body,
     }),
     env,
     createExecutionContext(),
   );
 
-  expect(response.status).toBe(200);
-  expect(await response.text()).toBe("pong");
+  expect(unsignedResponse.status).not.toBe(200);
+
+  const signedResponse = await worker.fetch(
+    new Request(`http://example.com${GITHUB_WEBHOOK_PATH}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "ping-signed",
+        "x-github-event": "ping",
+        "x-hub-signature-256": await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
+      },
+      body,
+    }),
+    env,
+    createExecutionContext(),
+  );
+
+  expect(signedResponse.status).toBe(200);
+  expect(await signedResponse.text()).toBe("pong");
 });

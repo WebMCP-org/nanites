@@ -34,21 +34,16 @@ import {
 import type {
   AskHumanInput,
   CompleteNaniteRunInput,
-  DispatchNaniteRunInput,
   NaniteAgentFeedback,
   ManagedNanite,
   NaniteManifest,
-  NaniteManagerState,
-  NaniteRuntimeActivity,
   NaniteRuntimeActivityState,
   NaniteRunRecord,
   NaniteRunModelSnapshot,
   NaniteScheduledEventSourceSpec,
   NaniteScheduleWhen,
-  RecordNaniteRuntimeActivityInput,
-  RecordUnreportedRunCompletionInput,
-  StartNaniteRunInput,
   NaniteTriggerEvent,
+  SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getDispatchIntents, runGeneratedTrigger } from "#/backend/nanites/triggers.ts";
 import { getGitHubWebhookRepositoryFullName, getGitHubWebhookRepositoryId } from "#/github.ts";
@@ -716,18 +711,6 @@ function getParentManagerName(agent: SigveloNaniteAgent): string {
   return managerName;
 }
 
-type ParentManagerCalls = {
-  getSnapshot(): Promise<NaniteManagerState>;
-  startRun(input: StartNaniteRunInput): Promise<NaniteRunRecord>;
-  dispatchRun(input: DispatchNaniteRunInput): Promise<NaniteRunRecord>;
-  recordUnreportedRunCompletion(
-    input: RecordUnreportedRunCompletionInput,
-  ): Promise<NaniteRunRecord>;
-  recordRuntimeActivity(input: RecordNaniteRuntimeActivityInput): Promise<NaniteRuntimeActivity>;
-  completeRun(input: CompleteNaniteRunInput): Promise<NaniteRunRecord>;
-  askHuman(input: AskHumanInput): Promise<NaniteRunRecord>;
-};
-
 function parseManagerInstallationId(managerName: string) {
   const installationId = managerName.startsWith("installation:")
     ? Number(managerName.slice("installation:".length))
@@ -768,6 +751,16 @@ function isLifecycleTerminalStatus(status: NaniteRunRecord["status"]): boolean {
   );
 }
 
+type ParentManagerRpc = {
+  getSnapshot: SigveloNaniteManager["getSnapshot"];
+  startRun: SigveloNaniteManager["startRun"];
+  dispatchRun: SigveloNaniteManager["dispatchRun"];
+  recordUnreportedRunCompletion: SigveloNaniteManager["recordUnreportedRunCompletion"];
+  recordRuntimeActivity: SigveloNaniteManager["recordRuntimeActivity"];
+  completeRun: SigveloNaniteManager["completeRun"];
+  askHuman: SigveloNaniteManager["askHuman"];
+};
+
 export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   initialState: NaniteAgentState = createInitialNaniteAgentState();
   extensionLoader = this.env.LOADER;
@@ -775,17 +768,16 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   override waitForMcpConnections = { timeout: 10_000 };
   override chatRecovery = { noProgressTimeoutMs: 10 * 60 * 1000 };
 
-  private parentManager(): ParentManagerCalls {
+  private parentManager(): ParentManagerRpc {
     return this.env.SigveloNaniteManager.getByName(
       getParentManagerName(this),
-    ) as unknown as ParentManagerCalls;
+    ) as unknown as ParentManagerRpc;
   }
 
   private async readActiveRun(runId: string | null): Promise<NaniteRunRecord | null> {
     if (!runId) {
       return null;
     }
-
     return (await this.parentManager().getSnapshot()).runs[runId] ?? null;
   }
 
@@ -839,16 +831,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       });
     }
 
-    const managerName = this.state.managerName ?? getParentManagerName(this);
-    const githubInstallationId = parseManagerInstallationId(managerName);
-    if (!githubInstallationId) {
-      throw new AppError("naniteAgentManagerRequired");
-    }
-
     return createNaniteRunLanguageModel({
-      db: createDbClient(this.env.DB),
       env: this.env,
-      githubInstallationId,
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(runId),
       modelSettings: modelSettingsFromRunSnapshot(runModel),

@@ -66,11 +66,9 @@ import {
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
 import {
-  keyedAiProviderForNanitesModelId,
   resolveNanitesModelSettings,
   validateNanitesModelId,
 } from "#/backend/nanites/model-settings.ts";
-import { hasInstallationAiProviderKey } from "#/backend/nanites/provider-keys.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -89,14 +87,14 @@ const NANITE_MANAGER_TERMINAL_SUBMISSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const NANITE_MANAGER_MAINTENANCE_SUBMISSION_DELETE_LIMIT = 100;
 const naniteManagerLogger = getLogger(LOGGING.NANITES_CATEGORY);
 
-type ManagerWebhookDispatcher = {
-  handleGitHubWebhook(input: HandleGitHubWebhookInput): Promise<GitHubWebhookRunDispatch[]>;
-  dispatchRun(input: DispatchNaniteRunInput): Promise<NaniteRunRecord>;
-};
 type GeneratedTriggerSuccess = Extract<
   Awaited<ReturnType<typeof runGeneratedTrigger>>,
   { ok: true }
 >;
+type ManagerWebhookRpc = {
+  handleGitHubWebhook: SigveloNaniteManager["handleGitHubWebhook"];
+  dispatchRun: SigveloNaniteManager["dispatchRun"];
+};
 type GeneratedTriggerEvaluation =
   | {
       ok: false;
@@ -121,8 +119,8 @@ export async function dispatchGitHubWebhookToNaniteManager({
     env.SigveloNaniteManager,
     buildNaniteManagerKey(githubInstallationId),
   );
-  const dispatcher = manager as unknown as ManagerWebhookDispatcher;
-  const dispatches = await dispatcher.handleGitHubWebhook({
+  const managerRpc = manager as unknown as ManagerWebhookRpc;
+  const dispatches = await managerRpc.handleGitHubWebhook({
     githubInstallationId,
     event,
   });
@@ -132,7 +130,7 @@ export async function dispatchGitHubWebhookToNaniteManager({
       continue;
     }
 
-    await dispatcher.dispatchRun({ runId: dispatch.run.runId });
+    await managerRpc.dispatchRun({ runId: dispatch.run.runId });
   }
 
   return dispatches;
@@ -355,7 +353,7 @@ export type NaniteRunRecord = {
 };
 
 export type NaniteRunModelSnapshot = {
-  runtimePath: "workers_ai_gateway" | "ai_gateway_openai_compat";
+  runtimePath: "workers_ai_gateway";
   effectiveModelId: string;
   effectiveProvider: string;
   effectiveProviderLabel: string;
@@ -650,34 +648,6 @@ async function assertNaniteRepositoriesBelongToInstallation({
   }
 }
 
-export async function assertNaniteModelKeyBelongsToInstallation({
-  env,
-  githubInstallationId,
-  modelId,
-}: {
-  env: Env;
-  githubInstallationId: number;
-  modelId: string;
-}): Promise<void> {
-  const provider = keyedAiProviderForNanitesModelId(modelId);
-  if (!provider) {
-    return;
-  }
-
-  if (await hasInstallationAiProviderKey(createDbClient(env.DB), githubInstallationId, provider)) {
-    return;
-  }
-
-  throw new AppError("nanitesModelSelectionInvalid", {
-    details: {
-      reason: "The selected model provider needs an API key for this GitHub installation.",
-      modelId,
-      provider,
-      githubInstallationId,
-    },
-  });
-}
-
 function createInitialNaniteManagerState(): NaniteManagerState {
   return {
     nanites: {},
@@ -781,9 +751,7 @@ export async function resolveNaniteRunModelSnapshot(input: {
   const modelSettings = resolveNanitesModelSettings(input.env, input.manifest.model);
 
   return {
-    runtimePath: keyedAiProviderForNanitesModelId(modelSettings.modelId)
-      ? "ai_gateway_openai_compat"
-      : "workers_ai_gateway",
+    runtimePath: "workers_ai_gateway",
     effectiveModelId: modelSettings.modelId,
     effectiveProvider: modelSettings.provider,
     effectiveProviderLabel: modelSettings.providerLabel,
@@ -2153,11 +2121,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         env: this.env,
         githubInstallationId,
         manifest,
-      });
-      await assertNaniteModelKeyBelongsToInstallation({
-        env: this.env,
-        githubInstallationId,
-        modelId: manifest.model,
       });
     }
 

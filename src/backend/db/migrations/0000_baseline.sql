@@ -96,6 +96,7 @@ CREATE TABLE `ai_usage_facts` (
 	`raw_usage_json` text,
 	`provider_metadata_json` text,
 	`provider_billed_total_cost_usd_micros` integer,
+	`ai_gateway_id` text,
 	`ai_gateway_log_id` text,
 	`ai_gateway_event_id` text,
 	`actor_kind` text,
@@ -158,6 +159,24 @@ CREATE TABLE `auth_funnel_facts` (
 	FOREIGN KEY (`github_installation_id`) REFERENCES `account_installations`(`github_installation_id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE `deployment_github_app_config` (
+	`id` text PRIMARY KEY NOT NULL,
+	`app_id` integer NOT NULL,
+	`slug` text NOT NULL,
+	`html_url` text NOT NULL,
+	`owner_login` text,
+	`owner_type` text,
+	`selected_github_installation_id` integer,
+	`client_id` text NOT NULL,
+	`client_secret_binding` text NOT NULL,
+	`webhook_secret_binding` text NOT NULL,
+	`private_key_binding` text NOT NULL,
+	`permissions_json` text NOT NULL,
+	`events_json` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `nanite_catalog` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text,
@@ -167,6 +186,7 @@ CREATE TABLE `nanite_catalog` (
 	`enabled` integer NOT NULL,
 	`event_source_type` text NOT NULL,
 	`latest_version_id` text NOT NULL,
+	`model_id` text DEFAULT '' NOT NULL,
 	`repository_full_names_json` text DEFAULT '[]' NOT NULL,
 	`repository_count` integer DEFAULT 0 NOT NULL,
 	`trigger_event_count` integer DEFAULT 0 NOT NULL,
@@ -215,6 +235,13 @@ CREATE TABLE `nanite_run_facts` (
 	`output_additions` integer,
 	`output_deletions` integer,
 	`output_changed_files` integer,
+	`model_runtime_path` text,
+	`effective_model_id` text,
+	`effective_provider` text,
+	`effective_model_name` text,
+	`effective_gateway_id` text,
+	`model_manifest_version_id` text,
+	`model_resolved_at` integer,
 	`config_source` text,
 	`implicit_failure_reason` text,
 	`missing_exit_tool_reminder_count` integer DEFAULT 0 NOT NULL,

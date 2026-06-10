@@ -28,12 +28,6 @@ import {
 import { listVisibleInstallations } from "#/backend/github/index.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
-  KEYED_AI_PROVIDER_OPTIONS,
-  listInstallationAiProviderKeySummaries,
-  saveInstallationAiProviderKey,
-} from "#/backend/nanites/provider-keys.ts";
-import { KEYED_AI_PROVIDERS } from "#/backend/db/schema.ts";
-import {
   AUTH_RETURN_TO_PARAM,
   GITHUB_OAUTH_CALLBACK_PATH,
   GITHUB_OAUTH_LOGIN_PATH,
@@ -65,14 +59,6 @@ const activeInstallationInput = zValidator(
   "json",
   z.object({
     githubInstallationId: z.number().int().positive(),
-  }),
-);
-
-const aiProviderKeyInput = zValidator(
-  "json",
-  z.object({
-    provider: z.enum(KEYED_AI_PROVIDERS),
-    apiKey: z.string().trim().min(1),
   }),
 );
 
@@ -119,6 +105,39 @@ const githubOAuthCallbackQueryInput = zValidator(
   }),
 );
 
+function readGitHubInstallationId(url: URL): number | null {
+  const installationIdParam = url.searchParams.get("installation_id");
+  if (!installationIdParam) {
+    return null;
+  }
+
+  const installationId = Number(installationIdParam);
+  return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
+}
+
+function buildGitHubInstallVerificationLoginUrl(request: Request, installationId: number): URL {
+  const verifyUrl = new URL("/setup/github/verify", request.url);
+  verifyUrl.searchParams.set("installation_id", String(installationId));
+
+  const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, request.url);
+  loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, `${verifyUrl.pathname}${verifyUrl.search}`);
+  return loginUrl;
+}
+
+function buildGitHubInstallCallbackLoginUrl(request: Request): URL | null {
+  const callbackUrl = new URL(request.url);
+  if (!callbackUrl.searchParams.has("setup_action")) {
+    return null;
+  }
+
+  const installationId = readGitHubInstallationId(callbackUrl);
+  if (installationId === null) {
+    return null;
+  }
+
+  return buildGitHubInstallVerificationLoginUrl(request, installationId);
+}
+
 export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
   .get(TEST_AUTH_MINT_SESSION_PATH, testAuthQueryInput, async (context) => {
     if (context.env.ALLOW_TEST_AUTH !== "true") {
@@ -151,17 +170,35 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
       return context.redirect(requestUrl.toString(), 302);
     }
 
-    const login = await startGitHubOAuthLogin({
-      request: context.req.raw,
-      env: context.env,
-      requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
-    });
+    let login: Awaited<ReturnType<typeof startGitHubOAuthLogin>>;
+    try {
+      login = await startGitHubOAuthLogin({
+        request: context.req.raw,
+        env: context.env,
+        requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.kind === "deploymentGitHubAppSetupRequired") {
+        return context.redirect("/setup", 302);
+      }
+      throw error;
+    }
 
     context.header("Set-Cookie", login.stateCookie);
     return context.redirect(login.authorizationUrl, 302);
   })
   .get(GITHUB_OAUTH_CALLBACK_PATH, githubOAuthCallbackQueryInput, async (context) => {
     const callbackQuery = context.req.valid("query");
+    if (!callbackQuery.state) {
+      const setupVerificationLoginUrl = buildGitHubInstallCallbackLoginUrl(context.req.raw);
+      if (setupVerificationLoginUrl !== null) {
+        context.header("Set-Cookie", clearGitHubOAuthStateCookie(context.req.raw), {
+          append: true,
+        });
+        return context.redirect(setupVerificationLoginUrl.toString(), 302);
+      }
+    }
+
     const result = await completeGitHubOAuthCallback({
       request: context.req.raw,
       env: context.env,
@@ -245,48 +282,6 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
       expiresAt: nextSession.expiresAt,
     });
   })
-  .get("/installation/ai-provider-keys", activeGithubInstallationRequired, async (context) => {
-    const githubInstallationId = context.get("activeGithubInstallationId");
-    const summaries =
-      (
-        await listInstallationAiProviderKeySummaries(createDbClient(context.env.DB), [
-          githubInstallationId,
-        ])
-      ).get(githubInstallationId) ?? [];
-
-    return context.json({
-      providers: KEYED_AI_PROVIDER_OPTIONS,
-      keys: summaries,
-    });
-  })
-  .post(
-    "/installation/ai-provider-keys",
-    aiProviderKeyInput,
-    activeGithubInstallationRequired,
-    async (context) => {
-      const githubInstallationId = context.get("activeGithubInstallationId");
-      const input = context.req.valid("json");
-      const summary = await saveInstallationAiProviderKey({
-        db: createDbClient(context.env.DB),
-        env: context.env,
-        githubInstallationId,
-        provider: input.provider,
-        apiKey: input.apiKey,
-      });
-      const summaries =
-        (
-          await listInstallationAiProviderKeySummaries(createDbClient(context.env.DB), [
-            githubInstallationId,
-          ])
-        ).get(githubInstallationId) ?? [];
-
-      return context.json({
-        providers: KEYED_AI_PROVIDER_OPTIONS,
-        keys: summaries,
-        saved: summary,
-      });
-    },
-  )
   .post("/session/logout", (context) => {
     context.res.headers.append("Set-Cookie", clearSessionCookie(context.req.raw));
     context.res.headers.append("Set-Cookie", clearGitHubUserTokenCookie(context.req.raw));

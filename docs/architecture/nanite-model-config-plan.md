@@ -34,17 +34,18 @@ Example:
 
 ```json
 {
-  "model": "deepseek/deepseek-v4-pro"
+  "model": "@cf/moonshotai/kimi-k2.6"
 }
 ```
 
-There is no deployment default, installation default, model fallback, BYOK alias, gateway id, or raw
-provider key in the manifest. If a model is not valid or runnable, registration or execution should
-fail normally.
+There is no deployment default, installation default, model fallback, BYOK alias, gateway id, or
+provider credential in the manifest. If a model is not valid or runnable, registration or execution
+should fail normally.
 
 The manager authoring prompt should tell agents to inspect the current Cloudflare model catalog and
-provider-native AI Gateway surfaces, then pick the cheapest reliable model for the Nanite's job.
-Prefer DeepSeek when it is suitable and available.
+provider-native AI Gateway surfaces, then pick the cheapest reliable function-calling text model for
+the Nanite's job. Prefer Cloudflare-hosted function-calling models unless a provider-native model is
+known to support the tool loop required by Nanite runtimes.
 
 ## Validation
 
@@ -52,32 +53,27 @@ At registration:
 
 1. Require `manifest.model`.
 2. Trim the model id.
-3. Verify the model exists in Cloudflare's supported model surface or is a supported provider-native
-   AI Gateway model id.
-
-Registration also verifies that keyed third-party model providers have an API key for the selected
-GitHub installation. Workers AI models are deployment-owned and do not require installation keys.
+3. Verify the model exists in Cloudflare's supported model surface and advertises function calling,
+   or is a supported provider-native AI Gateway model id.
 
 Do not keep a local fallback catalog. If Cloudflare catalog validation is unavailable for a
-provider-native id, require the installation provider key and let the gateway/provider response own
-the runtime truth.
+provider-native id, accept the provider-native id shape and let the Cloudflare AI binding,
+AI Gateway, and account billing own the runtime truth. If a catalog row is available and does not
+advertise function calling, reject it because Nanite and manager turns depend on runtime tools.
 
-## Hosted BYOK Direction
+## Self-Hosted Model Execution
 
-Hosted Nanites exposes a small provider-key surface during MCP authorization, not a model picker:
+Self-hosted Nanites should not collect provider API keys in the Nanites UI, MCP authorization flow,
+Nanite manifests, or D1.
 
-- DeepSeek
-- OpenAI
-- Anthropic
-- Google
+All model execution goes through the customer-owned Cloudflare deployment:
 
-Keys live at the GitHub installation boundary. They do not belong in Nanite manifests. The MCP
-authorization screen blocks consent until the chosen installation has at least one saved provider
-key, making it clear that model-backed Nanites need an AI key before use.
+- Cloudflare-hosted Workers AI models run through the Worker `AI` binding.
+- Third-party model ids also run through the Worker `AI` binding with the deployment AI Gateway id.
+- Cloudflare owns provider authentication, unified billing, BYOK storage, rate limits, and budget
+  controls at the account/gateway layer.
 
-Cloudflare AI Gateway supports OpenAI-compatible requests with `author/model` ids. Hosted Nanites
-uses the installation's encrypted provider API key on those keyed third-party requests and keeps
-Cloudflare-hosted Workers AI models on the deployment-owned binding path.
+Nanites only stores the selected model id and immutable run snapshot metadata.
 
 ## Non-Goals
 
@@ -106,6 +102,14 @@ Cloudflare-hosted Workers AI models on the deployment-owned binding path.
   `plugins/nanites/skills/nanites/references/authoring.md`, and
   `plugins/nanites/assets/examples/*.json`
 
+## References
+
+- [Cloudflare Workers AI model: Kimi K2.6](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) -
+  Cloudflare-hosted `@cf/moonshotai/kimi-k2.6` model with multi-turn tool calling.
+- [Cloudflare AI Gateway Workers Bindings](https://developers.cloudflare.com/ai-gateway/integrations/worker-binding-methods/) -
+  `env.AI.run()` accepts Workers AI `@cf/...` ids and third-party `{author}/{model}` ids
+  through the deployment AI Gateway.
+
 ## Acceptance Tests
 
 - `sigvelo_create_nanite` accepts an explicit model id string.
@@ -116,7 +120,7 @@ Cloudflare-hosted Workers AI models on the deployment-owned binding path.
 - Runtime uses the Nanite manifest model for every run turn.
 - Run records include an immutable resolved model snapshot.
 - AI usage facts include the actual request model and gateway id.
-- MCP authorization collects an installation provider key before consent when no key exists.
+- MCP authorization does not collect model provider credentials.
 
 ## Agent Guidance
 

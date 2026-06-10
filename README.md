@@ -24,6 +24,12 @@
   <img alt="Vite Plus" src="https://img.shields.io/badge/toolchain-Vite%2B-8ba7b8?style=flat-square&labelColor=0d1520" />
 </p>
 
+<p align="center">
+  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/WebMCP-org/nanites">
+    <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
+  </a>
+</p>
+
 Nanites are named, durable collaborators for GitHub maintenance. Each Nanite owns one narrow loop:
 a docs page family, package area, smoke path, CI guard, release lane, or other recurring workflow
 that should stay legible and reviewable.
@@ -111,6 +117,7 @@ Local development uses Vite+:
 
 ```bash
 vp install
+vp run db:migrate:local
 vp run dev
 vp check
 vp test
