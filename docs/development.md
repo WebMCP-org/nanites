@@ -57,6 +57,7 @@ vp exec wrangler whoami
 `wrangler.jsonc` expects:
 
 - Worker assets
+- Cloudflare Workers Paid plan for Dynamic Workers
 - Durable Objects: `SigveloNaniteManager`, `SigveloNaniteAgent`
 - Worker Loader binding: `LOADER`
 - Workers AI binding: `AI`
@@ -74,6 +75,11 @@ vp exec wrangler r2 bucket create nanites-workspace-files
 vp exec wrangler kv namespace create OAUTH_KV
 vp exec wrangler kv namespace create TOOL_OUTPUTS
 ```
+
+`/setup` uses Cloudflare API MCP with Billing Read to confirm the selected account has an active
+Workers paid subscription. The default model is Cloudflare-hosted
+`@cf/moonshotai/kimi-k2.6` through Workers AI and AI Gateway `default`; provider API keys are not
+required unless a future deployment chooses non-Workers-AI models.
 
 Apply database migrations before relying on an environment:
 

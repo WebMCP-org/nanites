@@ -32,10 +32,9 @@ Implemented locally in this branch:
 - the Agents SDK validates Cloudflare MCP OAuth state and PKCE, then the successful Agent callback
   issues a short-lived browser setup claim so GitHub App creation, manifest callback completion,
   and repository activation stay bound to the browser that proved Cloudflare ownership
-- Cloudflare's MCP permission page currently defaults to its read-only template in the June 9, 2026
-  smoke path. If that page still appears during Connect Cloudflare, choose one account, choose
-  `Custom`, click `Deselect all`, and add `Workers Scripts Write` so setup can write generated
-  Worker secrets.
+- Cloudflare setup asks for read access to account billing/subscriptions, read access to the
+  account and Workers resources, and `Workers Scripts Write` so setup can write generated Worker
+  secrets. Nanites does not ask for Billing Write and does not upgrade or mutate paid plans.
 - GitHub App Manifest setup derives callback, webhook, setup, and redirect URLs from the deployed
   origin
 - manifest conversion writes generated `AUTH_COOKIE_SECRET`, GitHub private key, client secret, and
@@ -93,7 +92,7 @@ state.
 
 - Node.js 22.12 or newer
 - `vp`
-- a Cloudflare account with Workers, Durable Objects, D1, R2, KV, Worker Loader, Browser, and
+- a Cloudflare account with Workers Paid, Durable Objects, D1, R2, KV, Worker Loader, Browser, and
   Workers AI enabled
 - a GitHub organization or account where you can create and install a GitHub App
 - `gh` authenticated locally when you want to run the local MCP smoke path
@@ -174,10 +173,22 @@ Follow the setup checklist:
 5. Start Nanites.
 
 When Cloudflare asks for MCP permissions, the intended setup scope is the account that owns the
-Worker plus Workers Scripts Write. In the June 9, 2026 smoke path, Cloudflare's MCP permission page
-defaulted to a read-only template; the working selection was one account, `Custom`,
-`Deselect all`, then `Workers Scripts Write`. The page includes the required user/account read
-scopes; Nanites needs the write scope only to store generated setup secrets on the Worker.
+Worker plus Billing Read and Workers Scripts Write. Billing Read is used only to confirm the account
+has an active Workers paid subscription before Nanites creates a GitHub App. Workers Scripts Write is
+used only to store generated setup secrets on the Worker.
+
+The Cloudflare step also checks the runtime pieces Nanites cannot safely fake:
+
+- Workers Paid is active. Dynamic Workers require Workers Paid, and Cloudflare bills that account
+  directly.
+- Worker Loader can run a tiny setup smoke Worker. This proves generated trigger handlers can run as
+  Dynamic Workers.
+- Workers AI is bound as `AI`, and Cloudflare's model catalog lists `@cf/moonshotai/kimi-k2.6` with
+  function calling.
+- The default model route uses Cloudflare AI Gateway `default`. Kimi K2.6 is Cloudflare-hosted
+  Workers AI, so the default setup does not need a Moonshot, OpenAI, or other provider API key.
+- Browser Run is shown as informational because it supports later preview verification, but it is
+  not a first-launch blocker.
 
 After Cloudflare verifies ownership, the setup Agent redirects back to `/setup` with a short-lived
 HttpOnly setup claim in the same browser. This is not a manual secret; it only keeps GitHub App
