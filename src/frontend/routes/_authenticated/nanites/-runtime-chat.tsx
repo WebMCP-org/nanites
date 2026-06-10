@@ -741,16 +741,37 @@ export function NaniteRuntimeChatPlaceholder() {
 // chat shell (empty transcript + disabled composer) at reduced opacity so the
 // real conversation can fade up into place without a layout swap or flicker.
 export function NaniteRuntimeChatLoading({
+  description = "The conversation is getting ready. You can stay here while the runtime connects.",
   placeholder = "Connecting to the Nanite runtime...",
+  title = "Preparing the runtime",
 }: {
+  readonly description?: string;
   readonly placeholder?: string;
+  readonly title?: string;
 }) {
   return (
     <div
       className="nanites-workspace__chat-inner nanites-workspace__chat-inner--loading"
       aria-busy="true"
     >
-      <div className="app__messages-list" data-testid="messages-loading" />
+      <div className="app__messages-list" data-testid="messages-loading">
+        <Conversation className="app__conversation">
+          <ConversationContent>
+            <ConversationEmptyState>
+              <div className="app__empty app__empty--loading">
+                <div className="app__empty-status" aria-hidden="true">
+                  <CircleNotchIcon size={14} />
+                  <span>Preparing</span>
+                </div>
+                <div className="app__empty-copy">
+                  <div className="app__empty-title">{title}</div>
+                  <div className="app__empty-description">{description}</div>
+                </div>
+              </div>
+            </ConversationEmptyState>
+          </ConversationContent>
+        </Conversation>
+      </div>
       <div className="app__composer">
         <PromptInput onSubmit={() => {}}>
           <div className="app__composer-row">
@@ -805,9 +826,24 @@ export function NaniteRuntimeChatConnector() {
 export function ManagerRuntimeChatConnector({
   accountLogin,
   actor,
+  emptyDescription = "Ask the installation manager to inspect, create, update, pause, or run Nanites.",
+  emptyTitle = "Manager ready",
+  errorDescription = "The installation manager conversation could not connect.",
   githubInstallationId,
+  loadingDescription = "The conversation is getting ready. You’ll be able to continue here in a moment.",
+  loadingPlaceholder = "Connecting to the manager...",
+  loadingTitle = "Preparing the runtime",
   managerName,
-}: ManagerBrowserSessionInput) {
+  placeholder = "Ask the manager to work on Nanites",
+}: ManagerBrowserSessionInput & {
+  readonly emptyDescription?: string;
+  readonly emptyTitle?: string;
+  readonly errorDescription?: string;
+  readonly loadingDescription?: string;
+  readonly loadingPlaceholder?: string;
+  readonly loadingTitle?: string;
+  readonly placeholder?: string;
+}) {
   const conversationAgent = useAgent<SigveloManagerConversationAgent>({
     agent: MANAGER_CONVERSATION_AGENT_NAME,
     name: `${managerName}:manager:${actor.id}`,
@@ -848,22 +884,41 @@ export function ManagerRuntimeChatConnector({
         agentMessages={[]}
         isStreaming={false}
         error={connectError}
-        emptyDescription="The installation manager conversation could not connect."
+        emptyDescription={errorDescription}
       />
     );
   }
 
   if (!isConnected) {
-    return <NaniteRuntimeChatLoading placeholder="Connecting to the manager..." />;
+    return (
+      <NaniteRuntimeChatLoading
+        description={loadingDescription}
+        placeholder={loadingPlaceholder}
+        title={loadingTitle}
+      />
+    );
   }
 
-  return <ManagerRuntimeChatSession agent={conversationAgent} />;
+  return (
+    <ManagerRuntimeChatSession
+      agent={conversationAgent}
+      emptyDescription={emptyDescription}
+      emptyTitle={emptyTitle}
+      placeholder={placeholder}
+    />
+  );
 }
 
 function ManagerRuntimeChatSession({
   agent,
+  emptyDescription,
+  emptyTitle,
+  placeholder,
 }: {
   readonly agent: ReturnType<typeof useAgent<SigveloManagerConversationAgent>>;
+  readonly emptyDescription: string;
+  readonly emptyTitle: string;
+  readonly placeholder: string;
 }) {
   const {
     messages: runMessages,
@@ -908,13 +963,13 @@ function ManagerRuntimeChatSession({
       agentMessages={runMessages}
       isStreaming={isStreaming}
       error={error}
-      emptyDescription="Ask the installation manager to inspect, create, update, pause, or run Nanites."
-      emptyTitle="Manager ready"
+      emptyDescription={emptyDescription}
+      emptyTitle={emptyTitle}
       onSubmit={handleSubmit}
       onStop={() => void stop()}
       onRegenerate={handleRegenerate}
       onClearConversation={handleClearConversation}
-      placeholder="Ask the manager to work on Nanites"
+      placeholder={placeholder}
     />
   );
 }

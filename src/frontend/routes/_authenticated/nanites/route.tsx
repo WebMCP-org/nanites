@@ -243,6 +243,7 @@ type NaniteRepositoryGroup = {
 };
 
 type NaniteEventSource = NaniteManifest["eventSource"];
+type NanitesSelection = { readonly naniteId: string } | { readonly mode: "create" };
 type NaniteMobileView = "nanites" | "chat" | "files" | "summary";
 type BrowserTriggerTestEvent = TestNaniteTriggerInput["event"];
 
@@ -250,6 +251,7 @@ export const Route = createFileRoute("/_authenticated/nanites")({
   validateSearch: z.object({
     account: z.string().optional(),
     installationId: z.coerce.number().int().positive().optional(),
+    mode: z.enum(["create"]).optional(),
     naniteId: z.string().optional(),
     runId: z.string().optional(),
     surface: z.enum(["manager", "nanite"]).optional(),
@@ -943,12 +945,15 @@ function InfoSection({
   title,
   className,
   children,
+  collapsible = true,
 }: {
   readonly title: string;
   readonly className?: string;
   readonly children: ReactNode;
+  readonly collapsible?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(true);
+  const isSectionOpen = collapsible ? isOpen : true;
 
   return (
     <div
@@ -957,18 +962,24 @@ function InfoSection({
           ? `nanites-workspace__info-section ${className}`
           : "nanites-workspace__info-section"
       }
-      data-collapsed={isOpen ? undefined : "true"}
+      data-collapsed={collapsible && !isOpen ? "true" : undefined}
     >
-      <button
-        type="button"
-        className="nanites-workspace__info-section-header"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
-      >
-        <h2>{title}</h2>
-        <CaretDownIcon size={12} aria-hidden="true" />
-      </button>
-      {isOpen ? children : null}
+      {collapsible ? (
+        <button
+          type="button"
+          className="nanites-workspace__info-section-header"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen((open) => !open)}
+        >
+          <h2>{title}</h2>
+          <CaretDownIcon size={12} aria-hidden="true" />
+        </button>
+      ) : (
+        <div className="nanites-workspace__info-section-label">
+          <h2>{title}</h2>
+        </div>
+      )}
+      {isSectionOpen ? children : null}
     </div>
   );
 }
@@ -1093,82 +1104,6 @@ function pickManagerState({
   }
 
   return initialState;
-}
-
-function ManagerInfoPanel({
-  activeInstallation,
-  naniteCount,
-  runCount,
-}: {
-  readonly activeInstallation: SessionInstallationSnapshot;
-  readonly naniteCount: number;
-  readonly runCount: number;
-}) {
-  const manageAccessHref = buildGitHubAppInstallHref({
-    suggestedTargetId: activeInstallation.account.id,
-  });
-
-  return (
-    <aside className="nanites-workspace__info-rail" aria-label="Manager details">
-      <section className="nanites-workspace__info-card">
-        <InfoSection title="Manager" className="nanites-workspace__info-section--about">
-          <div className="nanites-workspace__info-about">
-            <p>
-              The installation manager routes triggers, manages the Nanite roster, starts manual
-              runs, and inspects runtime state for this GitHub installation.
-            </p>
-          </div>
-          <div className="nanites-workspace__info-link-list">
-            <InfoPanelRow
-              row={{
-                key: "account",
-                icon: <GithubLogoIcon size={14} aria-hidden="true" />,
-                label: "Account",
-                value: activeInstallation.account.login,
-                title: activeInstallation.account.login,
-              }}
-            />
-            <InfoPanelRow
-              row={{
-                key: "nanites",
-                icon: <SlidersHorizontalIcon size={14} aria-hidden="true" />,
-                label: "Nanites",
-                value: String(naniteCount),
-                title: `${naniteCount} registered Nanites`,
-              }}
-            />
-            <InfoPanelRow
-              row={{
-                key: "runs",
-                icon: <ChatCircleTextIcon size={14} aria-hidden="true" />,
-                label: "Runs",
-                value: String(runCount),
-                title: `${runCount} retained runs`,
-              }}
-            />
-          </div>
-        </InfoSection>
-
-        <InfoSection title="Controls">
-          <div className="nanites-workspace__info-link-list">
-            <a
-              className="nanites-workspace__info-row"
-              href={manageAccessHref}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span>
-                <GithubLogoIcon size={14} aria-hidden="true" />
-                GitHub access
-              </span>
-              <span>Manage</span>
-              <ArrowSquareOutIcon size={13} aria-hidden="true" />
-            </a>
-          </div>
-        </InfoSection>
-      </section>
-    </aside>
-  );
 }
 
 function NaniteRunInfoPanel({
@@ -1354,7 +1289,7 @@ function NaniteRunInfoPanel({
         ) : null}
 
         {nanite && canTestTrigger ? (
-          <InfoSection title="Controls">
+          <InfoSection title="Controls" collapsible={false}>
             <div className="nanites-workspace__danger-zone">
               <Button
                 color="neutral"
@@ -1380,7 +1315,7 @@ function NaniteRunInfoPanel({
         ) : null}
 
         {gitInfoLinks.length > 0 ? (
-          <InfoSection title="Git">
+          <InfoSection title="Git" collapsible={false}>
             <div className="nanites-workspace__info-link-list">
               {gitInfoLinks.map((link) => (
                 <a
@@ -1403,7 +1338,7 @@ function NaniteRunInfoPanel({
           </InfoSection>
         ) : null}
 
-        <InfoSection title="Scope">
+        <InfoSection title="Scope" collapsible={false}>
           <div className="nanites-workspace__info-link-list">
             {scopeRows.map((row) => (
               <InfoPanelRow key={row.key} row={row} />
@@ -1412,7 +1347,7 @@ function NaniteRunInfoPanel({
         </InfoSection>
 
         {outcomeRows.length > 0 ? (
-          <InfoSection title="Run">
+          <InfoSection title="Run" collapsible={false}>
             <dl className="nanites-workspace__outcome-list">
               {outcomeRows.map((row) => (
                 <div key={row.key}>
@@ -2213,18 +2148,19 @@ function NanitesRoute() {
       actor={actor}
       activeInstallation={activeInstallation}
       managerName={managerName}
+      selectedMode={search.mode === "create" || search.surface === "manager" ? "create" : null}
       selectedNaniteId={search.naniteId ?? null}
       selectedRunId={search.runId ?? null}
-      selectedSurface={search.surface ?? "manager"}
       setSelection={(selection) =>
         void navigate({
           search: (previous) => ({
             ...previous,
             account: activeInstallation.account.login,
             installationId: activeInstallation.id,
-            naniteId: selection.surface === "nanite" ? selection.naniteId : undefined,
+            mode: "mode" in selection ? selection.mode : undefined,
+            naniteId: "naniteId" in selection ? selection.naniteId : undefined,
             runId: undefined,
-            surface: selection.surface,
+            surface: undefined,
           }),
           replace: true,
         })
@@ -2359,22 +2295,18 @@ function NanitesRuntimeSurface({
   activeInstallation,
   actor,
   managerName,
+  selectedMode,
   selectedNaniteId,
   selectedRunId,
-  selectedSurface,
   setSelection,
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
   readonly actor: BrowserNanitesContext["actor"];
   readonly managerName: string;
+  readonly selectedMode: "create" | null;
   readonly selectedNaniteId: string | null;
   readonly selectedRunId: string | null;
-  readonly selectedSurface: "manager" | "nanite";
-  readonly setSelection: (
-    selection:
-      | { readonly surface: "manager" }
-      | { readonly surface: "nanite"; readonly naniteId: string },
-  ) => void;
+  readonly setSelection: (selection: NanitesSelection) => void;
 }) {
   const navigate = Route.useNavigate();
   const [mobileView, setMobileView] = useState<NaniteMobileView>("chat");
@@ -2446,13 +2378,13 @@ function NanitesRuntimeSurface({
     [runsByNanite, state.nanites, state.runtimeActivityByNanite],
   );
   const naniteGroups = useMemo(() => groupNanitesByRepository(naniteItems), [naniteItems]);
-  const isManagerSelected = selectedSurface === "manager";
-  const selectedNaniteItem =
-    !isManagerSelected && selectedNaniteId
-      ? naniteItems.find((item) => item.id === selectedNaniteId)
-      : undefined;
   const fallbackNaniteItem = naniteItems[0] ?? null;
-  const activeNaniteItem = selectedNaniteItem ?? (!isManagerSelected ? fallbackNaniteItem : null);
+  const selectedNaniteItem = selectedNaniteId
+    ? naniteItems.find((item) => item.id === selectedNaniteId)
+    : undefined;
+  const isCreateMode =
+    selectedMode === "create" || (!selectedNaniteId && fallbackNaniteItem === null);
+  const activeNaniteItem = isCreateMode ? null : (selectedNaniteItem ?? fallbackNaniteItem);
   const selectedNaniteRuns = activeNaniteItem ? (runsByNanite.get(activeNaniteItem.id) ?? []) : [];
   const selectedRun =
     (selectedRunId ? selectedNaniteRuns.find((run) => run.runId === selectedRunId) : undefined) ??
@@ -2460,6 +2392,12 @@ function NanitesRuntimeSurface({
     null;
   const selectedNanite = activeNaniteItem?.nanite ?? null;
   const selectedNaniteAgentId = activeNaniteItem?.id ?? null;
+  const createModeBaselineNaniteIdsRef = useRef<ReadonlySet<string> | null>(null);
+  const visibleMobileViews = useMemo(
+    () => (isCreateMode ? (["nanites", "chat"] as const) : naniteMobileViews),
+    [isCreateMode],
+  );
+  const effectiveDesktopPanel = isCreateMode ? null : desktopPanel;
   const deleteNanite = useMutation({
     mutationFn: async (input: { readonly naniteId: string }) => {
       // The Agents SDK can infer this from the full manager interface, but expanding
@@ -2491,12 +2429,14 @@ function NanitesRuntimeSurface({
           ...previous,
           account: activeInstallation.account.login,
           installationId: activeInstallation.id,
+          mode: nextItem ? undefined : "create",
           naniteId: nextItem?.id,
-          surface: nextItem ? "nanite" : "manager",
+          runId: undefined,
+          surface: undefined,
         }),
         replace: true,
       });
-      setMobileView(nextItem ? "chat" : "nanites");
+      setMobileView("chat");
     },
   });
   const testTrigger = useMutation({
@@ -2527,9 +2467,10 @@ function NanitesRuntimeSurface({
           ...previous,
           account: activeInstallation.account.login,
           installationId: activeInstallation.id,
+          mode: undefined,
           naniteId: output.naniteId,
           runId: latestRun?.runId,
-          surface: "nanite",
+          surface: undefined,
         }),
         replace: true,
       });
@@ -2542,33 +2483,113 @@ function NanitesRuntimeSurface({
   };
 
   const moveMobileView = (direction: 1 | -1) => {
-    const currentIndex = naniteMobileViews.indexOf(mobileView);
-    const nextIndex = Math.min(naniteMobileViews.length - 1, Math.max(0, currentIndex + direction));
-    const nextView = naniteMobileViews[nextIndex];
+    const currentIndex = visibleMobileViews.indexOf(mobileView);
+    const nextIndex = Math.min(
+      visibleMobileViews.length - 1,
+      Math.max(0, currentIndex + direction),
+    );
+    const nextView = visibleMobileViews[nextIndex];
     if (nextView) {
       selectMobileView(nextView);
     }
   };
 
   useEffect(() => {
+    if (!visibleMobileViews.includes(mobileView)) {
+      setMobileView("chat");
+    }
+  }, [mobileView, visibleMobileViews]);
+
+  useEffect(() => {
+    if (isCreateMode) {
+      createModeBaselineNaniteIdsRef.current ??= new Set(naniteItems.map((item) => item.id));
+      return;
+    }
+
+    createModeBaselineNaniteIdsRef.current = null;
+  }, [isCreateMode, naniteItems]);
+
+  useEffect(() => {
+    if (!isCreateMode) {
+      return;
+    }
+
+    const baseline = createModeBaselineNaniteIdsRef.current;
+    if (!baseline) {
+      return;
+    }
+
+    const createdNanites = naniteItems.filter((item) => !baseline.has(item.id));
+    if (createdNanites.length === 0) {
+      return;
+    }
+
+    const [createdNanite] = createdNanites.sort((left, right) =>
+      right.nanite.updatedAt.localeCompare(left.nanite.updatedAt),
+    );
+    if (!createdNanite) {
+      return;
+    }
+
+    createModeBaselineNaniteIdsRef.current = new Set(naniteItems.map((item) => item.id));
+    setSelection({ naniteId: createdNanite.id });
+    setMobileView("chat");
+  }, [isCreateMode, naniteItems, setSelection]);
+
+  useEffect(() => {
+    const hasAccount = activeInstallation.account.login;
+    const hasInstallation = activeInstallation.id;
+
+    if (isCreateMode) {
+      if (selectedMode !== "create" || selectedNaniteId) {
+        void navigate({
+          search: (previous) => ({
+            ...previous,
+            account: hasAccount,
+            installationId: hasInstallation,
+            mode: "create",
+            naniteId: undefined,
+            runId: undefined,
+            surface: undefined,
+          }),
+          replace: true,
+        });
+      }
+      return;
+    }
+
+    const nextNaniteId = selectedNaniteItem?.id ?? fallbackNaniteItem?.id;
+    if (!nextNaniteId || nextNaniteId === selectedNaniteId) {
+      return;
+    }
+
     void navigate({
       search: (previous) => ({
         ...previous,
-        account: previous.account ?? activeInstallation.account.login,
-        installationId: previous.installationId ?? activeInstallation.id,
-        surface: previous.surface ?? "manager",
-        naniteId:
-          previous.surface === "nanite" ? (previous.naniteId ?? fallbackNaniteItem?.id) : undefined,
-        runId: previous.runId,
+        account: hasAccount,
+        installationId: hasInstallation,
+        mode: undefined,
+        naniteId: nextNaniteId,
+        runId: undefined,
+        surface: undefined,
       }),
       replace: true,
     });
-  }, [activeInstallation.account.login, activeInstallation.id, fallbackNaniteItem?.id, navigate]);
+  }, [
+    activeInstallation.account.login,
+    activeInstallation.id,
+    fallbackNaniteItem?.id,
+    isCreateMode,
+    navigate,
+    selectedMode,
+    selectedNaniteId,
+    selectedNaniteItem?.id,
+  ]);
 
   const main = (
     <main
       className="nanites-workspace"
-      data-desktop-panel={desktopPanel ?? "closed"}
+      data-desktop-panel={effectiveDesktopPanel ?? "closed"}
       data-sidebar-open={isSidebarOpen}
       data-mobile-view={mobileView}
       aria-label="Nanite runtime"
@@ -2618,7 +2639,7 @@ function NanitesRuntimeSurface({
           }
         />
       ) : null}
-      {desktopPanel === "files" ? (
+      {effectiveDesktopPanel === "files" ? (
         <button
           type="button"
           className="nanites-workspace__resizer nanites-workspace__resizer--aside"
@@ -2668,12 +2689,14 @@ function NanitesRuntimeSurface({
           <h1 className="nanites-workspace__toolbar-title">Nanites</h1>
         </div>
         <div className="nanites-workspace__toolbar-actions">
-          <NaniteDesktopPanelControls
-            activePanel={desktopPanel}
-            onToggle={(panel) =>
-              setDesktopPanel((current) => getNextNaniteDesktopPanel(current, panel))
-            }
-          />
+          {!isCreateMode ? (
+            <NaniteDesktopPanelControls
+              activePanel={desktopPanel}
+              onToggle={(panel) =>
+                setDesktopPanel((current) => getNextNaniteDesktopPanel(current, panel))
+              }
+            />
+          ) : null}
         </div>
       </header>
 
@@ -2710,32 +2733,6 @@ function NanitesRuntimeSurface({
         </div>
 
         <div className="nanites-workspace__list">
-          <div className="nanites-workspace__manager-pin" aria-label="Installation manager">
-            <button
-              className="nanites-workspace__item"
-              data-selected={isManagerSelected}
-              onClick={() => {
-                setSelection({ surface: "manager" });
-                setMobileView("chat");
-              }}
-              type="button"
-            >
-              <span
-                className="nanites-workspace__source-icon"
-                data-tone="active"
-                title="Installation manager"
-              >
-                <SlidersHorizontalIcon size={15} aria-hidden="true" />
-              </span>
-              <span className="nanites-workspace__item-copy">
-                <strong>Installation Manager</strong>
-              </span>
-              <span className="nanites-workspace__activity" data-kind="dot" data-tone="active">
-                <DotOutlineIcon size={18} weight="fill" aria-hidden="true" />
-              </span>
-            </button>
-          </div>
-
           {naniteGroups.length > 0 ? (
             naniteGroups.map((group) => {
               const groupLabel = formatRepositoryGroupLabel(
@@ -2773,13 +2770,10 @@ function NanitesRuntimeSurface({
                     {group.items.map((item) => (
                       <button
                         className="nanites-workspace__item"
-                        data-selected={!isManagerSelected && item.id === activeNaniteItem?.id}
+                        data-selected={!isCreateMode && item.id === activeNaniteItem?.id}
                         key={`${group.repository}:${item.id}`}
                         onClick={() => {
-                          setSelection({
-                            surface: "nanite",
-                            naniteId: item.id,
-                          });
+                          setSelection({ naniteId: item.id });
                           setMobileView("chat");
                         }}
                         type="button"
@@ -2832,24 +2826,74 @@ function NanitesRuntimeSurface({
             </p>
           )}
         </div>
+
+        <div className="nanites-workspace__create-action">
+          <Button
+            type="button"
+            className="nanites-workspace__create-button"
+            aria-label={isCreateMode ? "Creating a new Nanite" : "Create a new Nanite"}
+            color="primary"
+            size="sm"
+            variant="normal"
+            onClick={() => {
+              setSelection({ mode: "create" });
+              setMobileView("chat");
+            }}
+          >
+            <span>{isCreateMode ? "Creating Nanite..." : "New Nanite"}</span>
+          </Button>
+        </div>
       </aside>
 
       <section className="nanites-workspace__runtime app__pane--chat" aria-label="Nanite chat">
         <div className="nanites-workspace__runtime-body">
           <div className="nanites-workspace__chat">
-            {isManagerSelected ? (
+            {isCreateMode ? (
               <Suspense
-                fallback={<NaniteRuntimeChatLoading placeholder="Connecting to the manager..." />}
+                fallback={
+                  <NaniteRuntimeChatLoading
+                    description={`Connecting the creation agent for ${activeInstallation.account.login}. You’ll be able to describe the new Nanite here in a moment.`}
+                    placeholder={`Preparing Nanite creation for ${activeInstallation.account.login}...`}
+                    title={`Preparing creation for ${activeInstallation.account.login}`}
+                  />
+                }
               >
                 <ManagerRuntimeChatConnector
                   accountLogin={activeInstallation.account.login}
                   actor={actor}
+                  emptyDescription={`Describe the Nanite you want to create for ${activeInstallation.account.login} and its repos, triggers, responsibility, and stop conditions.`}
+                  emptyTitle={`Create a Nanite`}
+                  errorDescription="The Nanite creation conversation could not connect."
                   githubInstallationId={activeInstallation.id}
+                  loadingDescription={`Connecting the creation agent for ${activeInstallation.account.login}. You’ll be able to describe the new Nanite here in a moment.`}
+                  loadingPlaceholder="Connecting to Nanite creation..."
+                  loadingTitle={`Preparing creation for ${activeInstallation.account.login}`}
                   managerName={managerName}
+                  placeholder={`Describe the Nanite you want to create for ${activeInstallation.account.login}`}
                 />
               </Suspense>
             ) : selectedNaniteAgentId ? (
-              <Suspense fallback={<NaniteRuntimeChatLoading />}>
+              <Suspense
+                fallback={
+                  <NaniteRuntimeChatLoading
+                    description={
+                      selectedNanite
+                        ? `Loading ${selectedNanite.manifest.name} so its transcript, tools, and workspace context are ready here.`
+                        : "Loading the selected Nanite so its transcript, tools, and workspace context are ready here."
+                    }
+                    placeholder={
+                      selectedNanite
+                        ? `Opening ${selectedNanite.manifest.name}...`
+                        : "Connecting to the Nanite runtime..."
+                    }
+                    title={
+                      selectedNanite
+                        ? `Opening ${selectedNanite.manifest.name}`
+                        : "Preparing the selected Nanite"
+                    }
+                  />
+                }
+              >
                 <NaniteRuntimeChatConnector key={selectedNaniteAgentId} />
               </Suspense>
             ) : (
@@ -2859,19 +2903,13 @@ function NanitesRuntimeSurface({
         </div>
       </section>
 
-      <section
-        className="nanites-workspace__summary-layer"
-        data-open={desktopPanel === "summary"}
-        aria-label="Nanite summary"
-      >
-        <div className="nanites-workspace__summary-card">
-          {isManagerSelected ? (
-            <ManagerInfoPanel
-              activeInstallation={activeInstallation}
-              naniteCount={naniteItems.length}
-              runCount={runs.length}
-            />
-          ) : (
+      {!isCreateMode ? (
+        <section
+          className="nanites-workspace__summary-layer"
+          data-open={effectiveDesktopPanel === "summary"}
+          aria-label="Nanite summary"
+        >
+          <div className="nanites-workspace__summary-card">
             <NaniteRunInfoPanel
               activeInstallation={activeInstallation}
               deleteError={deleteNanite.error}
@@ -2895,29 +2933,35 @@ function NanitesRuntimeSurface({
               run={selectedRun}
               testTriggerError={testTrigger.error}
             />
-          )}
-        </div>
-      </section>
+          </div>
+        </section>
+      ) : null}
 
-      <aside
-        className="nanites-workspace__aside"
-        data-open={desktopPanel === "files"}
-        aria-label="File explorer"
-      >
-        <div className="nanites-workspace__files-slot">
-          {isManagerSelected ? (
-            <NaniteWorkspacePanel nanite={null} naniteId={null} refreshKey="manager" />
-          ) : (
+      {!isCreateMode ? (
+        <aside
+          className="nanites-workspace__aside"
+          data-open={effectiveDesktopPanel === "files"}
+          aria-label="File explorer"
+        >
+          <div className="nanites-workspace__files-slot">
             <NaniteWorkspacePanel
               nanite={selectedNanite}
               naniteId={selectedNaniteAgentId}
               refreshKey={`${selectedRun?.runId ?? "no-run"}:${selectedRun?.updatedAt ?? "no-update"}`}
             />
-          )}
-        </div>
-      </aside>
+          </div>
+        </aside>
+      ) : null}
 
-      <nav className="nanites-workspace__mobile-nav" aria-label="Nanite workspace views">
+      <nav
+        className="nanites-workspace__mobile-nav"
+        aria-label="Nanite workspace views"
+        style={
+          {
+            "--nanites-mobile-nav-count": String(visibleMobileViews.length),
+          } as CSSProperties
+        }
+      >
         <button
           type="button"
           data-selected={mobileView === "nanites"}
@@ -2934,22 +2978,26 @@ function NanitesRuntimeSurface({
           <ChatCircleTextIcon size={18} aria-hidden="true" />
           <span>Chat</span>
         </button>
-        <button
-          type="button"
-          data-selected={mobileView === "files"}
-          onClick={() => selectMobileView("files")}
-        >
-          <FileIcon size={18} aria-hidden="true" />
-          <span>Files</span>
-        </button>
-        <button
-          type="button"
-          data-selected={mobileView === "summary"}
-          onClick={() => selectMobileView("summary")}
-        >
-          <SlidersHorizontalIcon size={18} aria-hidden="true" />
-          <span>Summary</span>
-        </button>
+        {!isCreateMode ? (
+          <button
+            type="button"
+            data-selected={mobileView === "files"}
+            onClick={() => selectMobileView("files")}
+          >
+            <FileIcon size={18} aria-hidden="true" />
+            <span>Files</span>
+          </button>
+        ) : null}
+        {!isCreateMode ? (
+          <button
+            type="button"
+            data-selected={mobileView === "summary"}
+            onClick={() => selectMobileView("summary")}
+          >
+            <SlidersHorizontalIcon size={18} aria-hidden="true" />
+            <span>Summary</span>
+          </button>
+        ) : null}
       </nav>
     </main>
   );
