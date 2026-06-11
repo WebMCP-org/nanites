@@ -539,6 +539,9 @@ function buildCloudflareReadinessError(readiness: CloudflareReadinessState): str
 
 const LEGACY_KIMI_MODEL_CATALOG_BLOCKER_DETAIL =
   "Cloudflare Workers AI did not list Kimi K2.6 for this account.";
+const LEGACY_KIMI_MODEL_CATALOG_READY_DETAIL =
+  "Cloudflare Workers AI lists Kimi K2.6 with function calling. No Moonshot or provider API key is required for the default model.";
+const KIMI_MODEL_CONFIGURED_DETAIL = `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId}\` is configured through Workers AI. No Moonshot or provider API key is required.`;
 
 function normalizeCloudflareStateForCurrentVersion(
   cloudflare: NanitesSetupAgentState["cloudflare"],
@@ -550,25 +553,20 @@ function normalizeCloudflareStateForCurrentVersion(
   const workersAiReady = cloudflare.readiness.items.some(
     (item) => item.key === "workers-ai" && item.status === "ready",
   );
-  const hasLegacyKimiCatalogBlocker = cloudflare.readiness.items.some(
+  const hasLegacyKimiCatalogState = cloudflare.readiness.items.some(
     (item) =>
       item.key === "kimi-k2" &&
-      item.status === "blocked" &&
-      item.detail === LEGACY_KIMI_MODEL_CATALOG_BLOCKER_DETAIL,
+      ((item.status === "blocked" && item.detail === LEGACY_KIMI_MODEL_CATALOG_BLOCKER_DETAIL) ||
+        (item.status === "ready" && item.detail === LEGACY_KIMI_MODEL_CATALOG_READY_DETAIL)),
   );
-  if (!workersAiReady || !hasLegacyKimiCatalogBlocker) {
+  if (!workersAiReady || !hasLegacyKimiCatalogState) {
     return cloudflare;
   }
 
   const readiness = createCloudflareReadinessState(
     cloudflare.readiness.items.map((item) =>
       item.key === "kimi-k2"
-        ? createCloudflareReadinessItem(
-            "kimi-k2",
-            "ready",
-            `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId}\` is configured through Workers AI. No Moonshot or provider API key is required.`,
-            null,
-          )
+        ? createCloudflareReadinessItem("kimi-k2", "ready", KIMI_MODEL_CONFIGURED_DETAIL, null)
         : item,
     ),
   );
@@ -2389,12 +2387,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
   }
 
   private checkDefaultKimiModel(): CloudflareReadinessItem {
-    return createCloudflareReadinessItem(
-      "kimi-k2",
-      "ready",
-      `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId}\` is configured through Workers AI. No Moonshot or provider API key is required.`,
-      null,
-    );
+    return createCloudflareReadinessItem("kimi-k2", "ready", KIMI_MODEL_CONFIGURED_DETAIL, null);
   }
 
   private checkAiGateway(): CloudflareReadinessItem {

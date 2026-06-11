@@ -987,6 +987,8 @@ test("setup clears the legacy Kimi catalog blocker when Workers AI is ready", as
           expect.objectContaining({
             key: "kimi-k2",
             status: "ready",
+            detail:
+              "Default model `@cf/moonshotai/kimi-k2.6` is configured through Workers AI. No Moonshot or provider API key is required.",
           }),
         ]),
       },
