@@ -42,7 +42,7 @@ type CloudflareAiModelsApi = {
 const cloudflareModelSearchPropertySchema = z
   .object({
     property_id: z.string().trim().min(1),
-    value: z.union([z.string(), z.number()]),
+    value: z.unknown(),
   })
   .passthrough();
 
@@ -177,6 +177,54 @@ function parseContextWindow(properties: readonly CloudflareModelSearchProperty[]
   return null;
 }
 
+function isTruthyModelProperty(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  return ["1", "true", "yes"].includes(value.trim().toLowerCase());
+}
+
+function capabilityFromProperty(property: CloudflareModelSearchProperty): string | null {
+  if (!isTruthyModelProperty(property.value)) {
+    return null;
+  }
+
+  switch (property.property_id.toLowerCase()) {
+    case "function_calling":
+      return FUNCTION_CALLING_CAPABILITY;
+    case "reasoning":
+      return "Reasoning";
+    case "vision":
+      return "Vision";
+    default:
+      return null;
+  }
+}
+
+function parseCapabilities(
+  tags: readonly string[],
+  properties: readonly CloudflareModelSearchProperty[],
+): string[] {
+  return [
+    ...new Set([
+      ...tags.filter(
+        (tag) => tag !== "Cloudflare-hosted" && tag !== "Third-party" && tag !== "Beta",
+      ),
+      ...properties.flatMap((property) => {
+        const capability = capabilityFromProperty(property);
+        return capability ? [capability] : [];
+      }),
+    ]),
+  ];
+}
+
 function parseCloudflareModelSearchResults(input: unknown): CloudflareModelSearchResult[] {
   const response = cloudflareModelSearchResponseSchema.safeParse(input);
   if (!response.success) {
@@ -208,9 +256,7 @@ function toCatalogItem(model: CloudflareModelSearchResult): NanitesModelCatalogI
     displayName && displayName !== id && !looksLikeModelId(displayName)
       ? displayName
       : modelNameFromId(id);
-  const capabilities = tags.filter(
-    (tag) => tag !== "Cloudflare-hosted" && tag !== "Third-party" && tag !== "Beta",
-  );
+  const capabilities = parseCapabilities(tags, model.properties);
 
   return {
     id,
