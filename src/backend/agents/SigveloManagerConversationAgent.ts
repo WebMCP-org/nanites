@@ -27,7 +27,11 @@ import { buildNaniteManagerKey } from "#/nanites.ts";
 
 const SIGVELO_MANAGER_CHAT_CLIENT_ID = "sigvelo-github-manager-chat";
 const GITHUB_MCP_SERVER_NAME = "github";
+const GITHUB_MCP_SERVER_ID = "github";
 const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
+// GitHub installation tokens expire after one hour. Refresh ahead of expiry so
+// a turn never starts with credentials about to lapse mid-turn.
+const GITHUB_MCP_TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
 const STALE_MANAGER_SUBMISSION_AGE_MS = 120_000;
 const NANITES_AUTHORING_REPOSITORY = "WebMCP-org/nanites";
 const NANITES_AUTHORING_REPOSITORY_URL = `https://github.com/${NANITES_AUTHORING_REPOSITORY}`;
@@ -123,6 +127,9 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   };
   override maxSteps = 1000;
   override waitForMcpConnections = { timeout: 10_000 };
+  // In-memory only: lost on hibernation, which forces a refresh on the first
+  // turn after a wake. Never persisted alongside the token itself.
+  private githubMcpTokenExpiresAtMs: number | null = null;
   override workspace = new Workspace({
     sql: this.ctx.storage.sql,
     r2: this.env.WORKSPACE_FILES,
@@ -144,7 +151,16 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     });
   }
 
+  override async onStart(): Promise<void> {
+    // The GitHub MCP server authenticates with a static one-hour installation
+    // token that the agents SDK persists (and replays) in transport headers
+    // across hibernation. A restored server is therefore stale by definition:
+    // drop it here and let beforeTurn reconnect with a fresh token.
+    await this.removeGitHubMcpServers();
+  }
+
   override async beforeTurn(_ctx: TurnContext): Promise<TurnConfig> {
+    await this.ensureFreshGitHubMcpForTurn();
     return {
       maxSteps: this.maxSteps,
       model: this.getTurnModel(),
@@ -244,13 +260,42 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       return;
     }
 
+    await this.refreshGitHubMcpServer(props.githubInstallationId, repositories);
+  }
+
+  private async ensureFreshGitHubMcpForTurn(): Promise<void> {
+    const state = this.state;
+    if (state.status !== "connected" || state.repositories.length === 0) {
+      return;
+    }
+    if (!shouldConnectGitHubMcp(this.env)) {
+      return;
+    }
+
+    const server = this.getMcpServers().servers[GITHUB_MCP_SERVER_ID];
+    const expiresAtMs = this.githubMcpTokenExpiresAtMs;
+    const tokenIsFresh =
+      expiresAtMs !== null && Date.now() < expiresAtMs - GITHUB_MCP_TOKEN_REFRESH_MARGIN_MS;
+    if (server?.state === "ready" && tokenIsFresh) {
+      return;
+    }
+
+    await this.refreshGitHubMcpServer(state.githubInstallationId, state.repositories);
+  }
+
+  private async refreshGitHubMcpServer(
+    githubInstallationId: number,
+    repositories: readonly GitHubInstallationRepository[],
+  ): Promise<void> {
     await this.removeGitHubMcpServers();
     const scopedToken = await issueScopedGitHubInstallationToken({
       env: this.env,
-      installationId: props.githubInstallationId,
+      installationId: githubInstallationId,
       repositories: repositories.map((repository) => repository.full_name).sort(),
     });
+    this.githubMcpTokenExpiresAtMs = Date.parse(scopedToken.expiresAt);
     await this.addMcpServer(GITHUB_MCP_SERVER_NAME, GITHUB_MCP_SERVER_URL, {
+      id: GITHUB_MCP_SERVER_ID,
       transport: {
         type: "streamable-http",
         headers: {

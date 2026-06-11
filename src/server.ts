@@ -47,6 +47,10 @@ const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-prote
 
 // Keep Sentry at the Worker boundary. Agents/Think already manages the Durable Object
 // WebSocket context, and Sentry's DO wrapper rewraps waitUntil recursively on those routes.
+export class SigveloChatIngress extends BaseSigveloChatIngress {}
+export class SigveloManagerConversationAgent extends BaseSigveloManagerConversationAgent {}
+export class SigveloNaniteManager extends BaseSigveloNaniteManager {}
+export class NanitesSetupAgent extends BaseNanitesSetupAgent {}
 export class SigveloChatIngressV1 extends BaseSigveloChatIngress {}
 export class SigveloManagerConversationAgentV1 extends BaseSigveloManagerConversationAgent {}
 export class SigveloNaniteManagerV1 extends BaseSigveloNaniteManager {}
