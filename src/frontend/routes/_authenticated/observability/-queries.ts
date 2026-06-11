@@ -65,11 +65,11 @@ export async function fetchObservabilityDashboard(
     parseResponse(httpClient.api.observability.nanites.$get({ query: requestQueryForSearch })),
     parseResponse(httpClient.api.observability.runs.$get({ query: requestQueryForSearch })),
     parseResponse(httpClient.api.observability.audit.$get({ query: requestQueryForSearch })),
-    fetchObservabilityFilterOptions(requestQueryForSearch, "repository"),
-    fetchObservabilityFilterOptions(requestQueryForSearch, "naniteId"),
-    fetchObservabilityFilterOptions(requestQueryForSearch, "creator"),
-    fetchObservabilityFilterOptions(requestQueryForSearch, "outcome"),
-    fetchObservabilityFilterOptions(requestQueryForSearch, "surface"),
+    fetchObservabilityFilterOptionsOrEmpty(requestQueryForSearch, "repository"),
+    fetchObservabilityFilterOptionsOrEmpty(requestQueryForSearch, "naniteId"),
+    fetchObservabilityFilterOptionsOrEmpty(requestQueryForSearch, "creator"),
+    fetchObservabilityFilterOptionsOrEmpty(requestQueryForSearch, "outcome"),
+    fetchObservabilityFilterOptionsOrEmpty(requestQueryForSearch, "surface"),
   ]);
 
   return {
@@ -99,15 +99,26 @@ export async function fetchObservabilityEventDetail(
   );
 }
 
-async function fetchObservabilityFilterOptions(
+/**
+ * Filter dropdown options are decoration on top of the dashboard data: one
+ * failed options request must not take the whole analytics page down with it
+ * (the four dataset requests above stay load-bearing). The warning keeps the
+ * failure visible in the console and as a Sentry breadcrumb.
+ */
+async function fetchObservabilityFilterOptionsOrEmpty(
   requestQuery: Record<string, string>,
   filter: ObservabilityFilterName,
 ): Promise<string[]> {
-  const response: ObservabilityFilterOptionsResponse = await parseResponse(
-    httpClient.api.observability["filter-options"][":filter"].$get({
-      param: { filter },
-      query: requestQuery,
-    }),
-  );
-  return response.options;
+  try {
+    const response: ObservabilityFilterOptionsResponse = await parseResponse(
+      httpClient.api.observability["filter-options"][":filter"].$get({
+        param: { filter },
+        query: requestQuery,
+      }),
+    );
+    return response.options;
+  } catch (error) {
+    console.warn(`Observability ${filter} filter options failed to load; showing none.`, error);
+    return [];
+  }
 }

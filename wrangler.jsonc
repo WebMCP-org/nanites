@@ -10,7 +10,7 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nanites-app",
+  "name": "nanites-app-production",
   "main": "src/server.ts",
   "compatibility_date": "2026-03-02",
   "compatibility_flags": [
@@ -34,7 +34,7 @@
     "remote": true,
   },
   "vars": {
-    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app",
+    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
     "NANITES_SHOW_SETUP": "true",
     "ALLOW_TEST_AUTH": "false",
     "SENTRY_ENVIRONMENT": "development",

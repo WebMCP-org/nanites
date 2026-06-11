@@ -6,7 +6,7 @@ import ts from "typescript";
 
 const cwd = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wranglerConfig = "wrangler.jsonc";
-const workerEntry = "dist/nanites_app/index.js";
+const workerEntry = "dist/nanites_app_production/index.js";
 const assetsDirectory = "dist/client";
 const migrationBinding = "DB";
 const generatedMigrationConfig = join(cwd, ".wrangler/nanites-d1-migrations.jsonc");
