@@ -2822,7 +2822,7 @@ function NanitesRuntimeSurface({
             })
           ) : (
             <p className="nanites-workspace__empty">
-              No Nanites are registered for this installation yet.
+              No Nanites are configured for this installation yet.
             </p>
           )}
         </div>
@@ -2831,7 +2831,7 @@ function NanitesRuntimeSurface({
           <Button
             type="button"
             className="nanites-workspace__create-button"
-            aria-label={isCreateMode ? "Creating a new Nanite" : "Create a new Nanite"}
+            aria-label={isCreateMode ? "Configuring Nanites" : "Configure Nanites"}
             color="primary"
             size="sm"
             variant="normal"
@@ -2840,7 +2840,7 @@ function NanitesRuntimeSurface({
               setMobileView("chat");
             }}
           >
-            <span>{isCreateMode ? "Creating Nanite..." : "New Nanite"}</span>
+            <span>{isCreateMode ? "Configuring Nanites..." : "Configure Nanites"}</span>
           </Button>
         </div>
       </aside>
@@ -2852,24 +2852,24 @@ function NanitesRuntimeSurface({
               <Suspense
                 fallback={
                   <NaniteRuntimeChatLoading
-                    description={`Connecting the creation agent for ${activeInstallation.account.login}. You’ll be able to describe the new Nanite here in a moment.`}
-                    placeholder={`Preparing Nanite creation for ${activeInstallation.account.login}...`}
-                    title={`Preparing creation for ${activeInstallation.account.login}`}
+                    description={`Connecting the configuration agent for ${activeInstallation.account.login}. You’ll be able to describe how you want Nanites configured here in a moment.`}
+                    placeholder={`Preparing Nanite configuration for ${activeInstallation.account.login}...`}
+                    title={`Preparing configuration for ${activeInstallation.account.login}`}
                   />
                 }
               >
                 <ManagerRuntimeChatConnector
                   accountLogin={activeInstallation.account.login}
                   actor={actor}
-                  emptyDescription={`Describe the Nanite you want to create for ${activeInstallation.account.login} and its repos, triggers, responsibility, and stop conditions.`}
-                  emptyTitle={`Create a Nanite`}
-                  errorDescription="The Nanite creation conversation could not connect."
+                  emptyDescription={`Describe how you want Nanites configured for ${activeInstallation.account.login}, including repos, triggers, responsibilities, and stop conditions.`}
+                  emptyTitle="Configure Nanites"
+                  errorDescription="The Nanite configuration conversation could not connect."
                   githubInstallationId={activeInstallation.id}
-                  loadingDescription={`Connecting the creation agent for ${activeInstallation.account.login}. You’ll be able to describe the new Nanite here in a moment.`}
-                  loadingPlaceholder="Connecting to Nanite creation..."
-                  loadingTitle={`Preparing creation for ${activeInstallation.account.login}`}
+                  loadingDescription={`Connecting the configuration agent for ${activeInstallation.account.login}. You’ll be able to describe how you want Nanites configured here in a moment.`}
+                  loadingPlaceholder="Connecting to Nanite configuration..."
+                  loadingTitle={`Preparing configuration for ${activeInstallation.account.login}`}
                   managerName={managerName}
-                  placeholder={`Describe the Nanite you want to create for ${activeInstallation.account.login}`}
+                  placeholder={`Describe how you want Nanites configured for ${activeInstallation.account.login}`}
                 />
               </Suspense>
             ) : selectedNaniteAgentId ? (
