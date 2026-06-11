@@ -1,8 +1,10 @@
 import { Hono, type Context } from "hono";
 import { parse } from "hono/utils/cookie";
 import { getAgentByName } from "agents";
+import { getLogger } from "@logtape/logtape";
 import { z } from "zod";
-import { APP_ERRORS, AppError, type AppErrorKind } from "#/backend/errors.ts";
+import { APP_ERRORS, AppError, describeError, type AppErrorKind } from "#/backend/errors.ts";
+import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import {
   buildBrowserSessionExpiration,
@@ -28,6 +30,8 @@ import {
   buildExpiredSetupClaimCookie,
   type NanitesSetupAgent,
 } from "#/backend/agents/NanitesSetupAgent.ts";
+
+const setupLogger = getLogger(LOGGING.SERVER_CATEGORY).getChild("setup");
 
 const GITHUB_APP_INSTALL_VERIFY_PATH = "/setup/github/verify";
 const UPSTREAM_STAR_MISSING_MESSAGE =
@@ -85,6 +89,34 @@ function mapSetupAgentError(error: unknown): never {
 
 type GitHubSetupVerificationQuery = z.infer<typeof gitHubSetupVerificationQuerySchema>;
 
+function throwInstallationVerificationFailed(input: {
+  readonly reason: string;
+  readonly githubInstallationId: number | null;
+  readonly cause?: unknown;
+  readonly visibleInstallationIds?: readonly string[];
+  readonly githubError?: string;
+}): never {
+  setupLogger.warn(LOG_EVENTS.SETUP_INSTALLATION_VERIFICATION_FAILED, {
+    reason: input.reason,
+    [OTEL_ATTRS.GITHUB_INSTALLATION_ID]: input.githubInstallationId,
+    ...(input.visibleInstallationIds
+      ? { visibleInstallationIds: input.visibleInstallationIds.join(",") }
+      : {}),
+    ...(input.githubError ? { [OTEL_ATTRS.EXCEPTION_MESSAGE]: input.githubError } : {}),
+  });
+  throw new AppError("setupInstallationVerificationFailed", {
+    ...(input.cause === undefined ? {} : { cause: input.cause }),
+    details: {
+      githubInstallationId: input.githubInstallationId,
+      reason: input.reason,
+      ...(input.visibleInstallationIds
+        ? { visibleInstallationIds: input.visibleInstallationIds }
+        : {}),
+      ...(input.githubError ? { githubError: input.githubError } : {}),
+    },
+  });
+}
+
 function requireGitHubSetupVerificationQuery(request: Request): GitHubSetupVerificationQuery {
   const url = new URL(request.url);
   const result = gitHubSetupVerificationQuerySchema.safeParse({
@@ -92,8 +124,9 @@ function requireGitHubSetupVerificationQuery(request: Request): GitHubSetupVerif
     state: url.searchParams.get("state"),
   });
   if (!result.success) {
-    throw new AppError("setupInstallationVerificationFailed", {
-      details: { githubInstallationId: null },
+    throwInstallationVerificationFailed({
+      reason: "invalid_verification_query",
+      githubInstallationId: null,
     });
   }
 
@@ -108,8 +141,9 @@ function requireGitHubAppSetupCallbackQuery(request: Request): GitHubSetupVerifi
     state: url.searchParams.get("state"),
   });
   if (!result.success) {
-    throw new AppError("setupInstallationVerificationFailed", {
-      details: { githubInstallationId: null },
+    throwInstallationVerificationFailed({
+      reason: "invalid_install_callback_query",
+      githubInstallationId: null,
     });
   }
 
@@ -185,8 +219,9 @@ async function requireInstallationHasVisibleRepository(
   const repositories = await listInstallationRepositories(accessToken, githubInstallationId);
   const repository = repositories[0] ?? null;
   if (!repository) {
-    throw new AppError("setupInstallationVerificationFailed", {
-      details: { githubInstallationId },
+    throwInstallationVerificationFailed({
+      reason: "no_visible_repositories",
+      githubInstallationId,
     });
   }
 
@@ -209,9 +244,11 @@ async function proveInstallationTokenCanBeMinted({
       repositories: [repositoryFullName],
     });
   } catch (error) {
-    throw new AppError("setupInstallationVerificationFailed", {
+    throwInstallationVerificationFailed({
+      reason: "installation_token_mint_failed",
+      githubInstallationId,
       cause: error,
-      details: { githubInstallationId },
+      githubError: describeError(error),
     });
   }
 }
@@ -299,8 +336,9 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       throw new AppError("invalidSetupState");
     }
     if (!installState || installState !== setupState.repositories.installState) {
-      throw new AppError("setupInstallationVerificationFailed", {
-        details: { githubInstallationId: requestedInstallationId },
+      throwInstallationVerificationFailed({
+        reason: "install_state_mismatch",
+        githubInstallationId: requestedInstallationId,
       });
     }
 
@@ -312,8 +350,10 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       null;
 
     if (!verifiedInstallation) {
-      throw new AppError("setupInstallationVerificationFailed", {
-        details: { githubInstallationId: requestedInstallationId },
+      throwInstallationVerificationFailed({
+        reason: "installation_not_visible",
+        githubInstallationId: requestedInstallationId,
+        visibleInstallationIds: visibleInstallations.map((installation) => String(installation.id)),
       });
     }
 

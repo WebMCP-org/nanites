@@ -78,6 +78,7 @@ export const LOG_EVENTS = {
   NANITE_WORKSPACE_HYDRATION_REF_RETRY: "nanite.workspace.hydration.ref_retry",
   NANITE_WORKSPACE_HYDRATION_HEARTBEAT: "nanite.workspace.hydration.heartbeat",
   NANITE_WORKSPACE_HYDRATION_STARTED: "nanite.workspace.hydration.started",
+  SETUP_INSTALLATION_VERIFICATION_FAILED: "setup.installation.verification.failed",
   SIGVELO_TOOL_CALL_FAILED: "sigvelo.tool_call.failed",
   SIGVELO_TOOL_CALL_FINISHED: "sigvelo.tool_call.finished",
   SIGVELO_TOOL_CALL_STARTED: "sigvelo.tool_call.started",

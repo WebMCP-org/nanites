@@ -132,7 +132,7 @@ export const APP_ERRORS = {
     code: "setup_installation_verification_failed",
     status: 403,
     message: "GitHub did not confirm access to the installed Nanites GitHub App.",
-    publicDetailKeys: ["githubInstallationId"],
+    publicDetailKeys: ["githubInstallationId", "reason", "visibleInstallationIds", "githubError"],
   },
   upstreamStarVerificationFailed: {
     code: "upstream_star_verification_failed",

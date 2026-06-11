@@ -1503,6 +1503,7 @@ test("GitHub setup URL requires GitHub's returned installation id", async () => 
   await expect(response.json()).resolves.toEqual({
     code: "setup_installation_verification_failed",
     githubInstallationId: null,
+    reason: "invalid_install_callback_query",
   });
 });
 
@@ -1523,6 +1524,7 @@ test("GitHub setup URL requires GitHub's setup action", async () => {
   await expect(response.json()).resolves.toEqual({
     code: "setup_installation_verification_failed",
     githubInstallationId: null,
+    reason: "invalid_install_callback_query",
   });
 });
 
@@ -1567,6 +1569,7 @@ test("GitHub setup verification requires the install nonce for claimed setup", a
     await expect(response.json()).resolves.toEqual({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
+      reason: "install_state_mismatch",
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -1647,6 +1650,7 @@ test("GitHub setup verification requires at least one visible repository", async
     await expect(response.json()).resolves.toEqual({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
+      reason: "no_visible_repositories",
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -1692,6 +1696,8 @@ test("GitHub setup verification proves the app can mint an installation token", 
     await expect(response.json()).resolves.toEqual({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
+      reason: "installation_token_mint_failed",
+      githubError: expect.stringContaining("installation token failed"),
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -1924,6 +1930,8 @@ test("GitHub setup verification rejects spoofed installation ids", async () => {
     await expect(response.json()).resolves.toEqual({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
+      reason: "installation_not_visible",
+      visibleInstallationIds: ["77"],
     });
   } finally {
     globalThis.fetch = originalFetch;
