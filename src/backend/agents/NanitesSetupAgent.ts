@@ -853,9 +853,6 @@ function buildCurrentStep(state: NanitesSetupAgentState): SetupStep {
   if (state.githubApp.status === "complete" && state.repositories.status !== "complete") {
     return "repositories";
   }
-  if (state.githubApp.status === "complete" && state.upstreamStar.status !== "complete") {
-    return "upstream-star";
-  }
   if (!cloudflareReadinessAllowsGitHubApp(state.cloudflare)) {
     return "cloudflare";
   }
@@ -896,7 +893,9 @@ function createSetupCompletionState(input: {
     input.repositories.githubAppGenerationKey === input.githubAppGenerationKey;
   const upstreamStarComplete = input.upstreamStar.status === "complete";
   const upstreamStarReady = input.hasRuntimeConfig && repositoryInstalled;
-  const setupComplete = upstreamStarReady && upstreamStarComplete;
+  // The upstream star is optional: offer it once repositories are installed,
+  // but never gate launch on it.
+  const setupComplete = upstreamStarReady;
   const upstreamStar: NanitesSetupAgentState["upstreamStar"] =
     upstreamStarReady && upstreamStarComplete
       ? input.upstreamStar
@@ -1992,7 +1991,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
 
     const nextState = withDerivedState({
       ...clearCurrentStepOverride(this.state),
-      setupComplete: this.state.upstreamStar.status === "complete",
+      setupComplete: true,
       repositories: {
         status: "complete",
         githubInstallationId: input.githubInstallationId,
@@ -2006,7 +2005,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
         error: null,
       },
       launch: {
-        status: this.state.upstreamStar.status === "complete" ? "ready" : "locked",
+        status: "ready",
       },
       error: null,
     });
@@ -2084,21 +2083,20 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       throw new AppError("invalidSetupState");
     }
 
+    // Starring is optional, so a missing or failed star keeps the step's own
+    // error visible without revoking launch.
     const nextState = withDerivedState({
       ...clearCurrentStepOverride(this.state),
-      setupComplete: false,
+      setupComplete: true,
       upstreamStar: {
         status: "failed",
         verifiedAt: null,
         error: message,
       },
       launch: {
-        status: "locked",
+        status: "ready",
       },
-      error: {
-        step: "upstream-star",
-        message,
-      },
+      error: null,
     });
     this.setState(nextState);
     return nextState;

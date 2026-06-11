@@ -415,7 +415,7 @@ test("setup status unlocks repository install after generated GitHub App config 
   });
 });
 
-test("repository install unlocks the required upstream star gate", async () => {
+test("repository install completes setup with the upstream star left optional", async () => {
   await saveGeneratedGitHubAppMetadata();
 
   const setupAgent = await getSetupAgent();
@@ -429,8 +429,8 @@ test("repository install unlocks the required upstream star gate", async () => {
       installState: await readRepositoryInstallState(setupAgent),
     }),
   ).resolves.toMatchObject({
-    setupComplete: false,
-    currentStep: "upstream-star",
+    setupComplete: true,
+    currentStep: "launch",
     repositories: {
       status: "complete",
       githubInstallationId: 42,
@@ -440,7 +440,7 @@ test("repository install unlocks the required upstream star gate", async () => {
       verifiedAt: null,
     },
     launch: {
-      status: "locked",
+      status: "ready",
     },
   });
 });
@@ -464,8 +464,8 @@ test("repository install survives setup Agent state reset through deployment met
       origin: "https://sigvelo-agent-tests.example.workers.dev",
     }),
   ).resolves.toMatchObject({
-    setupComplete: false,
-    currentStep: "upstream-star",
+    setupComplete: true,
+    currentStep: "launch",
     githubApp: {
       status: "complete",
       slug: "nanites-test",
@@ -478,7 +478,7 @@ test("repository install survives setup Agent state reset through deployment met
       status: "ready",
     },
     launch: {
-      status: "locked",
+      status: "ready",
     },
   });
 });
@@ -1376,7 +1376,7 @@ test("repository install callable waits for readable runtime GitHub App config",
   }
 });
 
-test("GitHub setup verification returns to setup and keeps launch locked until upstream star", async () => {
+test("GitHub setup verification returns to setup with launch ready and the star optional", async () => {
   await saveGeneratedGitHubAppMetadata();
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
@@ -1410,8 +1410,8 @@ test("GitHub setup verification returns to setup and keeps launch locked until u
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/setup");
     await expect(setupAgent.refresh({ origin: request.url })).resolves.toMatchObject({
-      setupComplete: false,
-      currentStep: "upstream-star",
+      setupComplete: true,
+      currentStep: "launch",
       repositories: {
         status: "complete",
         githubInstallationId: 42,
@@ -1420,7 +1420,7 @@ test("GitHub setup verification returns to setup and keeps launch locked until u
         status: "ready",
       },
       launch: {
-        status: "locked",
+        status: "ready",
       },
     });
   } finally {
@@ -1790,7 +1790,7 @@ test("upstream star verification completes setup when GitHub confirms the star",
   }
 });
 
-test("upstream star verification leaves setup blocked when GitHub does not confirm the star", async () => {
+test("upstream star verification keeps launch ready when GitHub does not confirm the star", async () => {
   await saveGeneratedGitHubAppMetadata();
   const request = new Request(
     "https://sigvelo-agent-tests.example.workers.dev/api/setup/upstream-star",
@@ -1826,15 +1826,15 @@ test("upstream star verification leaves setup blocked when GitHub does not confi
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      setupComplete: false,
-      currentStep: "upstream-star",
+      setupComplete: true,
+      currentStep: "launch",
       upstreamStar: {
         status: "failed",
         verifiedAt: null,
         error: "GitHub did not confirm that this user starred WebMCP-org/nanites.",
       },
       launch: {
-        status: "locked",
+        status: "ready",
       },
     });
   } finally {

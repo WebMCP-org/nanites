@@ -548,7 +548,7 @@ function SetupPage() {
       <>
         <h2 className="setup-step__title">Star the upstream Nanites repo</h2>
         <p className="setup-step__note">
-          Starring is required before launch and helps other self-hosters find the project.
+          Starring is optional, and it helps other self-hosters find the project.
         </p>
         <div className="setup-step__actions">
           <Button
@@ -614,7 +614,13 @@ function SetupPage() {
       onGoForward={() => {
         showSetupStep(Math.min(viewedStepIndex + 1, agentStepIndex));
       }}
-      primaryAction={viewingCompletedStep && viewedStepIndex !== 0 ? null : primaryAction}
+      primaryAction={
+        // Step 0 (Cloudflare reconnect) and step 3 (the optional upstream
+        // star) stay actionable when revisited after setup moves past them.
+        viewingCompletedStep && viewedStepIndex !== 0 && viewedStepIndex !== 3
+          ? null
+          : primaryAction
+      }
     >
       {stepContent}
     </SetupFrame>
