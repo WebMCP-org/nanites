@@ -298,7 +298,6 @@ function SetupPage() {
   const githubOwnerReady = ownerType === "user" || trimmedOwnerLogin.length > 0;
   const githubManifestCanStart = setupConnectionReady && githubAppCanCreate && githubOwnerReady;
   const cloudflareVerified = status.cloudflare.status === "verified";
-  const cloudflareReady = cloudflareVerified && status.cloudflare.readiness.status === "ready";
   const setupComplete = status.setupComplete;
   const repositoriesComplete = status.repositories.status === "complete";
   const cloudflareRunning =
@@ -306,7 +305,10 @@ function SetupPage() {
     status.cloudflare.status === "authenticating" ||
     status.cloudflare.status === "verifying" ||
     status.cloudflare.readiness.status === "checking";
-  const cloudflareCanConnect = setupConnectionReady && !cloudflareRunning && !cloudflareReady;
+  // Reconnecting must stay available even when Cloudflare reports ready: the
+  // setup claim cookie is only issued by the OAuth callback, so a browser that
+  // lost (or never received) it needs this round-trip to recover.
+  const cloudflareCanConnect = setupConnectionReady && !cloudflareRunning;
   const globalErrors = status.error ? [status.error.message] : [];
 
   function showSetupStep(value: number): void {
@@ -612,7 +614,7 @@ function SetupPage() {
       onGoForward={() => {
         showSetupStep(Math.min(viewedStepIndex + 1, agentStepIndex));
       }}
-      primaryAction={viewingCompletedStep ? null : primaryAction}
+      primaryAction={viewingCompletedStep && viewedStepIndex !== 0 ? null : primaryAction}
     >
       {stepContent}
     </SetupFrame>
