@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { DbClient } from "#/backend/db/index.ts";
 import { deploymentGitHubAppConfig } from "#/backend/db/schema.ts";
+import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
 import { AppError } from "#/backend/errors.ts";
 
 const DEPLOYMENT_GITHUB_APP_CONFIG_ID = "current";
@@ -114,7 +115,9 @@ export async function readDeploymentGitHubAppConfig(
     ...metadata,
     clientSecret,
     webhookSecret,
-    privateKey,
+    // Secrets written before the PKCS#8 conversion existed may still hold the
+    // PKCS#1 PEM GitHub issued, so normalize on read as well as on write.
+    privateKey: normalizeGitHubAppPrivateKeyToPkcs8(privateKey),
   };
 }
 

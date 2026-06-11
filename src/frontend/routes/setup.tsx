@@ -1,7 +1,8 @@
 import "./setup.css";
 import { useState, type ReactNode } from "react";
 import { useAgent } from "agents/react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { parseResponse } from "hono/client";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -12,19 +13,27 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
+import { httpClient } from "#/frontend/lib/http-client.ts";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import type {
+  GitHubAppManifest,
   NanitesSetupAgent,
-  NanitesSetupAgentState,
-  StartGitHubManifestOutput,
-  SetupStep as SetupStepId,
+  NanitesSetupState,
+  SetupStep,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 
-const SETUP_OWNER_TOKEN_STORAGE_KEY = "nanites.setupOwnerToken";
 const SETUP_STEP_COUNT = 5;
 
 export const Route = createFileRoute("/setup")({
+  loader: async () => {
+    const setupStatus = await parseResponse(httpClient.api.setup.status.$get());
+    if (!setupStatus.showSetup) {
+      throw redirect({ to: "/" });
+    }
+
+    return { setupStatus };
+  },
   component: SetupPage,
 });
 
@@ -37,29 +46,39 @@ const NANITE_VARIANT_FOR_STATE: Record<SetupStepIndicatorState, NaniteSceneVaria
   done: "celebrating",
 };
 
-function activeStepIndex(step: NanitesSetupAgentState["currentStep"]): number {
-  if (step === "deploy" || step === "cloudflare") return 0;
-  if (step === "github-app") return 1;
-  if (step === "repositories") return 2;
-  if (step === "upstream-star") return 3;
-  return 4;
+/** Index of the wizard screen the agent's state machine is on. */
+function agentStepIndex(step: SetupStep): number {
+  switch (step) {
+    case "cloudflare":
+      return 0;
+    case "github-app":
+      return 1;
+    case "repositories":
+      return 2;
+    case "launch":
+      return 4;
+  }
 }
 
-function cloudflareButtonLabel(status: NanitesSetupAgentState["cloudflare"]): string {
-  if (status.status === "verified" && status.readiness.status === "blocked") {
-    return status.readiness.items.some(
+function cloudflareButtonLabel(cloudflare: NanitesSetupState["cloudflare"]): string {
+  if (cloudflare.status === "verified" && cloudflare.readiness.status === "blocked") {
+    return cloudflare.readiness.items.some(
       (item) => item.status === "blocked" && item.action === "reconnect",
     )
       ? "Reconnect Cloudflare"
       : "Check again";
   }
-  if (status.status === "verified" && status.readiness.status === "ready") {
+  if (cloudflare.status === "verified") {
     return "Reconnect Cloudflare";
   }
-  return status.status === "failed" ? "Retry Cloudflare" : "Connect Cloudflare";
+  return cloudflare.status === "failed" ? "Retry Cloudflare" : "Connect Cloudflare";
 }
 
-function postGitHubManifest(result: StartGitHubManifestOutput): void {
+function postGitHubManifest(result: {
+  readonly action: string;
+  readonly manifest: GitHubAppManifest;
+  readonly state: string;
+}): void {
   const form = document.createElement("form");
   form.method = "post";
   form.action = result.action;
@@ -209,35 +228,10 @@ function StepStatus({
   );
 }
 
-function setupStepForViewIndex(value: number): SetupStepId | null {
-  if (value === 0) return "cloudflare";
-  if (value === 1) return "github-app";
-  if (value === 2) return "repositories";
-  if (value === 3) return "upstream-star";
-  if (value === 4) return "launch";
-  return null;
-}
-
 function buildGitHubLoginUrl(returnTo = "/nanites"): string {
   const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
   loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, returnTo);
   return loginUrl.toString();
-}
-
-function readSetupOwnerToken(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.localStorage.getItem(SETUP_OWNER_TOKEN_STORAGE_KEY);
-}
-
-function writeSetupOwnerToken(setupOwnerToken: string): void {
-  window.localStorage.setItem(SETUP_OWNER_TOKEN_STORAGE_KEY, setupOwnerToken);
-}
-
-function clearSetupOwnerToken(): void {
-  window.localStorage.removeItem(SETUP_OWNER_TOKEN_STORAGE_KEY);
 }
 
 function isLocalSetupOrigin(): boolean {
@@ -256,23 +250,36 @@ function isLocalSetupOrigin(): boolean {
   );
 }
 
+async function postSetupAction<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (!response.ok) {
+    throw new Error(`Setup action failed with status ${response.status}.`);
+  }
+
+  return (await response.json()) as T;
+}
+
 function SetupPage() {
-  const setupAgent = useAgent<NanitesSetupAgent, NanitesSetupAgentState>({
+  const setupAgent = useAgent<NanitesSetupAgent, NanitesSetupState>({
     agent: NANITES_SETUP_AGENT_NAME,
     name: NANITES_SETUP_AGENT_INSTANCE_NAME,
   });
+  const status = setupAgent.state;
+  const [viewOverride, setViewOverride] = useState<number | null>(null);
   const [ownerType, setOwnerType] = useState<"user" | "organization">("user");
   const [ownerLogin, setOwnerLogin] = useState("");
-  const [setupOwnerToken, setSetupOwnerToken] = useState(readSetupOwnerToken);
   const [cloudflareActionError, setCloudflareActionError] = useState<string | null>(null);
+  const [githubActionError, setGithubActionError] = useState<string | null>(null);
   const [starActionRunning, setStarActionRunning] = useState(false);
   const [starActionError, setStarActionError] = useState<string | null>(null);
-  const status = setupAgent.state;
-  const setupConnectionReady = Boolean(setupAgent.stub);
   const localSetupOrigin = isLocalSetupOrigin();
-  const agentStepIndex = status
-    ? activeStepIndex(status.currentStepOverride?.baseStep ?? status.currentStep)
-    : 0;
 
   if (!status) {
     return (
@@ -283,41 +290,50 @@ function SetupPage() {
     );
   }
 
-  const viewedStepIndex = activeStepIndex(status.currentStep);
-  const viewingCompletedStep = viewedStepIndex < agentStepIndex;
+  const progressIndex = agentStepIndex(status.currentStep);
+  const viewedStepIndex =
+    viewOverride === null ? progressIndex : Math.min(viewOverride, progressIndex);
+  const viewingCompletedStep = viewedStepIndex < progressIndex;
   const trimmedOwnerLogin = ownerLogin.trim();
-  const githubAppComplete = status.githubApp.status === "complete";
-  const githubAppFinishing =
-    status.githubApp.status === "secrets-writing" ||
-    status.githubApp.status === "secrets-propagating";
-  const githubAppCanCreate =
-    status.githubApp.status === "ready" ||
-    status.githubApp.status === "creating" ||
-    status.githubApp.status === "secrets-propagation-stalled" ||
-    status.githubApp.status === "failed";
-  const githubOwnerReady = ownerType === "user" || trimmedOwnerLogin.length > 0;
-  const githubManifestCanStart = setupConnectionReady && githubAppCanCreate && githubOwnerReady;
   const cloudflareVerified = status.cloudflare.status === "verified";
-  const setupComplete = status.setupComplete;
-  const repositoriesComplete = status.repositories.status === "complete";
   const cloudflareRunning =
-    status.cloudflare.status === "connecting" ||
     status.cloudflare.status === "authenticating" ||
     status.cloudflare.status === "verifying" ||
     status.cloudflare.readiness.status === "checking";
-  // Reconnecting must stay available even when Cloudflare reports ready: the
-  // setup claim cookie is only issued by the OAuth callback, so a browser that
-  // lost (or never received) it needs this round-trip to recover.
-  const cloudflareCanConnect = setupConnectionReady && !cloudflareRunning;
-  const globalErrors = status.error ? [status.error.message] : [];
+  const githubAppFinishing =
+    status.githubApp.status === "writing-secrets" || status.githubApp.status === "propagating";
+  const githubAppCanCreate =
+    status.githubApp.status === "ready" || status.githubApp.status === "stalled";
+  const githubOwnerReady = ownerType === "user" || trimmedOwnerLogin.length > 0;
+  const repositoriesComplete = status.repositories.status === "complete";
+  const setupComplete = status.setupComplete;
 
   function showSetupStep(value: number): void {
-    const step = setupStepForViewIndex(value);
-    if (!step || !setupAgent.stub) {
-      return;
-    }
+    setViewOverride(value >= progressIndex ? null : Math.max(value, 0));
+  }
 
-    void setupAgent.stub.showSetupStep({ step }).catch(() => undefined);
+  async function connectCloudflare(): Promise<void> {
+    setCloudflareActionError(null);
+    const result = await postSetupAction<{
+      state: NanitesSetupState;
+      authorizationUrl: string | null;
+    }>("/api/setup/cloudflare");
+    if (result.authorizationUrl) {
+      window.location.href = result.authorizationUrl;
+    }
+  }
+
+  async function createGitHubApp(): Promise<void> {
+    setGithubActionError(null);
+    const result = await postSetupAction<{
+      action: string;
+      manifest: GitHubAppManifest;
+      state: string;
+    }>("/api/setup/github-app", {
+      ownerType,
+      ownerLogin: ownerType === "organization" ? trimmedOwnerLogin : null,
+    });
+    postGitHubManifest(result);
   }
 
   async function runUpstreamStarAction(method: "GET" | "PUT"): Promise<void> {
@@ -342,40 +358,6 @@ function SetupPage() {
     }
   }
 
-  async function connectCloudflareForSetup(): Promise<void> {
-    if (!setupAgent.stub) {
-      return;
-    }
-
-    setCloudflareActionError(null);
-    let ownerToken = setupOwnerToken;
-    if (!ownerToken) {
-      const ownerClaim = await setupAgent.stub.claimSetupOwner();
-      if (!ownerClaim.claimed || !ownerClaim.setupOwnerToken) {
-        setCloudflareActionError("Setup is already in progress in another browser.");
-        return;
-      }
-
-      ownerToken = ownerClaim.setupOwnerToken;
-      writeSetupOwnerToken(ownerToken);
-      setSetupOwnerToken(ownerToken);
-    }
-
-    const result = await setupAgent.stub.connectCloudflare({
-      setupOwnerToken: ownerToken,
-      forceReconnect: true,
-    });
-    if (result.setupOwnerClaimRequired) {
-      clearSetupOwnerToken();
-      setSetupOwnerToken(null);
-      setCloudflareActionError("Setup is already in progress in another browser.");
-      return;
-    }
-    if (result.authorizationUrl) {
-      window.location.href = result.authorizationUrl;
-    }
-  }
-
   let stepContent: ReactNode;
   let primaryAction: ReactNode = null;
   let stepWorking = false;
@@ -388,21 +370,23 @@ function SetupPage() {
       .map((item) => item.detail);
     stepErrors = [
       ...(cloudflareActionError ? [cloudflareActionError] : []),
+      ...(status.cloudflare.error && !blockedDetails.includes(status.cloudflare.error)
+        ? [status.cloudflare.error]
+        : []),
       ...blockedDetails,
       ...(localSetupOrigin && !cloudflareVerified
         ? [
             "Local dev runs on localhost, so Cloudflare cannot confirm ownership of this Worker. Use the local .dev.vars setup path, or retry from a deployed Worker URL.",
           ]
         : []),
-      ...globalErrors,
     ];
 
     primaryAction = (
       <Button
         color="primary"
-        disabled={!cloudflareCanConnect}
+        disabled={cloudflareRunning}
         onClick={() => {
-          void connectCloudflareForSetup().catch(() => {
+          void connectCloudflare().catch(() => {
             setCloudflareActionError("Cloudflare setup did not start.");
           });
         }}
@@ -415,7 +399,7 @@ function SetupPage() {
       <>
         <h2 className="setup-step__title">Connect a Cloudflare account to this Worker project</h2>
         <p className="setup-step__note">
-          Cloudflare bills your account directly. Default Kimi K2.6 runs through Workers AI, so no
+          Cloudflare bills your account directly. The default model runs through Workers AI, so no
           external API provider key is required.
         </p>
         <StepStatus
@@ -425,21 +409,32 @@ function SetupPage() {
       </>
     );
   } else if (viewedStepIndex === 1) {
-    stepWorking = githubAppFinishing || status.githubApp.status === "creating";
-    stepErrors = globalErrors;
+    stepWorking = githubAppFinishing;
+    stepErrors = [
+      ...(githubActionError ? [githubActionError] : []),
+      ...(status.githubApp.error ? [status.githubApp.error] : []),
+      ...(status.githubApp.orphanedAppUrl
+        ? [
+            `GitHub created an app before setup failed. Delete the unused app at ${status.githubApp.orphanedAppUrl} before retrying if you do not want an orphaned Nanites app.`,
+          ]
+        : []),
+      ...(status.githubApp.status === "stalled"
+        ? [
+            "Generated Worker secrets are taking longer than expected to propagate. Retry creating the GitHub App.",
+          ]
+        : []),
+    ];
     if (!githubAppFinishing) {
       primaryAction = (
         <Button
           color="primary"
-          disabled={!githubManifestCanStart}
+          disabled={!githubAppCanCreate || !githubOwnerReady}
           onClick={() => {
-            void setupAgent.stub
-              ?.startGitHubManifest({
-                ownerType,
-                ownerLogin: ownerType === "organization" ? trimmedOwnerLogin : null,
-              })
-              .then(postGitHubManifest)
-              .catch(() => undefined);
+            void createGitHubApp().catch(() => {
+              setGithubActionError(
+                "GitHub App setup did not start. Reconnect Cloudflare and try again.",
+              );
+            });
           }}
         >
           <GithubLogoIcon weight="fill" />
@@ -502,13 +497,13 @@ function SetupPage() {
       </>
     );
   } else if (viewedStepIndex === 2) {
-    stepErrors = globalErrors;
+    stepErrors = status.repositories.error ? [status.repositories.error] : [];
     primaryAction = (
       <Button
         color="primary"
-        disabled={!status.githubApp.installUrl || !githubAppComplete}
+        disabled={!status.githubApp.installUrl || status.githubApp.status !== "complete"}
         onClick={() => {
-          if (status.githubApp.installUrl && githubAppComplete) {
+          if (status.githubApp.installUrl && status.githubApp.status === "complete") {
             window.location.href = status.githubApp.installUrl;
           }
         }}
@@ -529,26 +524,25 @@ function SetupPage() {
     stepErrors = [
       ...(status.upstreamStar.error ? [status.upstreamStar.error] : []),
       ...(starActionError ? [starActionError] : []),
-      ...globalErrors,
     ];
 
     primaryAction = (
       <Button
         color="primary"
-        disabled={!repositoriesComplete || starActionRunning}
+        disabled={!repositoriesComplete || starActionRunning || status.upstreamStar.starred}
         onClick={() => {
           void runUpstreamStarAction("PUT");
         }}
       >
         <StarIcon weight="fill" />
-        <span>Star WebMCP-org/nanites</span>
+        <span>{status.upstreamStar.starred ? "Starred" : "Star WebMCP-org/nanites"}</span>
       </Button>
     );
     stepContent = (
       <>
         <h2 className="setup-step__title">Star the upstream Nanites repo</h2>
         <p className="setup-step__note">
-          Starring is required before launch and helps other self-hosters find the project.
+          Starring is optional, and it helps other self-hosters find the project.
         </p>
         <div className="setup-step__actions">
           <Button
@@ -570,7 +564,6 @@ function SetupPage() {
       </>
     );
   } else {
-    stepErrors = globalErrors;
     primaryAction = (
       <Button
         color="primary"
@@ -587,7 +580,7 @@ function SetupPage() {
       <>
         <h2 className="setup-step__title">Sign in and create your first maintainer</h2>
         <p className="setup-step__note">Setup is complete. Nanites is ready to launch.</p>
-        <StepStatus errors={stepErrors} />
+        <StepStatus errors={[]} />
       </>
     );
   }
@@ -603,18 +596,24 @@ function SetupPage() {
 
   return (
     <SetupFrame
-      progressIndex={agentStepIndex}
+      progressIndex={progressIndex}
       viewIndex={viewedStepIndex}
       indicatorState={indicatorState}
-      canGoBack={viewedStepIndex > 0 && !status.currentStepOverride}
-      canGoForward={viewedStepIndex < agentStepIndex}
+      canGoBack={viewedStepIndex > 0}
+      canGoForward={viewedStepIndex < progressIndex}
       onGoBack={() => {
-        showSetupStep(Math.max(viewedStepIndex - 1, 0));
+        showSetupStep(viewedStepIndex - 1);
       }}
       onGoForward={() => {
-        showSetupStep(Math.min(viewedStepIndex + 1, agentStepIndex));
+        showSetupStep(viewedStepIndex + 1);
       }}
-      primaryAction={viewingCompletedStep && viewedStepIndex !== 0 ? null : primaryAction}
+      primaryAction={
+        // Step 0 (Cloudflare reconnect) and step 3 (the optional upstream
+        // star) stay actionable when revisited after setup moves past them.
+        viewingCompletedStep && viewedStepIndex !== 0 && viewedStepIndex !== 3
+          ? null
+          : primaryAction
+      }
     >
       {stepContent}
     </SetupFrame>

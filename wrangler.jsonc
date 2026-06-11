@@ -29,6 +29,7 @@
   },
   "vars": {
     "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app",
+    "NANITES_SHOW_SETUP": "true",
     "ALLOW_TEST_AUTH": "false",
     "SENTRY_ENVIRONMENT": "development",
     "SENTRY_TRACES_SAMPLE_RATE": "1",
@@ -147,6 +148,7 @@
       },
       "vars": {
         "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-local",
+        "NANITES_SHOW_SETUP": "false",
         "ALLOW_TEST_AUTH": "true",
         "SENTRY_ENVIRONMENT": "local",
         "SENTRY_TRACES_SAMPLE_RATE": "1",
@@ -247,6 +249,7 @@
       },
       "vars": {
         "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-staging",
+        "NANITES_SHOW_SETUP": "true",
         "ALLOW_TEST_AUTH": "false",
         "SENTRY_ENVIRONMENT": "staging",
         "SENTRY_TRACES_SAMPLE_RATE": "0.2",
@@ -346,6 +349,7 @@
       },
       "vars": {
         "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
+        "NANITES_SHOW_SETUP": "true",
         "ALLOW_TEST_AUTH": "false",
         "SENTRY_ENVIRONMENT": "production",
         "SENTRY_TRACES_SAMPLE_RATE": "0.1",

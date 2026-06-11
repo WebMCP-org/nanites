@@ -1,6 +1,9 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { saveTestDeploymentGitHubAppMetadata } from "../helpers/d1-baseline.ts";
+import {
+  ensureD1BaselineSchema,
+  saveTestDeploymentGitHubAppMetadata,
+} from "../helpers/d1-baseline.ts";
 import {
   createInitialSetupState,
   type NanitesSetupAgent,
@@ -8,7 +11,7 @@ import {
 } from "#/backend/agents/NanitesSetupAgent.ts";
 
 const SETUP_ORIGIN = "https://sigvelo-agent-tests.example.workers.dev";
-const SETUP_AGENT_INSTANCE_NAME = "setup-recovery-e2e";
+const SETUP_AGENT_INSTANCE_NAME = "setup-claim-e2e";
 
 type SetupAgentTestRpc = {
   setState(state: NanitesSetupState): void;
@@ -45,37 +48,61 @@ async function getSetupAgent(): Promise<SetupAgentTestRpc> {
   ) as unknown as SetupAgentTestRpc;
 }
 
-test("setup Agent restores selected installation from deployment metadata after state reset", async () => {
-  await saveTestDeploymentGitHubAppMetadata(env.DB);
-  const setupAgent = await getSetupAgent();
-  setupAgent.setState(buildCloudflareVerifiedSetupState());
-  const setupClaim = await setupAgent.issueSetupClaim();
-  const setupState = await setupAgent.refresh({ origin: SETUP_ORIGIN });
+function readInstallNonce(setupState: NanitesSetupState): string {
   const installUrl = setupState.githubApp.installUrl;
   const installState = installUrl ? new URL(installUrl).searchParams.get("state") : null;
   if (!installState) {
     throw new Error("Expected setup Agent to expose a repository install nonce.");
   }
+  return installState;
+}
+
+test("repository install requires the issued setup claim and install nonce", async () => {
+  await ensureD1BaselineSchema(env.DB);
+  await saveTestDeploymentGitHubAppMetadata(env.DB);
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+  const installState = readInstallNonce(await setupAgent.refresh({ origin: SETUP_ORIGIN }));
 
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
-      claimToken: setupClaim.token,
+      claimToken: "",
       installState,
     }),
-  ).resolves.toMatchObject({ ok: true });
+  ).resolves.toEqual({ ok: false, errorKind: "setupClaimRequired" });
 
-  setupAgent.setState(createInitialSetupState());
-  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
-    setupComplete: true,
-    currentStep: "launch",
-    githubApp: {
-      status: "complete",
-      slug: "nanites-test",
-    },
-    repositories: {
-      status: "complete",
+  const claim = await setupAgent.issueSetupClaim();
+  await expect(
+    setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      claimToken: "not-the-claimed-browser",
+      installState,
+    }),
+  ).resolves.toEqual({ ok: false, errorKind: "setupClaimRequired" });
+  await expect(
+    setupAgent.recordRepositoryInstall({
+      githubInstallationId: 42,
+      claimToken: claim.token,
+      installState: "not-the-issued-install-nonce",
+    }),
+  ).resolves.toEqual({ ok: false, errorKind: "installStateMismatch" });
+
+  await expect(
+    setupAgent.recordRepositoryInstall({
+      githubInstallationId: 42,
+      claimToken: claim.token,
+      installState,
+    }),
+  ).resolves.toMatchObject({
+    ok: true,
+    state: {
+      setupComplete: true,
+      currentStep: "launch",
+      repositories: {
+        status: "complete",
+        githubInstallationId: 42,
+      },
     },
   });
 });

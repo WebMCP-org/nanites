@@ -13,15 +13,15 @@ import {
   type GitHubInstallationRepository,
   listReposAccessibleToInstallation,
 } from "#/backend/github/index.ts";
-import type { SigveloChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
+import {
+  getGitHubManagerChatThreadType,
+  type HandleManagerChatMessageInput,
+  type SigveloChatIngress,
+} from "#/backend/agents/SigveloChatIngress.ts";
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
 import { sigveloMcpAuthPropsSchema, type SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
-import {
-  getGitHubManagerChatThreadType,
-  type HandleManagerChatMessageInput,
-} from "#/backend/agents/SigveloNaniteManager.ts";
 import { MCP_SCOPES } from "#/mcp.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 

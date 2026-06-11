@@ -16,7 +16,7 @@ import {
 export const Route = createFileRoute("/")({
   loader: async ({ context, location }) => {
     const setupStatus = await parseResponse(httpClient.api.setup.status.$get());
-    if (!setupStatus.setupComplete && location.pathname !== "/app") {
+    if (setupStatus.showSetup && !setupStatus.setupComplete && location.pathname !== "/app") {
       throw redirect({ to: "/setup" });
     }
 
@@ -24,12 +24,16 @@ export const Route = createFileRoute("/")({
     if (session) {
       throw redirect({ href: resolveAuthReturnTo(location.href) });
     }
+
+    return { setupStatus };
   },
   component: LoginPage,
 });
 
 function LoginPage() {
+  const { setupStatus } = Route.useLoaderData();
   const returnTo = readRequestedReturnTo(new URLSearchParams(window.location.search));
+  const setupHiddenAndUnconfigured = !setupStatus.showSetup && !setupStatus.runtimeConfigReadable;
 
   return (
     <main className="login-screen">
@@ -41,11 +45,16 @@ function LoginPage() {
       />
       <div className="login-screen__copy">
         <h1>Nanites</h1>
-        <p>Small durable agents for GitHub repository maintenance.</p>
+        <p>
+          {setupHiddenAndUnconfigured
+            ? "Local setup is hidden. Configure local GitHub App metadata and secrets, or set NANITES_SHOW_SETUP=true."
+            : "Small durable agents for GitHub repository maintenance."}
+        </p>
       </div>
       <Button
         color="primary"
         size="lg"
+        disabled={setupHiddenAndUnconfigured}
         onClick={() => {
           const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
           loginUrl.searchParams.set(

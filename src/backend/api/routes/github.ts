@@ -60,7 +60,7 @@ async function recordGitHubInstallationRepairSignal({
     NANITES_SETUP_AGENT_INSTANCE_NAME,
   );
 
-  await setupAgent.recordGitHubInstallationRepairRequired({
+  await setupAgent.recordInstallationRepair({
     githubInstallationId,
     reason,
   });

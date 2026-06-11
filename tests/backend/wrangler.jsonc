@@ -11,6 +11,7 @@
   ],
   "vars": {
     "ALLOW_TEST_AUTH": "true",
+    "NANITES_SHOW_SETUP": "true",
     "SENTRY_ENVIRONMENT": "test",
     "SENTRY_TRACES_SAMPLE_RATE": "0",
     "NANITES_LLM_FIXTURE": "complete",

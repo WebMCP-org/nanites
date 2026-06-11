@@ -1,5 +1,14 @@
 import { Think, Workspace, defaultContextOverflowClassifier } from "@cloudflare/think";
-import type { Session, ThinkSubmissionInspection, ThinkSubmissionStatus } from "@cloudflare/think";
+import type {
+  Session,
+  StepContext,
+  ThinkSubmissionInspection,
+  ThinkSubmissionStatus,
+  ToolCallContext,
+  ToolCallResultContext,
+  TurnConfig,
+  TurnContext,
+} from "@cloudflare/think";
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createExtensionTools } from "@cloudflare/think/tools/extensions";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
@@ -7,43 +16,44 @@ import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import type { FileInfo } from "@cloudflare/shell";
 import type { ToolProvider } from "@cloudflare/codemode";
 import { getLogger } from "@logtape/logtape";
-import {
-  APP_ERRORS,
-  AppError,
-  describeError,
-  describeErrorWithStack,
-  parseOptionalAppIsoDate,
-} from "#/backend/errors.ts";
-import { LOG_EVENTS } from "#/backend/logging.ts";
-import { LOGGING } from "#/backend/logging.ts";
-import { OTEL_ATTRS } from "#/backend/logging.ts";
-import { createDbClient } from "#/backend/db/index.ts";
 import { callable } from "agents";
 import { hasToolCall, tool, type LanguageModel, type ToolSet, type UIMessage } from "ai";
 import { z } from "zod";
-import type { GitHubAppPermissions } from "#/backend/github/index.ts";
-import { issueScopedGitHubInstallationToken } from "#/backend/github/index.ts";
+import { AppError, describeError, parseOptionalAppIsoDate } from "#/backend/errors.ts";
+import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
+import { createDbClient } from "#/backend/db/index.ts";
+import {
+  issueScopedGitHubInstallationToken,
+  type GitHubAppPermissions,
+} from "#/backend/github/index.ts";
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
 import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabilities.ts";
-import { NaniteToolOutputArtifactStore } from "#/backend/nanites/tool-output.ts";
-import { wrapToolSetForNaniteOutputBudget } from "#/backend/nanites/tool-output.ts";
+import {
+  NaniteToolOutputArtifactStore,
+  wrapToolSetForNaniteOutputBudget,
+} from "#/backend/nanites/tool-output.ts";
 import {
   createNaniteRunLanguageModel,
   createSigveloAgentLanguageModel,
+  resolveNanitesAiGatewayId,
 } from "#/backend/nanites/language-model.ts";
 import type {
   AskHumanInput,
   CompleteNaniteRunInput,
-  NaniteAgentFeedback,
   ManagedNanite,
+  NaniteAgentFeedback,
   NaniteManifest,
-  NaniteRuntimeActivityState,
-  NaniteRunRecord,
   NaniteRunModelSnapshot,
+  NaniteRunRecord,
+  NaniteRunStatus,
+  NaniteRuntimeActivityState,
   NaniteScheduledEventSourceSpec,
   NaniteScheduleWhen,
   NaniteTriggerEvent,
+  RecordNaniteRuntimeActivityInput,
+  RecordUnreportedRunCompletionInput,
   SigveloNaniteManager,
+  StartNaniteRunInput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getDispatchIntents, runGeneratedTrigger } from "#/backend/nanites/triggers.ts";
 import { getGitHubWebhookRepositoryFullName, getGitHubWebhookRepositoryId } from "#/github.ts";
@@ -53,53 +63,59 @@ import {
   recordAiUsageFact,
   resolveNaniteBillingAttribution,
 } from "#/backend/observability/recorders.ts";
-import type {
-  ChatResponseResult,
-  StepContext,
-  ToolCallContext,
-  ToolCallResultContext,
-  TurnConfig,
-  TurnContext,
-} from "@cloudflare/think";
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+/**
+ * Bump whenever the persisted state shape changes incompatibly. Everything in
+ * this state is run-scoped bookkeeping mirrored from the manager, so a reset
+ * on version mismatch is safe.
+ */
+const NANITE_AGENT_STATE_VERSION = 2;
 
 export type NaniteAgentState = {
+  version: number;
   naniteId: string | null;
   managerName: string | null;
+  manifest: NaniteManifest | null;
   activeRunId: string | null;
   activeRunModel: NaniteRunModelSnapshot | null;
-  manifest: NaniteManifest | null;
   trigger: NaniteTriggerEvent | null;
-  interruptedSubmissionRetriesByRun: Record<string, number>;
-  lifecycleWatchdog: NaniteLifecycleWatchdog | null;
-  summary: string | null;
-  outputUrl: string | null;
+  /** Last observed model/tool activity, read by the lifecycle watchdog. */
+  lastActivityAt: string | null;
+  lifecycleContinuationAttempted: boolean;
+  interruptedRetryCount: number;
+  watchdogScheduleId: string | null;
   updatedAt: string | null;
 };
 
-const aiGatewayLogDetailSchema = z
-  .object({
-    id: z.string().optional(),
-    provider: z.string().optional(),
-    model: z.string().optional(),
-    tokens_in: z.number().finite().optional(),
-    tokens_out: z.number().finite().optional(),
-    cost: z.number().finite().optional(),
-    cached: z.boolean().optional(),
-    duration: z.number().finite().optional(),
-    success: z.boolean().optional(),
-    status_code: z.number().int().optional(),
-  })
-  .passthrough();
+function createInitialNaniteAgentState(): NaniteAgentState {
+  return {
+    version: NANITE_AGENT_STATE_VERSION,
+    naniteId: null,
+    managerName: null,
+    manifest: null,
+    activeRunId: null,
+    activeRunModel: null,
+    trigger: null,
+    lastActivityAt: null,
+    lifecycleContinuationAttempted: false,
+    interruptedRetryCount: 0,
+    watchdogScheduleId: null,
+    updatedAt: null,
+  };
+}
 
-const metadataRecordSchema = z.record(z.string(), z.unknown());
+// ---------------------------------------------------------------------------
+// Public IO types
+// ---------------------------------------------------------------------------
 
-type AiGatewayLogDetail = z.output<typeof aiGatewayLogDetailSchema>;
-
-export type NaniteLifecycleWatchdog = {
-  runId: string;
-  lastActivityAt: string;
-  continuationAttempted: boolean;
-  scheduleId: string | null;
+export type StartNaniteAgentInput = {
+  managerName: string;
+  nanite: ManagedNanite;
+  run: NaniteRunRecord;
 };
 
 export type NaniteWorkspaceInfo = {
@@ -108,49 +124,6 @@ export type NaniteWorkspaceInfo = {
   totalBytes: number;
   r2FileCount: number;
   repositoryRoot: string | null;
-};
-
-export type StartNaniteAgentInput = {
-  managerName: string;
-  nanite: ManagedNanite;
-  run: NaniteRunRecord;
-};
-
-type ScheduledTriggerPayload = {
-  eventSource: NaniteScheduledEventSourceSpec;
-};
-
-type LifecycleWatchdogPayload = {
-  runId: string;
-  lastActivityAt: string;
-};
-
-function resolveCloudflareScheduleWhen(when: NaniteScheduleWhen): Date | string | number {
-  if (typeof when === "number") {
-    return when;
-  }
-
-  const date = new Date(when);
-  return Number.isNaN(date.getTime()) ? when : date;
-}
-
-export type NaniteTranscriptInspectInput = {
-  limit?: number;
-  query?: string;
-  roles?: string[];
-  includeParts?: boolean;
-  maxTextLength?: number;
-  maxPartLength?: number;
-};
-
-export type NaniteSubmissionsInspectInput = {
-  limit?: number;
-  status?: ThinkSubmissionStatus | ThinkSubmissionStatus[];
-};
-
-export type NaniteDebugInspectInput = {
-  transcript?: NaniteTranscriptInspectInput | false;
-  submissions?: NaniteSubmissionsInspectInput | false;
 };
 
 export type NaniteWorkspaceExploreInput =
@@ -174,29 +147,6 @@ export type NaniteWorkspaceExploreInput =
       limit?: number;
       maxFileBytes?: number;
     };
-
-export type NaniteDebugInspectOutput = {
-  transcript?: unknown[];
-  submissions?: ThinkSubmissionInspection[];
-};
-
-export type NaniteDebugResetOutput = {
-  clearedMessages: boolean;
-  deletedSubmissions: number;
-};
-
-export type NaniteAgentMaintenanceInput = {
-  managerName: string;
-  nanite: ManagedNanite;
-  completedBeforeIso?: string;
-  submissionDeleteLimit?: number;
-};
-
-export type NaniteAgentMaintenanceOutput = {
-  activeRunId: string | null;
-  reconciledActiveSubmission: boolean;
-  deletedSubmissions: number;
-};
 
 export type NaniteWorkspaceExploreOutput =
   | {
@@ -222,18 +172,61 @@ export type NaniteWorkspaceExploreOutput =
       truncated: boolean;
     };
 
-const terminalSubmissionStatuses = new Set<ThinkSubmissionStatus>([
-  "completed",
-  "aborted",
-  "skipped",
-  "error",
-]);
+export type NaniteTranscriptInspectInput = {
+  limit?: number;
+  query?: string;
+  roles?: string[];
+  includeParts?: boolean;
+  maxTextLength?: number;
+  maxPartLength?: number;
+};
+
+export type NaniteSubmissionsInspectInput = {
+  limit?: number;
+  status?: ThinkSubmissionStatus | ThinkSubmissionStatus[];
+};
+
+export type NaniteDebugInspectInput = {
+  transcript?: NaniteTranscriptInspectInput | false;
+  submissions?: NaniteSubmissionsInspectInput | false;
+};
+
+export type NaniteDebugInspectOutput = {
+  transcript?: unknown[];
+  submissions?: ThinkSubmissionInspection[];
+};
+
+export type NaniteDebugResetOutput = {
+  clearedMessages: boolean;
+  deletedSubmissions: number;
+};
+
+export type NaniteAgentMaintenanceInput = {
+  managerName: string;
+  nanite: ManagedNanite;
+  completedBeforeIso?: string;
+  submissionDeleteLimit?: number;
+};
+
+export type NaniteAgentMaintenanceOutput = {
+  activeRunId: string | null;
+  reconciledActiveSubmission: boolean;
+  deletedSubmissions: number;
+};
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const naniteMaxSteps = 200;
-const naniteLifecycleWatchdogDelaySeconds = 180;
-const naniteLifecycleWatchdogStabilityTimeoutMs = 1_000;
 const naniteLifecycleTools = ["complete", "no_change", "fail", "ask_human"] as const;
 const naniteLifecycleContinuationSuffix = "lifecycle-continuation";
-const naniteLifecycleWatchdogCallback = "checkLifecycleWatchdog";
+const naniteWatchdogDelaySeconds = 180;
+const naniteWatchdogIdleMs = naniteWatchdogDelaySeconds * 1000;
+const naniteWatchdogStabilityTimeoutMs = 1_000;
+const naniteInterruptedSubmissionError = "Submission was interrupted after messages were applied.";
+const naniteInterruptedSubmissionMaxRetries = 1;
+const naniteDebugPartMaxLength = 12_000;
 const naniteToolOutputBudgetExcludedTools = new Set([
   "complete",
   "no_change",
@@ -242,23 +235,34 @@ const naniteToolOutputBudgetExcludedTools = new Set([
   "create_child_nanite",
   "artifact_read",
 ]);
-const naniteDebugPartMaxLength = 12_000;
-const naniteInterruptedSubmissionError = "Submission was interrupted after messages were applied.";
-const naniteInterruptedSubmissionMaxRetries = 1;
 const githubMcpServerName = "github";
+const githubMcpServerId = "github";
 const githubMcpServerUrl = "https://api.githubcopilot.com/mcp/";
+// GitHub installation tokens expire after one hour. Refresh ahead of expiry so
+// a turn never starts with credentials about to lapse mid-turn.
+const githubMcpTokenRefreshMarginMs = 5 * 60_000;
+const terminalSubmissionStatuses = new Set<ThinkSubmissionStatus>([
+  "completed",
+  "aborted",
+  "skipped",
+  "error",
+]);
 const naniteLogger = getLogger(LOGGING.NANITES_CATEGORY);
 
-function buildLifecycleContinuationSubmissionId(runId: string): string {
-  return `${runId}:${naniteLifecycleContinuationSuffix}`;
-}
-
-function resolveLifecycleResponseRunId(requestId: string): string {
-  const continuationSuffix = `:${naniteLifecycleContinuationSuffix}`;
-  return requestId.endsWith(continuationSuffix)
-    ? requestId.slice(0, -continuationSuffix.length)
-    : requestId;
-}
+const NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT = 50_000;
+const NANITE_NON_REPOSITORY_DIRECTORIES = new Set([
+  "bin",
+  "dev",
+  "etc",
+  "lib",
+  "proc",
+  "root",
+  "sbin",
+  "sys",
+  "tmp",
+  "usr",
+  "var",
+]);
 
 const agentFeedbackSchema: z.ZodType<NaniteAgentFeedback> = z.object({
   severity: z.enum(["info", "warning", "error"]),
@@ -266,17 +270,30 @@ const agentFeedbackSchema: z.ZodType<NaniteAgentFeedback> = z.object({
   suggestions: z.array(z.string().min(1)).optional(),
 });
 
-type LastStepDiagnostic = {
-  runId: string | null;
-  stepNumber: number;
-  finishReason: string;
-  rawFinishReason: string | null;
-  toolCallCount: number;
-  toolResultCount: number;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  totalTokens: number | null;
-};
+const aiGatewayLogDetailSchema = z
+  .object({
+    id: z.string().optional(),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    tokens_in: z.number().finite().optional(),
+    tokens_out: z.number().finite().optional(),
+    cost: z.number().finite().optional(),
+    cached: z.boolean().optional(),
+    duration: z.number().finite().optional(),
+    success: z.boolean().optional(),
+    status_code: z.number().int().optional(),
+  })
+  .passthrough();
+type AiGatewayLogDetail = z.output<typeof aiGatewayLogDetailSchema>;
+const metadataRecordSchema = z.record(z.string(), z.unknown());
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
 
 function isTerminalSubmissionStatus(
   status: ThinkSubmissionStatus,
@@ -284,12 +301,42 @@ function isTerminalSubmissionStatus(
   return terminalSubmissionStatuses.has(status);
 }
 
-function nowIso(): string {
-  return new Date().toISOString();
+function isLifecycleTerminalStatus(status: NaniteRunStatus): boolean {
+  return (
+    status === "complete" || status === "no_change" || status === "fail" || status === "canceled"
+  );
 }
 
-function clampSubmissionDeleteLimit(limit: number | undefined): number {
-  return Math.min(Math.max(limit ?? 100, 1), 500);
+function parseManagerInstallationId(managerName: string): number | null {
+  const installationId = managerName.startsWith("installation:")
+    ? Number(managerName.slice("installation:".length))
+    : Number.NaN;
+  return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
+}
+
+function createUserMessage(text: string): UIMessage {
+  return {
+    id: crypto.randomUUID(),
+    role: "user",
+    parts: [{ type: "text", text }],
+  };
+}
+
+function buildLifecycleContinuationSubmissionId(runId: string): string {
+  return `${runId}:${naniteLifecycleContinuationSuffix}`;
+}
+
+function getActivityStateAfterTool(toolName: string): NaniteRuntimeActivityState {
+  switch (toolName) {
+    case "complete":
+    case "no_change":
+    case "fail":
+      return "idle";
+    case "ask_human":
+      return "waiting_for_human";
+    default:
+      return "thinking";
+  }
 }
 
 function getUsageNumber(
@@ -298,11 +345,6 @@ function getUsageNumber(
 ): number | null {
   const value = usage[field];
   return typeof value === "number" ? value : null;
-}
-
-function gatewayCostUsdMicros(log: AiGatewayLogDetail | null): number | undefined {
-  const costUsd = log?.cost;
-  return costUsd === undefined ? undefined : Math.round(costUsd * 1_000_000);
 }
 
 function usageWithGatewayTokens(
@@ -344,27 +386,60 @@ function providerMetadataWithGatewayLog(
   };
 }
 
-function createRunLogContext(agent: SigveloNaniteAgent, runId = agent.state.activeRunId) {
+function gatewayCostUsdMicros(log: AiGatewayLogDetail | null): number | undefined {
+  const costUsd = log?.cost;
+  return costUsd === undefined ? undefined : Math.round(costUsd * 1_000_000);
+}
+
+function getRunRepository(run: NaniteRunRecord): {
+  githubRepositoryId: number | null;
+  repository: string | null;
+} {
+  if (run.trigger.type !== "github") {
+    return { githubRepositoryId: null, repository: null };
+  }
+
   return {
-    [OTEL_ATTRS.AGENT_CLASS]: "SigveloNaniteAgent",
-    [OTEL_ATTRS.AGENT_NAME]: agent.name,
-    [OTEL_ATTRS.NANITE_ID]: agent.state.naniteId ?? undefined,
-    [OTEL_ATTRS.NANITE_MANAGER_NAME]: agent.state.managerName ?? undefined,
-    [OTEL_ATTRS.NANITE_RUN_ID]: runId ?? undefined,
+    githubRepositoryId: getGitHubWebhookRepositoryId(run.trigger.event),
+    repository: getGitHubWebhookRepositoryFullName(run.trigger.event),
   };
 }
 
-function getActivityStateAfterTool(toolName: string): NaniteRuntimeActivityState {
-  switch (toolName) {
-    case "complete":
-    case "no_change":
-    case "fail":
-      return "idle";
-    case "ask_human":
-      return "waiting_for_human";
-    default:
-      return "thinking";
+function getTextFromModelMessage(message: TurnContext["messages"][number]): string {
+  const content = message.content;
+  if (typeof content === "string") {
+    return content;
   }
+
+  if (Array.isArray(content)) {
+    return content
+      .flatMap((part) => ("text" in part && typeof part.text === "string" ? [part.text] : []))
+      .join("");
+  }
+
+  return "";
+}
+
+/**
+ * Submissions can queue, so the turn currently running is not necessarily the
+ * most recently accepted run. The run prompt's first line is the durable
+ * marker that maps a turn back to its run.
+ */
+function getRunIdFromTurn(ctx: TurnContext): string | null {
+  for (const message of [...ctx.messages].reverse()) {
+    if (message.role !== "user") {
+      continue;
+    }
+
+    const match = getTextFromModelMessage(message).match(
+      /^Start Nanite work attempt (?<runId>[0-9a-f-]{36})\./m,
+    );
+    if (match?.groups?.runId) {
+      return match.groups.runId;
+    }
+  }
+
+  return null;
 }
 
 function textFromMessage(message: UIMessage): string {
@@ -408,7 +483,7 @@ function summarizeDebugPart(part: unknown, maxLength: number): unknown {
   };
 }
 
-export function inspectTranscript(
+function inspectTranscript(
   messages: UIMessage[],
   input: NaniteTranscriptInspectInput = {},
 ): unknown[] {
@@ -420,10 +495,7 @@ export function inspectTranscript(
     if (roles && !roles.has(message.role)) {
       return false;
     }
-    if (!query) {
-      return true;
-    }
-    return textFromMessage(message).toLowerCase().includes(query);
+    return !query || textFromMessage(message).toLowerCase().includes(query);
   });
 
   return filtered.slice(-limit).map((message) => {
@@ -451,59 +523,18 @@ function workspaceRootPath(path: string | undefined): string {
   return path?.trim() || "/";
 }
 
-const NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT = 50_000;
-
-const NANITE_NON_REPOSITORY_DIRECTORIES = new Set([
-  "bin",
-  "dev",
-  "etc",
-  "lib",
-  "proc",
-  "root",
-  "sbin",
-  "sys",
-  "tmp",
-  "usr",
-  "var",
-]);
-
-function createInitialNaniteAgentState(): NaniteAgentState {
-  return {
-    naniteId: null,
-    managerName: null,
-    activeRunId: null,
-    activeRunModel: null,
-    manifest: null,
-    trigger: null,
-    interruptedSubmissionRetriesByRun: {},
-    lifecycleWatchdog: null,
-    summary: null,
-    outputUrl: null,
-    updatedAt: null,
-  };
-}
-
-function setStateWithoutProtocolBroadcast(
-  agent: SigveloNaniteAgent,
-  state: NaniteAgentState,
-): void {
-  const broadcastControl = agent as unknown as { _suppressProtocolBroadcasts?: boolean };
-  const previous = broadcastControl._suppressProtocolBroadcasts;
-  broadcastControl._suppressProtocolBroadcasts = true;
-  try {
-    agent.setState(state);
-  } finally {
-    broadcastControl._suppressProtocolBroadcasts = previous;
+function resolveCloudflareScheduleWhen(when: NaniteScheduleWhen): Date | string | number {
+  if (typeof when === "number") {
+    return when;
   }
+
+  const date = new Date(when);
+  return Number.isNaN(date.getTime()) ? when : date;
 }
 
-function createUserMessage(text: string): UIMessage {
-  return {
-    id: crypto.randomUUID(),
-    role: "user",
-    parts: [{ type: "text", text }],
-  };
-}
+// ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
 
 function formatTrigger(trigger: NaniteTriggerEvent): string {
   return JSON.stringify(trigger, null, 2);
@@ -520,44 +551,40 @@ function formatGitHubAppPermissions(permissions: GitHubAppPermissions | undefine
     : "- none declared";
 }
 
-function buildNaniteManifestTaskContext(manifest: NaniteManifest | null): string {
-  if (!manifest) {
-    return "No Nanite manifest has been attached yet.";
-  }
-
-  return [
-    `Nanite id: ${manifest.id}`,
-    `Name: ${manifest.name}`,
-    `Description: ${manifest.description}`,
-    "",
-    "Repository scope from permissions.github.repositories:",
-    formatPromptList(manifest.permissions.github?.repositories ?? []),
-    "",
-    "GitHub app permissions from permissions.github.appPermissions:",
-    formatGitHubAppPermissions(manifest.permissions.github?.appPermissions),
-    "",
-    "Event source from manifest.eventSource:",
-    JSON.stringify(manifest.eventSource, null, 2),
-    "",
-    "Generated trigger source from manifest.triggerSource:",
-    manifest.triggerSource?.trim() || "none declared",
-    "",
-    "Full Nanite manifest JSON:",
-    JSON.stringify(manifest, null, 2),
-    "",
-    "Use this manifest as the authority for scope, trigger behavior, and permission grants.",
-    "Operate only inside the declared repository and permission scope. If the task needs another repository, permission, or event source, use ask_human or fail with the missing config.",
-  ].join("\n");
-}
-
-export function buildNaniteTaskContext(input: {
+function buildNaniteTaskContext(input: {
   manifest: NaniteManifest | null;
   trigger: NaniteTriggerEvent | null;
 }): string {
+  const manifestContext = input.manifest
+    ? [
+        `Nanite id: ${input.manifest.id}`,
+        `Name: ${input.manifest.name}`,
+        `Description: ${input.manifest.description}`,
+        "",
+        "Repository scope from permissions.github.repositories:",
+        formatPromptList(input.manifest.permissions.github?.repositories ?? []),
+        "",
+        "GitHub app permissions from permissions.github.appPermissions:",
+        formatGitHubAppPermissions(input.manifest.permissions.github?.appPermissions),
+        "",
+        "Event source from manifest.eventSource:",
+        JSON.stringify(input.manifest.eventSource, null, 2),
+        "",
+        "Generated trigger source from manifest.triggerSource:",
+        input.manifest.triggerSource?.trim() || "none declared",
+        "",
+        "Full Nanite manifest JSON:",
+        JSON.stringify(input.manifest, null, 2),
+        "",
+        "Use this manifest as the authority for scope, trigger behavior, and permission grants.",
+        "Operate only inside the declared repository and permission scope. If the task needs another repository, permission, or event source, use ask_human or fail with the missing config.",
+      ].join("\n")
+    : "No Nanite manifest has been attached yet.";
+
   return [
     "Nanite task context",
     "",
-    buildNaniteManifestTaskContext(input.manifest),
+    manifestContext,
     "",
     "Active run trigger payload:",
     input.trigger ? formatTrigger(input.trigger) : "No active run trigger has been attached yet.",
@@ -579,7 +606,7 @@ const naniteGitSafetyInstructions = [
   "Never force push. If a branch history rewrite appears necessary, stop and use ask_human with the exact branch, remote head, local head, and why a normal fetch/rebase/push path is not enough.",
 ] as const;
 
-export function buildRunPrompt(input: StartNaniteAgentInput): string {
+function buildRunPrompt(input: StartNaniteAgentInput): string {
   const manualMessage =
     input.run.trigger.type === "manual" && input.run.trigger.message
       ? `\n\nManual operator message:\n${input.run.trigger.message}`
@@ -623,7 +650,7 @@ export function buildRunPrompt(input: StartNaniteAgentInput): string {
   ].join("\n");
 }
 
-export function buildNaniteSystemPrompt(): string {
+function buildNaniteSystemPrompt(): string {
   return [
     "You are a SigVelo Nanite: a durable maintenance agent for one narrow responsibility inside a GitHub installation.",
     "Your transcript, workspace, and memory are durable. Keep durable memory compact and evidence-backed.",
@@ -639,63 +666,6 @@ export function buildNaniteSystemPrompt(): string {
   ].join("\n");
 }
 
-function getTextFromModelMessage(message: TurnContext["messages"][number]): string {
-  const content = message.content;
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (Array.isArray(content)) {
-    return content
-      .flatMap((part) => ("text" in part && typeof part.text === "string" ? [part.text] : []))
-      .join("");
-  }
-
-  return "";
-}
-
-function getRunIdFromTurn(ctx: TurnContext): string | null {
-  for (const message of [...ctx.messages].reverse()) {
-    if (message.role !== "user") {
-      continue;
-    }
-
-    const match = getTextFromModelMessage(message).match(
-      /^Start Nanite work attempt (?<runId>[0-9a-f-]{36})\./m,
-    );
-    if (match?.groups?.runId) {
-      return match.groups.runId;
-    }
-  }
-
-  return null;
-}
-
-function isNaniteLifecycleToolName(
-  toolName: string,
-): toolName is (typeof naniteLifecycleTools)[number] {
-  return (naniteLifecycleTools as readonly string[]).includes(toolName);
-}
-
-function getToolNameFromMessagePart(part: UIMessage["parts"][number]): string | null {
-  if ("toolName" in part && typeof part.toolName === "string") {
-    return part.toolName;
-  }
-
-  if ("type" in part && typeof part.type === "string" && part.type.startsWith("tool-")) {
-    return part.type.slice("tool-".length);
-  }
-
-  return null;
-}
-
-export function messageHasLifecycleToolCall(message: UIMessage): boolean {
-  return message.parts.some((part) => {
-    const toolName = getToolNameFromMessagePart(part);
-    return toolName !== null && isNaniteLifecycleToolName(toolName);
-  });
-}
-
 function buildLifecycleContinuationPrompt(): string {
   return [
     "You stopped without reporting the Nanite run outcome.",
@@ -704,53 +674,42 @@ function buildLifecycleContinuationPrompt(): string {
   ].join("\n");
 }
 
-function getParentManagerName(agent: SigveloNaniteAgent): string {
-  const managerName = agent.state.managerName ?? agent.parentPath.at(-1)?.name;
-  if (!managerName) {
-    throw new AppError("naniteAgentManagerRequired");
-  }
+// ---------------------------------------------------------------------------
+// Agent
+// ---------------------------------------------------------------------------
 
-  return managerName;
-}
+type ScheduledTriggerPayload = {
+  eventSource: NaniteScheduledEventSourceSpec;
+};
 
-function parseManagerInstallationId(managerName: string) {
-  const installationId = managerName.startsWith("installation:")
-    ? Number(managerName.slice("installation:".length))
-    : Number.NaN;
-  return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
-}
+type LifecycleWatchdogPayload = {
+  runId: string;
+};
 
-function getRunRepository(input: NaniteRunRecord): {
-  githubRepositoryId: number | null;
-  repository: string | null;
-} {
-  if (input.trigger.type !== "github") {
-    return {
-      githubRepositoryId: null,
-      repository: null,
-    };
-  }
+type LastStepDiagnostic = {
+  runId: string | null;
+  stepNumber: number;
+  finishReason: string;
+  rawFinishReason: string | null;
+  toolCallCount: number;
+  toolResultCount: number;
+};
 
-  return {
-    githubRepositoryId: getGitHubWebhookRepositoryId(input.trigger.event),
-    repository: getGitHubWebhookRepositoryFullName(input.trigger.event),
-  };
-}
-
-function isLifecycleTerminalStatus(status: NaniteRunRecord["status"]): boolean {
-  return (
-    status === "complete" || status === "no_change" || status === "fail" || status === "canceled"
-  );
-}
-
+/**
+ * The methods this agent calls on its parent manager. The concrete DO stub
+ * type expands the manager's full RPC graph and trips TS2589, so the cast is
+ * confined to `parentManager()`.
+ */
 type ParentManagerRpc = {
   getSnapshot: SigveloNaniteManager["getSnapshot"];
-  startRun: SigveloNaniteManager["startRun"];
+  startRun: (input: StartNaniteRunInput) => Promise<NaniteRunRecord>;
   dispatchRun: SigveloNaniteManager["dispatchRun"];
-  recordUnreportedRunCompletion: SigveloNaniteManager["recordUnreportedRunCompletion"];
-  recordRuntimeActivity: SigveloNaniteManager["recordRuntimeActivity"];
-  completeRun: SigveloNaniteManager["completeRun"];
-  askHuman: SigveloNaniteManager["askHuman"];
+  completeRun: (input: CompleteNaniteRunInput) => Promise<NaniteRunRecord>;
+  askHuman: (input: AskHumanInput) => Promise<NaniteRunRecord>;
+  recordUnreportedRunCompletion: (
+    input: RecordUnreportedRunCompletionInput,
+  ) => Promise<NaniteRunRecord>;
+  recordRuntimeActivity: (input: RecordNaniteRuntimeActivityInput) => Promise<unknown>;
 };
 
 export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
@@ -759,159 +718,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   override maxSteps = naniteMaxSteps;
   override waitForMcpConnections = { timeout: 10_000 };
   override chatRecovery = { noProgressTimeoutMs: 10 * 60 * 1000 };
-
-  private parentManager(): ParentManagerRpc {
-    return this.env.SigveloNaniteManager.getByName(
-      getParentManagerName(this),
-    ) as unknown as ParentManagerRpc;
-  }
-
-  private async readActiveRun(runId: string | null): Promise<NaniteRunRecord | null> {
-    if (!runId) {
-      return null;
-    }
-    return (await this.parentManager().getSnapshot()).runs[runId] ?? null;
-  }
-
-  private async buildTurnGatewayMetadata(
-    runId: string | null,
-  ): Promise<Record<string, string> | undefined> {
-    try {
-      const managerName = this.state.managerName ?? getParentManagerName(this);
-      const githubInstallationId = parseManagerInstallationId(managerName);
-      const naniteId = this.state.naniteId;
-      const run = await this.readActiveRun(runId);
-
-      if (!githubInstallationId || !naniteId || !run) {
-        return undefined;
-      }
-
-      const db = createDbClient(this.env.DB);
-      const billing = await resolveNaniteBillingAttribution(db, {
-        githubInstallationId,
-        naniteId,
-        actor: naniteTriggerActor(run.trigger),
-      });
-      const repository = getRunRepository(run).repository;
-
-      return buildNaniteAiGatewayMetadata({
-        githubInstallationId,
-        naniteId,
-        runKey: run.runId,
-        billingGithubUserId: billing.githubUserId,
-        repository,
-      });
-    } catch (error) {
-      naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
-        ...createRunLogContext(this),
-        operation: "ai_gateway.metadata",
-        error: describeError(error),
-      });
-      return undefined;
-    }
-  }
-
-  private async getTurnModel(runId: string | null): Promise<LanguageModel> {
-    const run = await this.readActiveRun(runId);
-    const runModel = run?.model ?? this.state.activeRunModel;
-    if (!runModel) {
-      throw new AppError("nanitesModelSelectionInvalid", {
-        details: {
-          reason: "Nanite turns require a resolved run model.",
-          modelId: null,
-        },
-      });
-    }
-
-    return createNaniteRunLanguageModel({
-      env: this.env,
-      sessionAffinity: runId ?? this.name,
-      gatewayMetadata: await this.buildTurnGatewayMetadata(runId),
-      modelId: runModel.effectiveModelId,
-      gatewayId: runModel.effectiveGatewayId,
-    });
-  }
-
-  private async readAiGatewayLogDetail(
-    logId: string | undefined,
-    gatewayId: string | null,
-  ): Promise<AiGatewayLogDetail | null> {
-    if (!gatewayId || !logId) {
-      return null;
-    }
-
-    try {
-      const result = aiGatewayLogDetailSchema.safeParse(
-        await this.env.AI.gateway(gatewayId).getLog(logId),
-      );
-      return result.success ? result.data : null;
-    } catch (error) {
-      naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
-        ...createRunLogContext(this),
-        operation: "ai_gateway.get_log",
-        aiGatewayLogId: logId,
-        error: describeError(error),
-      });
-      return null;
-    }
-  }
-
-  private async recordStepUsage(ctx: StepContext): Promise<void> {
-    const runId = this.state.activeRunId;
-    const managerName = this.state.managerName ?? getParentManagerName(this);
-    const githubInstallationId = parseManagerInstallationId(managerName);
-    const run = await this.readActiveRun(runId);
-
-    if (!githubInstallationId || !run) {
-      return;
-    }
-
-    const repository = getRunRepository(run);
-    const requestId = `${run.runId}:step:${ctx.stepNumber}:${ctx.response.id}`;
-    const aiGatewayLogId = this.env.AI.aiGatewayLogId || undefined;
-    const aiGatewayLog = await this.readAiGatewayLogDetail(
-      aiGatewayLogId,
-      run.model.effectiveGatewayId,
-    );
-    const actor = naniteTriggerActor(run.trigger);
-    const db = createDbClient(this.env.DB);
-    const billing = await resolveNaniteBillingAttribution(db, {
-      githubInstallationId,
-      naniteId: run.naniteId,
-      actor,
-    });
-
-    await recordAiUsageFact(db, {
-      githubInstallationId,
-      githubRepositoryId: repository.githubRepositoryId,
-      naniteId: run.naniteId,
-      runKey: run.runId,
-      requestId,
-      provider: aiGatewayLog?.provider ?? null,
-      model: aiGatewayLog?.model ?? run.model.effectiveModelId,
-      sessionAffinity: run.runId,
-      isContinuation: this.currentTurnContinuation,
-      stepCount: ctx.stepNumber + 1,
-      finishReason: ctx.finishReason,
-      usage: usageWithGatewayTokens(ctx.usage, aiGatewayLog),
-      providerMetadata: providerMetadataWithGatewayLog(ctx.providerMetadata, aiGatewayLog),
-      providerBilledTotalCostUsdMicros: gatewayCostUsdMicros(aiGatewayLog),
-      aiGatewayId: run.model.effectiveGatewayId,
-      aiGatewayLogId: aiGatewayLog?.id ?? aiGatewayLogId,
-      aiGatewayEventId: requestId,
-      actor,
-      billing,
-      startedAt: ctx.response.timestamp,
-      completedAt: new Date(),
-    });
-  }
-
   override classifyChatError = defaultContextOverflowClassifier;
   override contextOverflow = { reactive: true, maxRetries: 2 };
-  private lastStepDiagnostic: LastStepDiagnostic | null = null;
-  private currentTurnContinuation = false;
-  private completedResponsesWithoutLifecycle = new Set<string>();
-
   override workspace = new Workspace({
     sql: this.ctx.storage.sql,
     r2: this.env.WORKSPACE_FILES,
@@ -919,11 +727,33 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     name: () => this.name,
   });
 
+  private lastStepDiagnostic: LastStepDiagnostic | null = null;
+  private currentTurnContinuation = false;
+  // In-memory only: lost on hibernation, which forces a token refresh on the
+  // first turn after a wake. Never persisted alongside the token itself.
+  private githubMcpTokenExpiresAtMs: number | null = null;
+
+  override async onStart(): Promise<void> {
+    if (this.state.version !== NANITE_AGENT_STATE_VERSION) {
+      this.setState(createInitialNaniteAgentState());
+    }
+
+    // The GitHub MCP server authenticates with a static one-hour installation
+    // token that the agents SDK persists (and replays) in transport headers
+    // across hibernation. A restored server is therefore stale by definition:
+    // drop it here and let the next run/turn reconnect with a fresh token.
+    await this.removeGitHubMcpServers();
+  }
+
   override getModel(): LanguageModel {
     return createSigveloAgentLanguageModel({
       env: this.env,
       sessionAffinity: this.state.activeRunId ?? this.name,
     });
+  }
+
+  override getSystemPrompt(): string {
+    return buildNaniteSystemPrompt();
   }
 
   override configureSession(session: Session): Session {
@@ -952,10 +782,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           "Durable Nanite memory for stable facts, preferences, repo conventions, and lessons that should survive across Runs. Keep it compact and evidence-backed.",
         maxTokens: 2000,
       });
-  }
-
-  override getSystemPrompt(): string {
-    return buildNaniteSystemPrompt();
   }
 
   override getTools(): ToolSet {
@@ -1001,21 +827,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           outputUrl: z.string().url().nullable().optional(),
           agentFeedback: agentFeedbackSchema.optional(),
         }),
-        execute: async ({ summary, outputUrl, agentFeedback }) => {
-          const run = await this.finishRun({
-            runId: this.getActiveRunId(),
+        execute: async ({ summary, outputUrl, agentFeedback }) =>
+          this.finishRun({
             status: "complete",
             summary,
             outputUrl: outputUrl ?? null,
             agentFeedback: agentFeedback ?? null,
-          });
-          return {
-            accepted: true,
-            status: run.status,
-            summary: run.summary,
-            outputUrl: run.outputUrl,
-          };
-        },
+          }),
       }),
       no_change: tool({
         description:
@@ -1024,21 +842,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           summary: z.string().min(1),
           agentFeedback: agentFeedbackSchema.optional(),
         }),
-        execute: async ({ summary, agentFeedback }) => {
-          const run = await this.finishRun({
-            runId: this.getActiveRunId(),
+        execute: async ({ summary, agentFeedback }) =>
+          this.finishRun({
             status: "no_change",
             summary,
             outputUrl: null,
             agentFeedback: agentFeedback ?? null,
-          });
-          return {
-            accepted: true,
-            status: run.status,
-            summary: run.summary,
-            outputUrl: run.outputUrl,
-          };
-        },
+          }),
       }),
       fail: tool({
         description:
@@ -1047,21 +857,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           summary: z.string().min(1),
           agentFeedback: agentFeedbackSchema.optional(),
         }),
-        execute: async ({ summary, agentFeedback }) => {
-          const run = await this.finishRun({
-            runId: this.getActiveRunId(),
+        execute: async ({ summary, agentFeedback }) =>
+          this.finishRun({
             status: "fail",
             summary,
             outputUrl: null,
             agentFeedback: agentFeedback ?? null,
-          });
-          return {
-            accepted: true,
-            status: run.status,
-            summary: run.summary,
-            outputUrl: run.outputUrl,
-          };
-        },
+          }),
       }),
       ask_human: tool({
         description:
@@ -1071,11 +873,12 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           requestedScopes: z.array(z.string().min(1)).default([]),
         }),
         execute: async ({ summary, requestedScopes }) => {
-          const run = await this.askHuman({
+          const run = await this.parentManager().askHuman({
             runId: this.getActiveRunId(),
             summary,
             requestedScopes,
           });
+          await this.clearWatchdog();
           return {
             accepted: true,
             status: run.status,
@@ -1104,13 +907,18 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     };
   }
 
+  // -------------------------------------------------------------------------
+  // Turn lifecycle
+  // -------------------------------------------------------------------------
+
   override async beforeTurn(ctx: TurnContext): Promise<TurnConfig> {
     this.currentTurnContinuation = ctx.continuation;
     await this.refreshManifestFromManager();
-    const runId = getRunIdFromTurn(ctx);
+
+    const runId = getRunIdFromTurn(ctx) ?? this.state.activeRunId;
     if (runId && runId !== this.state.activeRunId) {
-      const run = await this.readActiveRun(runId);
-      setStateWithoutProtocolBroadcast(this, {
+      const run = await this.readRun(runId);
+      this.setState({
         ...this.state,
         activeRunId: runId,
         activeRunModel: run?.model ?? this.state.activeRunModel,
@@ -1118,12 +926,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       });
     }
 
-    if (runId) {
-      await this.refreshLifecycleWatchdog(runId);
-    }
+    this.touchActivity();
+    await this.ensureFreshGitHubMcpForTurn();
     await this.reportRuntimeActivity("thinking");
-    naniteLogger.info(LOG_EVENTS.NANITE_TURN_STARTED, {
-      ...createRunLogContext(this),
+    naniteLogger.debug(LOG_EVENTS.NANITE_TURN_STARTED, {
+      ...this.logContext(),
       continuation: ctx.continuation,
       messageCount: ctx.messages.length,
       toolCount: Object.keys(ctx.tools).length,
@@ -1132,7 +939,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return {
       maxSteps: this.maxSteps,
-      model: await this.getTurnModel(runId ?? this.state.activeRunId),
+      model: await this.getTurnModel(runId),
       sendReasoning: true,
       tools: this.wrapTurnToolsForOutputBudget(ctx.tools),
       stopWhen: naniteLifecycleTools.map((toolName) => hasToolCall(toolName)),
@@ -1140,73 +947,62 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   override async beforeToolCall(ctx: ToolCallContext): Promise<void> {
-    await this.refreshLifecycleWatchdog();
-    await this.reportRuntimeActivity("tool_calling", {
-      toolName: ctx.toolName,
-    });
+    this.touchActivity();
+    await this.reportRuntimeActivity("tool_calling", { toolName: ctx.toolName });
   }
 
   override async afterToolCall(ctx: ToolCallResultContext): Promise<void> {
-    await this.refreshLifecycleWatchdog();
+    this.touchActivity();
     await this.reportRuntimeActivity(getActivityStateAfterTool(ctx.toolName), {
       toolName: ctx.toolName,
       error: ctx.success ? null : describeError(ctx.error),
     });
 
-    const base = {
-      ...createRunLogContext(this),
+    const logProperties = {
+      ...this.logContext(),
       [OTEL_ATTRS.NANITE_TOOL_NAME]: ctx.toolName,
       toolCallId: ctx.toolCallId,
       stepNumber: ctx.stepNumber,
       durationMs: ctx.durationMs,
       success: ctx.success,
     };
-
     if (ctx.success) {
-      naniteLogger.info(LOG_EVENTS.NANITE_TOOL_CALL_FINISHED, base);
-      return;
+      naniteLogger.debug(LOG_EVENTS.NANITE_TOOL_CALL_FINISHED, logProperties);
+    } else {
+      naniteLogger.error(LOG_EVENTS.NANITE_TOOL_CALL_FINISHED, {
+        ...logProperties,
+        error: describeError(ctx.error),
+      });
     }
-
-    naniteLogger.error(LOG_EVENTS.NANITE_TOOL_CALL_FINISHED, {
-      ...base,
-      error: describeError(ctx.error),
-    });
   }
 
   override onStepFinish(ctx: StepContext): void {
-    const diagnostic: LastStepDiagnostic = {
+    this.touchActivity();
+    this.lastStepDiagnostic = {
       runId: this.state.activeRunId,
       stepNumber: ctx.stepNumber,
       finishReason: ctx.finishReason,
       rawFinishReason: ctx.rawFinishReason ?? null,
       toolCallCount: ctx.toolCalls.length,
       toolResultCount: ctx.toolResults.length,
-      inputTokens: getUsageNumber(ctx.usage, "inputTokens"),
-      outputTokens: getUsageNumber(ctx.usage, "outputTokens"),
-      totalTokens: getUsageNumber(ctx.usage, "totalTokens"),
     };
 
-    this.lastStepDiagnostic = diagnostic;
-    if (diagnostic.runId) {
-      this.ctx.waitUntil(this.refreshLifecycleWatchdog(diagnostic.runId));
-    }
-
-    naniteLogger.info(LOG_EVENTS.NANITE_STEP_FINISHED, {
-      ...createRunLogContext(this),
-      stepNumber: diagnostic.stepNumber,
-      finishReason: diagnostic.finishReason,
-      rawFinishReason: diagnostic.rawFinishReason ?? undefined,
-      toolCallCount: diagnostic.toolCallCount,
-      toolResultCount: diagnostic.toolResultCount,
-      inputTokens: diagnostic.inputTokens ?? undefined,
-      outputTokens: diagnostic.outputTokens ?? undefined,
-      totalTokens: diagnostic.totalTokens ?? undefined,
+    naniteLogger.debug(LOG_EVENTS.NANITE_STEP_FINISHED, {
+      ...this.logContext(),
+      stepNumber: ctx.stepNumber,
+      finishReason: ctx.finishReason,
+      rawFinishReason: ctx.rawFinishReason ?? undefined,
+      toolCallCount: ctx.toolCalls.length,
+      toolResultCount: ctx.toolResults.length,
+      inputTokens: getUsageNumber(ctx.usage, "inputTokens") ?? undefined,
+      outputTokens: getUsageNumber(ctx.usage, "outputTokens") ?? undefined,
+      totalTokens: getUsageNumber(ctx.usage, "totalTokens") ?? undefined,
       maxSteps: this.maxSteps,
     });
     this.ctx.waitUntil(
       this.recordStepUsage(ctx).catch((error: unknown) => {
         naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
-          ...createRunLogContext(this),
+          ...this.logContext(),
           operation: "ai_usage.step",
           error: describeError(error),
         });
@@ -1214,70 +1010,89 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     );
   }
 
-  override async onChatResponse(result: ChatResponseResult): Promise<void> {
-    await this.refreshLifecycleWatchdog();
-    const hasLifecycleToolCall = messageHasLifecycleToolCall(result.message);
-    if (result.status === "completed" && !hasLifecycleToolCall) {
-      this.completedResponsesWithoutLifecycle.add(result.requestId);
-    } else {
-      this.completedResponsesWithoutLifecycle.delete(result.requestId);
-    }
-
-    naniteLogger.info(LOG_EVENTS.NANITE_CHAT_RESPONSE, {
-      ...createRunLogContext(this),
-      requestId: result.requestId,
-      continuation: result.continuation,
-      status: result.status,
-      error: result.error,
-      messagePartCount: result.message.parts.length,
-      hasLifecycleToolCall,
-    });
-    await this.cancelSubmissionAfterLifecycleResponse(
-      resolveLifecycleResponseRunId(result.requestId),
-    );
-  }
-
   override onChatError(error: unknown): unknown {
-    this.ctx.waitUntil(this.refreshLifecycleWatchdog());
     this.ctx.waitUntil(this.reportRuntimeActivity("error", { error: describeError(error) }));
     naniteLogger.error(LOG_EVENTS.NANITE_CHAT_ERROR, {
-      ...createRunLogContext(this),
+      ...this.logContext(),
       error: describeError(error),
     });
-
     return error;
   }
 
-  @callable()
-  async enqueueFromManager(input: StartNaniteAgentInput): Promise<void> {
-    try {
-      await this.acceptRunFromManager(input);
-    } catch (error) {
-      throw new AppError("naniteAgentRunAcceptFailed", {
-        cause: error,
-        details: { reason: describeErrorWithStack(error) },
-        message: `${APP_ERRORS.naniteAgentRunAcceptFailed.message}: ${describeErrorWithStack(error)}`,
-      });
-    }
+  // -------------------------------------------------------------------------
+  // Run intake from the manager
+  // -------------------------------------------------------------------------
 
-    try {
-      await this.submitRunFromManager(input);
-    } catch (error) {
-      throw new AppError("naniteAgentRunSubmitFailed", {
-        cause: error,
-        details: { reason: describeErrorWithStack(error) },
-        message: `${APP_ERRORS.naniteAgentRunSubmitFailed.message}: ${describeErrorWithStack(error)}`,
+  async enqueueFromManager(input: StartNaniteAgentInput): Promise<void> {
+    const acceptedAt = nowIso();
+    this.setState({
+      version: NANITE_AGENT_STATE_VERSION,
+      naniteId: input.nanite.manifest.id,
+      managerName: input.managerName,
+      manifest: input.nanite.manifest,
+      activeRunId: input.run.runId,
+      activeRunModel: input.run.model,
+      trigger: input.run.trigger,
+      lastActivityAt: acceptedAt,
+      lifecycleContinuationAttempted: false,
+      interruptedRetryCount: 0,
+      watchdogScheduleId: this.state.watchdogScheduleId,
+      updatedAt: acceptedAt,
+    });
+    await this.attachGitHubMcpServer(input.nanite.manifest);
+    await this.armWatchdog(input.run.runId);
+    naniteLogger.debug(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
+      ...this.logContext(input.run.runId),
+      [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
+      [OTEL_ATTRS.NANITE_RUN_STATUS]: input.run.status,
+      versionId: input.run.model.manifestVersionId,
+    });
+
+    await this.submitMessages([createUserMessage(buildRunPrompt(input))], {
+      submissionId: input.run.runId,
+      idempotencyKey: input.run.triggerKey,
+      metadata: {
+        managerName: input.managerName,
+        naniteId: input.nanite.manifest.id,
+        runId: input.run.runId,
+      },
+    });
+    naniteLogger.debug(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
+      ...this.logContext(input.run.runId),
+      [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
+      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: input.run.runId,
+    });
+  }
+
+  async cancelRunFromManager(input: { runId: string; reason: string }): Promise<void> {
+    await this.cancelRunSubmissions(input.runId, input.reason);
+    if (this.state.activeRunId === input.runId) {
+      await this.clearWatchdog();
+      this.setState({
+        ...this.state,
+        activeRunId: null,
+        activeRunModel: null,
+        updatedAt: nowIso(),
       });
     }
   }
 
-  @callable()
+  // -------------------------------------------------------------------------
+  // Scheduled triggers
+  // -------------------------------------------------------------------------
+
   async syncScheduleFromManager(input: {
     managerName: string;
     nanite: ManagedNanite;
   }): Promise<void> {
-    this.syncStateFromManager(input);
-    await this.cancelScheduledTriggerRows();
+    this.syncIdentityFromManager(input);
+
+    const schedules = await this.listSchedules();
+    await Promise.all(
+      schedules
+        .filter((schedule) => schedule.callback === "handleScheduledTrigger")
+        .map((schedule) => this.cancelSchedule(schedule.id)),
+    );
 
     const eventSource = input.nanite.manifest.eventSource;
     if (
@@ -1288,18 +1103,15 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     }
 
     const payload: ScheduledTriggerPayload = { eventSource };
-    switch (eventSource.type) {
-      case "schedule":
-        await this.schedule(
-          resolveCloudflareScheduleWhen(eventSource.when),
-          "handleScheduledTrigger",
-          payload,
-          { idempotent: true },
-        );
-        return;
-      case "scheduleEvery":
-        await this.scheduleEvery(eventSource.intervalSeconds, "handleScheduledTrigger", payload);
-        return;
+    if (eventSource.type === "schedule") {
+      await this.schedule(
+        resolveCloudflareScheduleWhen(eventSource.when),
+        "handleScheduledTrigger",
+        payload,
+        { idempotent: true },
+      );
+    } else {
+      await this.scheduleEvery(eventSource.intervalSeconds, "handleScheduledTrigger", payload);
     }
   }
 
@@ -1308,27 +1120,24 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     const manifest = this.state.manifest;
     if (
       !manifest ||
-      (manifest.eventSource.type !== "schedule" && manifest.eventSource.type !== "scheduleEvery")
+      (manifest.eventSource.type !== "schedule" && manifest.eventSource.type !== "scheduleEvery") ||
+      typeof manifest.triggerSource !== "string"
     ) {
       return;
     }
 
     const scheduledAt = nowIso();
+    const manager = this.parentManager();
     const trigger: Extract<NaniteTriggerEvent, { type: "schedule" }> = {
       type: "schedule",
       eventSource: payload.eventSource,
       scheduledAt,
     };
-    const manager = this.parentManager();
-    const triggerSource = manifest.triggerSource;
-    if (typeof triggerSource !== "string") {
-      return;
-    }
 
     const triggerResult = await runGeneratedTrigger({
       loader: this.env.LOADER,
-      sourceCode: triggerSource,
-      cacheKey: `${this.state.managerName ?? getParentManagerName(this)}:${manifest.id}:schedule`,
+      sourceCode: manifest.triggerSource,
+      cacheKey: `${this.requireManagerName()}:${manifest.id}:schedule`,
       event: {
         type: "schedule.tick",
         naniteId: manifest.id,
@@ -1341,9 +1150,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         naniteId: manifest.id,
         trigger: {
           ...trigger,
-          input: {
-            triggerError: `Trigger failed before model dispatch: ${triggerResult.error}`,
-          },
+          input: { triggerError: `Trigger failed before model dispatch: ${triggerResult.error}` },
         },
       });
       await manager.recordUnreportedRunCompletion({
@@ -1361,156 +1168,324 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     const run = await manager.startRun({
       naniteId: manifest.id,
-      trigger: {
-        ...trigger,
-        input: dispatch.input,
-      },
+      trigger: { ...trigger, input: dispatch.input },
     });
     await manager.dispatchRun({ runId: run.runId });
   }
 
+  // -------------------------------------------------------------------------
+  // Lifecycle watchdog
+  // -------------------------------------------------------------------------
+
   async checkLifecycleWatchdog(payload: LifecycleWatchdogPayload): Promise<void> {
-    const watchdog = this.state.lifecycleWatchdog;
+    if (this.state.activeRunId !== payload.runId) {
+      return;
+    }
+
+    const run = await this.readRun(payload.runId);
     if (
-      !watchdog ||
-      watchdog.runId !== payload.runId ||
-      watchdog.lastActivityAt !== payload.lastActivityAt ||
-      this.state.activeRunId !== payload.runId
+      !run ||
+      run.naniteId !== this.state.naniteId ||
+      isLifecycleTerminalStatus(run.status) ||
+      run.status === "waiting_for_human"
     ) {
+      await this.clearWatchdog();
       return;
     }
 
-    const manager = this.parentManager();
-    const run = (await manager.getSnapshot()).runs[payload.runId];
-    if (!run || run.naniteId !== this.state.naniteId || isLifecycleTerminalStatus(run.status)) {
-      await this.clearLifecycleWatchdog(payload.runId);
-      return;
-    }
-    if (run.status === "waiting_for_human") {
-      await this.clearLifecycleWatchdog(payload.runId);
+    const lastActivityMs = this.state.lastActivityAt
+      ? new Date(this.state.lastActivityAt).getTime()
+      : 0;
+    if (Date.now() - lastActivityMs < naniteWatchdogIdleMs) {
+      await this.armWatchdog(payload.runId);
       return;
     }
 
-    const stable = await this.waitUntilStable({
-      timeout: naniteLifecycleWatchdogStabilityTimeoutMs,
-    });
+    const stable = await this.waitUntilStable({ timeout: naniteWatchdogStabilityTimeoutMs });
     if (!stable) {
-      await this.refreshLifecycleWatchdog(payload.runId);
+      await this.armWatchdog(payload.runId);
       return;
     }
 
-    if (!watchdog.continuationAttempted) {
+    if (!this.state.lifecycleContinuationAttempted) {
       await this.submitLifecycleContinuation(payload.runId);
+      await this.armWatchdog(payload.runId);
       return;
     }
 
-    const failedRun = await manager.recordUnreportedRunCompletion({
+    await this.parentManager().recordUnreportedRunCompletion({
       runId: payload.runId,
       status: "error",
       error:
         "Nanite lifecycle watchdog found the run stable without a lifecycle outcome after a lifecycle continuation was already attempted.",
     });
-    await this.clearLifecycleWatchdog(payload.runId);
-    setStateWithoutProtocolBroadcast(this, {
+    await this.clearWatchdog();
+    this.setState({
       ...this.state,
-      activeRunId: this.state.activeRunId === payload.runId ? null : this.state.activeRunId,
-      activeRunModel: this.state.activeRunId === payload.runId ? null : this.state.activeRunModel,
-      summary: failedRun.summary,
-      outputUrl: failedRun.outputUrl,
-      updatedAt: failedRun.updatedAt,
+      activeRunId: null,
+      activeRunModel: null,
+      updatedAt: nowIso(),
     });
   }
 
-  @callable()
-  async cancelRunFromManager(input: { runId: string; reason: string }): Promise<void> {
-    await this.cancelRunSubmissions(input.runId, input.reason);
-    if (this.state.activeRunId === input.runId) {
-      await this.clearLifecycleWatchdog(input.runId);
-      setStateWithoutProtocolBroadcast(this, {
-        ...this.state,
-        activeRunId: null,
-        activeRunModel: null,
-        updatedAt: nowIso(),
-      });
-    }
-  }
-
-  @callable()
-  async listFiles(path: string): Promise<FileInfo[]> {
-    return this.workspace.readDir(path);
-  }
-
-  @callable()
-  async readFileContent(path: string): Promise<string | null> {
-    return this.workspace.readFile(path);
-  }
-
-  @callable()
-  async getWorkspaceInfo(): Promise<NaniteWorkspaceInfo> {
-    const info = await this.workspace.getWorkspaceInfo();
-    const repositoryRoot = await this.findRepositoryRoot();
-    return this.measureWorkspaceSubtree({ ...info, repositoryRoot });
-  }
-
-  private async measureWorkspaceSubtree(info: NaniteWorkspaceInfo): Promise<NaniteWorkspaceInfo> {
-    const root = info.repositoryRoot;
-    if (!root) {
-      return info;
+  private async armWatchdog(runId: string): Promise<void> {
+    const current = this.state.watchdogScheduleId;
+    if (current) {
+      await this.cancelSchedule(current);
     }
 
-    let fileCount = 0;
-    let directoryCount = 0;
-    let totalBytes = 0;
-    let scanned = 0;
-    const directories = [root];
+    const schedule = await this.schedule(naniteWatchdogDelaySeconds, "checkLifecycleWatchdog", {
+      runId,
+    } satisfies LifecycleWatchdogPayload);
+    this.setState({
+      ...this.state,
+      watchdogScheduleId: schedule.id,
+      updatedAt: nowIso(),
+    });
+  }
 
-    while (directories.length > 0 && scanned < NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT) {
-      const directory = directories.shift() ?? root;
-      const entries = await this.workspace.readDir(directory, { limit: 1_000 });
-      for (const entry of entries) {
-        scanned += 1;
-        if (entry.type === "directory") {
-          directoryCount += 1;
-          directories.push(entry.path);
-        } else {
-          fileCount += 1;
-          totalBytes += entry.size ?? 0;
-        }
-        if (scanned >= NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT) {
-          break;
-        }
-      }
+  private async clearWatchdog(): Promise<void> {
+    const current = this.state.watchdogScheduleId;
+    if (!current) {
+      return;
     }
 
-    return {
-      fileCount,
-      directoryCount,
-      totalBytes,
-      r2FileCount: info.r2FileCount,
-      repositoryRoot: root,
+    await this.cancelSchedule(current);
+    this.setState({
+      ...this.state,
+      watchdogScheduleId: null,
+      updatedAt: nowIso(),
+    });
+  }
+
+  /** Cheap durable activity marker — read by the watchdog instead of re-arming alarms. */
+  private touchActivity(): void {
+    this.setState({
+      ...this.state,
+      lastActivityAt: nowIso(),
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Submission outcomes
+  // -------------------------------------------------------------------------
+
+  protected override async onSubmissionStatus(
+    submission: ThinkSubmissionInspection,
+  ): Promise<void> {
+    if (!isTerminalSubmissionStatus(submission.status)) {
+      return;
+    }
+
+    const runId = this.resolveSubmissionRunId(submission);
+    if (!runId) {
+      return;
+    }
+
+    const run = await this.readRun(runId);
+    if (!run || run.naniteId !== this.state.naniteId) {
+      return;
+    }
+
+    const diagnostic = this.lastStepDiagnostic;
+    const logProperties = {
+      ...this.logContext(runId),
+      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submission.submissionId,
+      status: submission.status,
+      error: submission.error,
+      lastStepNumber: diagnostic?.runId === runId ? diagnostic.stepNumber : undefined,
+      lastFinishReason: diagnostic?.runId === runId ? diagnostic.finishReason : undefined,
+      maxSteps: this.maxSteps,
     };
-  }
-
-  private async findRepositoryRoot(): Promise<string | null> {
-    const topLevel = await this.workspace.readDir("/", { limit: 1_000 });
-    for (const entry of topLevel) {
-      if (entry.type !== "directory" || NANITE_NON_REPOSITORY_DIRECTORIES.has(entry.name)) {
-        continue;
-      }
-      const children = await this.workspace.readDir(entry.path, { limit: 1_000 });
-      if (children.some((child) => child.name === ".git")) {
-        return entry.path;
-      }
+    if (submission.status === "error") {
+      naniteLogger.error(LOG_EVENTS.NANITE_SUBMISSION_STATUS, logProperties);
+    } else {
+      naniteLogger.debug(LOG_EVENTS.NANITE_SUBMISSION_STATUS, logProperties);
     }
-    return null;
+
+    if (isLifecycleTerminalStatus(run.status) || run.status === "waiting_for_human") {
+      // The run already reported through a lifecycle tool; nothing to repair.
+      if (isLifecycleTerminalStatus(run.status) && this.state.activeRunId === runId) {
+        await this.clearWatchdog();
+        this.setState({
+          ...this.state,
+          activeRunId: null,
+          activeRunModel: null,
+          updatedAt: nowIso(),
+        });
+      }
+      return;
+    }
+
+    // The submission ended but the run never reported a lifecycle outcome.
+    if (
+      submission.status === "error" &&
+      submission.error === naniteInterruptedSubmissionError &&
+      (await this.retryInterruptedSubmission(run))
+    ) {
+      return;
+    }
+
+    if (
+      submission.status === "completed" &&
+      submission.metadata?.lifecycleContinuation !== true &&
+      !this.state.lifecycleContinuationAttempted &&
+      (await this.submitLifecycleContinuation(runId))
+    ) {
+      return;
+    }
+
+    await this.parentManager().recordUnreportedRunCompletion({
+      runId,
+      status: submission.status,
+      error: this.buildNoLifecycleSummary(submission, diagnostic),
+    });
+    await this.clearWatchdog();
+    this.setState({
+      ...this.state,
+      activeRunId: this.state.activeRunId === runId ? null : this.state.activeRunId,
+      activeRunModel: this.state.activeRunId === runId ? null : this.state.activeRunModel,
+      updatedAt: nowIso(),
+    });
   }
 
-  @callable()
-  async inspectDebug(input: NaniteDebugInspectInput = {}): Promise<NaniteDebugInspectOutput> {
-    const output: NaniteDebugInspectOutput = {};
+  private resolveSubmissionRunId(submission: ThinkSubmissionInspection): string | null {
+    const metadataRunId =
+      typeof submission.metadata?.runId === "string" ? submission.metadata.runId : null;
+    if (metadataRunId) {
+      return metadataRunId;
+    }
 
+    return this.state.activeRunId === submission.submissionId ? this.state.activeRunId : null;
+  }
+
+  private buildNoLifecycleSummary(
+    submission: ThinkSubmissionInspection,
+    diagnostic: LastStepDiagnostic | null,
+  ): string {
+    return [
+      "The Think turn completed before the Nanite reported a lifecycle outcome.",
+      `Submission status: ${submission.status}.`,
+      `Lifecycle continuation attempted: ${this.state.lifecycleContinuationAttempted ? "yes" : "no"}.`,
+      submission.error ? `Submission error: ${submission.error}.` : null,
+      diagnostic
+        ? `Last step: ${diagnostic.stepNumber}; finishReason=${diagnostic.finishReason}; rawFinishReason=${diagnostic.rawFinishReason ?? "none"}; toolCallCount=${diagnostic.toolCallCount}; toolResultCount=${diagnostic.toolResultCount}.`
+        : "Last step: unavailable.",
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join(" ");
+  }
+
+  private async retryInterruptedSubmission(run: NaniteRunRecord): Promise<boolean> {
+    if (this.state.interruptedRetryCount >= naniteInterruptedSubmissionMaxRetries) {
+      return false;
+    }
+
+    const nanite = (await this.parentManager().getSnapshot()).nanites[run.naniteId];
+    if (!nanite) {
+      return false;
+    }
+
+    const retryAttempt = this.state.interruptedRetryCount + 1;
+    const managerName = this.requireManagerName();
+    this.setState({
+      ...this.state,
+      activeRunId: run.runId,
+      activeRunModel: run.model,
+      interruptedRetryCount: retryAttempt,
+      lastActivityAt: nowIso(),
+      updatedAt: nowIso(),
+    });
+
+    await this.reportRuntimeActivity("thinking");
+    await this.submitMessages(
+      [
+        createUserMessage(
+          [
+            buildRunPrompt({ managerName, nanite, run }),
+            "",
+            `Automatic retry ${retryAttempt}/${naniteInterruptedSubmissionMaxRetries}: the previous Think submission was interrupted before a lifecycle outcome.`,
+          ].join("\n"),
+        ),
+      ],
+      {
+        submissionId: `${run.runId}:retry:${retryAttempt}`,
+        idempotencyKey: `${run.triggerKey}:retry:${retryAttempt}`,
+        metadata: {
+          managerName,
+          naniteId: nanite.manifest.id,
+          runId: run.runId,
+          retryAttempt,
+        },
+      },
+    );
+    naniteLogger.warn(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
+      ...this.logContext(run.runId),
+      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: `${run.runId}:retry:${retryAttempt}`,
+      status: "retrying",
+      error: naniteInterruptedSubmissionError,
+      retryAttempt,
+      maxRetries: naniteInterruptedSubmissionMaxRetries,
+    });
+    return true;
+  }
+
+  private async submitLifecycleContinuation(runId: string): Promise<boolean> {
+    const run = await this.readRun(runId);
+    if (!run || run.naniteId !== this.state.naniteId || run.status !== "running") {
+      return false;
+    }
+
+    this.setState({
+      ...this.state,
+      lifecycleContinuationAttempted: true,
+      lastActivityAt: nowIso(),
+      updatedAt: nowIso(),
+    });
+
+    const submissionId = buildLifecycleContinuationSubmissionId(run.runId);
+    const result = await this.submitMessages(
+      [createUserMessage(buildLifecycleContinuationPrompt())],
+      {
+        submissionId,
+        idempotencyKey: `${run.triggerKey}:${naniteLifecycleContinuationSuffix}`,
+        metadata: {
+          managerName: this.requireManagerName(),
+          naniteId: run.naniteId,
+          runId: run.runId,
+          lifecycleContinuation: true,
+        },
+      },
+    );
+
+    naniteLogger.warn(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
+      ...this.logContext(runId),
+      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submissionId,
+      status: result.accepted
+        ? "lifecycle_continuation_submitted"
+        : "lifecycle_continuation_exists",
+    });
+    return true;
+  }
+
+  private async cancelRunSubmissions(runId: string, reason: string): Promise<void> {
+    await Promise.all([
+      this.cancelSubmission(runId, reason),
+      this.cancelSubmission(buildLifecycleContinuationSubmissionId(runId), reason),
+      ...Array.from({ length: naniteInterruptedSubmissionMaxRetries }, (_, index) =>
+        this.cancelSubmission(`${runId}:retry:${index + 1}`, reason),
+      ),
+    ]);
+  }
+
+  // -------------------------------------------------------------------------
+  // Debug + maintenance
+  // -------------------------------------------------------------------------
+
+  async inspectDebug(input: NaniteDebugInspectInput = {}): Promise<NaniteDebugInspectOutput> {
     await this.reconcileActiveTerminalSubmission();
 
+    const output: NaniteDebugInspectOutput = {};
     if (input.transcript !== false) {
       output.transcript = inspectTranscript(await this.getMessages(), input.transcript ?? {});
     }
@@ -1525,16 +1500,16 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return output;
   }
 
-  @callable()
   async resetDebugState(): Promise<NaniteDebugResetOutput> {
     await this.clearMessages();
     const deletedSubmissions = await this.deleteSubmissions({ limit: 500 });
-    setStateWithoutProtocolBroadcast(this, {
+    await this.clearWatchdog();
+    this.setState({
       ...this.state,
       activeRunId: null,
       activeRunModel: null,
-      interruptedSubmissionRetriesByRun: {},
-      lifecycleWatchdog: null,
+      lifecycleContinuationAttempted: false,
+      interruptedRetryCount: 0,
       updatedAt: nowIso(),
     });
 
@@ -1544,15 +1519,14 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     };
   }
 
-  @callable()
   async maintainFromManager(
     input: NaniteAgentMaintenanceInput,
   ): Promise<NaniteAgentMaintenanceOutput> {
-    this.syncStateFromManager(input);
+    this.syncIdentityFromManager(input);
     const reconciledActiveSubmission = await this.reconcileActiveTerminalSubmission();
     const deletedSubmissions = await this.deleteSubmissions({
       completedBefore: parseOptionalAppIsoDate(input.completedBeforeIso, "completedBeforeIso"),
-      limit: clampSubmissionDeleteLimit(input.submissionDeleteLimit),
+      limit: Math.min(Math.max(input.submissionDeleteLimit ?? 100, 1), 500),
     });
 
     return {
@@ -1560,6 +1534,38 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       reconciledActiveSubmission,
       deletedSubmissions,
     };
+  }
+
+  private async reconcileActiveTerminalSubmission(): Promise<boolean> {
+    const activeRunId = this.state.activeRunId;
+    if (!activeRunId) {
+      return false;
+    }
+
+    const submissions = await this.listSubmissions({
+      limit: 25,
+      status: [...terminalSubmissionStatuses],
+    });
+    const submission = submissions.find(
+      (candidate) => this.resolveSubmissionRunId(candidate) === activeRunId,
+    );
+    if (!submission) {
+      return false;
+    }
+
+    await this.onSubmissionStatus(submission);
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Workspace
+  // -------------------------------------------------------------------------
+
+  @callable()
+  async getWorkspaceInfo(): Promise<NaniteWorkspaceInfo> {
+    const info = await this.workspace.getWorkspaceInfo();
+    const repositoryRoot = await this.findRepositoryRoot();
+    return this.measureWorkspaceSubtree({ ...info, repositoryRoot });
   }
 
   @callable()
@@ -1585,20 +1591,12 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       case "read": {
         const content = await this.workspace.readFile(input.path);
         const maxBytes = Math.min(Math.max(input.maxBytes ?? 100_000, 1_000), 1_000_000);
-        if (content === null || content.length <= maxBytes) {
-          return {
-            action: "read",
-            path: input.path,
-            content,
-            truncated: false,
-          };
-        }
-
+        const truncated = content !== null && content.length > maxBytes;
         return {
           action: "read",
           path: input.path,
-          content: content.slice(0, maxBytes),
-          truncated: true,
+          content: truncated ? content.slice(0, maxBytes) : content,
+          truncated,
         };
       }
       case "search":
@@ -1610,8 +1608,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     input: Extract<NaniteWorkspaceExploreInput, { action: "search" }>,
   ): Promise<Extract<NaniteWorkspaceExploreOutput, { action: "search" }>> {
     const root = workspaceRootPath(input.path);
-    const query = input.query;
-    const caseInsensitiveQuery = query.toLowerCase();
+    const caseInsensitiveQuery = input.query.toLowerCase();
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 500);
     const maxFileBytes = Math.min(Math.max(input.maxFileBytes ?? 200_000, 1_000), 1_000_000);
     const matches: Array<{ path: string; line: number; text: string }> = [];
@@ -1651,14 +1648,99 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return {
       action: "search",
       path: root,
-      query,
+      query: input.query,
       matches,
       truncated: directories.length > 0 || matches.length >= limit,
     };
   }
 
-  private syncStateFromManager(input: { managerName: string; nanite: ManagedNanite }): void {
-    setStateWithoutProtocolBroadcast(this, {
+  private async findRepositoryRoot(): Promise<string | null> {
+    const topLevel = await this.workspace.readDir("/", { limit: 1_000 });
+    for (const entry of topLevel) {
+      if (entry.type !== "directory" || NANITE_NON_REPOSITORY_DIRECTORIES.has(entry.name)) {
+        continue;
+      }
+      const children = await this.workspace.readDir(entry.path, { limit: 1_000 });
+      if (children.some((child) => child.name === ".git")) {
+        return entry.path;
+      }
+    }
+    return null;
+  }
+
+  private async measureWorkspaceSubtree(info: NaniteWorkspaceInfo): Promise<NaniteWorkspaceInfo> {
+    const root = info.repositoryRoot;
+    if (!root) {
+      return info;
+    }
+
+    let fileCount = 0;
+    let directoryCount = 0;
+    let totalBytes = 0;
+    let scanned = 0;
+    const directories = [root];
+
+    while (directories.length > 0 && scanned < NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT) {
+      const directory = directories.shift() ?? root;
+      for (const entry of await this.workspace.readDir(directory, { limit: 1_000 })) {
+        scanned += 1;
+        if (entry.type === "directory") {
+          directoryCount += 1;
+          directories.push(entry.path);
+        } else {
+          fileCount += 1;
+          totalBytes += entry.size ?? 0;
+        }
+        if (scanned >= NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT) {
+          break;
+        }
+      }
+    }
+
+    return {
+      fileCount,
+      directoryCount,
+      totalBytes,
+      r2FileCount: info.r2FileCount,
+      repositoryRoot: root,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Internals
+  // -------------------------------------------------------------------------
+
+  private parentManager(): ParentManagerRpc {
+    return this.env.SigveloNaniteManager.getByName(
+      this.requireManagerName(),
+    ) as unknown as ParentManagerRpc;
+  }
+
+  private requireManagerName(): string {
+    const managerName = this.state.managerName ?? this.parentPath.at(-1)?.name;
+    if (!managerName) {
+      throw new AppError("naniteAgentManagerRequired");
+    }
+    return managerName;
+  }
+
+  private getActiveRunId(): string {
+    const runId = this.state.activeRunId;
+    if (!runId) {
+      throw new AppError("naniteAgentActiveRunRequired");
+    }
+    return runId;
+  }
+
+  private async readRun(runId: string | null): Promise<NaniteRunRecord | null> {
+    if (!runId) {
+      return null;
+    }
+    return (await this.parentManager().getSnapshot()).runs[runId] ?? null;
+  }
+
+  private syncIdentityFromManager(input: { managerName: string; nanite: ManagedNanite }): void {
+    this.setState({
       ...this.state,
       naniteId: input.nanite.manifest.id,
       managerName: input.managerName,
@@ -1667,420 +1749,287 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     });
   }
 
-  private async acceptRunFromManager(input: StartNaniteAgentInput): Promise<void> {
-    const acceptedAt = nowIso();
-    setStateWithoutProtocolBroadcast(this, {
-      naniteId: input.nanite.manifest.id,
-      managerName: input.managerName,
-      activeRunId: input.run.runId,
-      activeRunModel: input.run.model,
-      manifest: input.nanite.manifest,
-      trigger: input.run.trigger,
-      interruptedSubmissionRetriesByRun: {},
-      lifecycleWatchdog: null,
-      summary: input.run.summary,
-      outputUrl: input.run.outputUrl,
-      updatedAt: acceptedAt,
-    });
-    await this.refreshLifecycleWatchdog(input.run.runId, acceptedAt);
-    await this.attachGitHubMcpServer(input.nanite.manifest);
-    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
-      [OTEL_ATTRS.AGENT_CLASS]: "SigveloNaniteAgent",
-      [OTEL_ATTRS.AGENT_NAME]: this.name,
-      [OTEL_ATTRS.NANITE_ID]: input.nanite.manifest.id,
-      [OTEL_ATTRS.NANITE_MANAGER_NAME]: input.managerName,
-      [OTEL_ATTRS.NANITE_RUN_ID]: input.run.runId,
-      [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
-      [OTEL_ATTRS.NANITE_RUN_STATUS]: input.run.status,
-      versionId: input.run.versionId,
-    });
-  }
-
-  private async submitRunFromManager(input: StartNaniteAgentInput): Promise<void> {
-    await this.submitMessages([createUserMessage(buildRunPrompt(input))], {
-      submissionId: input.run.runId,
-      idempotencyKey: input.run.triggerKey,
-      metadata: {
-        managerName: input.managerName,
-        naniteId: input.nanite.manifest.id,
-        runId: input.run.runId,
-      },
-    });
-    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
-      ...createRunLogContext(this, input.run.runId),
-      [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: input.run.runId,
-    });
-  }
-
-  protected override async onSubmissionStatus(
-    submission: ThinkSubmissionInspection,
-  ): Promise<void> {
-    if (!isTerminalSubmissionStatus(submission.status)) {
-      return;
-    }
-
-    const runId = this.resolveSubmissionRunId(submission);
-    if (!runId) {
-      return;
-    }
-
-    const manager = this.parentManager();
-    const diagnostic = this.lastStepDiagnostic;
-    const diagnosticError =
-      submission.status === "completed"
-        ? this.buildNoLifecycleSubmissionSummary({
-            submission,
-            diagnostic,
-          })
-        : submission.error;
-
-    naniteLogger.info(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-      ...createRunLogContext(this, runId),
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submission.submissionId,
-      status: submission.status,
-      error: diagnosticError,
-      lastStepNumber: diagnostic?.runId === runId ? diagnostic.stepNumber : undefined,
-      lastFinishReason: diagnostic?.runId === runId ? diagnostic.finishReason : undefined,
-      maxSteps: this.maxSteps,
-    });
-
-    if (
-      submission.status === "error" &&
-      diagnosticError === naniteInterruptedSubmissionError &&
-      (await this.retryInterruptedSubmission(runId))
-    ) {
-      return;
-    }
-
-    if (
-      submission.status === "completed" &&
-      this.completedResponsesWithoutLifecycle.has(
-        submission.requestId ?? submission.submissionId,
-      ) &&
-      !this.isLifecycleContinuationSubmission(submission) &&
-      (await this.submitLifecycleContinuation(runId))
-    ) {
-      return;
-    }
-
-    const run = await manager.recordUnreportedRunCompletion({
-      runId,
-      status: submission.status,
-      error: diagnosticError,
-    });
-    if (isLifecycleTerminalStatus(run.status)) {
-      await this.clearLifecycleWatchdog(run.runId);
-    }
-
-    setStateWithoutProtocolBroadcast(this, {
-      ...this.state,
-      activeRunId:
-        this.state.activeRunId === null || this.state.activeRunId === run.runId
-          ? isLifecycleTerminalStatus(run.status)
-            ? null
-            : run.runId
-          : this.state.activeRunId,
-      activeRunModel:
-        this.state.activeRunId === null || this.state.activeRunId === run.runId
-          ? isLifecycleTerminalStatus(run.status)
-            ? null
-            : run.model
-          : this.state.activeRunModel,
-      summary: run.summary,
-      outputUrl: run.outputUrl,
-      updatedAt: run.updatedAt,
-    });
-  }
-
-  private async retryInterruptedSubmission(runId: string): Promise<boolean> {
-    const retriesByRun = this.state.interruptedSubmissionRetriesByRun ?? {};
-    const retryCount = retriesByRun[runId] ?? 0;
-    if (retryCount >= naniteInterruptedSubmissionMaxRetries) {
-      return false;
-    }
-
-    const manager = this.parentManager();
-    const snapshot = await manager.getSnapshot();
-    const run = snapshot.runs[runId];
-    if (!run || run.naniteId !== this.state.naniteId) {
-      return false;
-    }
-
-    const nanite = snapshot.nanites[run.naniteId];
-    if (!nanite) {
-      return false;
-    }
-
-    const retryAttempt = retryCount + 1;
-    const submissionId = `${run.runId}:retry:${retryAttempt}`;
-    const managerName = this.state.managerName ?? getParentManagerName(this);
-    const retriedAt = nowIso();
-    setStateWithoutProtocolBroadcast(this, {
-      ...this.state,
-      activeRunId: runId,
-      activeRunModel: run.model,
-      interruptedSubmissionRetriesByRun: {
-        ...retriesByRun,
-        [runId]: retryAttempt,
-      },
-      updatedAt: retriedAt,
-    });
-
-    await this.reportRuntimeActivity("thinking");
-    await this.submitMessages(
-      [
-        createUserMessage(
-          [
-            buildRunPrompt({ managerName, nanite, run }),
-            "",
-            `Automatic retry ${retryAttempt}/${naniteInterruptedSubmissionMaxRetries}: the previous Think submission was interrupted before a lifecycle outcome.`,
-          ].join("\n"),
-        ),
-      ],
-      {
-        submissionId,
-        idempotencyKey: `${run.triggerKey}:retry:${retryAttempt}`,
-        metadata: {
-          managerName,
-          naniteId: nanite.manifest.id,
-          runId: run.runId,
-          retryAttempt,
-        },
-      },
-    );
-    naniteLogger.warn(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-      ...createRunLogContext(this, runId),
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submissionId,
-      status: "retrying",
-      error: naniteInterruptedSubmissionError,
-      retryAttempt,
-      maxRetries: naniteInterruptedSubmissionMaxRetries,
-    });
-    return true;
-  }
-
-  private isLifecycleContinuationSubmission(submission: ThinkSubmissionInspection): boolean {
-    return submission.metadata?.lifecycleContinuation === true;
-  }
-
-  private async cancelRunSubmissions(runId: string, reason: string): Promise<void> {
-    await Promise.all([
-      this.cancelSubmission(runId, reason),
-      this.cancelSubmission(buildLifecycleContinuationSubmissionId(runId), reason),
-    ]);
-  }
-
-  private async submitLifecycleContinuation(runId: string): Promise<boolean> {
-    const manager = this.parentManager();
-    const snapshot = await manager.getSnapshot();
-    const run = snapshot.runs[runId];
-    if (!run || run.naniteId !== this.state.naniteId || run.status !== "running") {
-      return false;
-    }
-
-    const nanite = snapshot.nanites[run.naniteId];
-    if (!nanite) {
-      return false;
-    }
-
-    const managerName = this.state.managerName ?? getParentManagerName(this);
-    const submissionId = buildLifecycleContinuationSubmissionId(run.runId);
-    const result = await this.submitMessages(
-      [createUserMessage(buildLifecycleContinuationPrompt())],
-      {
-        submissionId,
-        idempotencyKey: `${run.triggerKey}:${naniteLifecycleContinuationSuffix}`,
-        metadata: {
-          managerName,
-          naniteId: nanite.manifest.id,
-          runId: run.runId,
-          lifecycleContinuation: true,
-        },
-      },
-    );
-    await this.markLifecycleContinuationAttempted(runId);
-
-    naniteLogger.warn(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-      ...createRunLogContext(this, runId),
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submissionId,
-      status: result.accepted
-        ? "lifecycle_continuation_submitted"
-        : "lifecycle_continuation_exists",
-    });
-    return true;
-  }
-
-  private buildNoLifecycleSubmissionSummary(input: {
-    submission: ThinkSubmissionInspection;
-    diagnostic: LastStepDiagnostic | null;
-  }): string {
-    const diagnostic = input.diagnostic;
-    const lifecycleContinuationAttempted = this.isLifecycleContinuationSubmission(input.submission);
-    return [
-      "The Think turn completed before the Nanite reported a lifecycle outcome.",
-      `Submission status: ${input.submission.status}.`,
-      `Lifecycle continuation attempted: ${lifecycleContinuationAttempted ? "yes" : "no"}.`,
-      input.submission.error ? `Submission error: ${input.submission.error}.` : null,
-      diagnostic
-        ? `Last step: ${diagnostic.stepNumber}; finishReason=${diagnostic.finishReason}; rawFinishReason=${diagnostic.rawFinishReason ?? "none"}; toolCallCount=${diagnostic.toolCallCount}; toolResultCount=${diagnostic.toolResultCount}.`
-        : "Last step: unavailable.",
-    ]
-      .filter((line): line is string => Boolean(line))
-      .join(" ");
-  }
-
   private async refreshManifestFromManager(): Promise<void> {
-    const manager = this.parentManager();
-    const snapshot = await manager.getSnapshot();
+    const snapshot = await this.parentManager().getSnapshot();
     const manifest = snapshot.nanites[this.state.naniteId ?? this.name]?.manifest ?? null;
     if (!manifest || JSON.stringify(manifest) === JSON.stringify(this.state.manifest)) {
       return;
     }
 
-    setStateWithoutProtocolBroadcast(this, {
+    this.setState({
       ...this.state,
       naniteId: manifest.id,
-      managerName: getParentManagerName(this),
+      managerName: this.requireManagerName(),
       manifest,
       updatedAt: nowIso(),
     });
     await this.attachGitHubMcpServer(manifest);
   }
 
-  private async cancelScheduledTriggerRows(): Promise<void> {
-    const schedules = await this.listSchedules();
-    await Promise.all(
-      schedules
-        .filter((schedule) => schedule.callback === "handleScheduledTrigger")
-        .map((schedule) => this.cancelSchedule(schedule.id)),
-    );
-  }
-
-  private async refreshLifecycleWatchdog(
-    runId = this.state.activeRunId,
-    lastActivityAt = nowIso(),
-  ): Promise<void> {
-    if (!runId) {
-      return;
-    }
-
-    const current = this.state.lifecycleWatchdog;
-    if (current?.runId === runId && current.scheduleId) {
-      await this.cancelSchedule(current.scheduleId);
-    }
-
-    const schedule = await this.schedule(
-      naniteLifecycleWatchdogDelaySeconds,
-      naniteLifecycleWatchdogCallback,
-      { runId, lastActivityAt } satisfies LifecycleWatchdogPayload,
-    );
-
-    setStateWithoutProtocolBroadcast(this, {
-      ...this.state,
-      lifecycleWatchdog: {
-        runId,
-        lastActivityAt,
-        continuationAttempted: current?.runId === runId ? current.continuationAttempted : false,
-        scheduleId: schedule.id,
-      },
-      updatedAt: lastActivityAt,
+  private async finishRun(input: {
+    status: CompleteNaniteRunInput["status"];
+    summary: string;
+    outputUrl: string | null;
+    agentFeedback: NaniteAgentFeedback | null;
+  }): Promise<{
+    accepted: true;
+    status: NaniteRunStatus;
+    summary: string | null;
+    outputUrl: string | null;
+  }> {
+    const run = await this.parentManager().completeRun({
+      runId: this.getActiveRunId(),
+      ...input,
     });
-  }
+    await this.clearWatchdog();
 
-  private async markLifecycleContinuationAttempted(runId: string): Promise<void> {
-    const current = this.state.lifecycleWatchdog;
-    if (!current || current.runId !== runId) {
-      return;
-    }
-
-    setStateWithoutProtocolBroadcast(this, {
-      ...this.state,
-      lifecycleWatchdog: {
-        ...current,
-        continuationAttempted: true,
-      },
-      updatedAt: nowIso(),
-    });
-  }
-
-  private async clearLifecycleWatchdog(runId = this.state.activeRunId): Promise<void> {
-    const current = this.state.lifecycleWatchdog;
-    if (!current || (runId && current.runId !== runId)) {
-      return;
-    }
-
-    if (current.scheduleId) {
-      await this.cancelSchedule(current.scheduleId);
-    }
-
-    setStateWithoutProtocolBroadcast(this, {
-      ...this.state,
-      lifecycleWatchdog: null,
-      updatedAt: nowIso(),
-    });
+    return {
+      accepted: true,
+      status: run.status,
+      summary: run.summary,
+      outputUrl: run.outputUrl,
+    };
   }
 
   private async reportRuntimeActivity(
     state: NaniteRuntimeActivityState,
-    options: { toolName?: string | null; error?: string | null; runId?: string | null } = {},
+    options: { toolName?: string | null; error?: string | null } = {},
   ): Promise<void> {
     const naniteId = this.state.naniteId;
     if (!naniteId) {
       return;
     }
-    const runId = options.runId ?? this.state.activeRunId;
 
     try {
-      const manager = this.parentManager();
-      await manager.recordRuntimeActivity({
+      await this.parentManager().recordRuntimeActivity({
         naniteId,
-        runId,
+        runId: this.state.activeRunId,
         state,
         toolName: options.toolName ?? null,
         error: options.error ?? null,
       });
     } catch (error) {
-      naniteLogger.error(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-        ...createRunLogContext(this),
+      naniteLogger.warn(LOG_EVENTS.NANITE_RUNTIME_ACTIVITY_RECORDED, {
+        ...this.logContext(),
         error: `recordRuntimeActivity failed: ${describeError(error)}`,
       });
     }
   }
 
-  private resolveSubmissionRunId(submission: ThinkSubmissionInspection): string | null {
-    const metadataRunId =
-      typeof submission.metadata?.runId === "string" ? submission.metadata.runId : null;
-    if (metadataRunId) {
-      return metadataRunId;
+  // -------------------------------------------------------------------------
+  // Models + usage
+  // -------------------------------------------------------------------------
+
+  private async getTurnModel(runId: string | null): Promise<LanguageModel> {
+    const run = await this.readRun(runId);
+    const runModel = run?.model ?? this.state.activeRunModel;
+    const modelId = runModel?.effectiveModelId ?? this.state.manifest?.model;
+    if (!modelId) {
+      throw new AppError("nanitesModelSelectionInvalid", {
+        details: {
+          reason: "Nanite turns require a resolved run model or a registered manifest model.",
+          modelId: null,
+        },
+      });
     }
 
-    if (this.state.activeRunId === submission.submissionId) {
-      return this.state.activeRunId;
-    }
-
-    return null;
+    return createNaniteRunLanguageModel({
+      env: this.env,
+      sessionAffinity: runId ?? this.name,
+      gatewayMetadata: await this.buildTurnGatewayMetadata(run),
+      modelId,
+      gatewayId: runModel?.effectiveGatewayId ?? resolveNanitesAiGatewayId(this.env),
+    });
   }
 
-  private async reconcileActiveTerminalSubmission(): Promise<boolean> {
-    const activeRunId = this.state.activeRunId;
-    if (!activeRunId) {
-      return false;
+  private async buildTurnGatewayMetadata(
+    run: NaniteRunRecord | null,
+  ): Promise<Record<string, string> | undefined> {
+    try {
+      const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+      const naniteId = this.state.naniteId;
+      if (!githubInstallationId || !naniteId || !run) {
+        return undefined;
+      }
+
+      const billing = await resolveNaniteBillingAttribution(createDbClient(this.env.DB), {
+        githubInstallationId,
+        naniteId,
+        actor: naniteTriggerActor(run.trigger),
+      });
+
+      return buildNaniteAiGatewayMetadata({
+        githubInstallationId,
+        naniteId,
+        runKey: run.runId,
+        billingGithubUserId: billing.githubUserId,
+        repository: getRunRepository(run).repository,
+      });
+    } catch (error) {
+      naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+        ...this.logContext(),
+        operation: "ai_gateway.metadata",
+        error: describeError(error),
+      });
+      return undefined;
+    }
+  }
+
+  private async recordStepUsage(ctx: StepContext): Promise<void> {
+    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+    const run = await this.readRun(this.state.activeRunId);
+    if (!githubInstallationId || !run) {
+      return;
     }
 
-    const submissions = await this.listSubmissions({
-      limit: 25,
-      status: [...terminalSubmissionStatuses],
-    });
-    const submission = submissions.find(
-      (candidate) => this.resolveSubmissionRunId(candidate) === activeRunId,
+    const repository = getRunRepository(run);
+    const requestId = `${run.runId}:step:${ctx.stepNumber}:${ctx.response.id}`;
+    const aiGatewayLogId = this.env.AI.aiGatewayLogId || undefined;
+    const aiGatewayLog = await this.readAiGatewayLogDetail(
+      aiGatewayLogId,
+      run.model.effectiveGatewayId,
     );
-    if (!submission) {
-      return false;
+    const actor = naniteTriggerActor(run.trigger);
+    const db = createDbClient(this.env.DB);
+    const billing = await resolveNaniteBillingAttribution(db, {
+      githubInstallationId,
+      naniteId: run.naniteId,
+      actor,
+    });
+
+    await recordAiUsageFact(db, {
+      githubInstallationId,
+      githubRepositoryId: repository.githubRepositoryId,
+      naniteId: run.naniteId,
+      runKey: run.runId,
+      requestId,
+      provider: aiGatewayLog?.provider ?? null,
+      model: aiGatewayLog?.model ?? run.model.effectiveModelId,
+      sessionAffinity: run.runId,
+      isContinuation: this.currentTurnContinuation,
+      stepCount: ctx.stepNumber + 1,
+      finishReason: ctx.finishReason,
+      usage: usageWithGatewayTokens(ctx.usage, aiGatewayLog),
+      providerMetadata: providerMetadataWithGatewayLog(ctx.providerMetadata, aiGatewayLog),
+      providerBilledTotalCostUsdMicros: gatewayCostUsdMicros(aiGatewayLog),
+      aiGatewayId: run.model.effectiveGatewayId,
+      aiGatewayLogId: aiGatewayLog?.id ?? aiGatewayLogId,
+      aiGatewayEventId: requestId,
+      actor,
+      billing,
+      startedAt: ctx.response.timestamp,
+      completedAt: new Date(),
+    });
+  }
+
+  private async readAiGatewayLogDetail(
+    logId: string | undefined,
+    gatewayId: string | null,
+  ): Promise<AiGatewayLogDetail | null> {
+    if (!gatewayId || !logId) {
+      return null;
     }
 
-    await this.onSubmissionStatus(submission);
-    return true;
+    try {
+      const result = aiGatewayLogDetailSchema.safeParse(
+        await this.env.AI.gateway(gatewayId).getLog(logId),
+      );
+      return result.success ? result.data : null;
+    } catch (error) {
+      naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+        ...this.logContext(),
+        operation: "ai_gateway.get_log",
+        aiGatewayLogId: logId,
+        error: describeError(error),
+      });
+      return null;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // GitHub MCP + git auth
+  // -------------------------------------------------------------------------
+
+  private async ensureFreshGitHubMcpForTurn(): Promise<void> {
+    const manifest = this.state.manifest;
+    if (!manifest) {
+      return;
+    }
+
+    const server = this.getMcpServers().servers[githubMcpServerId];
+    const expiresAtMs = this.githubMcpTokenExpiresAtMs;
+    const tokenIsFresh =
+      expiresAtMs !== null && Date.now() < expiresAtMs - githubMcpTokenRefreshMarginMs;
+    if (server?.state === "ready" && tokenIsFresh) {
+      return;
+    }
+
+    await this.attachGitHubMcpServer(manifest);
+  }
+
+  private async attachGitHubMcpServer(manifest: NaniteManifest): Promise<void> {
+    const githubPermissions = manifest.permissions.github;
+    const capability =
+      githubPermissions && githubPermissions.repositories.length > 0
+        ? deriveNaniteGitHubMcpAccess({ appPermissions: githubPermissions.appPermissions })
+        : null;
+    if (!githubPermissions || !capability) {
+      await this.removeGitHubMcpServers();
+      return;
+    }
+
+    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+    if (!githubInstallationId) {
+      throw new AppError("naniteAgentGithubMcpInstallationRequired");
+    }
+
+    await this.removeGitHubMcpServers();
+    const scopedToken = await issueScopedGitHubInstallationToken({
+      env: this.env,
+      installationId: githubInstallationId,
+      repositories: githubPermissions.repositories,
+      permissions: capability.appPermissions,
+    });
+    this.githubMcpTokenExpiresAtMs = Date.parse(scopedToken.expiresAt);
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${scopedToken.token}`,
+      "X-MCP-Tools": capability.tools.join(","),
+      "X-MCP-Exclude-Tools": capability.deniedTools.join(","),
+    };
+    if (capability.readonly) {
+      headers["X-MCP-Readonly"] = "true";
+    }
+
+    const result = await this.addMcpServer(githubMcpServerName, githubMcpServerUrl, {
+      id: githubMcpServerId,
+      transport: {
+        type: "streamable-http",
+        headers,
+      },
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 500,
+        maxDelayMs: 2_000,
+      },
+    });
+
+    naniteLogger.debug(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
+      ...this.logContext(),
+      mcpServer: githubMcpServerName,
+      mcpServerId: result.id,
+      state: result.state,
+      toolCount: capability.tools.length,
+      readonly: capability.readonly,
+    });
+  }
+
+  private async removeGitHubMcpServers(): Promise<void> {
+    const servers = this.getMcpServers().servers;
+    await Promise.all(
+      Object.entries(servers)
+        .filter(([, server]) => server.name === githubMcpServerName)
+        .map(([serverId]) => this.removeMcpServer(serverId)),
+    );
   }
 
   private createGitToolProvider(): ToolProvider {
@@ -2088,6 +2037,22 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       getAllowedRepositories: () => this.state.manifest?.permissions.github?.repositories ?? [],
       issueToken: () => this.issueGitToolToken(),
     });
+  }
+
+  private async issueGitToolToken(): Promise<string | null> {
+    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+    const permissions = this.state.manifest?.permissions.github;
+    if (!githubInstallationId || !permissions || permissions.repositories.length === 0) {
+      return null;
+    }
+
+    const scopedToken = await issueScopedGitHubInstallationToken({
+      env: this.env,
+      installationId: githubInstallationId,
+      repositories: permissions.repositories,
+      permissions: permissions.appPermissions ?? {},
+    });
+    return scopedToken.token;
   }
 
   private createToolOutputArtifactStore(): NaniteToolOutputArtifactStore {
@@ -2107,7 +2072,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       persistArtifact: (artifact) => artifactStore.persist(artifact),
       onTruncated: ({ toolName, toolCallId, artifactId, originalChars, returnedChars }) => {
         naniteLogger.warn(LOG_EVENTS.NANITE_TOOL_OUTPUT_TRUNCATED, {
-          ...createRunLogContext(this),
+          ...this.logContext(),
           [OTEL_ATTRS.NANITE_TOOL_NAME]: toolName,
           [OTEL_ATTRS.NANITE_TOOL_OUTPUT_ARTIFACT_ID]: artifactId,
           [OTEL_ATTRS.NANITE_TOOL_OUTPUT_ORIGINAL_CHARS]: originalChars,
@@ -2118,157 +2083,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     });
   }
 
-  private async issueGitToolToken(): Promise<string | null> {
-    const managerName = getParentManagerName(this);
-    const githubInstallationId = parseManagerInstallationId(managerName);
-    const permissions = this.state.manifest?.permissions.github;
-    if (!githubInstallationId || !permissions || permissions.repositories.length === 0) {
-      return null;
-    }
-
-    const scopedToken = await issueScopedGitHubInstallationToken({
-      env: this.env,
-      installationId: githubInstallationId,
-      repositories: permissions.repositories,
-      permissions: permissions.appPermissions ?? {},
-    });
-
-    return scopedToken.token;
-  }
-
-  private async attachGitHubMcpServer(manifest: NaniteManifest): Promise<void> {
-    const githubPermissions = manifest.permissions.github;
-    if (!githubPermissions || githubPermissions.repositories.length === 0) {
-      await this.removeGitHubMcpServers();
-      return;
-    }
-
-    const capability = deriveNaniteGitHubMcpAccess({
-      appPermissions: githubPermissions.appPermissions,
-    });
-    if (!capability) {
-      await this.removeGitHubMcpServers();
-      return;
-    }
-
-    const managerName = getParentManagerName(this);
-    const githubInstallationId = parseManagerInstallationId(managerName);
-    if (!githubInstallationId) {
-      throw new AppError("naniteAgentGithubMcpInstallationRequired");
-    }
-
-    await this.removeGitHubMcpServers();
-    const scopedToken = await issueScopedGitHubInstallationToken({
-      env: this.env,
-      installationId: githubInstallationId,
-      repositories: githubPermissions.repositories,
-      permissions: capability.appPermissions,
-    });
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${scopedToken.token}`,
-      "X-MCP-Tools": capability.tools.join(","),
-      "X-MCP-Exclude-Tools": capability.deniedTools.join(","),
+  private logContext(runId = this.state.activeRunId) {
+    return {
+      [OTEL_ATTRS.AGENT_CLASS]: "SigveloNaniteAgent",
+      [OTEL_ATTRS.AGENT_NAME]: this.name,
+      [OTEL_ATTRS.NANITE_ID]: this.state.naniteId ?? undefined,
+      [OTEL_ATTRS.NANITE_MANAGER_NAME]: this.state.managerName ?? undefined,
+      [OTEL_ATTRS.NANITE_RUN_ID]: runId ?? undefined,
     };
-    if (capability.readonly) {
-      headers["X-MCP-Readonly"] = "true";
-    }
-
-    const result = await this.addMcpServer(githubMcpServerName, githubMcpServerUrl, {
-      transport: {
-        type: "streamable-http",
-        headers,
-      },
-      retry: {
-        maxAttempts: 2,
-        baseDelayMs: 500,
-        maxDelayMs: 2_000,
-      },
-    });
-
-    naniteLogger.info(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-      ...createRunLogContext(this),
-      mcpServer: githubMcpServerName,
-      mcpServerId: result.id,
-      state: result.state,
-      toolCount: capability.tools.length,
-      readonly: capability.readonly,
-    });
-  }
-
-  private async removeGitHubMcpServers(): Promise<void> {
-    const servers = this.getMcpServers().servers;
-    await Promise.all(
-      Object.entries(servers)
-        .filter(([, server]) => server.name === githubMcpServerName)
-        .map(([serverId]) => this.removeMcpServer(serverId)),
-    );
-  }
-
-  private getActiveRunId(): string {
-    const runId = this.state.activeRunId;
-    if (!runId) {
-      throw new AppError("naniteAgentActiveRunRequired");
-    }
-
-    return runId;
-  }
-
-  private async finishRun(input: CompleteNaniteRunInput): Promise<NaniteRunRecord> {
-    const manager = this.parentManager();
-    const run = await manager.completeRun(input);
-    await this.clearLifecycleWatchdog(input.runId);
-
-    setStateWithoutProtocolBroadcast(this, {
-      ...this.state,
-      summary: run.summary,
-      outputUrl: run.outputUrl,
-      updatedAt: run.updatedAt,
-    });
-
-    return run;
-  }
-
-  private async askHuman(input: AskHumanInput): Promise<NaniteRunRecord> {
-    const manager = this.parentManager();
-    const run = await manager.askHuman(input);
-    await this.clearLifecycleWatchdog(input.runId);
-
-    setStateWithoutProtocolBroadcast(this, {
-      ...this.state,
-      summary: run.summary,
-      updatedAt: run.updatedAt,
-    });
-
-    return run;
-  }
-
-  private async cancelSubmissionAfterLifecycleResponse(runId: string): Promise<void> {
-    const manager = this.parentManager();
-    const run = (await manager.getSnapshot()).runs[runId];
-    if (!run) {
-      await this.reportRuntimeActivity("idle");
-      return;
-    }
-
-    if (run.status === "waiting_for_human") {
-      await this.cancelRunSubmissions(runId, "Nanite lifecycle paused for human input.");
-      await this.reportRuntimeActivity("waiting_for_human");
-      return;
-    }
-
-    if (isLifecycleTerminalStatus(run.status)) {
-      await this.cancelRunSubmissions(runId, `Nanite lifecycle finished with ${run.status}.`);
-      await this.reportRuntimeActivity("idle", { runId });
-      await this.clearLifecycleWatchdog(runId);
-      if (this.state.activeRunId === runId) {
-        setStateWithoutProtocolBroadcast(this, {
-          ...this.state,
-          activeRunId: null,
-          activeRunModel: null,
-          updatedAt: nowIso(),
-        });
-      }
-      return;
-    }
   }
 }

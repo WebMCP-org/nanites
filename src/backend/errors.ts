@@ -71,17 +71,6 @@ export const APP_ERRORS = {
     status: 403,
     message: "Nanites setup must create and install a GitHub App before this action can run.",
   },
-  setupOwnerProofRequired: {
-    code: "setup_owner_proof_required",
-    status: 403,
-    message: "Cloudflare deployment ownership must be verified before setup can continue.",
-  },
-  setupOwnerClaimRequired: {
-    code: "setup_owner_claim_required",
-    status: 403,
-    message: "Setup is already in progress in another browser.",
-    publicDetailKeys: ["expiresAt"],
-  },
   setupClaimRequired: {
     code: "setup_claim_required",
     status: 403,
@@ -97,18 +86,6 @@ export const APP_ERRORS = {
     status: 500,
     message: "Nanites setup database migrations have not been applied.",
     publicDetailKeys: ["table"],
-  },
-  cloudflareOAuthFailed: {
-    code: "cloudflare_oauth_failed",
-    status: 400,
-    message: "Cloudflare OAuth setup failed.",
-    publicDetailKeys: ["reason"],
-  },
-  cloudflareWorkerOwnershipVerificationFailed: {
-    code: "cloudflare_worker_ownership_verification_failed",
-    status: 403,
-    message: "Cloudflare did not confirm ownership of this Worker.",
-    publicDetailKeys: ["scriptName"],
   },
   cloudflareReadinessRequired: {
     code: "cloudflare_readiness_required",
@@ -132,7 +109,7 @@ export const APP_ERRORS = {
     code: "setup_installation_verification_failed",
     status: 403,
     message: "GitHub did not confirm access to the installed Nanites GitHub App.",
-    publicDetailKeys: ["githubInstallationId"],
+    publicDetailKeys: ["githubInstallationId", "reason", "visibleInstallationIds", "githubError"],
   },
   upstreamStarVerificationFailed: {
     code: "upstream_star_verification_failed",

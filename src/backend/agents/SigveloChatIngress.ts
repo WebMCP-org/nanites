@@ -5,10 +5,9 @@ import { getLogger } from "@logtape/logtape";
 import { Agent, getAgentByName } from "agents";
 import { createChatSdkState } from "agents/chat-sdk";
 import { Chat } from "chat";
-import type { Message, SentMessage, Thread } from "chat";
+import type { Author, Message, SentMessage, Thread } from "chat";
 import { APP_ERRORS, AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
-import type { HandleManagerChatMessageInput } from "#/backend/agents/SigveloNaniteManager.ts";
 import {
   SigveloManagerConversationAgent,
   type ManagerReplyPublication,
@@ -31,6 +30,30 @@ const chatIngressLogger = getLogger(LOGGING.NANITES_CATEGORY)
 // Preserve the existing Durable Object/facet class name while adopting the
 // upstream Think messenger state implementation.
 export class ChatSdkStateAgent extends ThinkMessengerStateAgent {}
+
+export type GitHubManagerThreadType =
+  | NonNullable<Extract<GitHubRawMessage, { type: "issue_comment" }>["threadType"]>
+  | "review_comment";
+
+export function getGitHubManagerChatThreadType(raw: GitHubRawMessage): GitHubManagerThreadType {
+  if (raw.type === "review_comment") {
+    return "review_comment";
+  }
+
+  return raw.threadType ?? "pr";
+}
+
+export type HandleManagerChatMessageInput = {
+  installationId: number;
+  surface: {
+    type: "github";
+    threadId: Thread<Record<string, unknown>, GitHubRawMessage>["id"];
+    messageId: Message<GitHubRawMessage>["id"];
+    raw: GitHubRawMessage;
+  };
+  author: Author;
+  text: string;
+};
 
 type GitHubManagerChatThread = Thread<Record<string, unknown>, GitHubRawMessage>;
 type GitHubManagerChatMessage = Message<GitHubRawMessage>;

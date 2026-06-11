@@ -109,6 +109,12 @@ cp docs/dev.vars.local.example .dev.vars
 vp run db:migrate:local
 ```
 
+The local `.dev.vars` template sets `NANITES_SHOW_SETUP=false` so normal local development does not
+auto-route into the first-launch setup wizard. Set `NANITES_SHOW_SETUP=true` in `.dev.vars` only
+when intentionally testing the setup flow. This only controls setup surfacing; GitHub OAuth, MCP,
+webhooks, and installation tokens still require readable deployment GitHub App metadata plus the
+runtime secret bindings.
+
 Optional Sentry:
 
 ```bash

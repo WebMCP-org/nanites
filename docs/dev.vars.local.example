@@ -6,6 +6,7 @@
 # customer-owned GitHub App and writes generated values to Worker Secrets after Cloudflare ownership
 # is verified. Env-provided secrets are not enough by themselves; runtime GitHub App identity is
 # read from D1 deployment metadata.
+NANITES_SHOW_SETUP="false"
 AUTH_COOKIE_SECRET="replace-with-a-long-random-value"
 GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nreplace-with-your-github-app-private-key\n-----END PRIVATE KEY-----"
 GITHUB_CLIENT_SECRET="replace-with-your-github-app-client-secret"
