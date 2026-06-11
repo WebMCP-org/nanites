@@ -1276,6 +1276,10 @@ function buildNaniteChatUrl(input: { managerName: string; naniteId: string }): s
   return `/agents/${NANITE_MANAGER_NAME}/${encodeURIComponent(input.managerName)}/sub/${encodeURIComponent(NANITE_AGENT_NAME)}/${encodeURIComponent(input.naniteId)}`;
 }
 
+export function matchesNaniteSubAgentClassName(className: string): boolean {
+  return className === SigveloNaniteAgent.name || className === NANITE_AGENT_NAME;
+}
+
 function updateRun(
   state: NaniteManagerState,
   runId: string,
@@ -2097,7 +2101,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     _request: Request,
     child: { className: string; name: string },
   ): Promise<Response | void> {
-    if (child.className !== SigveloNaniteAgent.name) {
+    if (!matchesNaniteSubAgentClassName(child.className)) {
       return new Response(APP_ERRORS.naniteSubAgentNotFound.message, {
         status: APP_ERRORS.naniteSubAgentNotFound.status,
       });

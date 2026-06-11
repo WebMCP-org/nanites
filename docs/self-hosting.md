@@ -183,8 +183,7 @@ The Cloudflare step also checks the runtime pieces Nanites cannot safely fake:
   directly.
 - Worker Loader can run a tiny setup smoke Worker. This proves generated trigger handlers can run as
   Dynamic Workers.
-- Workers AI is bound as `AI`, and Cloudflare's model catalog lists `@cf/moonshotai/kimi-k2.6` with
-  function calling.
+- Workers AI is bound as `AI`, and the default Cloudflare-hosted Kimi K2.6 model id is configured.
 - The default model route uses Cloudflare AI Gateway `default`. Kimi K2.6 is Cloudflare-hosted
   Workers AI, so the default setup does not need a Moonshot, OpenAI, or other provider API key.
 - Browser Run is shown as informational because it supports later preview verification, but it is

@@ -1,8 +1,12 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { validateGeneratedTriggerSource } from "#/backend/nanites/triggers.ts";
-import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
+import {
+  matchesNaniteSubAgentClassName,
+  type SigveloNaniteManager,
+} from "#/backend/agents/SigveloNaniteManager.ts";
 import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
+import { NANITE_AGENT_NAME } from "#/nanites.ts";
 
 beforeAll(async () => {
   await env.DB.exec("CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY);");
@@ -94,6 +98,10 @@ export default {
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
 const naniteModel = "deepseek/deepseek-v4-pro";
+
+test("Nanite sub-agent guard accepts the public browser route class name", () => {
+  expect(matchesNaniteSubAgentClassName(NANITE_AGENT_NAME)).toBe(true);
+});
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,
