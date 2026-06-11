@@ -7,6 +7,7 @@ import {
   type ConnectionContext,
 } from "agents";
 import type { MCPClientOAuthResult } from "agents/mcp/client";
+import { getLogger } from "@logtape/logtape";
 import { generateCookie } from "hono/cookie";
 import type { CookieOptions } from "hono/utils/cookie";
 import { z } from "zod";
@@ -31,9 +32,12 @@ import {
   DEFAULT_SIGVELO_AGENT_MODEL_ID,
   resolveNanitesAiGatewayId,
 } from "#/backend/nanites/language-model.ts";
+import { LOGGING } from "#/backend/logging.ts";
 import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
+
+const setupAgentLogger = getLogger(LOGGING.NANITES_CATEGORY).getChild("setup");
 
 const CLOUDFLARE_API_MCP_SERVER_ID = "cloudflare-api";
 const CLOUDFLARE_API_MCP_SERVER_NAME = "Cloudflare API";
@@ -2683,6 +2687,10 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     }
 
     try {
+      // The MCP execute sandbox's cloudflare.request has no `headers` option —
+      // unknown options are silently ignored, so the merge-patch content type
+      // must be set via `contentType` or the secrets-bulk endpoint rejects the
+      // request as application/json.
       await this.executeCloudflareCode({
         accountId: input.accountId,
         code: `async () => {
@@ -2691,9 +2699,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
   const response = await cloudflare.request({
     method: "PATCH",
     path: \`/accounts/\${accountIdValue}/workers/scripts/\${scriptName}/secrets-bulk\`,
-    headers: { "content-type": "application/merge-patch+json" },
+    contentType: "application/merge-patch+json",
     body: ${JSON.stringify({ secrets: secretPatch })},
   });
+  if (!response.success) {
+    throw new Error(\`secrets-bulk failed (\${response.status}): \${JSON.stringify(response.errors)}\`);
+  }
   return response.result ?? { ok: true };
 }`,
       });
@@ -2725,7 +2736,16 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     );
 
     if ("isError" in result && result.isError) {
-      throw new AppError("cloudflareOAuthFailed", { details: { reason: "mcp_execute_failed" } });
+      let toolError: string;
+      try {
+        toolError = readToolText(result);
+      } catch {
+        toolError = "unreadable tool error content";
+      }
+      setupAgentLogger.error("Cloudflare MCP execute failed: {toolError}", { toolError });
+      throw new AppError("cloudflareOAuthFailed", {
+        details: { reason: "mcp_execute_failed", toolError },
+      });
     }
 
     return parseToolJson(result);
