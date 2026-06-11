@@ -77,16 +77,16 @@ function validateWranglerConfig() {
   expect(hasBinding(config.kv_namespaces, "TOOL_OUTPUTS"), "TOOL_OUTPUTS KV binding is required.");
   expect(
     config.durable_objects?.bindings?.some(
-      (entry) => entry?.name === "NanitesSetupAgent" && entry?.class_name === "NanitesSetupAgent",
+      (entry) => entry?.name === "NanitesSetupAgent" && entry?.class_name === "NanitesSetupAgentV1",
     ),
     "NanitesSetupAgent Durable Object binding is required.",
   );
   expect(
     config.migrations?.some(
       (migration) =>
-        migration?.tag === "v15" &&
+        migration?.tag === "v1-durable-object-baseline" &&
         Array.isArray(migration.new_sqlite_classes) &&
-        migration.new_sqlite_classes.includes("NanitesSetupAgent"),
+        migration.new_sqlite_classes.includes("NanitesSetupAgentV1"),
     ),
     "NanitesSetupAgent Durable Object migration is required.",
   );

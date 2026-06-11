@@ -122,13 +122,17 @@ const setupConnectionStateSchema = z
 
 type StoredSetupToken = z.infer<typeof storedSetupTokenSchema>;
 type SetupConnectionState = z.infer<typeof setupConnectionStateSchema>;
-type SetupStep =
+export type SetupStep =
   | "deploy"
   | "cloudflare"
   | "github-app"
   | "repositories"
   | "upstream-star"
   | "launch";
+type SetupCurrentStepOverride = {
+  readonly step: SetupStep;
+  readonly baseStep: SetupStep;
+};
 type CloudflareSetupStatus =
   | "idle"
   | "authenticating"
@@ -202,6 +206,7 @@ export type GitHubInstallationRepairReason =
 export type NanitesSetupAgentState = {
   readonly setupComplete: boolean;
   readonly currentStep: SetupStep;
+  readonly currentStepOverride: SetupCurrentStepOverride | null;
   readonly setupOwner: {
     readonly status: SetupOwnerStatus;
     readonly claimExpiresAt: string | null;
@@ -292,6 +297,10 @@ export type ResetSetupOwnerInput = {
   readonly setupOwnerToken?: string | null;
 } | null;
 
+export type ShowSetupStepInput = {
+  readonly step: SetupStep;
+} | null;
+
 export type StartGitHubManifestInput = {
   readonly origin?: string;
   readonly ownerType: GitHubManifestOwnerType;
@@ -352,6 +361,7 @@ export function createInitialNanitesSetupState(): NanitesSetupAgentState {
   return {
     setupComplete: false,
     currentStep: "cloudflare",
+    currentStepOverride: null,
     setupOwner: {
       status: "unclaimed",
       claimExpiresAt: null,
@@ -542,6 +552,14 @@ const LEGACY_KIMI_MODEL_CATALOG_BLOCKER_DETAIL =
 const LEGACY_KIMI_MODEL_CATALOG_READY_DETAIL =
   "Cloudflare Workers AI lists Kimi K2.6 with function calling. No Moonshot or provider API key is required for the default model.";
 const KIMI_MODEL_CONFIGURED_DETAIL = `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_ID}\` is configured through Workers AI. No Moonshot or provider API key is required.`;
+const setupStepOrder = [
+  "deploy",
+  "cloudflare",
+  "github-app",
+  "repositories",
+  "upstream-star",
+  "launch",
+] as const satisfies readonly SetupStep[];
 
 function normalizeCloudflareStateForCurrentVersion(
   cloudflare: NanitesSetupAgentState["cloudflare"],
@@ -845,6 +863,22 @@ function buildCurrentStep(state: NanitesSetupAgentState): SetupStep {
   return "launch";
 }
 
+function setupStepIndex(step: SetupStep): number {
+  return setupStepOrder.indexOf(step);
+}
+
+function isSetupStep(value: unknown): value is SetupStep {
+  return typeof value === "string" && setupStepOrder.includes(value as SetupStep);
+}
+
+function canUseCurrentStepOverride(step: SetupStep, baseStep: SetupStep): boolean {
+  return setupStepIndex(step) < setupStepIndex(baseStep);
+}
+
+function clearCurrentStepOverride(state: NanitesSetupAgentState): NanitesSetupAgentState {
+  return state.currentStepOverride ? { ...state, currentStepOverride: null } : state;
+}
+
 function createSetupCompletionState(input: {
   readonly hasRuntimeConfig: boolean;
   readonly githubAppGenerationKey: string | null;
@@ -1001,9 +1035,18 @@ function buildSetupOwnerState(
 }
 
 function withDerivedState(state: NanitesSetupAgentState): NanitesSetupAgentState {
+  const stateMachineStep = buildCurrentStep(state);
+  const currentStepOverride =
+    state.currentStepOverride &&
+    state.currentStepOverride.baseStep === stateMachineStep &&
+    canUseCurrentStepOverride(state.currentStepOverride.step, stateMachineStep)
+      ? state.currentStepOverride
+      : null;
+
   return {
     ...state,
-    currentStep: buildCurrentStep(state),
+    currentStep: currentStepOverride?.step ?? stateMachineStep,
+    currentStepOverride,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -1289,7 +1332,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       await this.verifyCloudflareWorkerOwnershipOrFail(currentWorker);
       const claim = await this.issueSetupClaim();
       redirectUrl.searchParams.set("cloudflare", "connected");
-      const response = Response.redirect(redirectUrl.href, 302);
+      // Response.redirect() returns immutable headers, which would make the
+      // Set-Cookie append below throw and silently drop the setup claim.
+      const response = new Response(null, {
+        status: 302,
+        headers: { Location: redirectUrl.href },
+      });
       if (request) {
         response.headers.append("Set-Cookie", buildSetupClaimCookie(request, claim));
       }
@@ -1496,6 +1544,39 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
   }
 
   @callable()
+  async showSetupStep(input: ShowSetupStepInput = null): Promise<NanitesSetupAgentState> {
+    const requestedStep = input?.step;
+    if (!isSetupStep(requestedStep)) {
+      throw new AppError("invalidSetupState");
+    }
+
+    const stateMachineStep = buildCurrentStep(this.state);
+    if (requestedStep === stateMachineStep) {
+      const nextState = withDerivedState(clearCurrentStepOverride(this.state));
+      this.setState(nextState);
+      return nextState;
+    }
+
+    if (this.state.currentStepOverride) {
+      return this.state;
+    }
+
+    if (!canUseCurrentStepOverride(requestedStep, stateMachineStep)) {
+      return this.state;
+    }
+
+    const nextState = withDerivedState({
+      ...this.state,
+      currentStepOverride: {
+        step: requestedStep,
+        baseStep: stateMachineStep,
+      },
+    });
+    this.setState(nextState);
+    return nextState;
+  }
+
+  @callable()
   async connectCloudflare(input: ConnectCloudflareInput = null): Promise<ConnectCloudflareOutput> {
     try {
       return await this.connectCloudflareOrFail(input);
@@ -1519,7 +1600,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
             : setupError.message;
         this.setState(
           withDerivedState({
-            ...this.state,
+            ...clearCurrentStepOverride(this.state),
             cloudflare: {
               ...this.state.cloudflare,
               error: reason,
@@ -1566,7 +1647,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       isExpectedCloudflareAuthorizationUrl(existingServer.auth_url)
     ) {
       const nextState = withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         cloudflare: {
           ...this.state.cloudflare,
           status: "authenticating",
@@ -1605,7 +1686,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
 
     this.setState(
       withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         cloudflare: {
           ...this.state.cloudflare,
           status: "connecting",
@@ -1622,7 +1703,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
 
     if (result.state === "authenticating") {
       const nextState = withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         cloudflare: {
           ...this.state.cloudflare,
           status: "authenticating",
@@ -1677,7 +1758,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     const generationKey = buildInFlightGitHubAppGenerationKey(manifestState);
     this.setState(
       withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         githubApp: {
           ...this.state.githubApp,
           status: "creating",
@@ -1757,7 +1838,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
 
     this.setState(
       withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         githubApp: {
           ...this.state.githubApp,
           status: "secrets-writing",
@@ -1819,7 +1900,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       });
       this.setState(
         withDerivedState({
-          ...this.state,
+          ...clearCurrentStepOverride(this.state),
           setupComplete: completionState.setupComplete,
           githubApp: {
             ...this.state.githubApp,
@@ -1901,7 +1982,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     );
 
     const nextState = withDerivedState({
-      ...this.state,
+      ...clearCurrentStepOverride(this.state),
       setupComplete: this.state.upstreamStar.status === "complete",
       repositories: {
         status: "complete",
@@ -1938,7 +2019,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     const message = buildGitHubInstallationRepairMessage(input.reason);
     await saveDeploymentGitHubAppSelectedInstallation(createDbClient(this.env.DB), null);
     const nextState = withDerivedState({
-      ...this.state,
+      ...clearCurrentStepOverride(this.state),
       setupComplete: false,
       repositories: {
         status: "ready",
@@ -1972,7 +2053,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     }
 
     const nextState = withDerivedState({
-      ...this.state,
+      ...clearCurrentStepOverride(this.state),
       setupComplete: true,
       upstreamStar: {
         status: "complete",
@@ -1995,7 +2076,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     }
 
     const nextState = withDerivedState({
-      ...this.state,
+      ...clearCurrentStepOverride(this.state),
       setupComplete: false,
       upstreamStar: {
         status: "failed",
@@ -2148,7 +2229,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       : null;
     this.setState(
       withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         githubApp: {
           ...this.state.githubApp,
           status: "failed",
@@ -2187,7 +2268,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     if (cloudflareServer.state === "authenticating") {
       this.setState(
         withDerivedState({
-          ...this.state,
+          ...clearCurrentStepOverride(this.state),
           cloudflare: {
             ...this.state.cloudflare,
             status: "authenticating",
@@ -2215,7 +2296,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
   private markCloudflareFailed(message: string): void {
     this.setState(
       withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         cloudflare: {
           ...this.state.cloudflare,
           status: "failed",
@@ -2449,7 +2530,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
   private async verifyCloudflareWorkerOwnership(currentWorker: CurrentWorkerRoute): Promise<void> {
     this.setState(
       withDerivedState({
-        ...this.state,
+        ...clearCurrentStepOverride(this.state),
         cloudflare: {
           ...this.state.cloudflare,
           status: "verifying",
@@ -2475,7 +2556,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
         const readiness = await this.checkCloudflareReadiness(account.id);
         const readinessError = buildCloudflareReadinessError(readiness);
         const nextState = withDerivedState({
-          ...this.state,
+          ...clearCurrentStepOverride(this.state),
           cloudflare: {
             status: "verified",
             authorizationUrl: null,

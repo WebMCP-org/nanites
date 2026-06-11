@@ -1,5 +1,5 @@
 import "./setup.css";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAgent } from "agents/react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -18,6 +18,7 @@ import type {
   NanitesSetupAgent,
   NanitesSetupAgentState,
   StartGitHubManifestOutput,
+  SetupStep as SetupStepId,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 
 const SETUP_OWNER_TOKEN_STORAGE_KEY = "nanites.setupOwnerToken";
@@ -208,6 +209,15 @@ function StepStatus({
   );
 }
 
+function setupStepForViewIndex(value: number): SetupStepId | null {
+  if (value === 0) return "cloudflare";
+  if (value === 1) return "github-app";
+  if (value === 2) return "repositories";
+  if (value === 3) return "upstream-star";
+  if (value === 4) return "launch";
+  return null;
+}
+
 function buildGitHubLoginUrl(returnTo = "/nanites"): string {
   const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
   loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, returnTo);
@@ -257,15 +267,12 @@ function SetupPage() {
   const [cloudflareActionError, setCloudflareActionError] = useState<string | null>(null);
   const [starActionRunning, setStarActionRunning] = useState(false);
   const [starActionError, setStarActionError] = useState<string | null>(null);
-  const [viewedStepOverride, setViewedStepOverride] = useState<number | null>(null);
   const status = setupAgent.state;
   const setupConnectionReady = Boolean(setupAgent.stub);
   const localSetupOrigin = isLocalSetupOrigin();
-  const agentStepIndex = status ? activeStepIndex(status.currentStep) : 0;
-
-  useEffect(() => {
-    setViewedStepOverride(null);
-  }, [agentStepIndex]);
+  const agentStepIndex = status
+    ? activeStepIndex(status.currentStepOverride?.baseStep ?? status.currentStep)
+    : 0;
 
   if (!status) {
     return (
@@ -276,7 +283,7 @@ function SetupPage() {
     );
   }
 
-  const viewedStepIndex = Math.min(viewedStepOverride ?? agentStepIndex, agentStepIndex);
+  const viewedStepIndex = activeStepIndex(status.currentStep);
   const viewingCompletedStep = viewedStepIndex < agentStepIndex;
   const trimmedOwnerLogin = ownerLogin.trim();
   const githubAppComplete = status.githubApp.status === "complete";
@@ -301,6 +308,15 @@ function SetupPage() {
     status.cloudflare.readiness.status === "checking";
   const cloudflareCanConnect = setupConnectionReady && !cloudflareRunning && !cloudflareReady;
   const globalErrors = status.error ? [status.error.message] : [];
+
+  function showSetupStep(value: number): void {
+    const step = setupStepForViewIndex(value);
+    if (!step || !setupAgent.stub) {
+      return;
+    }
+
+    void setupAgent.stub.showSetupStep({ step }).catch(() => undefined);
+  }
 
   async function runUpstreamStarAction(method: "GET" | "PUT"): Promise<void> {
     setStarActionRunning(true);
@@ -588,13 +604,13 @@ function SetupPage() {
       progressIndex={agentStepIndex}
       viewIndex={viewedStepIndex}
       indicatorState={indicatorState}
-      canGoBack={viewedStepIndex > 0}
+      canGoBack={viewedStepIndex > 0 && !status.currentStepOverride}
       canGoForward={viewedStepIndex < agentStepIndex}
       onGoBack={() => {
-        setViewedStepOverride(Math.max(viewedStepIndex - 1, 0));
+        showSetupStep(Math.max(viewedStepIndex - 1, 0));
       }}
       onGoForward={() => {
-        setViewedStepOverride(Math.min(viewedStepIndex + 1, agentStepIndex));
+        showSetupStep(Math.min(viewedStepIndex + 1, agentStepIndex));
       }}
       primaryAction={viewingCompletedStep ? null : primaryAction}
     >

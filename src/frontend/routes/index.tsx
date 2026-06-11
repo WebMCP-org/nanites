@@ -16,7 +16,7 @@ import {
 export const Route = createFileRoute("/")({
   loader: async ({ context, location }) => {
     const setupStatus = await parseResponse(httpClient.api.setup.status.$get());
-    if (!setupStatus.setupComplete) {
+    if (!setupStatus.setupComplete && location.pathname !== "/app") {
       throw redirect({ to: "/setup" });
     }
 

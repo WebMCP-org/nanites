@@ -243,10 +243,10 @@ export function StepperItem({
   const isLoading = loading && step === activeStep;
   const state: StepperState = isLoading
     ? "loading"
-    : completed || step < activeStep
-      ? "completed"
-      : activeStep === step
-        ? "active"
+    : activeStep === step
+      ? "active"
+      : completed || step < activeStep
+        ? "completed"
         : "inactive";
 
   return (
