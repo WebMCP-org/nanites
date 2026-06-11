@@ -146,6 +146,33 @@ Think-specific check-before-hand-rolling list (mirrors the `Agent` checklist abo
 - Deleted: legacy state normalizers, a readiness "check" that was static UI copy, the
   always-complete `deploy` step, error-message string matching at the RPC boundary.
 
+## What the nanite manager + agent rewrite specifically changed (for reference, not reuse)
+
+June 2026, `SigveloNaniteManager` + `SigveloNaniteAgent` rewritten together (they share
+contracts). Tests needed almost no changes because the load-bearing exports (state
+types, status enums, MCP-tool method shapes) were deliberately kept.
+
+- `setStateWithoutProtocolBroadcast` poked a private (`_suppressProtocolBroadcasts`)
+  that does not exist in the installed `agents` dist — the whole hack was a silent
+  no-op. Deleted; plain `setState`.
+- Trigger tests ran the generated trigger twice (once standalone for noop reasons, once
+  via the webhook path). Fixed by making the production path (`handleGitHubWebhook`)
+  return a per-nanite evaluation report (intents, noop reasons, skip reason,
+  dispatches) that the test path consumes.
+- Watchdog cancel/re-create of an alarm on every tool call → one alarm that re-arms
+  from its own callback and compares a `lastActivityAt` state field.
+- In-memory `Set` tracking "completed responses without a lifecycle tool call" →
+  derive it durably: when a submission terminalizes and the manager still shows the
+  run as `running`, no lifecycle tool fired.
+- Manager/agent chat-message types moved to `SigveloChatIngress.ts` (the manager's
+  `handleChatMessage` had no callers — chat routes through
+  `SigveloManagerConversationAgent`).
+- Dead exports dropped: `resumeRun`, `failRun`, `listFiles`/`readFileContent`
+  callables, `chatUrl` + `versionId` run fields, `HandleManagerChatMessageOutput`.
+- State-versioning split: the manager registry is the source of truth → keep persisted
+  field names, no destructive reset; the agent state is run-scoped bookkeeping → a
+  `version` stamp with reset-on-mismatch in `onStart()`.
+
 ## Platform facts verified during this rewrite (reusable)
 
 - **DO RPC strips error classes.** An `AppError` thrown in the DO arrives at the caller
@@ -172,3 +199,16 @@ Think-specific check-before-hand-rolling list (mirrors the `Agent` checklist abo
   `new Response(null, { status: 302, headers: { location } })` to append `Set-Cookie`.
 - **The Cloudflare MCP execute sandbox ignores unknown `cloudflare.request` options**;
   content type must go through `contentType`, not `headers`.
+- **Grep any private-API poke against the installed dist before carrying it forward.**
+  `(agent as unknown)._suppressProtocolBroadcasts` matched nothing in
+  `node_modules/agents/dist` — the "feature" had silently become a no-op across SDK
+  upgrades.
+- **Think's declared scheduled tasks (`getScheduledTasks`/`defineScheduledTasks`) only
+  accept interval/wall-clock English schedules** (`every N minutes`, `every day at
+HH:MM`) — not cron strings or one-shot dates. Manifest-driven cron/date schedules
+  still need raw `this.schedule`/`this.scheduleEvery`.
+- **Never re-arm a one-shot date schedule from maintenance** — `schedule(pastDate, ...)`
+  fires immediately. Only recurring schedules (cron, intervals) are safe to resync.
+- **Concrete DO stubs of large agents trip TS2589** (type instantiation too deep).
+  Confine one `as unknown as { method: Class["method"] }` cast to a single private
+  accessor instead of scattering `@ts-ignore` at call sites.

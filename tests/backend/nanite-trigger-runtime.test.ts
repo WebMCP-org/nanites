@@ -1,8 +1,13 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { validateGeneratedTriggerSource } from "#/backend/nanites/triggers.ts";
 import {
+  buildGitHubTriggerFixture,
+  validateGeneratedTriggerSource,
+} from "#/backend/nanites/triggers.ts";
+import {
+  isTerminalNaniteRunStatus,
   matchesNaniteSubAgentClassName,
+  type NaniteRunRecord,
   type SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
@@ -390,4 +395,59 @@ test("trigger tests apply fixture repository overrides before generated filters 
   expect(output.ok).toBe(true);
   expect(getGitHubWebhookRepositoryFullName(output.event)).toBe("WebMCP-org/npm-packages");
   expectAcceptedTriggerRun(output, "package-docs-syncer-repository-overrides");
+});
+
+async function waitForTerminalRun(
+  manager: InstallationManager,
+  runId: string,
+): Promise<NaniteRunRecord> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const run = (await manager.getSnapshot()).runs[runId];
+    if (run && isTerminalNaniteRunStatus(run.status)) {
+      return run;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(`Run ${runId} did not reach a terminal status in time.`);
+}
+
+test("webhook dispatch dedupes runs by trigger idempotency key", async () => {
+  const manager = await getInstallationManager();
+
+  await registerPackageDocsSyncer(manager, {
+    id: "package-docs-syncer-dedupe",
+    name: "Package docs syncer dedupe",
+    triggerSource: packageDocsTriggerSource,
+  });
+
+  const event = buildGitHubTriggerFixture({
+    fixture: "push",
+    deliveryId: "delivery-dedupe-1",
+    installationId: 555,
+    overrides: {
+      repository: npmPackagesRepositoryOverride(),
+      ref: "refs/heads/main",
+      after: "test000000000002",
+      commits: [packageDocsChangedCommit()],
+    },
+  });
+
+  const firstEvaluations = await manager.handleGitHubWebhook({ event });
+  expect(firstEvaluations).toHaveLength(1);
+  expect(firstEvaluations[0]?.dispatches).toHaveLength(1);
+  expect(firstEvaluations[0]?.dispatches[0]?.created).toBe(true);
+  const runId = firstEvaluations[0]?.dispatches[0]?.run.runId;
+  if (!runId) {
+    throw new Error("Expected the first webhook delivery to create a run.");
+  }
+
+  await waitForTerminalRun(manager, runId);
+
+  const secondEvaluations = await manager.handleGitHubWebhook({ event });
+  expect(secondEvaluations).toHaveLength(1);
+  expect(secondEvaluations[0]?.skippedReason).toBeNull();
+  expect(secondEvaluations[0]?.dispatches[0]?.created).toBe(false);
+  expect(secondEvaluations[0]?.dispatches[0]?.run.runId).toBe(runId);
 });

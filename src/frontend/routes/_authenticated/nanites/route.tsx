@@ -2400,9 +2400,6 @@ function NanitesRuntimeSurface({
   const effectiveDesktopPanel = isCreateMode ? null : desktopPanel;
   const deleteNanite = useMutation({
     mutationFn: async (input: { readonly naniteId: string }) => {
-      // The Agents SDK can infer this from the full manager interface, but expanding
-      // this RPC method hits TS2589 in this route.
-      // @ts-expect-error Type instantiation is excessively deep for the full manager stub.
       const output = (await manager.stub.deprovisionNanite({
         naniteId: input.naniteId,
         reason: `Deleted from the Nanites UI for ${activeInstallation.account.login}.`,
