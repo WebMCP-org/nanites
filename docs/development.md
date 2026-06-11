@@ -121,7 +121,10 @@ Optional Sentry:
 vp exec wrangler secret put SENTRY_DSN --config wrangler.production.jsonc
 ```
 
-Keep non-sensitive runtime settings such as `SENTRY_ENVIRONMENT` and `SENTRY_TRACES_SAMPLE_RATE` in `wrangler.jsonc` vars.
+Setting the `SENTRY_DSN` secret enables both worker-side Sentry and browser-side Sentry — the
+frontend reads the DSN at runtime from `/api/client-config`, so no rebuild is needed. (A build-time
+`VITE_SENTRY_DSN` still takes precedence when set.) Keep non-sensitive runtime settings such as
+`SENTRY_ENVIRONMENT` and `SENTRY_TRACES_SAMPLE_RATE` in `wrangler.jsonc` vars.
 
 For local browser SDK or source-map upload settings, copy the Sentry/browser template only when you
 need it:

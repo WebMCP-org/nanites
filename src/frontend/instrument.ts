@@ -8,6 +8,12 @@ const DEFAULT_REPLAY_ON_ERROR_SAMPLE_RATE = 1;
 const SAMPLING_RATE_MIN = 0;
 const SAMPLING_RATE_MAX = 1;
 
+type ClientSentryConfig = {
+  dsn: string;
+  environment: string | undefined;
+  tracesSampleRate: string | undefined;
+};
+
 function parseSamplingRate(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
@@ -29,12 +35,10 @@ function getTracePropagationTargets(): Array<string | RegExp> {
   return [window.location.origin];
 }
 
-const dsn = import.meta.env.VITE_SENTRY_DSN;
-
-if (dsn) {
+function initSentry(config: ClientSentryConfig): void {
   Sentry.init({
-    dsn,
-    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
+    dsn: config.dsn,
+    environment: config.environment ?? import.meta.env.MODE,
     release: import.meta.env.VITE_SENTRY_RELEASE,
     integrations: [
       Sentry.tanstackRouterBrowserTracingIntegration(router),
@@ -44,7 +48,7 @@ if (dsn) {
       }),
     ],
     tracesSampleRate: parseSamplingRate(
-      import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE,
+      config.tracesSampleRate,
       import.meta.env.DEV ? DEFAULT_DEV_TRACES_SAMPLE_RATE : DEFAULT_PROD_TRACES_SAMPLE_RATE,
     ),
     tracePropagationTargets: getTracePropagationTargets(),
@@ -57,4 +61,44 @@ if (dsn) {
       DEFAULT_REPLAY_ON_ERROR_SAMPLE_RATE,
     ),
   });
+}
+
+/**
+ * The deployed worker serves instance-specific Sentry settings at runtime so
+ * the same built bundle works for every self-hosted deployment: setting the
+ * SENTRY_DSN worker secret enables browser Sentry with no rebuild.
+ */
+async function initSentryFromRuntimeConfig(): Promise<void> {
+  try {
+    const response = await fetch("/api/client-config");
+    if (!response.ok) {
+      return;
+    }
+
+    const config: { sentry?: Partial<Record<keyof ClientSentryConfig, string | null>> } =
+      await response.json();
+    if (!config.sentry?.dsn) {
+      return;
+    }
+
+    initSentry({
+      dsn: config.sentry.dsn,
+      environment: config.sentry.environment ?? undefined,
+      tracesSampleRate: config.sentry.tracesSampleRate ?? undefined,
+    });
+  } catch {
+    // Sentry is optional observability; never block or break the app over it.
+  }
+}
+
+const buildTimeDsn = import.meta.env.VITE_SENTRY_DSN;
+
+if (buildTimeDsn) {
+  initSentry({
+    dsn: buildTimeDsn,
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT,
+    tracesSampleRate: import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE,
+  });
+} else if (typeof window !== "undefined") {
+  void initSentryFromRuntimeConfig();
 }

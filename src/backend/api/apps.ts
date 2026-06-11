@@ -6,6 +6,7 @@ import { agentsMiddleware } from "hono-agents";
 import { authorizeAgentRequest } from "#/backend/auth/index.ts";
 import { handleAppError } from "#/backend/errors.ts";
 import { browserAuthApiRoutes, browserAuthRoutes } from "#/backend/api/routes/auth.ts";
+import { clientConfigRoutes } from "#/backend/api/routes/client-config.ts";
 import { githubWebhookRoutes } from "#/backend/api/routes/github.ts";
 import { mcpOAuthRoutes } from "#/backend/api/routes/mcp.ts";
 import { nanitesApiRoutes } from "#/backend/api/routes/nanites.ts";
@@ -84,6 +85,7 @@ export const nanitesHttpApp = app
   .route("/", githubWebhookRoutes)
   .route("/", setupRoutes)
   .route("/api/auth", browserAuthApiRoutes)
+  .route("/api/client-config", clientConfigRoutes)
   .route("/api/nanites", nanitesApiRoutes)
   .route("/api/observability", observabilityApiRoutes);
 
