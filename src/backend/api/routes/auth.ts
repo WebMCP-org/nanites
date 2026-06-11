@@ -34,6 +34,7 @@ import {
   DEFAULT_AUTH_RETURN_TO_PATH,
   normalizeAuthenticatedReturnToPath,
 } from "#/auth.ts";
+import { shouldShowSetup } from "#/backend/setup-policy.ts";
 
 const browserAuthRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {
   context.set("browserSession", await requireSession(context.req.raw, context.env));
@@ -193,7 +194,11 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
         requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
       });
     } catch (error) {
-      if (error instanceof AppError && error.kind === "deploymentGitHubAppSetupRequired") {
+      if (
+        error instanceof AppError &&
+        error.kind === "deploymentGitHubAppSetupRequired" &&
+        shouldShowSetup(context.env)
+      ) {
         return context.redirect("/setup", 302);
       }
       throw error;

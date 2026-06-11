@@ -234,6 +234,11 @@ vp run db:migrate:local
 vp run dev
 ```
 
+The local `.dev.vars` template hides the setup wizard with `NANITES_SHOW_SETUP=false`. Change it to
+`NANITES_SHOW_SETUP=true` only when you want to exercise `/setup` locally. This flag does not bypass
+runtime GitHub App config: local OAuth and MCP still need the D1 deployment metadata row plus
+`AUTH_COOKIE_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_CLIENT_SECRET`, and `GITHUB_WEBHOOK_SECRET`.
+
 For local MCP/browser smoke testing, you can use the GitHub CLI token from your keychain:
 
 ```bash

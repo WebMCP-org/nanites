@@ -93,6 +93,12 @@ function envWithoutAuthCookieSecret(): Env {
   return testEnv;
 }
 
+function envWithSetupVisibility(showSetup: boolean): Env {
+  const testEnv = { ...env } as Env;
+  Reflect.set(testEnv, "NANITES_SHOW_SETUP", showSetup ? "true" : "false");
+  return testEnv;
+}
+
 function snapshotGeneratedSecretEnv(): Record<string, unknown> {
   return {
     GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
@@ -471,6 +477,32 @@ async function saveGeneratedGitHubAppMetadata(
 ): Promise<void> {
   await saveTestDeploymentGitHubAppMetadata(env.DB, input);
 }
+
+test("setup status exposes the setup visibility policy", async () => {
+  const response = await nanitesHttpApp.request(
+    `${SETUP_ORIGIN}/api/setup/status`,
+    {},
+    envWithSetupVisibility(false),
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    setupComplete: false,
+    runtimeConfigReadable: false,
+    showSetup: false,
+  });
+});
+
+test("setup actions are unavailable when setup visibility is disabled", async () => {
+  const response = await nanitesHttpApp.request(
+    `${SETUP_ORIGIN}/api/setup/cloudflare`,
+    { method: "POST" },
+    envWithSetupVisibility(false),
+  );
+
+  expect(response.status).toBe(404);
+  await expect(response.text()).resolves.toBe("Not found");
+});
 
 test("setup status unlocks repository install after generated GitHub App config is readable", async () => {
   await saveGeneratedGitHubAppMetadata();
@@ -1417,6 +1449,19 @@ test("GitHub login redirects to setup when no deployment app config exists", asy
 
   expect(response.status).toBe(302);
   expect(response.headers.get("Location")).toBe("/setup");
+});
+
+test("GitHub login reports setup required when setup visibility is disabled", async () => {
+  const response = await nanitesHttpApp.request(
+    `${SETUP_ORIGIN}/auth/github/login?returnTo=/nanites`,
+    {},
+    envWithSetupVisibility(false),
+  );
+
+  expect(response.status).toBe(403);
+  await expect(response.json()).resolves.toEqual({
+    code: "deployment_github_app_setup_required",
+  });
 });
 
 test("MCP route reports setup required when no deployment app config exists", async () => {

@@ -1,7 +1,8 @@
 import "./setup.css";
 import { useState, type ReactNode } from "react";
 import { useAgent } from "agents/react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { parseResponse } from "hono/client";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -12,6 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
+import { httpClient } from "#/frontend/lib/http-client.ts";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import type {
@@ -24,6 +26,14 @@ import type {
 const SETUP_STEP_COUNT = 5;
 
 export const Route = createFileRoute("/setup")({
+  loader: async () => {
+    const setupStatus = await parseResponse(httpClient.api.setup.status.$get());
+    if (!setupStatus.showSetup) {
+      throw redirect({ to: "/" });
+    }
+
+    return { setupStatus };
+  },
   component: SetupPage,
 });
 

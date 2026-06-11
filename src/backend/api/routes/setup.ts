@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { createMiddleware } from "hono/factory";
 import { parse } from "hono/utils/cookie";
 import { getAgentByName } from "agents";
 import { getLogger } from "@logtape/logtape";
@@ -34,7 +35,9 @@ import {
   SETUP_CLAIM_COOKIE_NAME,
   buildSetupClaimCookie,
   type NanitesSetupAgent,
+  type NanitesSetupState,
 } from "#/backend/agents/NanitesSetupAgent.ts";
+import { shouldShowSetup } from "#/backend/setup-policy.ts";
 
 const setupLogger = getLogger(LOGGING.SERVER_CATEGORY).getChild("setup");
 
@@ -60,6 +63,18 @@ const startGitHubAppBodySchema = z.object({
 });
 
 type GitHubSetupVerificationQuery = z.infer<typeof gitHubSetupVerificationQuerySchema>;
+export type SetupStatusResponse = NanitesSetupState & {
+  readonly runtimeConfigReadable: boolean;
+  readonly showSetup: boolean;
+};
+
+const setupVisibleRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {
+  if (!shouldShowSetup(context.env)) {
+    return context.text("Not found", 404);
+  }
+
+  await next();
+});
 
 async function getSetupAgent(env: Env): Promise<DurableObjectStub<NanitesSetupAgent>> {
   return getAgentByName<Env, NanitesSetupAgent>(
@@ -211,14 +226,19 @@ async function proveInstallationTokenCanBeMinted({
 export const setupRoutes = new Hono<WorkerHonoEnv>()
   .get("/api/setup/status", async (context) => {
     const setupAgent = await getSetupAgent(context.env);
-    return context.json(
-      await setupAgent.refresh({
-        origin: new URL(context.req.raw.url).origin,
-        runtimeConfigReadable: await isRuntimeConfigReadable(context.env),
-      }),
-    );
+    const runtimeConfigReadable = await isRuntimeConfigReadable(context.env);
+    const state = await setupAgent.refresh({
+      origin: new URL(context.req.raw.url).origin,
+      runtimeConfigReadable,
+    });
+
+    return context.json({
+      ...state,
+      runtimeConfigReadable,
+      showSetup: shouldShowSetup(context.env),
+    } satisfies SetupStatusResponse);
   })
-  .post("/api/setup/cloudflare", async (context) => {
+  .post("/api/setup/cloudflare", setupVisibleRequired, async (context) => {
     const setupAgent = await getSetupAgent(context.env);
     const result = await setupAgent.connectCloudflare({
       origin: new URL(context.req.raw.url).origin,
@@ -231,7 +251,7 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
 
     return context.json({ state: result.state, authorizationUrl: result.authorizationUrl });
   })
-  .post("/api/setup/github-app", async (context) => {
+  .post("/api/setup/github-app", setupVisibleRequired, async (context) => {
     const claimToken = requireSetupClaimToken(context.req.raw);
     const body = startGitHubAppBodySchema.safeParse(await context.req.json().catch(() => null));
     if (!body.success) {
@@ -252,7 +272,7 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
 
     return context.json({ action: result.action, manifest: result.manifest, state: result.state });
   })
-  .get(GITHUB_APP_MANIFEST_CALLBACK_PATH, async (context) => {
+  .get(GITHUB_APP_MANIFEST_CALLBACK_PATH, setupVisibleRequired, async (context) => {
     const url = new URL(context.req.raw.url);
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
@@ -277,7 +297,7 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       302,
     );
   })
-  .get(GITHUB_APP_INSTALL_CALLBACK_PATH, async (context) => {
+  .get(GITHUB_APP_INSTALL_CALLBACK_PATH, setupVisibleRequired, async (context) => {
     requireSetupClaimToken(context.req.raw);
     const callbackQuery = requireGitHubAppSetupCallbackQuery(context.req.raw);
     return context.redirect(
@@ -285,7 +305,7 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       302,
     );
   })
-  .get(GITHUB_APP_INSTALL_VERIFY_PATH, async (context) => {
+  .get(GITHUB_APP_INSTALL_VERIFY_PATH, setupVisibleRequired, async (context) => {
     const claimToken = requireSetupClaimToken(context.req.raw);
     const verificationQuery = requireGitHubSetupVerificationQuery(context.req.raw);
     let session: Awaited<ReturnType<typeof requireSession>>;
@@ -362,7 +382,7 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
 
     return context.redirect("/setup", 302);
   })
-  .get("/api/setup/upstream-star", async (context) => {
+  .get("/api/setup/upstream-star", setupVisibleRequired, async (context) => {
     const { githubUserToken } = await requireGitHubBrowserAuth(context);
     const starred = await checkAuthenticatedUserStarredNanites(githubUserToken.accessToken);
     const setupAgent = await getSetupAgent(context.env);
@@ -373,7 +393,7 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       }),
     );
   })
-  .put("/api/setup/upstream-star", async (context) => {
+  .put("/api/setup/upstream-star", setupVisibleRequired, async (context) => {
     const { githubUserToken } = await requireGitHubBrowserAuth(context);
     await starNanitesRepositoryForAuthenticatedUser(githubUserToken.accessToken);
     const starred = await checkAuthenticatedUserStarredNanites(githubUserToken.accessToken);
