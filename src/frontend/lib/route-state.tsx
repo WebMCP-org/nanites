@@ -50,9 +50,7 @@ export function RouteNotFoundPage() {
         />
         <div className="not-found__content">
           <span className="not-found__eyebrow">404</span>
-          <h1 className="not-found__heading">
-            There aren't any nanites here to work on your frontend.
-          </h1>
+          <h1 className="not-found__heading">There aren't any nanites here.</h1>
           <p className="not-found__body">
             The route you followed doesn't exist. It may have moved, been renamed, or never shipped.
             Head back to Nanites to pick up where you left off.

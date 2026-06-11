@@ -1,80 +1,50 @@
 import "./setup.css";
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAgent } from "agents/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { GithubLogoIcon, LockKeyIcon, RocketLaunchIcon, StarIcon } from "@phosphor-icons/react";
-import { Badge } from "#/frontend/ui/components/Badge.tsx";
-import { Button } from "#/frontend/ui/components/Button.tsx";
 import {
-  Stepper,
-  StepperContent,
-  StepperDescription,
-  StepperIndicator,
-  StepperItem,
-  StepperNav,
-  StepperPanel,
-  StepperSeparator,
-  StepperTitle,
-  StepperTrigger,
-} from "#/frontend/ui/components/Stepper.tsx";
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  GithubLogoIcon,
+  LockKeyIcon,
+  RocketLaunchIcon,
+  StarIcon,
+} from "@phosphor-icons/react";
+import { Button } from "#/frontend/ui/components/Button.tsx";
+import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import type {
-  CloudflareReadinessItemStatus,
   NanitesSetupAgent,
   NanitesSetupAgentState,
   StartGitHubManifestOutput,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 
 const SETUP_OWNER_TOKEN_STORAGE_KEY = "nanites.setupOwnerToken";
+const SETUP_STEP_COUNT = 5;
 
 export const Route = createFileRoute("/setup")({
   component: SetupPage,
 });
 
-type SetupStepState = "complete" | "ready" | "running" | "blocked" | "locked";
-type SetupNaniteVariant = "helmet" | "working" | "celebrating";
+type SetupStepIndicatorState = "active" | "working" | "fail" | "done";
 
-function statusLabel(state: SetupStepState): string {
-  if (state === "complete") return "Done";
-  if (state === "ready") return "Ready";
-  if (state === "running") return "Working";
-  if (state === "blocked") return "Blocked";
-  return "Locked";
-}
+const NANITE_VARIANT_FOR_STATE: Record<SetupStepIndicatorState, NaniteSceneVariant> = {
+  active: "helmet",
+  working: "working",
+  fail: "concerned",
+  done: "celebrating",
+};
 
-function badgeColor(state: SetupStepState): ComponentProps<typeof Badge>["color"] {
-  if (state === "complete") return "success";
-  if (state === "ready" || state === "running") return "primary";
-  if (state === "blocked") return "destructive";
-  return "neutral";
-}
-
-function readinessBadgeColor(
-  status: CloudflareReadinessItemStatus,
-): ComponentProps<typeof Badge>["color"] {
-  if (status === "ready") return "success";
-  if (status === "blocked") return "destructive";
-  if (status === "warning") return "warning";
-  if (status === "checking") return "primary";
-  return "neutral";
-}
-
-function readinessStatusLabel(status: CloudflareReadinessItemStatus): string {
-  if (status === "ready") return "Ready";
-  if (status === "blocked") return "Blocked";
-  if (status === "warning") return "Note";
-  if (status === "checking") return "Checking";
-  return "Pending";
+function activeStepIndex(step: NanitesSetupAgentState["currentStep"]): number {
+  if (step === "deploy" || step === "cloudflare") return 0;
+  if (step === "github-app") return 1;
+  if (step === "repositories") return 2;
+  if (step === "upstream-star") return 3;
+  return 4;
 }
 
 function cloudflareButtonLabel(status: NanitesSetupAgentState["cloudflare"]): string {
-  if (status.status === "connecting" || status.status === "authenticating") {
-    return "Restart Cloudflare";
-  }
-  if (status.status === "verifying" || status.readiness.status === "checking") {
-    return "Restart Cloudflare";
-  }
   if (status.status === "verified" && status.readiness.status === "blocked") {
     return status.readiness.items.some(
       (item) => item.status === "blocked" && item.action === "reconnect",
@@ -111,92 +81,131 @@ function postGitHubManifest(result: StartGitHubManifestOutput): void {
   form.remove();
 }
 
-function SetupPanel({
-  title,
-  description,
+function indicatorDescription(state: SetupStepIndicatorState): string {
+  if (state === "done") return "complete";
+  if (state === "working") return "in progress";
+  if (state === "fail") return "needs attention";
+  return "ready";
+}
+
+function SetupFrame({
+  progressIndex,
+  viewIndex,
+  indicatorState,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
+  primaryAction,
   children,
 }: {
-  readonly title: string;
-  readonly description: string;
+  readonly progressIndex: number;
+  readonly viewIndex: number;
+  readonly indicatorState: SetupStepIndicatorState;
+  readonly canGoBack?: boolean;
+  readonly canGoForward?: boolean;
+  readonly onGoBack?: () => void;
+  readonly onGoForward?: () => void;
+  readonly primaryAction?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
-    <div className="setup-panel">
-      <div className="setup-panel__copy">
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </div>
-      <div className="setup-panel__action">{children}</div>
-    </div>
-  );
-}
-
-function SetupNaniteScene({ variant }: { readonly variant: SetupNaniteVariant }) {
-  return (
-    <div className="setup-nanite-scene" data-variant={variant} aria-hidden="true">
-      <div className="setup-nanite-scene__screen">
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className="setup-nanite-scene__team">
-        {[0, 1, 2].map((index) => (
-          <div className="setup-nanite" data-index={index} key={index}>
-            <span className="setup-nanite__hat" />
-            <span className="setup-nanite__body">
-              <span className="setup-nanite__eye setup-nanite__eye--left" />
-              <span className="setup-nanite__eye setup-nanite__eye--right" />
-              <span className="setup-nanite__tool" />
-            </span>
-            <span className="setup-nanite__shadow" />
-          </div>
+    <main className="setup-screen">
+      <section className="setup-frame" aria-labelledby="setup-title">
+        {(["tl", "tr", "bl", "br"] as const).map((corner) => (
+          <span
+            aria-hidden="true"
+            className="setup-frame__corner"
+            data-corner={corner}
+            key={corner}
+          />
         ))}
-      </div>
-      <span className="setup-nanite-scene__sparkle setup-nanite-scene__sparkle--one" />
-      <span className="setup-nanite-scene__sparkle setup-nanite-scene__sparkle--two" />
-    </div>
+        <div className="setup-frame__body">
+          <div className="setup-frame__content">
+            <h1 id="setup-title">SigVelo Nanites Installer</h1>
+            {children}
+          </div>
+          <div className="setup-frame__scene">
+            <NaniteScene
+              mode="solo"
+              title="Nanite status"
+              variant={NANITE_VARIANT_FOR_STATE[indicatorState]}
+            />
+          </div>
+        </div>
+        <footer className="setup-frame__footer">
+          <div
+            className="setup-progress"
+            aria-label={`Step ${viewIndex + 1} of ${SETUP_STEP_COUNT}, ${indicatorDescription(indicatorState)}`}
+          >
+            {Array.from({ length: SETUP_STEP_COUNT }, (_, index) => (
+              <span
+                className="setup-progress__seg"
+                data-state={
+                  index < progressIndex ? "done" : index === progressIndex ? "active" : "upcoming"
+                }
+                key={index}
+              />
+            ))}
+            <span className="setup-progress__label">
+              Step {viewIndex + 1}/{SETUP_STEP_COUNT}
+            </span>
+            <span
+              aria-hidden="true"
+              className="setup-progress__state"
+              data-state={indicatorState}
+            />
+          </div>
+          <div className="setup-frame__nav">
+            <div className="setup-frame__nav-steps">
+              <Button
+                aria-label="Go back a step"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                disabled={!canGoBack}
+                onClick={onGoBack}
+              >
+                <ArrowLeftIcon size={16} />
+                <span>Back</span>
+              </Button>
+              <Button
+                aria-label="Go forward a completed step"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                disabled={!canGoForward}
+                onClick={onGoForward}
+              >
+                <span>Forward</span>
+                <ArrowRightIcon size={16} />
+              </Button>
+            </div>
+            {primaryAction ? <div className="setup-frame__nav-action">{primaryAction}</div> : null}
+          </div>
+        </footer>
+      </section>
+    </main>
   );
 }
 
-function CloudflareReadinessChecklist({
-  readiness,
+function StepStatus({
+  runningLabel,
+  errors,
 }: {
-  readonly readiness: NanitesSetupAgentState["cloudflare"]["readiness"];
+  readonly runningLabel?: string;
+  readonly errors: readonly string[];
 }) {
   return (
-    <ul className="setup-readiness" aria-label="Cloudflare readiness">
-      {readiness.items.map((item) => (
-        <li className="setup-readiness__item" data-status={item.status} key={item.key}>
-          <div className="setup-readiness__item-heading">
-            <span>{item.label}</span>
-            <Badge color={readinessBadgeColor(item.status)} size="sm" variant="outline">
-              {readinessStatusLabel(item.status)}
-            </Badge>
-          </div>
-          <p>{item.detail}</p>
-          <span className="setup-readiness__scope">
-            {item.severity === "required" ? "Required" : "Informational"}
-          </span>
-        </li>
+    <output aria-live="polite" className="setup-status">
+      {runningLabel ? <p className="setup-status__line">{runningLabel}</p> : null}
+      {errors.map((error) => (
+        <p className="setup-status__line setup-status__line--error" key={error}>
+          {error}
+        </p>
       ))}
-    </ul>
+    </output>
   );
-}
-
-type SetupStep = {
-  readonly step: number;
-  readonly state: SetupStepState;
-  readonly title: string;
-  readonly description: string;
-};
-
-function stepValueForCurrentStep(step: NanitesSetupAgentState["currentStep"]): number {
-  if (step === "deploy") return 1;
-  if (step === "cloudflare") return 2;
-  if (step === "github-app") return 3;
-  if (step === "repositories") return 4;
-  if (step === "upstream-star") return 5;
-  return 6;
 }
 
 function buildGitHubLoginUrl(returnTo = "/nanites"): string {
@@ -248,24 +257,27 @@ function SetupPage() {
   const [cloudflareActionError, setCloudflareActionError] = useState<string | null>(null);
   const [starActionRunning, setStarActionRunning] = useState(false);
   const [starActionError, setStarActionError] = useState<string | null>(null);
+  const [viewedStepOverride, setViewedStepOverride] = useState<number | null>(null);
   const status = setupAgent.state;
   const setupConnectionReady = Boolean(setupAgent.stub);
   const localSetupOrigin = isLocalSetupOrigin();
+  const agentStepIndex = status ? activeStepIndex(status.currentStep) : 0;
+
+  useEffect(() => {
+    setViewedStepOverride(null);
+  }, [agentStepIndex]);
 
   if (!status) {
     return (
-      <main className="setup-screen">
-        <section className="setup-hero" aria-labelledby="setup-title">
-          <SetupNaniteScene variant="helmet" />
-          <div className="setup-hero__copy">
-            <p>Self-hosted setup</p>
-            <h1 id="setup-title">Connecting to Nanites setup.</h1>
-          </div>
-        </section>
-      </main>
+      <SetupFrame progressIndex={0} viewIndex={0} indicatorState="working">
+        <h2 className="setup-step__title">Connect a Cloudflare account to this Worker project</h2>
+        <StepStatus runningLabel="Connecting to Nanites setup…" errors={[]} />
+      </SetupFrame>
     );
   }
 
+  const viewedStepIndex = Math.min(viewedStepOverride ?? agentStepIndex, agentStepIndex);
+  const viewingCompletedStep = viewedStepIndex < agentStepIndex;
   const trimmedOwnerLogin = ownerLogin.trim();
   const githubAppComplete = status.githubApp.status === "complete";
   const githubAppFinishing =
@@ -282,85 +294,13 @@ function SetupPage() {
   const cloudflareReady = cloudflareVerified && status.cloudflare.readiness.status === "ready";
   const setupComplete = status.setupComplete;
   const repositoriesComplete = status.repositories.status === "complete";
-  const upstreamStarComplete = status.upstreamStar.status === "complete";
-  const naniteVariant: SetupNaniteVariant = setupComplete
-    ? "celebrating"
-    : cloudflareVerified
-      ? "working"
-      : "helmet";
-  const githubAppStepState: SetupStepState = githubAppComplete
-    ? "complete"
-    : githubAppFinishing
-      ? "running"
-      : cloudflareReady && githubAppCanCreate
-        ? "ready"
-        : "locked";
-  const repositoryStepState: SetupStepState = repositoriesComplete
-    ? "complete"
-    : githubAppComplete
-      ? "ready"
-      : "locked";
-  const upstreamStarStepState: SetupStepState = upstreamStarComplete
-    ? "complete"
-    : starActionRunning
-      ? "running"
-      : repositoriesComplete
-        ? "ready"
-        : "locked";
-  const startStepState: SetupStepState = status.launch.status === "ready" ? "ready" : "locked";
-
-  const cloudflareStepState: SetupStepState =
+  const cloudflareRunning =
     status.cloudflare.status === "connecting" ||
     status.cloudflare.status === "authenticating" ||
     status.cloudflare.status === "verifying" ||
-    status.cloudflare.readiness.status === "checking"
-      ? "running"
-      : cloudflareReady
-        ? "complete"
-        : cloudflareVerified && status.cloudflare.readiness.status === "blocked"
-          ? "blocked"
-          : "ready";
-  const cloudflareCanConnect = setupConnectionReady;
-  const activeStep = stepValueForCurrentStep(status.currentStep);
-
-  const steps: readonly SetupStep[] = [
-    {
-      step: 1,
-      state: "complete",
-      title: "Deploy",
-      description: "Worker is live.",
-    },
-    {
-      step: 2,
-      state: cloudflareStepState,
-      title: "Cloudflare",
-      description: cloudflareReady ? "Ready." : "Verify readiness.",
-    },
-    {
-      step: 3,
-      state: githubAppStepState,
-      title: "GitHub App",
-      description: githubAppComplete ? "Created." : "Create the app.",
-    },
-    {
-      step: 4,
-      state: repositoryStepState,
-      title: "Repositories",
-      description: "Pick access.",
-    },
-    {
-      step: 5,
-      state: upstreamStarStepState,
-      title: "Star Nanites",
-      description: upstreamStarComplete ? "Verified." : "Required.",
-    },
-    {
-      step: 6,
-      state: startStepState,
-      title: "Launch",
-      description: setupComplete ? "Ready." : "Almost there.",
-    },
-  ];
+    status.cloudflare.readiness.status === "checking";
+  const cloudflareCanConnect = setupConnectionReady && !cloudflareRunning && !cloudflareReady;
+  const globalErrors = status.error ? [status.error.message] : [];
 
   async function runUpstreamStarAction(method: "GET" | "PUT"): Promise<void> {
     setStarActionRunning(true);
@@ -418,236 +358,247 @@ function SetupPage() {
     }
   }
 
-  return (
-    <main className="setup-screen">
-      <section className="setup-hero" aria-labelledby="setup-title">
-        <SetupNaniteScene variant={naniteVariant} />
-        <div className="setup-hero__copy">
-          <p>Self-hosted setup</p>
-          <h1 id="setup-title">Set up Nanites in a few clicks.</h1>
+  let stepContent: ReactNode;
+  let primaryAction: ReactNode = null;
+  let stepWorking = false;
+  let stepErrors: readonly string[] = [];
+
+  if (viewedStepIndex === 0) {
+    stepWorking = cloudflareRunning;
+    const blockedDetails = status.cloudflare.readiness.items
+      .filter((item) => item.status === "blocked")
+      .map((item) => item.detail);
+    stepErrors = [
+      ...(cloudflareActionError ? [cloudflareActionError] : []),
+      ...blockedDetails,
+      ...(localSetupOrigin && !cloudflareVerified
+        ? [
+            "Local dev runs on localhost, so Cloudflare cannot confirm ownership of this Worker. Use the local .dev.vars setup path, or retry from a deployed Worker URL.",
+          ]
+        : []),
+      ...globalErrors,
+    ];
+
+    primaryAction = (
+      <Button
+        color="primary"
+        disabled={!cloudflareCanConnect}
+        onClick={() => {
+          void connectCloudflareForSetup().catch(() => {
+            setCloudflareActionError("Cloudflare setup did not start.");
+          });
+        }}
+      >
+        <LockKeyIcon weight="fill" />
+        <span>{cloudflareButtonLabel(status.cloudflare)}</span>
+      </Button>
+    );
+    stepContent = (
+      <>
+        <h2 className="setup-step__title">Connect a Cloudflare account to this Worker project</h2>
+        <p className="setup-step__note">
+          Cloudflare bills your account directly. Default Kimi K2.6 runs through Workers AI, so no
+          external API provider key is required.
+        </p>
+        <StepStatus
+          runningLabel={cloudflareRunning ? "Verifying…" : undefined}
+          errors={stepErrors}
+        />
+      </>
+    );
+  } else if (viewedStepIndex === 1) {
+    stepWorking = githubAppFinishing || status.githubApp.status === "creating";
+    stepErrors = globalErrors;
+    if (!githubAppFinishing) {
+      primaryAction = (
+        <Button
+          color="primary"
+          disabled={!githubManifestCanStart}
+          onClick={() => {
+            void setupAgent.stub
+              ?.startGitHubManifest({
+                ownerType,
+                ownerLogin: ownerType === "organization" ? trimmedOwnerLogin : null,
+              })
+              .then(postGitHubManifest)
+              .catch(() => undefined);
+          }}
+        >
+          <GithubLogoIcon weight="fill" />
+          <span>Create App</span>
+        </Button>
+      );
+    }
+    stepContent = (
+      <>
+        <h2 className="setup-step__title">Create the GitHub App for this deployment</h2>
+        <p className="setup-step__note">Nanites will use an app owned by this deployment.</p>
+        {githubAppFinishing ? null : (
+          <div className="setup-step__actions">
+            <div className="setup-owner-toggle" role="radiogroup" aria-label="GitHub App owner">
+              <label>
+                <input
+                  checked={ownerType === "user"}
+                  aria-label="Personal account"
+                  name="ownerType"
+                  type="radio"
+                  value="user"
+                  onChange={() => {
+                    setOwnerType("user");
+                  }}
+                />
+                <span>Personal</span>
+              </label>
+              <label>
+                <input
+                  checked={ownerType === "organization"}
+                  aria-label="Organization account"
+                  name="ownerType"
+                  type="radio"
+                  value="organization"
+                  onChange={() => {
+                    setOwnerType("organization");
+                  }}
+                />
+                <span>Organization</span>
+              </label>
+            </div>
+            {ownerType === "organization" ? (
+              <input
+                className="setup-owner-input"
+                aria-label="GitHub organization"
+                value={ownerLogin}
+                placeholder="organization"
+                type="text"
+                onChange={(event) => {
+                  setOwnerLogin(event.target.value);
+                }}
+              />
+            ) : null}
+          </div>
+        )}
+        <StepStatus
+          runningLabel={githubAppFinishing ? "Finishing setup…" : undefined}
+          errors={stepErrors}
+        />
+      </>
+    );
+  } else if (viewedStepIndex === 2) {
+    stepErrors = globalErrors;
+    primaryAction = (
+      <Button
+        color="primary"
+        disabled={!status.githubApp.installUrl || !githubAppComplete}
+        onClick={() => {
+          if (status.githubApp.installUrl && githubAppComplete) {
+            window.location.href = status.githubApp.installUrl;
+          }
+        }}
+      >
+        <GithubLogoIcon weight="fill" />
+        <span>Pick Repos</span>
+      </Button>
+    );
+    stepContent = (
+      <>
+        <h2 className="setup-step__title">Pick repositories for Nanites to maintain</h2>
+        <p className="setup-step__note">Install the app wherever Nanites can maintain code.</p>
+        <StepStatus errors={stepErrors} />
+      </>
+    );
+  } else if (viewedStepIndex === 3) {
+    stepWorking = starActionRunning;
+    stepErrors = [
+      ...(status.upstreamStar.error ? [status.upstreamStar.error] : []),
+      ...(starActionError ? [starActionError] : []),
+      ...globalErrors,
+    ];
+
+    primaryAction = (
+      <Button
+        color="primary"
+        disabled={!repositoriesComplete || starActionRunning}
+        onClick={() => {
+          void runUpstreamStarAction("PUT");
+        }}
+      >
+        <StarIcon weight="fill" />
+        <span>Star WebMCP-org/nanites</span>
+      </Button>
+    );
+    stepContent = (
+      <>
+        <h2 className="setup-step__title">Star the upstream Nanites repo</h2>
+        <p className="setup-step__note">
+          Starring is required before launch and helps other self-hosters find the project.
+        </p>
+        <div className="setup-step__actions">
+          <Button
+            color="neutral"
+            variant="outline"
+            disabled={!repositoriesComplete || starActionRunning}
+            onClick={() => {
+              void runUpstreamStarAction("GET");
+            }}
+          >
+            <GithubLogoIcon weight="fill" />
+            <span>I already starred it</span>
+          </Button>
         </div>
-      </section>
+        <StepStatus
+          runningLabel={starActionRunning ? "Checking with GitHub…" : undefined}
+          errors={stepErrors}
+        />
+      </>
+    );
+  } else {
+    stepErrors = globalErrors;
+    primaryAction = (
+      <Button
+        color="primary"
+        disabled={!setupComplete}
+        onClick={() => {
+          window.location.href = buildGitHubLoginUrl();
+        }}
+      >
+        <RocketLaunchIcon weight="fill" />
+        <span>Start Nanites</span>
+      </Button>
+    );
+    stepContent = (
+      <>
+        <h2 className="setup-step__title">Sign in and create your first maintainer</h2>
+        <p className="setup-step__note">Setup is complete. Nanites is ready to launch.</p>
+        <StepStatus errors={stepErrors} />
+      </>
+    );
+  }
 
-      <Stepper value={activeStep} orientation="vertical" className="setup-flow">
-        <StepperNav aria-label="Setup steps" className="setup-flow__nav">
-          {steps.map((step, index) => (
-            <StepperItem
-              key={step.step}
-              step={step.step}
-              completed={step.state === "complete"}
-              disabled={step.state === "locked"}
-              loading={step.state === "running"}
-            >
-              <StepperTrigger className="setup-flow__trigger" aria-label={step.title}>
-                <StepperIndicator />
-                <span className="setup-flow__text">
-                  <StepperTitle>{step.title}</StepperTitle>
-                  <StepperDescription>{step.description}</StepperDescription>
-                </span>
-                <Badge
-                  color={badgeColor(step.state)}
-                  size="sm"
-                  variant={step.state === "locked" ? "outline" : "normal"}
-                >
-                  {statusLabel(step.state)}
-                </Badge>
-              </StepperTrigger>
-              {index < steps.length - 1 ? <StepperSeparator /> : null}
-            </StepperItem>
-          ))}
-        </StepperNav>
+  const indicatorState: SetupStepIndicatorState =
+    viewingCompletedStep || (viewedStepIndex === SETUP_STEP_COUNT - 1 && setupComplete)
+      ? "done"
+      : stepErrors.length > 0
+        ? "fail"
+        : stepWorking
+          ? "working"
+          : "active";
 
-        <StepperPanel className="setup-flow__panel">
-          <StepperContent value={1}>
-            <SetupPanel title="Cloudflare deploy" description="Your self-hosted Worker is running.">
-              <Badge color="success">Done</Badge>
-            </SetupPanel>
-          </StepperContent>
-          <StepperContent value={2}>
-            <SetupPanel
-              title="Connect Cloudflare"
-              description="Use the Cloudflare account that owns this Worker. Nanites checks billing and runtime readiness before creating the GitHub App."
-            >
-              <Button
-                color="primary"
-                disabled={!cloudflareCanConnect}
-                onClick={() => {
-                  void connectCloudflareForSetup().catch(() => {
-                    setCloudflareActionError("Cloudflare setup did not start.");
-                  });
-                }}
-              >
-                <LockKeyIcon weight="fill" />
-                <span>{cloudflareButtonLabel(status.cloudflare)}</span>
-              </Button>
-              {cloudflareActionError ? (
-                <p className="setup-action-error">{cloudflareActionError}</p>
-              ) : null}
-              <p className="setup-action-note">
-                Cloudflare bills your account directly. Default Kimi K2.6 runs through Workers AI,
-                so no external provider API key is required.
-              </p>
-              <CloudflareReadinessChecklist readiness={status.cloudflare.readiness} />
-              {localSetupOrigin && !cloudflareVerified ? (
-                <p className="setup-action-note">
-                  Local dev runs on localhost, so Cloudflare cannot confirm ownership of this
-                  Worker. Use the local .dev.vars setup path, or retry from a deployed Cloudflare
-                  Worker URL.
-                </p>
-              ) : null}
-            </SetupPanel>
-          </StepperContent>
-          <StepperContent value={3}>
-            <SetupPanel
-              title="Create GitHub App"
-              description={
-                githubAppFinishing
-                  ? "Finishing setup."
-                  : "Nanites will use an app owned by this deployment."
-              }
-            >
-              {githubAppFinishing ? (
-                <Badge color="primary">Finishing</Badge>
-              ) : (
-                <div className="setup-github-form">
-                  <div
-                    className="setup-owner-toggle"
-                    role="radiogroup"
-                    aria-label="GitHub App owner"
-                  >
-                    <label>
-                      <input
-                        checked={ownerType === "user"}
-                        aria-label="Personal account"
-                        name="ownerType"
-                        type="radio"
-                        value="user"
-                        onChange={() => {
-                          setOwnerType("user");
-                        }}
-                      />
-                      <span>Personal</span>
-                    </label>
-                    <label>
-                      <input
-                        checked={ownerType === "organization"}
-                        aria-label="Organization account"
-                        name="ownerType"
-                        type="radio"
-                        value="organization"
-                        onChange={() => {
-                          setOwnerType("organization");
-                        }}
-                      />
-                      <span>Organization</span>
-                    </label>
-                  </div>
-                  {ownerType === "organization" ? (
-                    <input
-                      className="setup-owner-input"
-                      aria-label="GitHub organization"
-                      value={ownerLogin}
-                      placeholder="organization"
-                      type="text"
-                      onChange={(event) => {
-                        setOwnerLogin(event.target.value);
-                      }}
-                    />
-                  ) : null}
-                  <Button
-                    color="primary"
-                    disabled={!githubManifestCanStart}
-                    onClick={() => {
-                      void setupAgent.stub
-                        ?.startGitHubManifest({
-                          ownerType,
-                          ownerLogin: ownerType === "organization" ? trimmedOwnerLogin : null,
-                        })
-                        .then(postGitHubManifest)
-                        .catch(() => undefined);
-                    }}
-                  >
-                    <GithubLogoIcon weight="fill" />
-                    <span>
-                      {status.githubApp.status === "creating" ? "Creating" : "Create App"}
-                    </span>
-                  </Button>
-                </div>
-              )}
-            </SetupPanel>
-          </StepperContent>
-          <StepperContent value={4}>
-            <SetupPanel
-              title="Pick repositories"
-              description="Install the app wherever Nanites can maintain code."
-            >
-              <Button
-                color="primary"
-                disabled={!status.githubApp.installUrl || !githubAppComplete}
-                onClick={() => {
-                  if (status.githubApp.installUrl && githubAppComplete) {
-                    window.location.href = status.githubApp.installUrl;
-                  }
-                }}
-              >
-                <GithubLogoIcon weight="fill" />
-                <span>Pick Repos</span>
-              </Button>
-            </SetupPanel>
-          </StepperContent>
-          <StepperContent value={5}>
-            <SetupPanel
-              title="Star Nanites"
-              description="Star the upstream repo before launching this self-hosted deployment. This helps other self-hosters find the project."
-            >
-              <div className="setup-star-actions">
-                <Button
-                  color="primary"
-                  disabled={!repositoriesComplete || starActionRunning}
-                  onClick={() => {
-                    void runUpstreamStarAction("PUT");
-                  }}
-                >
-                  <StarIcon weight="fill" />
-                  <span>{starActionRunning ? "Checking" : "Star WebMCP-org/nanites"}</span>
-                </Button>
-                <Button
-                  color="neutral"
-                  variant="outline"
-                  disabled={!repositoriesComplete || starActionRunning}
-                  onClick={() => {
-                    void runUpstreamStarAction("GET");
-                  }}
-                >
-                  <GithubLogoIcon weight="fill" />
-                  <span>I already starred it</span>
-                </Button>
-              </div>
-              {status.upstreamStar.error || starActionError ? (
-                <p className="setup-action-error">{status.upstreamStar.error ?? starActionError}</p>
-              ) : null}
-            </SetupPanel>
-          </StepperContent>
-          <StepperContent value={6}>
-            <SetupPanel
-              title="Start Nanites"
-              description="Sign in and create your first maintainer."
-            >
-              <Button
-                color="primary"
-                disabled={!setupComplete}
-                onClick={() => {
-                  window.location.href = buildGitHubLoginUrl();
-                }}
-              >
-                <RocketLaunchIcon weight="fill" />
-                <span>Start Nanites</span>
-              </Button>
-            </SetupPanel>
-          </StepperContent>
-          {status.error ? <p className="setup-action-error">{status.error.message}</p> : null}
-        </StepperPanel>
-      </Stepper>
-    </main>
+  return (
+    <SetupFrame
+      progressIndex={agentStepIndex}
+      viewIndex={viewedStepIndex}
+      indicatorState={indicatorState}
+      canGoBack={viewedStepIndex > 0}
+      canGoForward={viewedStepIndex < agentStepIndex}
+      onGoBack={() => {
+        setViewedStepOverride(Math.max(viewedStepIndex - 1, 0));
+      }}
+      onGoForward={() => {
+        setViewedStepOverride(Math.min(viewedStepIndex + 1, agentStepIndex));
+      }}
+      primaryAction={viewingCompletedStep ? null : primaryAction}
+    >
+      {stepContent}
+    </SetupFrame>
   );
 }
