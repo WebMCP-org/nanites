@@ -1,16 +1,14 @@
 /**
- * Self-host template config (used by the Deploy to Cloudflare button,
- * scripts/deploy-self-host.mjs, and local dev). Deliberately generic: no
- * account-specific resource ids, routes, or required secrets — the setup flow
- * provisions those after first deploy.
+ * Sigvelo production config — the only deployment environment. Non-production
+ * testing uses Cloudflare preview URLs / Workers Builds branch previews
+ * (wrangler versions upload), and local dev runs the self-host template
+ * (wrangler.jsonc) with .dev.vars overrides.
  *
- * Sigvelo's own production deployment lives in wrangler.production.jsonc.
- * Non-production testing uses Cloudflare preview URLs / Workers Builds branch
- * previews; local dev overrides vars via .dev.vars.
+ * Deploy with: vp run deploy:prod
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nanites-app",
+  "name": "nanites-app-production",
   "main": "src/server.ts",
   "compatibility_date": "2026-03-02",
   "compatibility_flags": [
@@ -20,6 +18,15 @@
   ],
   "workers_dev": true,
   "preview_urls": true,
+  "limits": {
+    "subrequests": 10000000,
+  },
+  "routes": [
+    {
+      "pattern": "app.sigvelo.com",
+      "custom_domain": true,
+    },
+  ],
   "worker_loaders": [
     {
       "binding": "LOADER",
@@ -34,26 +41,36 @@
     "remote": true,
   },
   "vars": {
-    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app",
+    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
     "NANITES_SHOW_SETUP": "true",
     "ALLOW_TEST_AUTH": "false",
-    "SENTRY_ENVIRONMENT": "development",
-    "SENTRY_TRACES_SAMPLE_RATE": "1",
+    "SENTRY_ENVIRONMENT": "production",
+    "SENTRY_TRACES_SAMPLE_RATE": "0.1",
     "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP": "false",
     "NANITES_LLM_BASE_URL": "",
     "NANITES_LLM_FIXTURE": "",
     "NANITES_AI_GATEWAY_ID": "",
   },
+  "secrets": {
+    "required": [
+      "AUTH_COOKIE_SECRET",
+      "GITHUB_APP_PRIVATE_KEY",
+      "GITHUB_CLIENT_SECRET",
+      "GITHUB_WEBHOOK_SECRET",
+    ],
+  },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "nanites-db",
+      "database_id": "f5bbbd9d-2035-4ffe-94ff-c1df40116d37",
       "migrations_dir": "src/backend/db/migrations",
     },
   ],
   "r2_buckets": [
     {
       "binding": "WORKSPACE_FILES",
+      "bucket_name": "nanites-workspace-files",
     },
   ],
   "assets": {
@@ -76,9 +93,13 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
+      "id": "332558f8cf684876878b33baed2354be",
+      "preview_id": "332558f8cf684876878b33baed2354be",
     },
     {
       "binding": "TOOL_OUTPUTS",
+      "id": "44412418780c409990baa5a4573417b2",
+      "preview_id": "44412418780c409990baa5a4573417b2",
     },
   ],
   "durable_objects": {

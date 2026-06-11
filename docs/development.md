@@ -118,12 +118,10 @@ runtime secret bindings.
 Optional Sentry:
 
 ```bash
-vp exec wrangler secret put SENTRY_DSN --config wrangler.jsonc
-vp exec wrangler secret put SENTRY_DSN --config wrangler.jsonc --env staging
-vp exec wrangler secret put SENTRY_DSN --config wrangler.jsonc --env production
+vp exec wrangler secret put SENTRY_DSN --config wrangler.production.jsonc
 ```
 
-Keep non-sensitive runtime settings such as `SENTRY_ENVIRONMENT` and `SENTRY_TRACES_SAMPLE_RATE` in `wrangler.jsonc` vars. Named Cloudflare environments do not inherit top-level vars, so each environment needs explicit values.
+Keep non-sensitive runtime settings such as `SENTRY_ENVIRONMENT` and `SENTRY_TRACES_SAMPLE_RATE` in `wrangler.jsonc` vars.
 
 For local browser SDK or source-map upload settings, copy the Sentry/browser template only when you
 need it:
@@ -287,7 +285,6 @@ vp test
 Deploy:
 
 ```bash
-vp run deploy:staging
 vp run deploy:prod
 ```
 
