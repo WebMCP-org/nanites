@@ -28,6 +28,7 @@ import {
   convertGitHubAppManifestCode,
   type GitHubAppManifestConversion,
 } from "#/backend/github/index.ts";
+import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
 import {
   DEFAULT_SIGVELO_AGENT_MODEL_ID,
   resolveNanitesAiGatewayId,
@@ -1860,7 +1861,11 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       const appSlug = requireGitHubAppManifestString(githubApp, "slug");
       const clientId = requireGitHubAppManifestString(githubApp, "client_id");
       const clientSecret = requireGitHubAppManifestString(githubApp, "client_secret");
-      const privateKey = requireGitHubAppManifestString(githubApp, "pem");
+      // GitHub returns the manifest "pem" in PKCS#1, which the WebCrypto JWT
+      // signing in @octokit/auth-app rejects — store it as PKCS#8.
+      const privateKey = normalizeGitHubAppPrivateKeyToPkcs8(
+        requireGitHubAppManifestString(githubApp, "pem"),
+      );
       const webhookSecret = requireGitHubAppManifestString(githubApp, "webhook_secret");
       const appPermissions = readGitHubAppManifestPermissions(githubApp.permissions);
       const appEvents = readGitHubAppManifestEvents(githubApp.events);
