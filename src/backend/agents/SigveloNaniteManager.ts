@@ -1145,6 +1145,9 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     });
 
     await this.recordRunFact({ run, actor: naniteTriggerActor(run.trigger) });
+    if (run.status === "fail") {
+      await this.recordRunFailureAudit({ run, reasonCode: "lifecycle_fail_tool" });
+    }
     return run;
   }
 
@@ -1221,6 +1224,9 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     });
 
     await this.recordRunFact({ run, actor: naniteTriggerActor(run.trigger) });
+    if (run.status === "fail") {
+      await this.recordRunFailureAudit({ run, reasonCode: `unreported_${input.status}` });
+    }
     return run;
   }
 
@@ -1409,7 +1415,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       const dispatchIntents = getDispatchIntents(triggerResult.intents);
       evaluation.dispatchIntentCount = dispatchIntents.length;
       evaluation.noopReasons = getNoopIntents(triggerResult.intents).map((intent) => intent.reason);
-      naniteManagerLogger.debug(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
+      naniteManagerLogger.info(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
         ...this.logContext({ naniteId }),
         [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: dispatchIntents.length > 0,
         [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: triggerResult.intents.length,
@@ -1912,6 +1918,30 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         error: describeError(error),
       });
     }
+  }
+
+  private async recordRunFailureAudit(input: {
+    run: NaniteRunRecord;
+    reasonCode: string;
+  }): Promise<void> {
+    await this.recordObservabilityFact("run.failed.audit", async (db, installationId) => {
+      await recordAuditEvent(db, {
+        eventName: "audit.run.failed",
+        githubInstallationId: installationId,
+        naniteId: input.run.naniteId,
+        runKey: input.run.runId,
+        actor: naniteTriggerActor(input.run.trigger),
+        targetType: "run",
+        targetId: input.run.runId,
+        outcome: "failure",
+        reasonCode: input.reasonCode,
+        metadata: {
+          summary: input.run.summary,
+          dispatchError: input.run.dispatchError,
+          triggerType: input.run.trigger.type,
+        },
+      });
+    });
   }
 
   private async recordRunFact(input: {

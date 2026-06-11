@@ -61,7 +61,9 @@ import {
   buildNaniteAiGatewayMetadata,
   naniteTriggerActor,
   recordAiUsageFact,
+  recordAuditEvent,
   resolveNaniteBillingAttribution,
+  systemActor,
 } from "#/backend/observability/recorders.ts";
 
 // ---------------------------------------------------------------------------
@@ -73,7 +75,13 @@ import {
  * this state is run-scoped bookkeeping mirrored from the manager, so a reset
  * on version mismatch is safe.
  */
-const NANITE_AGENT_STATE_VERSION = 2;
+const NANITE_AGENT_STATE_VERSION = 3;
+
+export type NaniteChatErrorRecord = {
+  runId: string | null;
+  error: string;
+  occurredAt: string;
+};
 
 export type NaniteAgentState = {
   version: number;
@@ -85,6 +93,12 @@ export type NaniteAgentState = {
   trigger: NaniteTriggerEvent | null;
   /** Last observed model/tool activity, read by the lifecycle watchdog. */
   lastActivityAt: string | null;
+  /**
+   * Last chat/stream error, kept durable so the eventual unreported-completion
+   * summary can name the real cause (facet console logs do not reliably reach
+   * Workers Logs).
+   */
+  lastChatError: NaniteChatErrorRecord | null;
   lifecycleContinuationAttempted: boolean;
   interruptedRetryCount: number;
   watchdogScheduleId: string | null;
@@ -101,6 +115,7 @@ function createInitialNaniteAgentState(): NaniteAgentState {
     activeRunModel: null,
     trigger: null,
     lastActivityAt: null,
+    lastChatError: null,
     lifecycleContinuationAttempted: false,
     interruptedRetryCount: 0,
     watchdogScheduleId: null,
@@ -1011,12 +1026,59 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   override onChatError(error: unknown): unknown {
-    this.ctx.waitUntil(this.reportRuntimeActivity("error", { error: describeError(error) }));
+    const described = describeError(error);
+    this.setState({
+      ...this.state,
+      lastChatError: {
+        runId: this.state.activeRunId,
+        error: described,
+        occurredAt: nowIso(),
+      },
+      updatedAt: nowIso(),
+    });
+    this.ctx.waitUntil(this.reportRuntimeActivity("error", { error: described }));
+    this.ctx.waitUntil(
+      this.recordChatErrorAuditEvent(described).catch((recordError: unknown) => {
+        naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
+          ...this.logContext(),
+          operation: "run.chat_error.audit",
+          error: describeError(recordError),
+        });
+      }),
+    );
     naniteLogger.error(LOG_EVENTS.NANITE_CHAT_ERROR, {
       ...this.logContext(),
-      error: describeError(error),
+      error: described,
     });
     return error;
+  }
+
+  /**
+   * Chat errors are persisted to the audit table because they otherwise leave
+   * no durable trace: the run terminalizes later through the watchdog or
+   * submission status with a generic summary, and facet console logs are
+   * unreliable in production.
+   */
+  private async recordChatErrorAuditEvent(error: string): Promise<void> {
+    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+    if (!githubInstallationId) {
+      return;
+    }
+
+    const runId = this.state.activeRunId;
+    await recordAuditEvent(createDbClient(this.env.DB), {
+      eventName: "audit.run.chat_error",
+      githubInstallationId,
+      naniteId: this.state.naniteId,
+      runKey: runId,
+      actor: this.state.trigger
+        ? naniteTriggerActor(this.state.trigger)
+        : systemActor("maintenance"),
+      targetType: "run",
+      targetId: runId,
+      outcome: "failure",
+      metadata: { error },
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1034,6 +1096,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       activeRunModel: input.run.model,
       trigger: input.run.trigger,
       lastActivityAt: acceptedAt,
+      lastChatError: null,
       lifecycleContinuationAttempted: false,
       interruptedRetryCount: 0,
       watchdogScheduleId: this.state.watchdogScheduleId,
@@ -1041,7 +1104,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     });
     await this.attachGitHubMcpServer(input.nanite.manifest);
     await this.armWatchdog(input.run.runId);
-    naniteLogger.debug(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
+    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
       ...this.logContext(input.run.runId),
       [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
       [OTEL_ATTRS.NANITE_RUN_STATUS]: input.run.status,
@@ -1057,7 +1120,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         runId: input.run.runId,
       },
     });
-    naniteLogger.debug(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
+    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
       ...this.logContext(input.run.runId),
       [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
       [OTEL_ATTRS.NANITE_SUBMISSION_ID]: input.run.runId,
@@ -1216,8 +1279,12 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     await this.parentManager().recordUnreportedRunCompletion({
       runId: payload.runId,
       status: "error",
-      error:
+      error: [
         "Nanite lifecycle watchdog found the run stable without a lifecycle outcome after a lifecycle continuation was already attempted.",
+        this.chatErrorSummaryLine(payload.runId),
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join(" "),
     });
     await this.clearWatchdog();
     this.setState({
@@ -1300,7 +1367,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     if (submission.status === "error") {
       naniteLogger.error(LOG_EVENTS.NANITE_SUBMISSION_STATUS, logProperties);
     } else {
-      naniteLogger.debug(LOG_EVENTS.NANITE_SUBMISSION_STATUS, logProperties);
+      naniteLogger.info(LOG_EVENTS.NANITE_SUBMISSION_STATUS, logProperties);
     }
 
     if (isLifecycleTerminalStatus(run.status) || run.status === "waiting_for_human") {
@@ -1338,7 +1405,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     await this.parentManager().recordUnreportedRunCompletion({
       runId,
       status: submission.status,
-      error: this.buildNoLifecycleSummary(submission, diagnostic),
+      error: this.buildNoLifecycleSummary(runId, submission, diagnostic),
     });
     await this.clearWatchdog();
     this.setState({
@@ -1360,6 +1427,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private buildNoLifecycleSummary(
+    runId: string,
     submission: ThinkSubmissionInspection,
     diagnostic: LastStepDiagnostic | null,
   ): string {
@@ -1371,9 +1439,18 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       diagnostic
         ? `Last step: ${diagnostic.stepNumber}; finishReason=${diagnostic.finishReason}; rawFinishReason=${diagnostic.rawFinishReason ?? "none"}; toolCallCount=${diagnostic.toolCallCount}; toolResultCount=${diagnostic.toolResultCount}.`
         : "Last step: unavailable.",
+      this.chatErrorSummaryLine(runId),
     ]
       .filter((line): line is string => Boolean(line))
       .join(" ");
+  }
+
+  private chatErrorSummaryLine(runId: string): string | null {
+    const chatError = this.state.lastChatError;
+    if (!chatError || (chatError.runId !== null && chatError.runId !== runId)) {
+      return null;
+    }
+    return `Last chat error: ${chatError.error} (at ${chatError.occurredAt}).`;
   }
 
   private async retryInterruptedSubmission(run: NaniteRunRecord): Promise<boolean> {
