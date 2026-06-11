@@ -663,7 +663,7 @@ const runCount = sql<number>`cast(count(${naniteRunFacts.id}) as int)`;
 const costDayKey = sql<string>`date(${aiUsageFacts.completedAt}, 'unixepoch')`;
 const runDayKey = sql<string>`date(${naniteRunFacts.startedAt}, 'unixepoch')`;
 const impactDayKey = sql<string>`date(coalesce(${naniteRunFacts.outputPullRequestMergedAt}, ${naniteRunFacts.completedAt}, ${naniteRunFacts.startedAt}), 'unixepoch')`;
-const modelKey = sql<string>`${aiUsageFacts.provider} || '/' || ${aiUsageFacts.model}`;
+const modelKey = sql<string>`coalesce(${aiUsageFacts.provider}, 'Unreported provider') || '/' || ${aiUsageFacts.model}`;
 const actorKey = sql<string>`coalesce(${aiUsageFacts.actorGithubLogin}, ${aiUsageFacts.actorKind}, 'Unknown')`;
 const billingKey = sql<string>`coalesce(${aiUsageFacts.billingGithubLogin}, cast(${aiUsageFacts.billingGithubUserId} as text), 'Unassigned')`;
 const runOutcomeKey = sql<string>`coalesce(${naniteRunFacts.conclusion}, ${naniteRunFacts.status})`;
@@ -1014,7 +1014,7 @@ async function readRecentEvents(
         'ai:' || ${aiUsageFacts.id} as id,
         'ai_usage' as kind,
         strftime('%Y-%m-%dT%H:%M:%fZ', ${aiUsageFacts.completedAt}, 'unixepoch') as occurredAt,
-        ${aiUsageFacts.provider} || '/' || ${aiUsageFacts.model} as title,
+        coalesce(${aiUsageFacts.provider}, 'Unreported provider') || '/' || ${aiUsageFacts.model} as title,
         coalesce(${aiUsageFacts.naniteId}, ${aiUsageFacts.runKey}, 'Unscoped model request') as subtitle,
         ${aiUsageFacts.finishReason} as outcome
       from ${aiUsageFacts}
@@ -1467,7 +1467,7 @@ export async function getObservabilityEventDetail(
         requestId: row.requestId,
         naniteId: row.naniteId,
         runKey: row.runKey,
-        provider: row.provider,
+        provider: row.provider ?? "Unreported provider",
         model: row.model,
         estimatedCostUsdMicros: costMicros(row),
         inputTokens: row.inputTokens ?? 0,

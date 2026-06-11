@@ -53,13 +53,11 @@ At registration:
 
 1. Require `manifest.model`.
 2. Trim the model id.
-3. Verify the model exists in Cloudflare's supported model surface and advertises function calling,
-   or is a supported provider-native AI Gateway model id.
+3. Do not derive provider names, display names, or availability from a local model catalog.
 
-Do not keep a local fallback catalog. If Cloudflare catalog validation is unavailable for a
-provider-native id, accept the provider-native id shape and let the Cloudflare AI binding,
-AI Gateway, and account billing own the runtime truth. If a catalog row is available and does not
-advertise function calling, reject it because Nanite and manager turns depend on runtime tools.
+Do not keep a local fallback catalog. Let the Cloudflare AI binding, AI Gateway, and account billing
+own the runtime truth. If a model id is not valid or not runnable, registration or execution should
+fail at the Cloudflare boundary.
 
 ## Self-Hosted Model Execution
 
@@ -91,7 +89,6 @@ Nanites only stores the selected model id and immutable run snapshot metadata.
 - Manifest types: `src/backend/agents/SigveloNaniteManager.ts`
 - MCP create schema: `src/backend/nanites/tools/create-nanite.ts`
 - Registration validation: `SigveloNaniteManager.registerNanite`
-- Catalog fetch and model lookup: `src/backend/nanites/model-settings.ts`
 - Runtime model creation: `src/backend/nanites/language-model.ts`
 - Nanite turn resolution: `SigveloNaniteAgent.getTurnModel`
 - Run state and dispatch: `SigveloNaniteManager.startRun`
@@ -115,8 +112,7 @@ Nanites only stores the selected model id and immutable run snapshot metadata.
 - `sigvelo_create_nanite` accepts an explicit model id string.
 - `sigvelo_create_nanite` rejects manifests missing `model`.
 - `sigvelo_create_nanite` rejects credential fields in manifests.
-- Registration trims and validates the model id through Cloudflare's model surface or supported
-  provider-native id shape.
+- Registration trims the model id and does not invent local provider metadata.
 - Runtime uses the Nanite manifest model for every run turn.
 - Run records include an immutable resolved model snapshot.
 - AI usage facts include the actual request model and gateway id.

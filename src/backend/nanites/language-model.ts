@@ -1,10 +1,10 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
-import {
-  type NanitesRuntimeModelSettings,
-  resolveDefaultSigveloAgentModelSettings,
-} from "#/backend/nanites/model-settings.ts";
+
+export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/moonshotai/kimi-k2.6";
+
+const DEFAULT_NANITES_AI_GATEWAY_ID = "default";
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 
@@ -40,7 +40,17 @@ interface SigveloAgentLanguageModelInput {
 }
 
 interface NaniteRunLanguageModelInput extends SigveloAgentLanguageModelInput {
-  modelSettings: NanitesRuntimeModelSettings;
+  modelId: string;
+  gatewayId: string;
+}
+
+function cleanOptionalString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function resolveNanitesAiGatewayId(env: Env): string {
+  return cleanOptionalString(env.NANITES_AI_GATEWAY_ID) ?? DEFAULT_NANITES_AI_GATEWAY_ID;
 }
 
 function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel | null {
@@ -80,13 +90,11 @@ export function createSigveloAgentLanguageModel(
     return testLanguageModel;
   }
 
-  const modelSettings = resolveDefaultSigveloAgentModelSettings(input.env);
-
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,
-    model: modelSettings.modelId,
+    model: DEFAULT_SIGVELO_AGENT_MODEL_ID,
     sessionAffinity: input.sessionAffinity,
-    gatewayId: modelSettings.gatewayId || undefined,
+    gatewayId: resolveNanitesAiGatewayId(input.env),
     gatewayMetadata: input.gatewayMetadata,
   });
 }
@@ -101,9 +109,9 @@ export async function createNaniteRunLanguageModel(
 
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,
-    model: input.modelSettings.modelId,
+    model: input.modelId,
     sessionAffinity: input.sessionAffinity,
-    gatewayId: input.modelSettings.gatewayId || undefined,
+    gatewayId: input.gatewayId,
     gatewayMetadata: input.gatewayMetadata,
   });
 }

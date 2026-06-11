@@ -10,18 +10,6 @@ import { NANITE_AGENT_NAME } from "#/nanites.ts";
 
 beforeAll(async () => {
   await env.DB.exec("CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY);");
-  Object.assign(env, {
-    AI: {
-      models: async () => [
-        {
-          id: "@cf/moonshotai/kimi-k2.6",
-          name: "Kimi K2.6",
-          task: { name: "Text Generation" },
-          tags: ["Cloudflare-hosted"],
-        },
-      ],
-    },
-  });
 });
 
 function getManager() {

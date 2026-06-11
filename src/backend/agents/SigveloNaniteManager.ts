@@ -65,10 +65,7 @@ import {
   systemActor,
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
-import {
-  resolveNanitesModelSettings,
-  validateNanitesModelId,
-} from "#/backend/nanites/model-settings.ts";
+import { resolveNanitesAiGatewayId } from "#/backend/nanites/language-model.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -355,9 +352,6 @@ export type NaniteRunRecord = {
 export type NaniteRunModelSnapshot = {
   runtimePath: "workers_ai_gateway";
   effectiveModelId: string;
-  effectiveProvider: string;
-  effectiveProviderLabel: string;
-  effectiveModelName: string;
   effectiveGatewayId: string;
   manifestVersionId: string;
   resolvedAt: string;
@@ -726,7 +720,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export async function normalizeNaniteManifestModelConfig(
-  env: Env,
+  _env: Env,
   manifest: NaniteManifest,
 ): Promise<NaniteManifest> {
   if (typeof manifest.model !== "string") {
@@ -735,7 +729,13 @@ export async function normalizeNaniteManifestModelConfig(
     });
   }
 
-  const modelId = await validateNanitesModelId(env, manifest.model);
+  const modelId = manifest.model.trim();
+  if (!modelId) {
+    throw new AppError("nanitesModelSelectionInvalid", {
+      details: { reason: "Nanite model id is required.", modelId: manifest.model },
+    });
+  }
+
   return {
     ...manifest,
     model: modelId,
@@ -748,15 +748,10 @@ export async function resolveNaniteRunModelSnapshot(input: {
   manifestVersionId: string;
   resolvedAt: string;
 }): Promise<NaniteRunModelSnapshot> {
-  const modelSettings = resolveNanitesModelSettings(input.env, input.manifest.model);
-
   return {
     runtimePath: "workers_ai_gateway",
-    effectiveModelId: modelSettings.modelId,
-    effectiveProvider: modelSettings.provider,
-    effectiveProviderLabel: modelSettings.providerLabel,
-    effectiveModelName: modelSettings.modelName,
-    effectiveGatewayId: modelSettings.gatewayId,
+    effectiveModelId: input.manifest.model,
+    effectiveGatewayId: resolveNanitesAiGatewayId(input.env),
     manifestVersionId: input.manifestVersionId,
     resolvedAt: input.resolvedAt,
   };

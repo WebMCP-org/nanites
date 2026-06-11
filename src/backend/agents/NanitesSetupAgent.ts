@@ -28,9 +28,9 @@ import {
   type GitHubAppManifestConversion,
 } from "#/backend/github/index.ts";
 import {
-  DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS,
-  resolveDefaultSigveloAgentModelSettings,
-} from "#/backend/nanites/model-settings.ts";
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+  resolveNanitesAiGatewayId,
+} from "#/backend/nanites/language-model.ts";
 import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
@@ -541,7 +541,7 @@ const LEGACY_KIMI_MODEL_CATALOG_BLOCKER_DETAIL =
   "Cloudflare Workers AI did not list Kimi K2.6 for this account.";
 const LEGACY_KIMI_MODEL_CATALOG_READY_DETAIL =
   "Cloudflare Workers AI lists Kimi K2.6 with function calling. No Moonshot or provider API key is required for the default model.";
-const KIMI_MODEL_CONFIGURED_DETAIL = `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId}\` is configured through Workers AI. No Moonshot or provider API key is required.`;
+const KIMI_MODEL_CONFIGURED_DETAIL = `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_ID}\` is configured through Workers AI. No Moonshot or provider API key is required.`;
 
 function normalizeCloudflareStateForCurrentVersion(
   cloudflare: NanitesSetupAgentState["cloudflare"],
@@ -2391,11 +2391,11 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
   }
 
   private checkAiGateway(): CloudflareReadinessItem {
-    const modelSettings = resolveDefaultSigveloAgentModelSettings(this.env);
+    const gatewayId = resolveNanitesAiGatewayId(this.env);
     return createCloudflareReadinessItem(
       "ai-gateway",
       "ready",
-      `Default model requests use Cloudflare AI Gateway \`${modelSettings.gatewayId}\`; provider API keys are only needed for future non-Workers-AI models.`,
+      `Default model requests use Cloudflare AI Gateway \`${gatewayId}\`; provider API keys are only needed for future non-Workers-AI models.`,
       null,
     );
   }
