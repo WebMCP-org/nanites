@@ -965,7 +965,7 @@ test("setup keeps GitHub App locked while Workers Paid readiness is blocked", as
   });
 });
 
-test("setup keeps GitHub App locked while Kimi readiness is blocked", async () => {
+test("setup clears the legacy Kimi catalog blocker when Workers AI is ready", async () => {
   const setupAgent = await getSetupAgent();
   setupAgent.setState(
     buildCloudflareBlockedSetupState(
@@ -979,15 +979,23 @@ test("setup keeps GitHub App locked while Kimi readiness is blocked", async () =
       origin: "https://sigvelo-agent-tests.example.workers.dev",
     }),
   ).resolves.toMatchObject({
-    currentStep: "cloudflare",
+    currentStep: "github-app",
     cloudflare: {
       readiness: {
-        status: "blocked",
+        status: "ready",
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            key: "kimi-k2",
+            status: "ready",
+          }),
+        ]),
       },
+      error: null,
     },
     githubApp: {
-      status: "locked",
+      status: "ready",
     },
+    error: null,
   });
 });
 

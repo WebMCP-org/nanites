@@ -29,7 +29,6 @@ import {
 } from "#/backend/github/index.ts";
 import {
   DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS,
-  fetchNanitesModelCatalog,
   resolveDefaultSigveloAgentModelSettings,
 } from "#/backend/nanites/model-settings.ts";
 import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
@@ -536,6 +535,49 @@ function cloudflareReadinessNeedsReconnect(readiness: CloudflareReadinessState):
 
 function buildCloudflareReadinessError(readiness: CloudflareReadinessState): string | null {
   return firstCloudflareReadinessBlocker(readiness)?.detail ?? null;
+}
+
+const LEGACY_KIMI_MODEL_CATALOG_BLOCKER_DETAIL =
+  "Cloudflare Workers AI did not list Kimi K2.6 for this account.";
+
+function normalizeCloudflareStateForCurrentVersion(
+  cloudflare: NanitesSetupAgentState["cloudflare"],
+): NanitesSetupAgentState["cloudflare"] {
+  if (cloudflare.status !== "verified") {
+    return cloudflare;
+  }
+
+  const workersAiReady = cloudflare.readiness.items.some(
+    (item) => item.key === "workers-ai" && item.status === "ready",
+  );
+  const hasLegacyKimiCatalogBlocker = cloudflare.readiness.items.some(
+    (item) =>
+      item.key === "kimi-k2" &&
+      item.status === "blocked" &&
+      item.detail === LEGACY_KIMI_MODEL_CATALOG_BLOCKER_DETAIL,
+  );
+  if (!workersAiReady || !hasLegacyKimiCatalogBlocker) {
+    return cloudflare;
+  }
+
+  const readiness = createCloudflareReadinessState(
+    cloudflare.readiness.items.map((item) =>
+      item.key === "kimi-k2"
+        ? createCloudflareReadinessItem(
+            "kimi-k2",
+            "ready",
+            `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId}\` is configured through Workers AI. No Moonshot or provider API key is required.`,
+            null,
+          )
+        : item,
+    ),
+  );
+
+  return {
+    ...cloudflare,
+    readiness,
+    error: buildCloudflareReadinessError(readiness),
+  };
 }
 
 function cleanLower(value: string | null | undefined): string {
@@ -1268,11 +1310,22 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     const metadata = await readDeploymentGitHubAppMetadata(db);
     const runtimeConfig = await readDeploymentGitHubAppConfig(db, this.env);
     const githubApp = runtimeConfig ?? metadata;
+    const cloudflare = normalizeCloudflareStateForCurrentVersion(this.state.cloudflare);
+    const stateForDerivation = {
+      ...this.state,
+      cloudflare,
+      error:
+        this.state.error?.step === "cloudflare"
+          ? cloudflare.error
+            ? { step: "cloudflare" as const, message: cloudflare.error }
+            : null
+          : this.state.error,
+    };
     const hasRuntimeConfig =
       runtimeConfig !== null || input?.deploymentGitHubAppConfigReadable === true;
     const githubAppGenerationKey = githubApp ? buildGitHubAppGenerationKey(githubApp.appId) : null;
     const repositoriesForGeneration = buildRepositoryStateForGitHubAppGeneration(
-      this.state.repositories,
+      stateForDerivation.repositories,
       githubAppGenerationKey,
       githubApp?.selectedGithubInstallationId ?? null,
     );
@@ -1280,7 +1333,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       hasRuntimeConfig,
       githubAppGenerationKey,
       repositories: repositoriesForGeneration,
-      upstreamStar: this.state.upstreamStar,
+      upstreamStar: stateForDerivation.upstreamStar,
     });
     const installUrl = githubApp
       ? buildGitHubAppInstallHref({
@@ -1295,12 +1348,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
         })
       : null;
     const nextState = withDerivedState({
-      ...this.state,
+      ...stateForDerivation,
       setupComplete: completionState.setupComplete,
       setupOwner: buildSetupOwnerState(setupOwner),
       githubApp: githubApp
         ? {
-            ...this.state.githubApp,
+            ...stateForDerivation.githubApp,
             status: githubAppStatus ?? "secrets-propagating",
             slug: githubApp.slug,
             manifestState: null,
@@ -1316,7 +1369,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
             error: null,
           }
         : {
-            ...buildUnconfiguredGitHubAppState(this.state),
+            ...buildUnconfiguredGitHubAppState(stateForDerivation),
           },
       repositories: completionState.repositories,
       upstreamStar: completionState.upstreamStar,
@@ -2335,51 +2388,13 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     );
   }
 
-  private async checkDefaultKimiModel(): Promise<CloudflareReadinessItem> {
-    try {
-      const catalog = await fetchNanitesModelCatalog(this.env);
-      const model = catalog.models.find(
-        (candidate) => candidate.id === DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId,
-      );
-      if (!model) {
-        return createCloudflareReadinessItem(
-          "kimi-k2",
-          "blocked",
-          "Cloudflare Workers AI did not list Kimi K2.6 for this account.",
-          "retry",
-        );
-      }
-      if (model.deprecated) {
-        return createCloudflareReadinessItem(
-          "kimi-k2",
-          "blocked",
-          "Cloudflare Workers AI marks Kimi K2.6 deprecated for this account.",
-          "retry",
-        );
-      }
-      if (!model.capabilities.includes("Function calling")) {
-        return createCloudflareReadinessItem(
-          "kimi-k2",
-          "blocked",
-          "Kimi K2.6 is available, but Cloudflare did not report function-calling support.",
-          "retry",
-        );
-      }
-
-      return createCloudflareReadinessItem(
-        "kimi-k2",
-        "ready",
-        "Cloudflare Workers AI lists Kimi K2.6 with function calling. No Moonshot or provider API key is required for the default model.",
-        null,
-      );
-    } catch {
-      return createCloudflareReadinessItem(
-        "kimi-k2",
-        "blocked",
-        "Workers AI model catalog could not be read. Confirm the Workers AI binding is usable and try again.",
-        "retry",
-      );
-    }
+  private checkDefaultKimiModel(): CloudflareReadinessItem {
+    return createCloudflareReadinessItem(
+      "kimi-k2",
+      "ready",
+      `Default model \`${DEFAULT_SIGVELO_AGENT_MODEL_SETTINGS.modelId}\` is configured through Workers AI. No Moonshot or provider API key is required.`,
+      null,
+    );
   }
 
   private checkAiGateway(): CloudflareReadinessItem {
@@ -2424,7 +2439,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       await this.checkWorkerLoader(),
       workersAi,
       workersAi.status === "ready"
-        ? await this.checkDefaultKimiModel()
+        ? this.checkDefaultKimiModel()
         : createCloudflareReadinessItem(
             "kimi-k2",
             "blocked",
