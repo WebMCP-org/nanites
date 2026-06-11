@@ -27,11 +27,20 @@ import {
 } from "#/backend/auth/session.ts";
 import { beforeEach } from "vite-plus/test";
 import worker from "#/server.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/nanites.ts";
+import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 
 const GITHUB_UPSTREAM_STAR_URL = "https://api.github.com/user/starred/WebMCP-org/nanites";
 const SETUP_CLAIM_COOKIE_NAME = "nanites_setup_claim";
 const GITHUB_API_ORIGIN = "https://api.github.com";
+const SETUP_ORIGIN = "https://sigvelo-agent-tests.example.workers.dev";
+const CLOUDFLARE_MCP_SERVER_URL = "https://mcp.cloudflare.com/mcp";
+const CLOUDFLARE_PROTECTED_RESOURCE_METADATA_URL =
+  "https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp";
+const CLOUDFLARE_AUTHORIZATION_SERVER_METADATA_URL =
+  "https://mcp.cloudflare.com/.well-known/oauth-authorization-server";
+const CLOUDFLARE_DCR_REGISTRATION_URL = "https://mcp.cloudflare.com/register";
+const CLOUDFLARE_SETUP_OAUTH_SCOPE =
+  "offline_access user:read account:read billing:read workers:read workers_scripts:write";
 
 type SetupAgentTestRpc = {
   listSchedules(): Promise<readonly { readonly id: string }[]>;
@@ -760,6 +769,84 @@ test("setup Agent route is available before GitHub sign-in exists", async () => 
     deployment: { status: "complete" },
     cloudflare: { status: "idle" },
   });
+});
+
+test("Cloudflare setup OAuth uses the stable setup Agent callback route", async () => {
+  const setupAgent = await getSetupAgent();
+  const setupOwner = await setupAgent.claimSetupOwner();
+  if (!setupOwner.setupOwnerToken) {
+    throw new Error("Expected setup owner claim to return a token.");
+  }
+
+  const expectedCallbackUrl = `${SETUP_ORIGIN}/agents/${NANITES_SETUP_AGENT_NAME}/${NANITES_SETUP_AGENT_INSTANCE_NAME}/callback`;
+  const registrationBodies: unknown[] = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    if (request.url === CLOUDFLARE_MCP_SERVER_URL && request.method === "POST") {
+      return new Response("Unauthorized", {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer resource_metadata="${CLOUDFLARE_PROTECTED_RESOURCE_METADATA_URL}", scope="${CLOUDFLARE_SETUP_OAUTH_SCOPE}"`,
+        },
+      });
+    }
+
+    if (request.url === CLOUDFLARE_PROTECTED_RESOURCE_METADATA_URL && request.method === "GET") {
+      return Response.json({
+        resource: CLOUDFLARE_MCP_SERVER_URL,
+        authorization_servers: ["https://mcp.cloudflare.com"],
+        scopes_supported: CLOUDFLARE_SETUP_OAUTH_SCOPE.split(" "),
+      });
+    }
+
+    if (request.url === CLOUDFLARE_AUTHORIZATION_SERVER_METADATA_URL && request.method === "GET") {
+      return Response.json({
+        issuer: "https://mcp.cloudflare.com",
+        authorization_endpoint: "https://dash.cloudflare.com/oauth2/auth",
+        token_endpoint: "https://mcp.cloudflare.com/token",
+        registration_endpoint: CLOUDFLARE_DCR_REGISTRATION_URL,
+        response_types_supported: ["code"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        code_challenge_methods_supported: ["S256"],
+        token_endpoint_auth_methods_supported: ["none"],
+        client_id_metadata_document_supported: false,
+      });
+    }
+
+    if (request.url === CLOUDFLARE_DCR_REGISTRATION_URL && request.method === "POST") {
+      const body = (await request.json()) as Record<string, unknown>;
+      registrationBodies.push(body);
+      return Response.json({
+        ...body,
+        client_id: "test-cloudflare-client",
+      });
+    }
+
+    return originalFetch(input, init);
+  };
+
+  try {
+    const result = await setupAgent.connectCloudflare({
+      origin: SETUP_ORIGIN,
+      setupOwnerToken: setupOwner.setupOwnerToken,
+    });
+
+    expect(result.authorizationUrl).toEqual(expect.any(String));
+    const authorizationUrl = new URL(result.authorizationUrl ?? "");
+    expect(`${authorizationUrl.origin}${authorizationUrl.pathname}`).toBe(
+      "https://dash.cloudflare.com/oauth2/auth",
+    );
+    expect(authorizationUrl.searchParams.get("redirect_uri")).toBe(expectedCallbackUrl);
+    expect(authorizationUrl.searchParams.get("client_id")).toBe("test-cloudflare-client");
+    expect(registrationBodies).toHaveLength(1);
+    expect(registrationBodies[0]).toMatchObject({
+      redirect_uris: [expectedCallbackUrl],
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("setup owner claim prevents another browser from mutating Cloudflare setup", async () => {

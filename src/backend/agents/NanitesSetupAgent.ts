@@ -34,10 +34,12 @@ import {
 } from "#/backend/nanites/model-settings.ts";
 import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
+import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 
 const CLOUDFLARE_API_MCP_SERVER_ID = "cloudflare-api";
 const CLOUDFLARE_API_MCP_SERVER_NAME = "Cloudflare API";
 const CLOUDFLARE_API_MCP_SERVER_URL = "https://mcp.cloudflare.com/mcp";
+const CLOUDFLARE_MCP_CALLBACK_PATH = `/agents/${NANITES_SETUP_AGENT_NAME}/${NANITES_SETUP_AGENT_INSTANCE_NAME}/callback`;
 const GITHUB_APP_MANIFEST_CALLBACK_PATH = "/setup/github/manifest/callback";
 const GITHUB_APP_INSTALL_CALLBACK_PATH = "/setup/github/installed";
 const GENERATED_AUTH_SECRET_BYTE_LENGTH = 48;
@@ -267,6 +269,7 @@ export type CheckGitHubSecretPropagationInput = {
 export type ConnectCloudflareInput = {
   readonly origin?: string;
   readonly setupOwnerToken?: string | null;
+  readonly forceReconnect?: boolean;
 } | null;
 
 export type ConnectCloudflareOutput = {
@@ -1501,7 +1504,11 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       };
     }
 
-    const existingServer = this.getMcpServers().servers[CLOUDFLARE_API_MCP_SERVER_ID];
+    let existingServer = this.getMcpServers().servers[CLOUDFLARE_API_MCP_SERVER_ID];
+    if (input?.forceReconnect === true && existingServer) {
+      await this.removeMcpServer(CLOUDFLARE_API_MCP_SERVER_ID);
+      existingServer = this.getMcpServers().servers[CLOUDFLARE_API_MCP_SERVER_ID];
+    }
     if (
       existingServer?.state === "authenticating" &&
       existingServer.auth_url &&
@@ -1560,7 +1567,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
       }),
     );
 
-    const result = await this.addCloudflareMcpServerOrFail();
+    const result = await this.addCloudflareMcpServerOrFail(currentWorker.origin);
 
     if (result.state === "authenticating") {
       const nextState = withDerivedState({
@@ -2185,12 +2192,14 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupAgentState> {
     }
   }
 
-  private async addCloudflareMcpServerOrFail() {
+  private async addCloudflareMcpServerOrFail(callbackHost: string) {
     try {
       return await this.addMcpServer(
         CLOUDFLARE_API_MCP_SERVER_NAME,
         CLOUDFLARE_API_MCP_SERVER_URL,
         {
+          callbackHost,
+          callbackPath: CLOUDFLARE_MCP_CALLBACK_PATH,
           id: CLOUDFLARE_API_MCP_SERVER_ID,
         },
       );

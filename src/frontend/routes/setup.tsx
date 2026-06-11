@@ -70,10 +70,10 @@ function readinessStatusLabel(status: CloudflareReadinessItemStatus): string {
 
 function cloudflareButtonLabel(status: NanitesSetupAgentState["cloudflare"]): string {
   if (status.status === "connecting" || status.status === "authenticating") {
-    return "Connecting";
+    return "Restart Cloudflare";
   }
   if (status.status === "verifying" || status.readiness.status === "checking") {
-    return "Checking";
+    return "Restart Cloudflare";
   }
   if (status.status === "verified" && status.readiness.status === "blocked") {
     return status.readiness.items.some(
@@ -83,7 +83,7 @@ function cloudflareButtonLabel(status: NanitesSetupAgentState["cloudflare"]): st
       : "Check again";
   }
   if (status.status === "verified" && status.readiness.status === "ready") {
-    return "Cloudflare Ready";
+    return "Reconnect Cloudflare";
   }
   return status.status === "failed" ? "Retry Cloudflare" : "Connect Cloudflare";
 }
@@ -320,8 +320,7 @@ function SetupPage() {
         : cloudflareVerified && status.cloudflare.readiness.status === "blocked"
           ? "blocked"
           : "ready";
-  const cloudflareCanConnect =
-    setupConnectionReady && cloudflareStepState !== "running" && !cloudflareReady;
+  const cloudflareCanConnect = setupConnectionReady;
   const activeStep = stepValueForCurrentStep(status.currentStep);
 
   const steps: readonly SetupStep[] = [
@@ -404,7 +403,10 @@ function SetupPage() {
       setSetupOwnerToken(ownerToken);
     }
 
-    const result = await setupAgent.stub.connectCloudflare({ setupOwnerToken: ownerToken });
+    const result = await setupAgent.stub.connectCloudflare({
+      setupOwnerToken: ownerToken,
+      forceReconnect: true,
+    });
     if (result.setupOwnerClaimRequired) {
       clearSetupOwnerToken();
       setSetupOwnerToken(null);
