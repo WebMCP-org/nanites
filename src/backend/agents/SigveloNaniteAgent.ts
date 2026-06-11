@@ -737,16 +737,6 @@ function getRunRepository(input: NaniteRunRecord): {
   };
 }
 
-function modelSettingsFromRunSnapshot(snapshot: NaniteRunModelSnapshot) {
-  return {
-    provider: snapshot.effectiveProvider,
-    providerLabel: snapshot.effectiveProviderLabel,
-    modelId: snapshot.effectiveModelId,
-    modelName: snapshot.effectiveModelName,
-    gatewayId: snapshot.effectiveGatewayId,
-  };
-}
-
 function isLifecycleTerminalStatus(status: NaniteRunRecord["status"]): boolean {
   return (
     status === "complete" || status === "no_change" || status === "fail" || status === "canceled"
@@ -837,7 +827,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       env: this.env,
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(runId),
-      modelSettings: modelSettingsFromRunSnapshot(runModel),
+      modelId: runModel.effectiveModelId,
+      gatewayId: runModel.effectiveGatewayId,
     });
   }
 
@@ -896,7 +887,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       naniteId: run.naniteId,
       runKey: run.runId,
       requestId,
-      provider: aiGatewayLog?.provider ?? run.model.effectiveProvider,
+      provider: aiGatewayLog?.provider ?? null,
       model: aiGatewayLog?.model ?? run.model.effectiveModelId,
       sessionAffinity: run.runId,
       isContinuation: this.currentTurnContinuation,

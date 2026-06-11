@@ -543,7 +543,7 @@
           "name": "provider",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "model": {
@@ -1594,20 +1594,6 @@
         },
         "effective_model_id": {
           "name": "effective_model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "effective_provider": {
-          "name": "effective_provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "effective_model_name": {
-          "name": "effective_model_name",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

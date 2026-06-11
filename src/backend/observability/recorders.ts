@@ -107,7 +107,7 @@ export type RecordAiUsageFactInput = {
   naniteId?: string | null;
   runKey?: string | null;
   requestId: string;
-  provider: string;
+  provider?: string | null;
   model: string;
   sessionAffinity?: string | null;
   isContinuation?: boolean;
@@ -637,8 +637,6 @@ export async function recordNaniteRunFact(
     outputChangedFiles: input.outputPullRequest?.changedFiles ?? null,
     modelRuntimePath: input.run.model.runtimePath,
     effectiveModelId: input.run.model.effectiveModelId,
-    effectiveProvider: input.run.model.effectiveProvider,
-    effectiveModelName: input.run.model.effectiveModelName,
     effectiveGatewayId: input.run.model.effectiveGatewayId,
     modelManifestVersionId: input.run.model.manifestVersionId,
     modelResolvedAt: new Date(input.run.model.resolvedAt),
@@ -674,8 +672,6 @@ export async function recordNaniteRunFact(
         outputChangedFiles: values.outputChangedFiles,
         modelRuntimePath: values.modelRuntimePath,
         effectiveModelId: values.effectiveModelId,
-        effectiveProvider: values.effectiveProvider,
-        effectiveModelName: values.effectiveModelName,
         effectiveGatewayId: values.effectiveGatewayId,
         modelManifestVersionId: values.modelManifestVersionId,
         modelResolvedAt: values.modelResolvedAt,
@@ -752,7 +748,7 @@ function buildAiUsageFactInsert(input: BuildAiUsageFactInsertInput): AiUsageFact
     naniteId: nullable(input.input.naniteId),
     runKey: nullable(input.input.runKey),
     requestId: input.input.requestId,
-    provider: input.input.provider,
+    provider: nullable(input.input.provider),
     model: input.input.model,
     sessionAffinity: nullable(input.input.sessionAffinity),
     isContinuation: valueOr(input.input.isContinuation, false),
