@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
+import { TEST_GITHUB_APP_ID } from "../helpers/d1-baseline.ts";
 import {
   buildGitHubTriggerFixture,
   validateGeneratedTriggerSource,
@@ -28,7 +29,7 @@ async function getInstallationManager() {
   const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
   return getAgentByName(
     env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-    `installation:${githubInstallationId}`,
+    `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
   );
 }
 

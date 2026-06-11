@@ -20,6 +20,8 @@ import {
   listVisibleInstallations,
   type GitHubUserToken,
 } from "#/backend/github/index.ts";
+import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
+import { createDbClient } from "#/backend/db/index.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { resolveGrantedMcpScopes } from "#/backend/mcp/index.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
@@ -162,8 +164,10 @@ async function readOptionalBrowserAuthorizeContext({
     const githubUserToken = await requireGitHubUserToken(request, env, {
       responseHeaders,
     });
+    const primaryGitHubApp = await requirePrimaryGitHubApp(createDbClient(env.DB), env);
     const sessionInstallationSnapshots = readSessionInstallationSnapshots(
       await listVisibleInstallations(githubUserToken.accessToken),
+      primaryGitHubApp.appId,
     );
     await clearRevokedSessionSelectionIfNeeded({
       req: request,
@@ -346,6 +350,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         metadata: {
           clientName,
           githubLogin: authContext.actor.login,
+          githubAppId: activeInstallation.githubAppId,
           githubInstallationId: activeInstallation.id,
           githubInstallationOwner: activeInstallation.account.login,
           authorizedAt,
@@ -355,6 +360,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           authKind: "mcp",
           githubUserId: authContext.actor.id,
           githubLogin: authContext.actor.login,
+          githubAppId: activeInstallation.githubAppId,
           githubInstallationId: activeInstallation.id,
           clientId: authRequest.clientId,
           scopes: grantedScopes,

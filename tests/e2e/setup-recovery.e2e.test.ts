@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { saveTestDeploymentGitHubAppMetadata } from "../helpers/d1-baseline.ts";
+import { saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 import {
   createInitialSetupState,
   type NanitesSetupAgent,
@@ -46,7 +46,7 @@ async function getSetupAgent(): Promise<SetupAgentTestRpc> {
 }
 
 test("setup Agent restores selected installation from deployment metadata after state reset", async () => {
-  await saveTestDeploymentGitHubAppMetadata(env.DB);
+  await saveTestGitHubApp(env.DB);
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await setupAgent.issueSetupClaim();

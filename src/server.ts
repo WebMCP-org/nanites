@@ -28,7 +28,7 @@ import {
 } from "#/backend/agents/SigveloChatIngress.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
 import { createDbClient } from "#/backend/db/index.ts";
-import { readDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
+import { resolvePrimaryGitHubApp } from "#/backend/github/apps.ts";
 import { SigveloManagerConversationAgent as BaseSigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { SigveloNaniteManager as BaseSigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
@@ -51,10 +51,11 @@ export class SigveloChatIngress extends BaseSigveloChatIngress {}
 export class SigveloManagerConversationAgent extends BaseSigveloManagerConversationAgent {}
 export class SigveloNaniteManager extends BaseSigveloNaniteManager {}
 export class NanitesSetupAgent extends BaseNanitesSetupAgent {}
-export class SigveloChatIngressV1 extends BaseSigveloChatIngress {}
-export class SigveloManagerConversationAgentV1 extends BaseSigveloManagerConversationAgent {}
-export class SigveloNaniteManagerV1 extends BaseSigveloNaniteManager {}
-export class NanitesSetupAgentV1 extends BaseNanitesSetupAgent {}
+// V2: multi-GitHub-app cutover (manager keys carry the app id; V1 storage purged).
+export class SigveloChatIngressV2 extends BaseSigveloChatIngress {}
+export class SigveloManagerConversationAgentV2 extends BaseSigveloManagerConversationAgent {}
+export class SigveloNaniteManagerV2 extends BaseSigveloNaniteManager {}
+export class NanitesSetupAgentV2 extends BaseNanitesSetupAgent {}
 
 export { ChatSdkStateAgent, HostBridgeLoopback, SigveloNaniteAgent };
 
@@ -252,7 +253,7 @@ const handler = {
     const oauthProviderRoute = getOAuthProviderRequestRoute(new URL(request.url));
     if (
       oauthProviderRoute === MCP_ROUTE &&
-      (await readDeploymentGitHubAppConfig(createDbClient(env.DB), env)) === null
+      (await resolvePrimaryGitHubApp(createDbClient(env.DB), env)) === null
     ) {
       return Response.json({ code: "deployment_github_app_setup_required" }, { status: 403 });
     }

@@ -12,12 +12,11 @@ import {
   SigveloManagerConversationAgent,
   type ManagerReplyPublication,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
-import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
+import { GITHUB_WEBHOOK_PATH, GITHUB_WEBHOOK_TARGET_ID_HEADER } from "#/github.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import { createDbClient } from "#/backend/db/index.ts";
-import { requireDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
+import { requireGitHubApp } from "#/backend/github/apps.ts";
 
-const SIGVELO_GITHUB_BOT_USERNAME = "sigvelo";
 const MANAGER_REPLY_POLL_INTERVAL_SECONDS = 2;
 const MANAGER_REPLY_TIMEOUT_MS = 120_000;
 const chatIngressLogger = getLogger(LOGGING.NANITES_CATEGORY)
@@ -44,6 +43,7 @@ export function getGitHubManagerChatThreadType(raw: GitHubRawMessage): GitHubMan
 }
 
 export type HandleManagerChatMessageInput = {
+  githubAppId: number;
   installationId: number;
   surface: {
     type: "github";
@@ -148,12 +148,14 @@ function readGitHubManagerChatInput(
 }
 
 export class SigveloChatIngress extends Agent<Env> {
-  private runtime: ChatIngressRuntimeState = { status: "not_started" };
-  private runtimePromise: Promise<ChatIngressRuntimeState> | null = null;
+  // One Chat runtime per registered GitHub App; the webhook target-id header
+  // names which app a delivery belongs to.
+  private runtimes = new Map<number, ChatIngressRuntimeState>();
+  private runtimePromises = new Map<number, Promise<ChatIngressRuntimeState>>();
 
   onStart(): void {
-    this.runtime = { status: "not_started" };
-    this.runtimePromise = null;
+    this.runtimes.clear();
+    this.runtimePromises.clear();
   }
 
   async onRequest(request: Request): Promise<Response> {
@@ -162,7 +164,12 @@ export class SigveloChatIngress extends Agent<Env> {
       return setupErrorResponse(new AppError("chatIngressNotFound"));
     }
 
-    const bot = await this.getBot();
+    const githubAppId = readChatIngressTargetAppId(request);
+    if (githubAppId === null) {
+      return setupErrorResponse(new AppError("chatIngressNotFound"));
+    }
+
+    const bot = await this.getBot(githubAppId);
     if (bot instanceof Error) {
       return setupErrorResponse(bot);
     }
@@ -172,20 +179,24 @@ export class SigveloChatIngress extends Agent<Env> {
     });
   }
 
-  private async createRuntime(): Promise<ChatIngressRuntimeState> {
-    const githubAppConfig = await requireDeploymentGitHubAppConfig(
+  private async createRuntime(githubAppId: number): Promise<ChatIngressRuntimeState> {
+    const githubAppConfig = await requireGitHubApp(
       createDbClient(this.env.DB),
       this.env,
+      githubAppId,
     );
+    // The bot acts as this app's GitHub identity, so mention matching keys on
+    // the app's own slug rather than a fixed product name.
+    const botUserName = githubAppConfig.slug;
     const github = createGitHubAdapter({
       appId: String(githubAppConfig.appId),
       privateKey: githubAppConfig.privateKey,
       webhookSecret: githubAppConfig.webhookSecret,
-      userName: SIGVELO_GITHUB_BOT_USERNAME,
+      userName: botUserName,
     });
 
     const bot = new Chat({
-      userName: SIGVELO_GITHUB_BOT_USERNAME,
+      userName: botUserName,
       adapters: { github },
       state: createChatSdkState({ agent: ChatSdkStateAgent }),
       concurrency: { strategy: "burst", debounceMs: 600 },
@@ -193,12 +204,12 @@ export class SigveloChatIngress extends Agent<Env> {
 
     bot.onNewMention(async (thread, message) => {
       const githubInput = readGitHubManagerChatInput(thread, message);
-      await this.acceptManagerRequest(githubInput.thread, githubInput.message);
+      await this.acceptManagerRequest(githubAppId, githubInput.thread, githubInput.message);
     });
 
     bot.onSubscribedMessage(async (thread, message) => {
       const githubInput = readGitHubManagerChatInput(thread, message);
-      await this.acceptManagerRequest(githubInput.thread, githubInput.message);
+      await this.acceptManagerRequest(githubAppId, githubInput.thread, githubInput.message);
     });
 
     return {
@@ -208,20 +219,27 @@ export class SigveloChatIngress extends Agent<Env> {
     };
   }
 
-  private async getRuntimeState(): Promise<ChatIngressRuntimeState> {
-    if (this.runtime.status === "ready" || this.runtime.status === "failed") {
-      return this.runtime;
+  private async getRuntimeState(githubAppId: number): Promise<ChatIngressRuntimeState> {
+    const cached = this.runtimes.get(githubAppId);
+    if (cached && (cached.status === "ready" || cached.status === "failed")) {
+      return cached;
     }
 
-    this.runtimePromise ??= this.createRuntime().catch((error: unknown) => ({
-      status: "failed" as const,
-      error: toError(error),
-    }));
-    this.runtime = await this.runtimePromise;
-    return this.runtime;
+    let pending = this.runtimePromises.get(githubAppId);
+    if (!pending) {
+      pending = this.createRuntime(githubAppId).catch((error: unknown) => ({
+        status: "failed" as const,
+        error: toError(error),
+      }));
+      this.runtimePromises.set(githubAppId, pending);
+    }
+    const runtime = await pending;
+    this.runtimes.set(githubAppId, runtime);
+    return runtime;
   }
 
   private async acceptManagerRequest(
+    githubAppId: number,
     thread: GitHubManagerChatThread,
     message: GitHubManagerChatMessage,
   ): Promise<void> {
@@ -240,18 +258,22 @@ export class SigveloChatIngress extends Agent<Env> {
     const statusMessage = await thread.post(
       "SigVelo manager accepted this message and is queueing a Think turn.",
     );
-    await this.enqueueManagerRequest(thread, message, statusMessage);
+    await this.enqueueManagerRequest(githubAppId, thread, message, statusMessage);
   }
 
   private async enqueueManagerRequest(
+    githubAppId: number,
     thread: GitHubManagerChatThread,
     message: GitHubManagerChatMessage,
     statusMessage: SentMessage,
   ): Promise<void> {
     let managerName: string | undefined;
     try {
-      const managerMessage = await this.createManagerMessage(thread, message);
-      managerName = buildNaniteManagerKey(managerMessage.installationId);
+      const managerMessage = await this.createManagerMessage(githubAppId, thread, message);
+      managerName = buildNaniteManagerKey({
+        githubAppId: managerMessage.githubAppId,
+        githubInstallationId: managerMessage.installationId,
+      });
       const conversationName = managerConversationName(thread, message);
       const conversation = await getAgentByName<Env, SigveloManagerConversationAgent>(
         this.env.SigveloManagerConversationAgent,
@@ -261,6 +283,7 @@ export class SigveloChatIngress extends Agent<Env> {
       const userMessageId = `github:${managerMessage.surface.messageId}`;
       const acceptance = await conversation.answerGitHubMessage(managerMessage, {
         conversationName,
+        githubAppId,
         startedAt,
         statusMessageId: statusMessage.id,
         submissionId: userMessageId,
@@ -270,6 +293,7 @@ export class SigveloChatIngress extends Agent<Env> {
       if (acceptance.status !== "pending" && acceptance.status !== "running") {
         await this.publishManagerReply({
           conversationName,
+          githubAppId,
           startedAt,
           statusMessageId: statusMessage.id,
           submissionId: acceptance.submissionId,
@@ -353,7 +377,7 @@ export class SigveloChatIngress extends Agent<Env> {
   }
 
   private async editStatusMessage(input: ManagerReplyPublication, text: string): Promise<void> {
-    const bot = await this.getBot();
+    const bot = await this.getBot(input.githubAppId);
     if (bot instanceof Error) {
       throw bot;
     }
@@ -379,10 +403,11 @@ export class SigveloChatIngress extends Agent<Env> {
   }
 
   private async createManagerMessage(
+    githubAppId: number,
     thread: GitHubManagerChatThread,
     message: GitHubManagerChatMessage,
   ): Promise<HandleManagerChatMessageInput> {
-    const github = this.getGitHubAdapter();
+    const github = this.getGitHubAdapter(githubAppId);
     const installationId = await github.getInstallationId(thread);
     if (
       typeof installationId !== "number" ||
@@ -393,6 +418,7 @@ export class SigveloChatIngress extends Agent<Env> {
     }
 
     return {
+      githubAppId,
       installationId,
       surface: {
         type: "github",
@@ -405,35 +431,43 @@ export class SigveloChatIngress extends Agent<Env> {
     };
   }
 
-  private getGitHubAdapter(): GitHubAdapter {
-    if (this.runtime.status !== "ready") {
-      throw this.getRuntimeError();
+  private getGitHubAdapter(githubAppId: number): GitHubAdapter {
+    const runtime = this.runtimes.get(githubAppId);
+    if (!runtime || runtime.status !== "ready") {
+      throw this.getRuntimeError(githubAppId);
     }
 
-    return this.runtime.github;
+    return runtime.github;
   }
 
-  private async getBot(): Promise<Chat | AppError> {
-    const runtime = await this.getRuntimeState();
+  private async getBot(githubAppId: number): Promise<Chat | AppError> {
+    const runtime = await this.getRuntimeState(githubAppId);
     if (runtime.status === "ready") {
       return runtime.bot;
     }
 
-    return this.getRuntimeError();
+    return this.getRuntimeError(githubAppId);
   }
 
-  private getRuntimeError(): AppError {
-    if (this.runtime.status === "failed") {
+  private getRuntimeError(githubAppId: number): AppError {
+    const runtime = this.runtimes.get(githubAppId);
+    if (runtime?.status === "failed") {
       return new AppError("chatIngressUnavailable", {
-        cause: this.runtime.error,
-        message: `${APP_ERRORS.chatIngressUnavailable.message}: ${describeError(this.runtime.error)}`,
+        cause: runtime.error,
+        message: `${APP_ERRORS.chatIngressUnavailable.message}: ${describeError(runtime.error)}`,
       });
     }
 
     return new AppError("chatIngressUnavailable", {
-      message: `${APP_ERRORS.chatIngressUnavailable.message}: Chat SDK runtime was not created during Agent startup.`,
+      message: `${APP_ERRORS.chatIngressUnavailable.message}: Chat SDK runtime for GitHub App ${githubAppId} was not created.`,
     });
   }
+}
+
+function readChatIngressTargetAppId(request: Request): number | null {
+  const rawTargetId = request.headers.get(GITHUB_WEBHOOK_TARGET_ID_HEADER);
+  const targetId = Number(rawTargetId);
+  return rawTargetId && Number.isInteger(targetId) && targetId > 0 ? targetId : null;
 }
 
 function managerConversationName(

@@ -9,6 +9,7 @@ type AuthFunnelFactInsert = InferInsertModel<typeof authFunnelFacts>;
 
 type VisibleInstallationProjection = {
   id: number;
+  githubAppId: number;
   account: {
     id: number;
     login: string;
@@ -56,6 +57,21 @@ export async function findAccountIdByInstallationId(
   return row?.accountId ?? null;
 }
 
+async function findInstallationScope(
+  db: DbClient,
+  githubInstallationId: number,
+): Promise<{ accountId: string; githubAppId: number } | null> {
+  const row = await db.query.accountInstallations.findFirst({
+    columns: {
+      accountId: true,
+      githubAppId: true,
+    },
+    where: eq(accountInstallations.githubInstallationId, githubInstallationId),
+  });
+
+  return row ?? null;
+}
+
 async function normalizeOptionalInstallationScope(
   db: DbClient,
   input: {
@@ -65,6 +81,7 @@ async function normalizeOptionalInstallationScope(
   },
 ): Promise<{
   accountId: string | null;
+  githubAppId: number | null;
   githubInstallationId: number | null;
   metadata: Record<string, unknown> | undefined;
 }> {
@@ -75,15 +92,17 @@ async function normalizeOptionalInstallationScope(
   if (githubInstallationId === null) {
     return {
       accountId,
+      githubAppId: null,
       githubInstallationId,
       metadata,
     };
   }
 
-  const mappedAccountId = await findAccountIdByInstallationId(db, githubInstallationId);
-  if (mappedAccountId) {
+  const mappedScope = await findInstallationScope(db, githubInstallationId);
+  if (mappedScope) {
     return {
-      accountId: accountId ?? mappedAccountId,
+      accountId: accountId ?? mappedScope.accountId,
+      githubAppId: mappedScope.githubAppId,
       githubInstallationId,
       metadata,
     };
@@ -96,6 +115,7 @@ async function normalizeOptionalInstallationScope(
 
   return {
     accountId,
+    githubAppId: null,
     githubInstallationId,
     metadata,
   };
@@ -153,6 +173,7 @@ export async function recordVisibleInstallationSnapshots(
       .values({
         id: `github-installation:${installation.id}`,
         accountId,
+        githubAppId: installation.githubAppId,
         githubInstallationId: installation.id,
         status: "active",
         firstSeenAt: observedAt,
@@ -164,6 +185,7 @@ export async function recordVisibleInstallationSnapshots(
         target: accountInstallations.githubInstallationId,
         set: {
           accountId,
+          githubAppId: installation.githubAppId,
           status: "active",
           lastSeenAt: observedAt,
           removedAt: null,
@@ -190,6 +212,7 @@ export async function recordAuthFunnelFact(
     .values({
       id: crypto.randomUUID(),
       accountId: normalizedScope.accountId,
+      githubAppId: normalizedScope.githubAppId,
       githubInstallationId: normalizedScope.githubInstallationId,
       githubRepositoryId: input.githubRepositoryId ?? null,
       githubUserId: input.githubUserId ?? null,
@@ -231,6 +254,7 @@ export async function recordPlatformUsageFact(
     .values({
       id: crypto.randomUUID(),
       accountId: normalizedScope.accountId,
+      githubAppId: normalizedScope.githubAppId,
       githubInstallationId: normalizedScope.githubInstallationId,
       githubRepositoryId: input.githubRepositoryId ?? null,
       runKey: input.runKey ?? null,

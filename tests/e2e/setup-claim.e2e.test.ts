@@ -1,9 +1,6 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import {
-  ensureD1BaselineSchema,
-  saveTestDeploymentGitHubAppMetadata,
-} from "../helpers/d1-baseline.ts";
+import { ensureD1BaselineSchema, saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 import {
   createInitialSetupState,
   type NanitesSetupAgent,
@@ -59,7 +56,7 @@ function readInstallNonce(setupState: NanitesSetupState): string {
 
 test("repository install requires the issued setup claim and install nonce", async () => {
   await ensureD1BaselineSchema(env.DB);
-  await saveTestDeploymentGitHubAppMetadata(env.DB);
+  await saveTestGitHubApp(env.DB);
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const installState = readInstallNonce(await setupAgent.refresh({ origin: SETUP_ORIGIN }));

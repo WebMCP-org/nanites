@@ -8,6 +8,12 @@ const SIGVELO_GITHUB_APP_PERMISSIONS_PATH = `${SIGVELO_GITHUB_APP_INSTALL_PATH}/
 
 export const GITHUB_WEBHOOK_PATH = "/api/github/webhook";
 
+/**
+ * GitHub stamps app webhook deliveries with the owning app's id, which lets
+ * one webhook URL serve every registered app.
+ */
+export const GITHUB_WEBHOOK_TARGET_ID_HEADER = "x-github-hook-installation-target-id";
+
 interface BuildGitHubAppInstallHrefOptions {
   readonly appSlug?: string | null;
   readonly state?: string | null;

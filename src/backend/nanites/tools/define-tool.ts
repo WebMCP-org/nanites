@@ -15,6 +15,7 @@ export type SigveloNaniteToolSurface = "mcp" | "manager_chat";
 export type NaniteToolContext = {
   surface: SigveloNaniteToolSurface;
   actor: ObservabilityActor;
+  githubAppId: SigveloMcpAuthProps["githubAppId"];
   githubInstallationId: SigveloMcpAuthProps["githubInstallationId"];
   managerName: string;
   requestId: string;
@@ -77,7 +78,10 @@ async function resolveAuthorizedNaniteToolRuntime(input: {
   surface: SigveloNaniteToolSurface;
   requestId?: string;
 }): Promise<NaniteToolRuntime> {
-  const managerName = buildNaniteManagerKey(input.props.githubInstallationId);
+  const managerName = buildNaniteManagerKey({
+    githubAppId: input.props.githubAppId,
+    githubInstallationId: input.props.githubInstallationId,
+  });
 
   return {
     context: {
@@ -90,6 +94,7 @@ async function resolveAuthorizedNaniteToolRuntime(input: {
         actorId: `github:${input.props.githubUserId}`,
         actorLogin: input.props.githubLogin,
       },
+      githubAppId: input.props.githubAppId,
       githubInstallationId: input.props.githubInstallationId,
       managerName,
       requestId: input.requestId ?? crypto.randomUUID(),
@@ -143,7 +148,10 @@ function createToolTelemetryContext(input: {
     [OTEL_ATTRS.GITHUB_INSTALLATION_ID]: input.invocation.props.githubInstallationId,
     [OTEL_ATTRS.NANITE_MANAGER_NAME]:
       input.runtime?.context.managerName ??
-      buildNaniteManagerKey(input.invocation.props.githubInstallationId),
+      buildNaniteManagerKey({
+        githubAppId: input.invocation.props.githubAppId,
+        githubInstallationId: input.invocation.props.githubInstallationId,
+      }),
     [OTEL_ATTRS.NANITE_TOOL_NAME]: input.definition.name,
     [OTEL_ATTRS.SIGVELO_TOOL_SURFACE]: input.invocation.surface,
   };

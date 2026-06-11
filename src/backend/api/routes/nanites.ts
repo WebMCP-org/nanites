@@ -11,7 +11,7 @@ import { buildNaniteManagerKey } from "#/nanites.ts";
 const managerNameInput = zValidator(
   "param",
   z.object({
-    managerName: z.string().regex(/^installation:\d+$/),
+    managerName: z.string().regex(/^app:\d+:installation:\d+$/),
   }),
 );
 
@@ -21,12 +21,12 @@ export const nanitesApiRoutes = new Hono<WorkerHonoEnv>().get(
   activeGithubInstallationRequired,
   async (context) => {
     const { managerName } = context.req.valid("param");
-    const activeGithubInstallationId = context.get("activeGithubInstallationId");
-    const expectedManagerName = buildNaniteManagerKey(activeGithubInstallationId);
+    const activeGithubInstallation = context.get("activeGithubInstallation");
+    const expectedManagerName = buildNaniteManagerKey(activeGithubInstallation);
 
     if (managerName !== expectedManagerName) {
       throw new AppError("activeInstallationRequired", {
-        details: { githubInstallationId: activeGithubInstallationId },
+        details: { githubInstallationId: activeGithubInstallation.githubInstallationId },
       });
     }
 

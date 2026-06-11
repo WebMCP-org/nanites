@@ -829,6 +829,7 @@ export function ManagerRuntimeChatConnector({
   emptyDescription = "Ask the installation manager to inspect, create, update, pause, or run Nanites.",
   emptyTitle = "Manager ready",
   errorDescription = "The installation manager conversation could not connect.",
+  githubAppId,
   githubInstallationId,
   loadingDescription = "The conversation is getting ready. You’ll be able to continue here in a moment.",
   loadingPlaceholder = "Connecting to the manager...",
@@ -858,6 +859,7 @@ export function ManagerRuntimeChatConnector({
     void conversationAgent.stub
       .connectBrowserInstallation({
         managerName,
+        githubAppId,
         githubInstallationId,
         accountLogin,
         actor,
@@ -876,7 +878,7 @@ export function ManagerRuntimeChatConnector({
     return () => {
       canceled = true;
     };
-  }, [accountLogin, actor, conversationAgent.stub, githubInstallationId, managerName]);
+  }, [accountLogin, actor, conversationAgent.stub, githubAppId, githubInstallationId, managerName]);
 
   if (connectError) {
     return (

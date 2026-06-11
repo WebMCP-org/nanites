@@ -2,14 +2,15 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getAgentByName } from "agents";
-import worker, { ChatSdkStateAgent, SigveloChatIngressV1 } from "#/server.ts";
+import worker, { ChatSdkStateAgent, SigveloChatIngressV2 } from "#/server.ts";
 import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { encodeHex } from "#/backend/crypto.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import {
+  TEST_GITHUB_APP_ID,
   ensureD1BaselineSchema,
-  saveTestDeploymentGitHubAppMetadata,
+  saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 
@@ -27,9 +28,9 @@ async function signGitHubWebhookBody(body: string, secret: string): Promise<stri
 }
 
 function requireTestGitHubWebhookSecret(): string {
-  const secret = env.GITHUB_WEBHOOK_SECRET;
+  const secret = Reflect.get(env, `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`);
   if (typeof secret !== "string" || secret.length === 0) {
-    throw new Error("GITHUB_WEBHOOK_SECRET is required for webhook signature tests.");
+    throw new Error("The test GitHub App webhook secret is required for webhook signature tests.");
   }
 
   return secret;
@@ -71,7 +72,7 @@ function buildIssueCommentPayload(
   fixture: GitHubIssueCommentFixture = {
     authorId: 301,
     authorLogin: "alex",
-    body: "@sigvelo status",
+    body: "@nanites-test status",
     prNumber: 21,
     statusCommentId: 1002,
     userCommentId: 1001,
@@ -123,7 +124,7 @@ function mockManagerConversationGitHubApi(
   fixture: GitHubIssueCommentFixture = {
     authorId: 301,
     authorLogin: "alex",
-    body: "@sigvelo status",
+    body: "@nanites-test status",
     prNumber: 21,
     statusCommentId: 1002,
     userCommentId: 1001,
@@ -297,7 +298,7 @@ function managerConversationNameFor(fixture: GitHubIssueCommentFixture): string 
 }
 
 test("server exports the Chat SDK ingress Agent classes", () => {
-  expect(SigveloChatIngressV1).toBeDefined();
+  expect(SigveloChatIngressV2).toBeDefined();
   expect(ChatSdkStateAgent).toBeDefined();
   expect(ChatSdkStateAgent.name).toBe("ChatSdkStateAgent");
   expect(Object.getPrototypeOf(ChatSdkStateAgent.prototype)).toBe(
@@ -310,7 +311,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await saveTestDeploymentGitHubAppMetadata(env.DB);
+  await saveTestGitHubApp(env.DB);
 });
 
 test("GitHub issue comments route through Chat SDK ingress", async () => {
@@ -329,6 +330,8 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
           "content-type": "application/json",
           "x-github-delivery": "chat-sdk-delivery-1",
           "x-github-event": "issue_comment",
+          "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+          "x-github-hook-installation-target-type": "integration",
           "x-hub-signature-256": await signGitHubWebhookBody(
             body,
             requireTestGitHubWebhookSecret(),
@@ -358,7 +361,7 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
       managerConversationNameFor({
         authorId: 301,
         authorLogin: "alex",
-        body: "@sigvelo status",
+        body: "@nanites-test status",
         prNumber: 21,
         statusCommentId: 1002,
         userCommentId: 1001,
@@ -398,6 +401,8 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
           "content-type": "application/json",
           "x-github-delivery": "chat-sdk-delivery-2",
           "x-github-event": "issue_comment",
+          "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+          "x-github-hook-installation-target-type": "integration",
           "x-hub-signature-256": await signGitHubWebhookBody(
             body,
             requireTestGitHubWebhookSecret(),
@@ -426,7 +431,7 @@ test("GitHub and browser manager chats share the manager conversation behavior",
   const fixture: GitHubIssueCommentFixture = {
     authorId: 302,
     authorLogin: "alex",
-    body: "@sigvelo are you the same manager?",
+    body: "@nanites-test are you the same manager?",
     prNumber: 22,
     statusCommentId: 2002,
     userCommentId: 2001,
@@ -446,6 +451,8 @@ test("GitHub and browser manager chats share the manager conversation behavior",
           "content-type": "application/json",
           "x-github-delivery": "chat-sdk-delivery-same-manager",
           "x-github-event": "issue_comment",
+          "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+          "x-github-hook-installation-target-type": "integration",
           "x-hub-signature-256": await signGitHubWebhookBody(
             body,
             requireTestGitHubWebhookSecret(),
@@ -468,11 +475,15 @@ test("GitHub and browser manager chats share the manager conversation behavior",
 
     const browserConversation = await getAgentByName<Env, SigveloManagerConversationAgent>(
       env.SigveloManagerConversationAgent,
-      `${buildNaniteManagerKey(1)}:manager:${fixture.authorId}`,
+      `${buildNaniteManagerKey({ githubAppId: TEST_GITHUB_APP_ID, githubInstallationId: 1 })}:manager:${fixture.authorId}`,
     );
     await expect(
       browserConversation.connectBrowserInstallation({
-        managerName: buildNaniteManagerKey(1),
+        managerName: buildNaniteManagerKey({
+          githubAppId: TEST_GITHUB_APP_ID,
+          githubInstallationId: 1,
+        }),
+        githubAppId: TEST_GITHUB_APP_ID,
         githubInstallationId: 1,
         accountLogin: "WebMCP-org",
         actor: {
@@ -523,6 +534,8 @@ test("GitHub webhook ping requires a valid signature", async () => {
         "content-type": "application/json",
         "x-github-delivery": "ping-unsigned",
         "x-github-event": "ping",
+        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+        "x-github-hook-installation-target-type": "integration",
       },
       body,
     }),
@@ -539,6 +552,8 @@ test("GitHub webhook ping requires a valid signature", async () => {
         "content-type": "application/json",
         "x-github-delivery": "ping-signed",
         "x-github-event": "ping",
+        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+        "x-github-hook-installation-target-type": "integration",
         "x-hub-signature-256": await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
       },
       body,

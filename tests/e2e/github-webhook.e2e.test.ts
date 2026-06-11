@@ -2,8 +2,9 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { getAgentByName } from "agents";
 import worker from "#/server.ts";
 import {
+  TEST_GITHUB_APP_ID,
   ensureD1BaselineSchema,
-  saveTestDeploymentGitHubAppMetadata,
+  saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import {
   createInitialSetupState,
@@ -43,9 +44,9 @@ async function signGitHubWebhookBody(body: string, secret: string): Promise<stri
 }
 
 function requireTestGitHubWebhookSecret(): string {
-  const secret = env.GITHUB_WEBHOOK_SECRET;
+  const secret = Reflect.get(env, `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`);
   if (typeof secret !== "string" || secret.length === 0) {
-    throw new Error("GITHUB_WEBHOOK_SECRET is required for webhook e2e tests.");
+    throw new Error("The test GitHub App webhook secret is required for webhook e2e tests.");
   }
 
   return secret;
@@ -127,7 +128,7 @@ function buildCloudflareVerifiedSetupState(): NanitesSetupState {
 }
 
 test("GitHub webhook ping requires the configured app secret and a valid signature", async () => {
-  await saveTestDeploymentGitHubAppMetadata(env.DB);
+  await saveTestGitHubApp(env.DB);
   const body = buildGitHubPingBody();
   const unsignedResponse = await worker.fetch(
     new Request(`https://sigvelo-agent-tests.example.workers.dev${GITHUB_WEBHOOK_PATH}`, {
@@ -136,6 +137,8 @@ test("GitHub webhook ping requires the configured app secret and a valid signatu
         "content-type": "application/json",
         "x-github-delivery": "e2e-ping-unsigned",
         "x-github-event": "ping",
+        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+        "x-github-hook-installation-target-type": "integration",
       },
       body,
     }),
@@ -152,6 +155,8 @@ test("GitHub webhook ping requires the configured app secret and a valid signatu
         "content-type": "application/json",
         "x-github-delivery": "e2e-ping-signed",
         "x-github-event": "ping",
+        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+        "x-github-hook-installation-target-type": "integration",
         "x-hub-signature-256": await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
       },
       body,
@@ -166,7 +171,7 @@ test("GitHub webhook ping requires the configured app secret and a valid signatu
 
 test("GitHub installation deletion webhook moves completed setup back to repository repair", async () => {
   const setupAgent = await resetSetupAgent();
-  await saveTestDeploymentGitHubAppMetadata(env.DB);
+  await saveTestGitHubApp(env.DB);
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await setupAgent.issueSetupClaim();
   const setupState = await setupAgent.refresh();
@@ -204,6 +209,8 @@ test("GitHub installation deletion webhook moves completed setup back to reposit
         "content-type": "application/json",
         "x-github-delivery": "e2e-installation-deleted",
         "x-github-event": "installation",
+        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
+        "x-github-hook-installation-target-type": "integration",
         "x-hub-signature-256": await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
       },
       body,

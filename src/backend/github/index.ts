@@ -8,9 +8,10 @@ import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { recordPlatformUsageFact } from "#/backend/db/facts.ts";
 import {
-  type DeploymentGitHubAppConfig,
-  requireDeploymentGitHubAppConfig,
-} from "#/backend/github/app-config.ts";
+  type GitHubAppCredentials,
+  requireGitHubApp,
+  requirePrimaryGitHubApp,
+} from "#/backend/github/apps.ts";
 
 const GITHUB_REST_API_BASE_URL = "https://api.github.com";
 const GITHUB_REST_API_ACCEPT_HEADER = "application/vnd.github+json";
@@ -118,7 +119,7 @@ async function observeGitHubOperation<T>(
   }
 }
 
-function createGitHubAppAuth(config: DeploymentGitHubAppConfig) {
+function createGitHubAppAuth(config: GitHubAppCredentials) {
   return createAppAuth({
     appId: config.appId,
     clientId: config.clientId,
@@ -131,7 +132,7 @@ function createGitHubInstallationOctokit({
   config,
   installationId,
 }: {
-  config: DeploymentGitHubAppConfig;
+  config: GitHubAppCredentials;
   installationId: number;
 }): Octokit {
   return new Octokit({
@@ -210,10 +211,12 @@ export function readGitHubPullRequestReference(
 
 export async function fetchGitHubPullRequestImpact({
   env,
+  githubAppId,
   installationId,
   outputUrl,
 }: {
   env: Env;
+  githubAppId: number;
   installationId: number;
   outputUrl: string | null | undefined;
 }): Promise<GitHubPullRequestImpact | null> {
@@ -223,7 +226,7 @@ export async function fetchGitHubPullRequestImpact({
   }
 
   const repository = `${reference.owner}/${reference.repo}`;
-  const config = await requireDeploymentGitHubAppConfig(createDbClient(env.DB), env);
+  const config = await requireGitHubApp(createDbClient(env.DB), env, githubAppId);
   const octokit = createGitHubInstallationOctokit({ config, installationId });
   const response = await observeGitHubOperation(
     {
@@ -253,11 +256,13 @@ export async function fetchGitHubPullRequestImpact({
 
 export async function issueScopedGitHubInstallationToken({
   env,
+  githubAppId,
   installationId,
   repositories,
   permissions,
 }: {
   env: Env;
+  githubAppId: number;
   installationId: number;
   repositories: readonly string[];
   permissions?: GitHubAppPermissions;
@@ -283,7 +288,7 @@ export async function issueScopedGitHubInstallationToken({
     },
     async () => {
       const auth = createGitHubAppAuth(
-        await requireDeploymentGitHubAppConfig(createDbClient(env.DB), env),
+        await requireGitHubApp(createDbClient(env.DB), env, githubAppId),
       );
       return auth({
         installationId,
@@ -351,7 +356,8 @@ export async function exchangeGitHubOAuthCode({
 }): Promise<GitHubUserToken> {
   return observeGitHubOperation({ operation: "oauth.token.exchange" }, async () => {
     try {
-      const config = await requireDeploymentGitHubAppConfig(createDbClient(env.DB), env);
+      // Browser/MCP OAuth always rides the primary login app.
+      const config = await requirePrimaryGitHubApp(createDbClient(env.DB), env);
       const { authentication } = await exchangeWebFlowCode({
         clientType: "github-app",
         clientId: config.clientId,
@@ -503,6 +509,7 @@ export async function listInstallationRepositories(
 
 export async function listReposAccessibleToInstallation(input: {
   env: Env;
+  githubAppId: number;
   githubInstallationId: number;
 }) {
   return observeGitHubOperation(
@@ -513,7 +520,7 @@ export async function listReposAccessibleToInstallation(input: {
     async () => {
       const startedAt = Date.now();
       const octokit = createGitHubInstallationOctokit({
-        config: await requireDeploymentGitHubAppConfig(createDbClient(input.env.DB), input.env),
+        config: await requireGitHubApp(createDbClient(input.env.DB), input.env, input.githubAppId),
         installationId: input.githubInstallationId,
       });
       const repositories: GitHubInstallationRepository[] = [];

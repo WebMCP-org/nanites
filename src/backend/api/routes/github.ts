@@ -12,9 +12,11 @@ import type {
 } from "#/backend/agents/NanitesSetupAgent.ts";
 import { getGitHubChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
 import { createDbClient } from "#/backend/db/index.ts";
-import { requireDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
+import { recordAuthFunnelFact } from "#/backend/db/facts.ts";
+import { resolveGitHubApp } from "#/backend/github/apps.ts";
 import {
   GITHUB_WEBHOOK_PATH,
+  GITHUB_WEBHOOK_TARGET_ID_HEADER,
   getGitHubWebhookAction,
   getGitHubWebhookEventName,
   getGitHubWebhookInstallationId,
@@ -48,10 +50,12 @@ function readGitHubInstallationRepairReason(
 
 async function recordGitHubInstallationRepairSignal({
   env,
+  githubAppId,
   githubInstallationId,
   reason,
 }: {
   readonly env: Env;
+  readonly githubAppId: number;
   readonly githubInstallationId: number;
   readonly reason: GitHubInstallationRepairReason;
 }): Promise<void> {
@@ -61,9 +65,26 @@ async function recordGitHubInstallationRepairSignal({
   );
 
   await setupAgent.recordInstallationRepair({
+    githubAppId,
     githubInstallationId,
     reason,
   });
+}
+
+/**
+ * GitHub stamps every app webhook delivery with the owning app's id. The
+ * header only selects which app's webhook secret verifies the delivery — the
+ * HMAC signature remains the authentication gate.
+ */
+function readGitHubWebhookTargetAppId(request: Request): number | null {
+  const targetType = request.headers.get("x-github-hook-installation-target-type");
+  if (targetType !== null && targetType !== "integration") {
+    return null;
+  }
+
+  const rawTargetId = request.headers.get(GITHUB_WEBHOOK_TARGET_ID_HEADER);
+  const targetId = Number(rawTargetId);
+  return rawTargetId && Number.isInteger(targetId) && targetId > 0 ? targetId : null;
 }
 
 export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
@@ -73,10 +94,19 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
     // so the chat ingress can run its own verification on the original payload.
     const chatRequest = context.req.raw.clone();
     const isPing = context.req.header("x-github-event") === "ping";
-    const githubAppConfig = await requireDeploymentGitHubAppConfig(
-      createDbClient(context.env.DB),
-      context.env,
-    );
+    const db = createDbClient(context.env.DB);
+    const githubAppId = readGitHubWebhookTargetAppId(context.req.raw);
+    const githubAppConfig =
+      githubAppId === null ? null : await resolveGitHubApp(db, context.env, githubAppId);
+    if (githubAppId === null || !githubAppConfig) {
+      context.executionCtx.waitUntil(
+        recordAuthFunnelFact(db, {
+          eventType: "github_webhook_rejected_unknown_app",
+          metadata: { githubAppId },
+        }),
+      );
+      return context.text("Unknown GitHub App for this deployment.", 401);
+    }
     const webhooks = new Webhooks({ secret: githubAppConfig.webhookSecret });
 
     webhooks.onAny((event) => {
@@ -100,6 +130,7 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
           context.executionCtx.waitUntil(
             recordGitHubInstallationRepairSignal({
               env: context.env,
+              githubAppId,
               githubInstallationId,
               reason: repairReason,
             }),
@@ -148,6 +179,7 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
           await dispatchGitHubWebhookToNaniteManager({
             env: context.env,
             event,
+            githubAppId,
             githubInstallationId,
           });
         })(),

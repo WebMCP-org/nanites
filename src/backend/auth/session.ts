@@ -7,12 +7,13 @@ import type { GitHubUserToken } from "#/backend/github/index.ts";
 import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods";
 import type { GitHubVisibleInstallation } from "#/backend/github/index.ts";
 import { createDbClient } from "#/backend/db/index.ts";
-import { requireDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
+import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
 import {
   BROWSER_AUTH_COOKIE_NAMES,
   BROWSER_AUTH_COOKIE_PATH,
   BROWSER_AUTH_COOKIE_SAME_SITE,
 } from "#/auth.ts";
+import type { NaniteManagerIdentity } from "#/nanites.ts";
 
 /**
  * GitHub OAuth state lifetime in seconds.
@@ -119,6 +120,7 @@ type SessionInstallationAccountSnapshot = {
 
 export type SessionInstallationSnapshot = {
   id: number;
+  githubAppId: number;
   account: SessionInstallationAccountSnapshot;
 };
 
@@ -138,10 +140,12 @@ const sessionInstallationAccountSchema: z.ZodType<SessionInstallationAccountSnap
 
 const sessionInstallationSnapshotSchema: z.ZodType<SessionInstallationSnapshot> = z.object({
   id: githubIdSchema,
+  githubAppId: githubIdSchema,
   account: sessionInstallationAccountSchema,
 });
 export const nanitesSessionSchema = z.object({
   githubViewer: authenticatedActorSchema,
+  activeGithubAppId: githubIdSchema.nullable(),
   activeGithubInstallationId: githubIdSchema.nullable(),
   sessionInstallationSnapshot: sessionInstallationSnapshotSchema.nullable().optional(),
   expiresAt: isoDateTimeSchema,
@@ -501,7 +505,7 @@ async function refreshGitHubUserToken({
   githubUserToken: RefreshableGitHubUserToken;
   env: Env;
 }): Promise<GitHubUserToken> {
-  const githubAppConfig = await requireDeploymentGitHubAppConfig(createDbClient(env.DB), env);
+  const githubAppConfig = await requirePrimaryGitHubApp(createDbClient(env.DB), env);
   const { authentication } = await refreshGitHubOAuthToken({
     clientType: "github-app",
     clientId: githubAppConfig.clientId,
@@ -568,6 +572,7 @@ export async function requireGitHubUserToken(
 
 function readSessionInstallationSnapshot(
   visibleInstallation: GitHubVisibleInstallation,
+  githubAppId: number,
 ): SessionInstallationSnapshot | null {
   if (visibleInstallation.suspended_at || !visibleInstallation.account) {
     return null;
@@ -580,6 +585,7 @@ function readSessionInstallationSnapshot(
 
   return sessionInstallationSnapshotSchema.parse({
     id: visibleInstallation.id,
+    githubAppId,
     account: {
       id: visibleInstallation.account.id,
       login: accountLogin,
@@ -589,21 +595,29 @@ function readSessionInstallationSnapshot(
   });
 }
 
+/**
+ * GitHub user tokens list installations of the app that minted them, so every
+ * snapshot from one listing belongs to that single app — the caller names it.
+ */
 export function readSessionInstallationSnapshots(
   visibleInstallations: readonly GitHubVisibleInstallation[],
+  githubAppId: number,
 ): SessionInstallationSnapshot[] {
   return visibleInstallations.flatMap((visibleInstallation) => {
-    const activeInstallation = readSessionInstallationSnapshot(visibleInstallation);
+    const activeInstallation = readSessionInstallationSnapshot(visibleInstallation, githubAppId);
     return activeInstallation ? [activeInstallation] : [];
   });
 }
 
-export function requireActiveGithubInstallationId(session: NanitesSession): number {
-  if (session.activeGithubInstallationId === null) {
+export function requireActiveGithubInstallation(session: NanitesSession): NaniteManagerIdentity {
+  if (session.activeGithubAppId === null || session.activeGithubInstallationId === null) {
     throw new AppError("activeInstallationRequired");
   }
 
-  return session.activeGithubInstallationId;
+  return {
+    githubAppId: session.activeGithubAppId,
+    githubInstallationId: session.activeGithubInstallationId,
+  };
 }
 
 export async function clearRevokedSessionSelectionIfNeeded(input: RevalidationArgs): Promise<void> {
@@ -611,7 +625,9 @@ export async function clearRevokedSessionSelectionIfNeeded(input: RevalidationAr
   if (
     activeGithubInstallationId === null ||
     input.sessionInstallationSnapshots.some(
-      (installation) => installation.id === activeGithubInstallationId,
+      (installation) =>
+        installation.id === activeGithubInstallationId &&
+        installation.githubAppId === input.session.activeGithubAppId,
     )
   ) {
     return;
@@ -619,6 +635,7 @@ export async function clearRevokedSessionSelectionIfNeeded(input: RevalidationAr
 
   const nextSession = nanitesSessionSchema.parse({
     ...input.session,
+    activeGithubAppId: null,
     activeGithubInstallationId: null,
     sessionInstallationSnapshot: null,
   });

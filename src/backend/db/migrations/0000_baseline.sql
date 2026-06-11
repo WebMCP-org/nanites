@@ -18,6 +18,7 @@ CREATE TABLE `account_entitlements` (
 CREATE TABLE `account_installations` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
+	`github_app_id` integer NOT NULL,
 	`github_installation_id` integer NOT NULL,
 	`status` text NOT NULL,
 	`first_seen_at` integer NOT NULL,
@@ -26,10 +27,12 @@ CREATE TABLE `account_installations` (
 	`removed_at` integer,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`github_app_id`) REFERENCES `github_apps`(`app_id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `account_installations_github_installation_id_unique` ON `account_installations` (`github_installation_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `account_installations_app_installation_unique` ON `account_installations` (`github_app_id`,`github_installation_id`);--> statement-breakpoint
 CREATE TABLE `account_people` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
@@ -48,6 +51,7 @@ CREATE UNIQUE INDEX `account_people_account_user_unique` ON `account_people` (`a
 CREATE TABLE `account_repositories` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
+	`github_app_id` integer NOT NULL,
 	`github_installation_id` integer NOT NULL,
 	`github_repository_id` integer NOT NULL,
 	`github_repository` text NOT NULL,
@@ -76,6 +80,7 @@ CREATE UNIQUE INDEX `accounts_github_account_id_unique` ON `accounts` (`github_a
 CREATE TABLE `ai_usage_facts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
+	`github_app_id` integer NOT NULL,
 	`github_installation_id` integer NOT NULL,
 	`github_repository_id` integer,
 	`nanite_id` text,
@@ -122,6 +127,7 @@ CREATE TABLE `audit_events` (
 	`occurred_at` integer NOT NULL,
 	`event_name` text NOT NULL,
 	`account_id` text,
+	`github_app_id` integer,
 	`github_installation_id` integer,
 	`github_repository_id` integer,
 	`repository_full_name` text,
@@ -148,6 +154,7 @@ CREATE TABLE `audit_events` (
 CREATE TABLE `auth_funnel_facts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text,
+	`github_app_id` integer,
 	`github_installation_id` integer,
 	`github_repository_id` integer,
 	`github_user_id` integer,
@@ -159,27 +166,30 @@ CREATE TABLE `auth_funnel_facts` (
 	FOREIGN KEY (`github_installation_id`) REFERENCES `account_installations`(`github_installation_id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE TABLE `deployment_github_app_config` (
-	`id` text PRIMARY KEY NOT NULL,
-	`app_id` integer NOT NULL,
+CREATE TABLE `github_apps` (
+	`app_id` integer PRIMARY KEY NOT NULL,
 	`slug` text NOT NULL,
 	`html_url` text NOT NULL,
 	`owner_login` text,
 	`owner_type` text,
-	`selected_github_installation_id` integer,
 	`client_id` text NOT NULL,
+	`private_key_binding` text NOT NULL,
 	`client_secret_binding` text NOT NULL,
 	`webhook_secret_binding` text NOT NULL,
-	`private_key_binding` text NOT NULL,
 	`permissions_json` text NOT NULL,
 	`events_json` text NOT NULL,
+	`is_primary` integer DEFAULT false NOT NULL,
+	`status` text DEFAULT 'active' NOT NULL,
+	`retired_at` integer,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `github_apps_primary_unique` ON `github_apps` (`is_primary`) WHERE "github_apps"."is_primary" = 1 AND "github_apps"."status" = 'active';--> statement-breakpoint
 CREATE TABLE `nanite_catalog` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text,
+	`github_app_id` integer NOT NULL,
 	`github_installation_id` integer NOT NULL,
 	`nanite_id` text NOT NULL,
 	`name` text NOT NULL,
@@ -206,6 +216,7 @@ CREATE UNIQUE INDEX `nanite_catalog_installation_nanite_unique` ON `nanite_catal
 CREATE TABLE `nanite_run_facts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
+	`github_app_id` integer NOT NULL,
 	`github_installation_id` integer NOT NULL,
 	`github_repository_id` integer NOT NULL,
 	`full_name` text NOT NULL,
@@ -268,6 +279,7 @@ CREATE UNIQUE INDEX `nanite_run_facts_installation_repo_run_unique` ON `nanite_r
 CREATE TABLE `platform_usage_facts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text,
+	`github_app_id` integer,
 	`github_installation_id` integer,
 	`github_repository_id` integer,
 	`run_key` text,

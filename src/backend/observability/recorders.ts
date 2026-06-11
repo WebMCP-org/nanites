@@ -64,6 +64,7 @@ export type NaniteBillingAttribution = {
 
 export type RecordNaniteCatalogProjectionInput = {
   accountId?: string | null;
+  githubAppId: number;
   githubInstallationId: number;
   nanite: ManagedNanite;
   actor?: ObservabilityActor | null;
@@ -74,6 +75,7 @@ export type RecordAuditEventInput = {
   occurredAt?: Date;
   eventName: string;
   accountId?: string | null;
+  githubAppId?: number | null;
   githubInstallationId?: number | null;
   githubRepositoryId?: number | null;
   repositoryFullName?: string | null;
@@ -92,6 +94,7 @@ export type RecordAuditEventInput = {
 
 export type RecordNaniteRunFactInput = {
   accountId?: string | null;
+  githubAppId: number;
   githubInstallationId: number;
   run: NaniteRunRecord;
   nanite?: ManagedNanite | null;
@@ -102,6 +105,7 @@ export type RecordNaniteRunFactInput = {
 
 export type RecordAiUsageFactInput = {
   accountId?: string | null;
+  githubAppId: number;
   githubInstallationId: number;
   githubRepositoryId?: number | null;
   naniteId?: string | null;
@@ -402,6 +406,7 @@ export async function recordNaniteCatalogProjection(
   const values: NaniteCatalogInsert = {
     id: stableCatalogId(input.githubInstallationId, input.nanite.manifest.id),
     accountId,
+    githubAppId: input.githubAppId,
     githubInstallationId: input.githubInstallationId,
     naniteId: input.nanite.manifest.id,
     name: input.nanite.manifest.name,
@@ -477,6 +482,7 @@ export async function recordAuditEvent(db: DbClient, input: RecordAuditEventInpu
     occurredAt,
     eventName: input.eventName,
     accountId,
+    githubAppId: input.githubAppId ?? null,
     githubInstallationId: input.githubInstallationId ?? null,
     githubRepositoryId: input.githubRepositoryId ?? null,
     repositoryFullName: input.repositoryFullName ?? null,
@@ -601,6 +607,7 @@ export async function recordNaniteRunFact(
   const values: NaniteRunFactInsert = {
     id: `nanite-run:${input.githubInstallationId}:${repository.githubRepositoryId}:${input.run.runId}`,
     accountId,
+    githubAppId: input.githubAppId,
     githubInstallationId: input.githubInstallationId,
     githubRepositoryId: repository.githubRepositoryId,
     repositoryFullName: repository.repositoryFullName,
@@ -743,6 +750,7 @@ function buildAiUsageFactInsert(input: BuildAiUsageFactInsertInput): AiUsageFact
   return {
     id: `ai-usage:${input.input.requestId}`,
     accountId: input.accountId,
+    githubAppId: input.input.githubAppId,
     githubInstallationId: input.input.githubInstallationId,
     githubRepositoryId: nullable(input.input.githubRepositoryId),
     naniteId: nullable(input.input.naniteId),
