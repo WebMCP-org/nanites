@@ -11,11 +11,10 @@ import {
   saveTestDeploymentGitHubAppMetadata,
 } from "../helpers/d1-baseline.ts";
 import {
-  createInitialNanitesSetupState,
-  type CheckGitHubSecretPropagationInput,
+  CLOUDFLARE_SETUP_OAUTH_SCOPE,
+  createInitialSetupState,
   type NanitesSetupAgent,
-  type NanitesSetupAgentState,
-  type RecordRepositoryInstallInput,
+  type NanitesSetupState,
   type RefreshSetupInput,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 import {
@@ -33,39 +32,32 @@ const GITHUB_UPSTREAM_STAR_URL = "https://api.github.com/user/starred/WebMCP-org
 const SETUP_CLAIM_COOKIE_NAME = "nanites_setup_claim";
 const GITHUB_API_ORIGIN = "https://api.github.com";
 const SETUP_ORIGIN = "https://sigvelo-agent-tests.example.workers.dev";
+const GITHUB_MANIFEST_CONVERSION_URL =
+  "https://api.github.com/app-manifests/test-manifest-code/conversions";
+const CLOUDFLARE_MCP_SERVER_ID = "cloudflare-api";
 const CLOUDFLARE_MCP_SERVER_URL = "https://mcp.cloudflare.com/mcp";
+const CLOUDFLARE_MCP_CALLBACK_PATH = `/agents/${NANITES_SETUP_AGENT_NAME}/${NANITES_SETUP_AGENT_INSTANCE_NAME}/callback`;
 const CLOUDFLARE_PROTECTED_RESOURCE_METADATA_URL =
   "https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp";
 const CLOUDFLARE_AUTHORIZATION_SERVER_METADATA_URL =
   "https://mcp.cloudflare.com/.well-known/oauth-authorization-server";
 const CLOUDFLARE_DCR_REGISTRATION_URL = "https://mcp.cloudflare.com/register";
-const CLOUDFLARE_SETUP_OAUTH_SCOPE =
-  "offline_access user:read account:read billing:read workers:read workers_scripts:write";
 
 type SetupAgentTestRpc = {
+  readonly state: Promise<NanitesSetupState>;
   listSchedules(): Promise<readonly { readonly id: string }[]>;
   cancelSchedule(id: string): Promise<void>;
-  setState(state: NanitesSetupAgentState): void;
-  clearSetupClaim: NanitesSetupAgent["clearSetupClaim"];
+  setState(state: NanitesSetupState): void;
+  getMcpServers: NanitesSetupAgent["getMcpServers"];
+  removeMcpServer: NanitesSetupAgent["removeMcpServer"];
+  addMcpServer: NanitesSetupAgent["addMcpServer"];
   issueSetupClaim: NanitesSetupAgent["issueSetupClaim"];
-  refresh(input?: RefreshSetupInput | null): Promise<NanitesSetupAgentState>;
-  checkGitHubSecretPropagation(
-    input: CheckGitHubSecretPropagationInput,
-  ): Promise<NanitesSetupAgentState>;
-  claimSetupOwner(input?: { readonly setupOwnerToken?: string | null } | null): Promise<{
-    readonly claimed: boolean;
-    readonly setupOwnerToken: string | null;
-    readonly expiresAt: string | null;
-    readonly state: NanitesSetupAgentState;
-  }>;
-  resetSetupOwner(input: {
-    readonly setupOwnerToken?: string | null;
-  }): Promise<NanitesSetupAgentState>;
+  refresh(input?: RefreshSetupInput | null): Promise<NanitesSetupState>;
+  checkSecretPropagation(payload: { readonly origin: string }): Promise<void>;
   connectCloudflare: NanitesSetupAgent["connectCloudflare"];
-  startGitHubManifest: NanitesSetupAgent["startGitHubManifest"];
-  recordRepositoryInstall(input: RecordRepositoryInstallInput): Promise<NanitesSetupAgentState>;
-  recordUpstreamStarVerified: NanitesSetupAgent["recordUpstreamStarVerified"];
-  recordUpstreamStarMissing: NanitesSetupAgent["recordUpstreamStarMissing"];
+  startGitHubApp: NanitesSetupAgent["startGitHubApp"];
+  recordRepositoryInstall: NanitesSetupAgent["recordRepositoryInstall"];
+  recordUpstreamStar: NanitesSetupAgent["recordUpstreamStar"];
 };
 
 beforeEach(async () => {
@@ -74,9 +66,7 @@ beforeEach(async () => {
   for (const schedule of await setupAgent.listSchedules()) {
     await setupAgent.cancelSchedule(schedule.id);
   }
-  setupAgent.setState(createInitialNanitesSetupState());
-  await setupAgent.clearSetupClaim();
-  await setupAgent.resetSetupOwner({ setupOwnerToken: null });
+  setupAgent.setState(createInitialSetupState());
 });
 
 function readRedirectLocation(response: Response): URL {
@@ -85,7 +75,7 @@ function readRedirectLocation(response: Response): URL {
     throw new Error("Expected setup response to redirect.");
   }
 
-  return new URL(location);
+  return new URL(location, SETUP_ORIGIN);
 }
 
 function envWithoutGeneratedGitHubAppSecrets(): Env {
@@ -101,6 +91,32 @@ function envWithoutAuthCookieSecret(): Env {
   const testEnv = { ...env } as Env;
   Reflect.set(testEnv, "AUTH_COOKIE_SECRET", "replace-with-auth-cookie-secret");
   return testEnv;
+}
+
+function snapshotGeneratedSecretEnv(): Record<string, unknown> {
+  return {
+    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
+    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
+    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
+    AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
+  };
+}
+
+function applyGeneratedSecretEnv(values: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(values)) {
+    Reflect.set(env, key, value);
+  }
+}
+
+function blankGeneratedSecretEnv(): Record<string, unknown> {
+  const original = snapshotGeneratedSecretEnv();
+  applyGeneratedSecretEnv({
+    GITHUB_APP_PRIVATE_KEY: "",
+    GITHUB_CLIENT_SECRET: "",
+    GITHUB_WEBHOOK_SECRET: "",
+    AUTH_COOKIE_SECRET: "",
+  });
+  return original;
 }
 
 async function getSetupAgent(): Promise<SetupAgentTestRpc> {
@@ -137,58 +153,60 @@ async function issueSetupClaim(
 ): Promise<{ token: string; cookieHeader: string }> {
   const claim = await setupAgent.issueSetupClaim();
   return {
-    token: claim.claimToken,
-    cookieHeader: `${SETUP_CLAIM_COOKIE_NAME}=${claim.claimToken}`,
+    token: claim.token,
+    cookieHeader: `${SETUP_CLAIM_COOKIE_NAME}=${claim.token}`,
   };
-}
-
-async function buildClaimedGitHubSetupVerifyRequest({
-  setupAgent,
-  installationId = 42,
-  origin = "https://sigvelo-agent-tests.example.workers.dev",
-}: {
-  readonly setupAgent: SetupAgentTestRpc;
-  readonly installationId?: number;
-  readonly origin?: string;
-}): Promise<Request> {
-  await saveGeneratedGitHubAppMetadata();
-  const setupState = await setupAgent.refresh({ origin });
-  const installState = setupState.repositories.installState;
-  if (!installState) {
-    throw new Error("Expected setup Agent to expose a repository install nonce.");
-  }
-
-  const url = new URL("/setup/github/verify", origin);
-  url.searchParams.set("installation_id", String(installationId));
-  url.searchParams.set("state", installState);
-  return new Request(url);
 }
 
 async function readRepositoryInstallState(
   setupAgent: SetupAgentTestRpc,
-  origin = "https://sigvelo-agent-tests.example.workers.dev",
+  origin = SETUP_ORIGIN,
 ): Promise<string> {
   const setupState = await setupAgent.refresh({ origin });
-  const installState = setupState.repositories.installState;
+  const installUrl = setupState.githubApp.installUrl;
+  const installState = installUrl ? new URL(installUrl).searchParams.get("state") : null;
   if (!installState) {
     throw new Error("Expected setup Agent to expose a repository install nonce.");
   }
   return installState;
 }
 
-async function startClaimedGitHubManifest(setupAgent: SetupAgentTestRpc): Promise<{
+async function buildClaimedGitHubSetupVerifyRequest({
+  setupAgent,
+  installationId = 42,
+  installState,
+  origin = SETUP_ORIGIN,
+}: {
+  readonly setupAgent: SetupAgentTestRpc;
+  readonly installationId?: number;
+  readonly installState?: string;
+  readonly origin?: string;
+}): Promise<Request> {
+  await saveGeneratedGitHubAppMetadata();
+  const state = installState ?? (await readRepositoryInstallState(setupAgent, origin));
+
+  const url = new URL("/setup/github/verify", origin);
+  url.searchParams.set("installation_id", String(installationId));
+  url.searchParams.set("state", state);
+  return new Request(url);
+}
+
+async function startClaimedGitHubApp(setupAgent: SetupAgentTestRpc): Promise<{
   readonly setupClaim: { readonly token: string; readonly cookieHeader: string };
-  readonly manifest: { readonly state: string };
+  readonly manifestState: string;
 }> {
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
-  const manifest = await setupAgent.startGitHubManifest({
-    origin: "https://sigvelo-agent-tests.example.workers.dev",
+  const result = await setupAgent.startGitHubApp({
+    origin: SETUP_ORIGIN,
     ownerType: "user",
-    setupClaimToken: setupClaim.token,
+    claimToken: setupClaim.token,
   });
+  if (!result.ok) {
+    throw new Error(`Expected GitHub App start to succeed, got ${result.errorKind}.`);
+  }
 
-  return { setupClaim, manifest };
+  return { setupClaim, manifestState: result.state };
 }
 
 function joinCookieHeaders(...cookieHeaders: readonly (string | null | undefined)[]): string {
@@ -311,45 +329,32 @@ function handleSuccessfulSetupVerificationGitHubRequest(request: Request): Respo
   return null;
 }
 
-function buildCloudflareVerifiedSetupState() {
-  const initialState = createInitialNanitesSetupState();
+function buildCloudflareReadyReadiness(): NanitesSetupState["cloudflare"]["readiness"] {
+  return { status: "ready", checkedAt: new Date().toISOString(), items: [] };
+}
+
+function buildCloudflareVerifiedSetupState(): NanitesSetupState {
+  const initialState = createInitialSetupState();
   return {
     ...initialState,
+    currentStep: "github-app",
     cloudflare: {
-      status: "verified" as const,
+      status: "verified",
       authorizationUrl: null,
       accountId: "test-account",
       accountName: "Test Account",
       scriptName: "sigvelo-agent-tests",
       readiness: buildCloudflareReadyReadiness(),
       error: null,
-      connectedAt: new Date().toISOString(),
     },
     githubApp: {
       ...initialState.githubApp,
-      status: "ready" as const,
+      status: "ready",
     },
   };
 }
 
-function buildCloudflareReadyReadiness(): NanitesSetupAgentState["cloudflare"]["readiness"] {
-  const readiness = createInitialNanitesSetupState().cloudflare.readiness;
-  return {
-    status: "ready",
-    checkedAt: new Date().toISOString(),
-    items: readiness.items.map((item) => ({
-      ...item,
-      status: "ready" as const,
-      detail: `${item.label} is ready.`,
-      action: null,
-    })),
-  };
-}
-
-function buildCloudflareBlockedSetupState(
-  key: NanitesSetupAgentState["cloudflare"]["readiness"]["items"][number]["key"],
-  detail: string,
-): NanitesSetupAgentState {
+function buildCloudflareBlockedSetupState(detail: string): NanitesSetupState {
   const state = buildCloudflareVerifiedSetupState();
   return {
     ...state,
@@ -359,16 +364,16 @@ function buildCloudflareBlockedSetupState(
       readiness: {
         status: "blocked",
         checkedAt: new Date().toISOString(),
-        items: state.cloudflare.readiness.items.map((item) =>
-          item.key === key
-            ? {
-                ...item,
-                status: "blocked" as const,
-                detail,
-                action: key === "workers-paid" ? "configure" : "retry",
-              }
-            : item,
-        ),
+        items: [
+          {
+            key: "workers-paid",
+            label: "Workers Paid",
+            required: true,
+            status: "blocked",
+            detail,
+            action: "configure",
+          },
+        ],
       },
       error: detail,
     },
@@ -376,11 +381,89 @@ function buildCloudflareBlockedSetupState(
       ...state.githubApp,
       status: "locked",
     },
-    error: {
-      step: "cloudflare",
-      message: detail,
-    },
   };
+}
+
+/**
+ * Serves a minimal Streamable HTTP MCP server for the Cloudflare API endpoint
+ * plus the GitHub manifest conversion endpoint, so the setup Agent can run its
+ * `execute` tool calls (including the Worker secret write) without OAuth.
+ */
+function buildFakeCloudflareMcpFetch(originalFetch: typeof fetch): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    if (request.url === GITHUB_MANIFEST_CONVERSION_URL) {
+      return Response.json(buildGitHubManifestConversion());
+    }
+    if (request.url !== CLOUDFLARE_MCP_SERVER_URL) {
+      return originalFetch(input, init);
+    }
+    if (request.method === "GET") {
+      return new Response("SSE not supported", { status: 405 });
+    }
+    if (request.method === "DELETE") {
+      return new Response(null, { status: 200 });
+    }
+
+    const message = (await request.json()) as {
+      id?: number | string;
+      method?: string;
+      params?: { protocolVersion?: string };
+    };
+    if (message.id === undefined) {
+      return new Response(null, { status: 202 });
+    }
+    const respond = (result: unknown) => Response.json({ jsonrpc: "2.0", id: message.id, result });
+
+    switch (message.method) {
+      case "initialize":
+        return respond({
+          protocolVersion: message.params?.protocolVersion ?? "2025-03-26",
+          capabilities: { tools: {}, prompts: {}, resources: {} },
+          serverInfo: { name: "fake-cloudflare-mcp", version: "1.0.0" },
+        });
+      case "tools/list":
+        return respond({
+          tools: [
+            {
+              name: "execute",
+              description: "Execute code against the Cloudflare API.",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+        });
+      case "tools/call":
+        return respond({
+          content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
+        });
+      case "prompts/list":
+        return respond({ prompts: [] });
+      case "resources/list":
+        return respond({ resources: [] });
+      case "resources/templates/list":
+        return respond({ resourceTemplates: [] });
+      default:
+        return respond({});
+    }
+  };
+}
+
+async function connectFakeCloudflareMcpServer(setupAgent: SetupAgentTestRpc): Promise<void> {
+  // Drop any half-connected registration left behind by an earlier test (for
+  // example an abandoned OAuth flow) so the connection attempt starts fresh.
+  const existingServers = await setupAgent.getMcpServers();
+  if (existingServers.servers[CLOUDFLARE_MCP_SERVER_ID]) {
+    await setupAgent.removeMcpServer(CLOUDFLARE_MCP_SERVER_ID);
+  }
+
+  const added = await setupAgent.addMcpServer("Cloudflare API", CLOUDFLARE_MCP_SERVER_URL, {
+    id: CLOUDFLARE_MCP_SERVER_ID,
+    callbackHost: SETUP_ORIGIN,
+    callbackPath: CLOUDFLARE_MCP_CALLBACK_PATH,
+  });
+  if (added.state !== "ready") {
+    throw new Error(`Expected fake Cloudflare MCP server to connect, got "${added.state}".`);
+  }
 }
 
 async function saveGeneratedGitHubAppMetadata(
@@ -409,9 +492,6 @@ test("setup status unlocks repository install after generated GitHub App config 
       status: "ready",
       githubInstallationId: null,
     },
-    launch: {
-      status: "locked",
-    },
   });
 });
 
@@ -425,22 +505,22 @@ test("repository install completes setup with the upstream star left optional", 
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
-      setupClaimToken: setupClaim.token,
+      claimToken: setupClaim.token,
       installState: await readRepositoryInstallState(setupAgent),
     }),
   ).resolves.toMatchObject({
-    setupComplete: true,
-    currentStep: "launch",
-    repositories: {
-      status: "complete",
-      githubInstallationId: 42,
-    },
-    upstreamStar: {
-      status: "ready",
-      verifiedAt: null,
-    },
-    launch: {
-      status: "ready",
+    ok: true,
+    state: {
+      setupComplete: true,
+      currentStep: "launch",
+      repositories: {
+        status: "complete",
+        githubInstallationId: 42,
+      },
+      upstreamStar: {
+        starred: false,
+        error: null,
+      },
     },
   });
 });
@@ -453,17 +533,13 @@ test("repository install survives setup Agent state reset through deployment met
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
-    setupClaimToken: setupClaim.token,
+    claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
 
-  setupAgent.setState(createInitialNanitesSetupState());
+  setupAgent.setState(createInitialSetupState());
 
-  await expect(
-    setupAgent.refresh({
-      origin: "https://sigvelo-agent-tests.example.workers.dev",
-    }),
-  ).resolves.toMatchObject({
+  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
     setupComplete: true,
     currentStep: "launch",
     githubApp: {
@@ -474,16 +550,10 @@ test("repository install survives setup Agent state reset through deployment met
       status: "complete",
       githubInstallationId: 42,
     },
-    upstreamStar: {
-      status: "ready",
-    },
-    launch: {
-      status: "ready",
-    },
   });
 });
 
-test("repository install state is cleared when the GitHub App generation changes", async () => {
+test("regenerating the GitHub App returns the repositories step to ready", async () => {
   await saveGeneratedGitHubAppMetadata({
     appId: 12345,
     slug: "nanites-test",
@@ -493,24 +563,21 @@ test("repository install state is cleared when the GitHub App generation changes
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
-  const originalInstallState = await readRepositoryInstallState(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
-    setupClaimToken: setupClaim.token,
-    installState: originalInstallState,
+    claimToken: setupClaim.token,
+    installState: await readRepositoryInstallState(setupAgent),
   });
 
+  // Re-saving the deployment config (a regenerated app) resets the selected
+  // installation, so the repositories step must be redone.
   await saveGeneratedGitHubAppMetadata({
     appId: 67890,
     slug: "nanites-next",
     htmlUrl: "https://github.com/apps/nanites-next",
   });
 
-  await expect(
-    setupAgent.refresh({
-      origin: "https://sigvelo-agent-tests.example.workers.dev",
-    }),
-  ).resolves.toMatchObject({
+  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
     setupComplete: false,
     currentStep: "repositories",
     githubApp: {
@@ -522,13 +589,7 @@ test("repository install state is cleared when the GitHub App generation changes
       status: "ready",
       githubInstallationId: null,
     },
-    upstreamStar: {
-      status: "locked",
-    },
   });
-
-  const refreshedInstallState = await readRepositoryInstallState(setupAgent);
-  expect(refreshedInstallState).not.toBe(originalInstallState);
 });
 
 test("deployment GitHub App config waits for generated Worker secrets after metadata exists", async () => {
@@ -544,25 +605,21 @@ test("deployment GitHub App config waits for generated Worker secrets after meta
     readDeploymentGitHubAppConfig(db, envWithoutGeneratedGitHubAppSecrets()),
   ).resolves.toBe(null);
 
-  const originalEnv = {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
-    AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
-  };
-
-  Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", "replace-with-github-private-key");
-  Reflect.set(env, "GITHUB_CLIENT_SECRET", "replace-with-github-client-secret");
-  Reflect.set(env, "GITHUB_WEBHOOK_SECRET", "replace-with-github-webhook-secret");
-  Reflect.set(env, "AUTH_COOKIE_SECRET", "replace-with-auth-cookie-secret");
+  const originalEnv = snapshotGeneratedSecretEnv();
+  applyGeneratedSecretEnv({
+    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
+    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
+    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
+  });
 
   try {
-    const response = await nanitesHttpApp.request("/api/setup/status", {}, env);
+    const response = await nanitesHttpApp.request(`${SETUP_ORIGIN}/api/setup/status`, {}, env);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       setupComplete: false,
       githubApp: {
-        status: "secrets-propagating",
+        status: "propagating",
         slug: "nanites-test",
       },
       repositories: {
@@ -570,10 +627,7 @@ test("deployment GitHub App config waits for generated Worker secrets after meta
       },
     });
   } finally {
-    Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", originalEnv.GITHUB_APP_PRIVATE_KEY);
-    Reflect.set(env, "GITHUB_CLIENT_SECRET", originalEnv.GITHUB_CLIENT_SECRET);
-    Reflect.set(env, "GITHUB_WEBHOOK_SECRET", originalEnv.GITHUB_WEBHOOK_SECRET);
-    Reflect.set(env, "AUTH_COOKIE_SECRET", originalEnv.AUTH_COOKIE_SECRET);
+    applyGeneratedSecretEnv(originalEnv);
   }
 });
 
@@ -586,26 +640,18 @@ test("setup status can unlock generated GitHub App config from the current Worke
   Reflect.set(readyEnv, "GITHUB_WEBHOOK_SECRET", "generated-webhook-secret");
   Reflect.set(readyEnv, "AUTH_COOKIE_SECRET", "generated-auth-cookie-secret");
 
-  const originalEnv = {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
-    AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
-  };
-
-  Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", "replace-with-github-private-key");
-  Reflect.set(env, "GITHUB_CLIENT_SECRET", "replace-with-github-client-secret");
-  Reflect.set(env, "GITHUB_WEBHOOK_SECRET", "replace-with-github-webhook-secret");
-  Reflect.set(env, "AUTH_COOKIE_SECRET", "replace-with-auth-cookie-secret");
+  const originalEnv = snapshotGeneratedSecretEnv();
+  applyGeneratedSecretEnv({
+    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
+    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
+    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
+  });
 
   try {
-    await expect(
-      setupAgent.refresh({
-        origin: "https://sigvelo-agent-tests.example.workers.dev",
-      }),
-    ).resolves.toMatchObject({
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
       githubApp: {
-        status: "secrets-propagating",
+        status: "propagating",
         slug: "nanites-test",
       },
       repositories: {
@@ -613,11 +659,7 @@ test("setup status can unlock generated GitHub App config from the current Worke
       },
     });
 
-    const response = await nanitesHttpApp.request(
-      "https://sigvelo-agent-tests.example.workers.dev/api/setup/status",
-      {},
-      readyEnv,
-    );
+    const response = await nanitesHttpApp.request(`${SETUP_ORIGIN}/api/setup/status`, {}, readyEnv);
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -631,10 +673,7 @@ test("setup status can unlock generated GitHub App config from the current Worke
       },
     });
   } finally {
-    Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", originalEnv.GITHUB_APP_PRIVATE_KEY);
-    Reflect.set(env, "GITHUB_CLIENT_SECRET", originalEnv.GITHUB_CLIENT_SECRET);
-    Reflect.set(env, "GITHUB_WEBHOOK_SECRET", originalEnv.GITHUB_WEBHOOK_SECRET);
-    Reflect.set(env, "AUTH_COOKIE_SECRET", originalEnv.AUTH_COOKIE_SECRET);
+    applyGeneratedSecretEnv(originalEnv);
   }
 });
 
@@ -647,21 +686,17 @@ test("setup Agent checks generated GitHub App secret propagation through the cur
   Reflect.set(readyEnv, "GITHUB_WEBHOOK_SECRET", "generated-webhook-secret");
   Reflect.set(readyEnv, "AUTH_COOKIE_SECRET", "generated-auth-cookie-secret");
   const originalFetch = globalThis.fetch;
-  const originalEnv = {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
-    AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
-  };
-
-  Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", "replace-with-github-private-key");
-  Reflect.set(env, "GITHUB_CLIENT_SECRET", "replace-with-github-client-secret");
-  Reflect.set(env, "GITHUB_WEBHOOK_SECRET", "replace-with-github-webhook-secret");
-  Reflect.set(env, "AUTH_COOKIE_SECRET", "replace-with-auth-cookie-secret");
+  const originalEnv = snapshotGeneratedSecretEnv();
+  applyGeneratedSecretEnv({
+    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
+    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
+    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
+  });
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
-    if (request.url === "https://sigvelo-agent-tests.example.workers.dev/api/setup/status") {
+    if (request.url === `${SETUP_ORIGIN}/api/setup/status`) {
       return nanitesHttpApp.request(request, {}, readyEnv);
     }
 
@@ -669,22 +704,18 @@ test("setup Agent checks generated GitHub App secret propagation through the cur
   };
 
   try {
-    await expect(
-      setupAgent.refresh({
-        origin: "https://sigvelo-agent-tests.example.workers.dev",
-      }),
-    ).resolves.toMatchObject({
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
       githubApp: {
-        status: "secrets-propagating",
+        status: "propagating",
         slug: "nanites-test",
       },
     });
 
-    await expect(
-      setupAgent.checkGitHubSecretPropagation({
-        origin: "https://sigvelo-agent-tests.example.workers.dev",
-      }),
-    ).resolves.toMatchObject({
+    await setupAgent.checkSecretPropagation({ origin: SETUP_ORIGIN });
+
+    // The propagation check refreshed through the status route, whose isolate
+    // already sees the generated secrets, and the unlocked state persisted.
+    await expect(setupAgent.state).resolves.toMatchObject({
       setupComplete: false,
       githubApp: {
         status: "complete",
@@ -696,10 +727,7 @@ test("setup Agent checks generated GitHub App secret propagation through the cur
     });
   } finally {
     globalThis.fetch = originalFetch;
-    Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", originalEnv.GITHUB_APP_PRIVATE_KEY);
-    Reflect.set(env, "GITHUB_CLIENT_SECRET", originalEnv.GITHUB_CLIENT_SECRET);
-    Reflect.set(env, "GITHUB_WEBHOOK_SECRET", originalEnv.GITHUB_WEBHOOK_SECRET);
-    Reflect.set(env, "AUTH_COOKIE_SECRET", originalEnv.AUTH_COOKIE_SECRET);
+    applyGeneratedSecretEnv(originalEnv);
   }
 });
 
@@ -708,42 +736,28 @@ test("deployment GitHub App config becomes retryable when generated secrets do n
   await env.DB.exec("UPDATE deployment_github_app_config SET updated_at = 1 WHERE id = 'current';");
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
-  const originalEnv = {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
-    AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
-  };
-
-  Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", "");
-  Reflect.set(env, "GITHUB_CLIENT_SECRET", "");
-  Reflect.set(env, "GITHUB_WEBHOOK_SECRET", "");
-  Reflect.set(env, "AUTH_COOKIE_SECRET", "");
+  const originalEnv = blankGeneratedSecretEnv();
 
   try {
-    const setupState = await setupAgent.refresh({
-      origin: "https://sigvelo-agent-tests.example.workers.dev",
-    });
+    const setupState = await setupAgent.refresh({ origin: SETUP_ORIGIN });
     const setupClaim = await issueSetupClaim(setupAgent);
 
     expect(setupState.githubApp).toMatchObject({
-      status: "secrets-propagation-stalled",
+      status: "stalled",
       slug: "nanites-test",
     });
     await expect(
-      setupAgent.startGitHubManifest({
-        origin: "https://sigvelo-agent-tests.example.workers.dev",
+      setupAgent.startGitHubApp({
+        origin: SETUP_ORIGIN,
         ownerType: "user",
-        setupClaimToken: setupClaim.token,
+        claimToken: setupClaim.token,
       }),
     ).resolves.toMatchObject({
+      ok: true,
       action: "https://github.com/settings/apps/new",
     });
   } finally {
-    Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", originalEnv.GITHUB_APP_PRIVATE_KEY);
-    Reflect.set(env, "GITHUB_CLIENT_SECRET", originalEnv.GITHUB_CLIENT_SECRET);
-    Reflect.set(env, "GITHUB_WEBHOOK_SECRET", originalEnv.GITHUB_WEBHOOK_SECRET);
-    Reflect.set(env, "AUTH_COOKIE_SECRET", originalEnv.AUTH_COOKIE_SECRET);
+    applyGeneratedSecretEnv(originalEnv);
   }
 });
 
@@ -755,30 +769,25 @@ test("deployment GitHub App config waits for generated auth-cookie secret", asyn
   ).resolves.toBe(null);
 });
 
-test("setup Agent route is available before GitHub sign-in exists", async () => {
+test("setup status route is available before GitHub sign-in exists", async () => {
   const response = await worker.fetch(
-    new Request(
-      "https://sigvelo-agent-tests.example.workers.dev/agents/nanites-setup-agent/default",
-    ),
+    new Request(`${SETUP_ORIGIN}/api/setup/status`),
     env,
     createExecutionContext(),
   );
 
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toMatchObject({
-    deployment: { status: "complete" },
+    setupComplete: false,
+    currentStep: "cloudflare",
     cloudflare: { status: "idle" },
+    githubApp: { status: "locked" },
   });
 });
 
 test("Cloudflare setup OAuth uses the stable setup Agent callback route", async () => {
   const setupAgent = await getSetupAgent();
-  const setupOwner = await setupAgent.claimSetupOwner();
-  if (!setupOwner.setupOwnerToken) {
-    throw new Error("Expected setup owner claim to return a token.");
-  }
-
-  const expectedCallbackUrl = `${SETUP_ORIGIN}/agents/${NANITES_SETUP_AGENT_NAME}/${NANITES_SETUP_AGENT_INSTANCE_NAME}/callback`;
+  const expectedCallbackUrl = `${SETUP_ORIGIN}${CLOUDFLARE_MCP_CALLBACK_PATH}`;
   const registrationBodies: unknown[] = [];
   const originalFetch = globalThis.fetch;
 
@@ -828,11 +837,9 @@ test("Cloudflare setup OAuth uses the stable setup Agent callback route", async 
   };
 
   try {
-    const result = await setupAgent.connectCloudflare({
-      origin: SETUP_ORIGIN,
-      setupOwnerToken: setupOwner.setupOwnerToken,
-    });
+    const result = await setupAgent.connectCloudflare({ origin: SETUP_ORIGIN });
 
+    expect(result.claim).toBeNull();
     expect(result.authorizationUrl).toEqual(expect.any(String));
     const authorizationUrl = new URL(result.authorizationUrl ?? "");
     expect(`${authorizationUrl.origin}${authorizationUrl.pathname}`).toBe(
@@ -849,53 +856,9 @@ test("Cloudflare setup OAuth uses the stable setup Agent callback route", async 
   }
 });
 
-test("setup owner claim prevents another browser from mutating Cloudflare setup", async () => {
-  const setupAgent = await getSetupAgent();
-  const firstOwner = await setupAgent.claimSetupOwner();
-
-  expect(firstOwner.claimed).toBe(true);
-  expect(firstOwner.setupOwnerToken).toMatch(/^[A-Za-z0-9_-]+$/);
-  expect(firstOwner.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-  const secondOwner = await setupAgent.claimSetupOwner();
-  expect(secondOwner).toMatchObject({
-    claimed: false,
-    setupOwnerToken: null,
-    expiresAt: firstOwner.expiresAt,
-  });
-  await expect(
-    setupAgent.connectCloudflare({
-      origin: "https://sigvelo-agent-tests.example.workers.dev",
-      setupOwnerToken: "not-the-owner",
-    }),
-  ).resolves.toMatchObject({
-    authorizationUrl: null,
-    setupOwnerClaimRequired: true,
-  });
-
-  await expect(setupAgent.refresh()).resolves.toMatchObject({
-    cloudflare: { status: "idle" },
-    setupOwner: {
-      status: "claimed",
-      claimExpiresAt: firstOwner.expiresAt,
-    },
-  });
-
-  if (!firstOwner.setupOwnerToken) {
-    throw new Error("Expected setup owner claim to return a token.");
-  }
-  await expect(
-    setupAgent.resetSetupOwner({ setupOwnerToken: firstOwner.setupOwnerToken }),
-  ).resolves.toMatchObject({
-    setupOwner: {
-      status: "unclaimed",
-      claimExpiresAt: null,
-    },
-  });
-});
-
-test("GitHub manifest start is not exposed as a setup API route", async () => {
+test("GitHub App creation route requires the setup claim", async () => {
   const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/api/setup/github/manifest/start",
+    `${SETUP_ORIGIN}/api/setup/github-app`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -904,31 +867,65 @@ test("GitHub manifest start is not exposed as a setup API route", async () => {
     env,
   );
 
-  expect(response.status).toBe(404);
+  expect(response.status).toBe(403);
+  await expect(response.json()).resolves.toEqual({
+    code: "setup_claim_required",
+  });
 });
 
-test("GitHub manifest callable returns a first-party manifest form target after Cloudflare proof", async () => {
+test("GitHub App creation route returns the manifest form for the claimed browser", async () => {
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
 
-  const result = await setupAgent.startGitHubManifest({
-    origin: "https://sigvelo-agent-tests.example.workers.dev",
+  const response = await nanitesHttpApp.request(
+    `${SETUP_ORIGIN}/api/setup/github-app`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Cookie: setupClaim.cookieHeader,
+      },
+      body: JSON.stringify({ ownerType: "user" }),
+    },
+    env,
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    action: "https://github.com/settings/apps/new",
+    state: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+    manifest: {
+      name: expect.stringMatching(/^Nanites [a-z0-9]{10}$/),
+    },
+  });
+});
+
+test("GitHub App start returns a first-party manifest form target after Cloudflare proof", async () => {
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+  const setupClaim = await issueSetupClaim(setupAgent);
+
+  const result = await setupAgent.startGitHubApp({
+    origin: SETUP_ORIGIN,
     ownerType: "organization",
     ownerLogin: " WebMCP-org ",
-    setupClaimToken: setupClaim.token,
+    claimToken: setupClaim.token,
   });
 
+  if (!result.ok) {
+    throw new Error(`Expected GitHub App start to succeed, got ${result.errorKind}.`);
+  }
   expect(result.action).toBe("https://github.com/organizations/WebMCP-org/settings/apps/new");
   expect(result.state).toMatch(/^[A-Za-z0-9_-]+$/);
   expect(result.manifest).toMatchObject({
     name: expect.stringMatching(/^Nanites [a-z0-9]{10}$/),
-    redirect_url: "https://sigvelo-agent-tests.example.workers.dev/setup/github/manifest/callback",
-    callback_urls: ["https://sigvelo-agent-tests.example.workers.dev/auth/github/callback"],
-    setup_url: "https://sigvelo-agent-tests.example.workers.dev/setup/github/installed",
+    redirect_url: `${SETUP_ORIGIN}/setup/github/manifest/callback`,
+    callback_urls: [`${SETUP_ORIGIN}/auth/github/callback`],
+    setup_url: `${SETUP_ORIGIN}/setup/github/installed`,
     request_oauth_on_install: false,
     hook_attributes: {
-      url: "https://sigvelo-agent-tests.example.workers.dev/api/github/webhook",
+      url: `${SETUP_ORIGIN}/api/github/webhook`,
       active: true,
     },
     default_permissions: {
@@ -939,20 +936,37 @@ test("GitHub manifest callable returns a first-party manifest form target after 
   });
 });
 
+test("GitHub App start requires a setup claim and ready Cloudflare readiness", async () => {
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+
+  await expect(
+    setupAgent.startGitHubApp({
+      origin: SETUP_ORIGIN,
+      ownerType: "user",
+      claimToken: "not-the-claimed-browser",
+    }),
+  ).resolves.toEqual({ ok: false, errorKind: "setupClaimRequired" });
+
+  setupAgent.setState(buildCloudflareBlockedSetupState("Workers Paid was not detected."));
+  const setupClaim = await issueSetupClaim(setupAgent);
+
+  await expect(
+    setupAgent.startGitHubApp({
+      origin: SETUP_ORIGIN,
+      ownerType: "user",
+      claimToken: setupClaim.token,
+    }),
+  ).resolves.toEqual({ ok: false, errorKind: "cloudflareReadinessRequired" });
+});
+
 test("setup keeps GitHub App locked while Workers Paid readiness is blocked", async () => {
   const setupAgent = await getSetupAgent();
   setupAgent.setState(
-    buildCloudflareBlockedSetupState(
-      "workers-paid",
-      "Workers Paid was not detected on this account.",
-    ),
+    buildCloudflareBlockedSetupState("Workers Paid was not detected on this account."),
   );
 
-  await expect(
-    setupAgent.refresh({
-      origin: "https://sigvelo-agent-tests.example.workers.dev",
-    }),
-  ).resolves.toMatchObject({
+  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
     currentStep: "cloudflare",
     cloudflare: {
       readiness: {
@@ -965,43 +979,7 @@ test("setup keeps GitHub App locked while Workers Paid readiness is blocked", as
   });
 });
 
-test("setup clears the legacy Kimi catalog blocker when Workers AI is ready", async () => {
-  const setupAgent = await getSetupAgent();
-  setupAgent.setState(
-    buildCloudflareBlockedSetupState(
-      "kimi-k2",
-      "Cloudflare Workers AI did not list Kimi K2.6 for this account.",
-    ),
-  );
-
-  await expect(
-    setupAgent.refresh({
-      origin: "https://sigvelo-agent-tests.example.workers.dev",
-    }),
-  ).resolves.toMatchObject({
-    currentStep: "github-app",
-    cloudflare: {
-      readiness: {
-        status: "ready",
-        items: expect.arrayContaining([
-          expect.objectContaining({
-            key: "kimi-k2",
-            status: "ready",
-            detail:
-              "Default model `@cf/moonshotai/kimi-k2.6` is configured through Workers AI. No Moonshot or provider API key is required.",
-          }),
-        ]),
-      },
-      error: null,
-    },
-    githubApp: {
-      status: "ready",
-    },
-    error: null,
-  });
-});
-
-test("GitHub manifest callable ignores informational Cloudflare readiness warnings", async () => {
+test("GitHub App start ignores informational Cloudflare readiness warnings", async () => {
   const setupAgent = await getSetupAgent();
   const state = buildCloudflareVerifiedSetupState();
   setupAgent.setState({
@@ -1011,116 +989,57 @@ test("GitHub manifest callable ignores informational Cloudflare readiness warnin
       readiness: {
         status: "ready",
         checkedAt: new Date().toISOString(),
-        items: state.cloudflare.readiness.items.map((item) =>
-          item.key === "browser-run"
-            ? {
-                ...item,
-                status: "warning" as const,
-                detail: "Browser Run binding `BROWSER` was not detected.",
-                action: "retry" as const,
-              }
-            : item,
-        ),
+        items: [
+          {
+            key: "browser",
+            label: "Browser Run",
+            required: false,
+            status: "warning",
+            detail: "Browser Run binding `BROWSER` was not detected.",
+            action: "retry",
+          },
+        ],
       },
     },
   });
   const setupClaim = await issueSetupClaim(setupAgent);
 
   await expect(
-    setupAgent.startGitHubManifest({
-      origin: "https://sigvelo-agent-tests.example.workers.dev",
+    setupAgent.startGitHubApp({
+      origin: SETUP_ORIGIN,
       ownerType: "user",
-      setupClaimToken: setupClaim.token,
+      claimToken: setupClaim.token,
     }),
   ).resolves.toMatchObject({
+    ok: true,
     action: "https://github.com/settings/apps/new",
   });
 });
 
-test("GitHub manifest callable can retry after an abandoned GitHub form", async () => {
+test("GitHub App start rotates the manifest nonce after an abandoned GitHub form", async () => {
   const setupAgent = await getSetupAgent();
-  const setupState = buildCloudflareVerifiedSetupState();
-  setupAgent.setState({
-    ...setupState,
-    githubApp: {
-      ...setupState.githubApp,
-      status: "creating",
-      manifestState: "old-manifest-state",
-    },
-  });
-  const setupClaim = await issueSetupClaim(setupAgent);
+  const { setupClaim, manifestState } = await startClaimedGitHubApp(setupAgent);
 
-  const result = await setupAgent.startGitHubManifest({
-    origin: "https://sigvelo-agent-tests.example.workers.dev",
+  const retried = await setupAgent.startGitHubApp({
+    origin: SETUP_ORIGIN,
     ownerType: "user",
-    setupClaimToken: setupClaim.token,
+    claimToken: setupClaim.token,
   });
 
-  expect(result.action).toBe("https://github.com/settings/apps/new");
-  expect(result.state).not.toBe("old-manifest-state");
-  expect(result.state).toMatch(/^[A-Za-z0-9_-]+$/);
-});
-
-test("setup refresh preserves an in-flight GitHub manifest callback state", async () => {
-  const setupAgent = await getSetupAgent();
-  setupAgent.setState(buildCloudflareVerifiedSetupState());
-  const setupClaim = await issueSetupClaim(setupAgent);
-  const manifest = await setupAgent.startGitHubManifest({
-    origin: "https://sigvelo-agent-tests.example.workers.dev",
-    ownerType: "user",
-    setupClaimToken: setupClaim.token,
-  });
-  const originalEnv = {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
-    AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
-  };
-
-  Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", "");
-  Reflect.set(env, "GITHUB_CLIENT_SECRET", "");
-  Reflect.set(env, "GITHUB_WEBHOOK_SECRET", "");
-  Reflect.set(env, "AUTH_COOKIE_SECRET", "");
-
-  try {
-    await expect(
-      setupAgent.refresh({
-        origin: "https://sigvelo-agent-tests.example.workers.dev",
-      }),
-    ).resolves.toMatchObject({
-      githubApp: {
-        status: "creating",
-        manifestState: manifest.state,
-        slug: null,
-        htmlUrl: null,
-        installUrl: null,
-        ownerLogin: null,
-        ownerType: null,
-      },
-    });
-  } finally {
-    Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", originalEnv.GITHUB_APP_PRIVATE_KEY);
-    Reflect.set(env, "GITHUB_CLIENT_SECRET", originalEnv.GITHUB_CLIENT_SECRET);
-    Reflect.set(env, "GITHUB_WEBHOOK_SECRET", originalEnv.GITHUB_WEBHOOK_SECRET);
-    Reflect.set(env, "AUTH_COOKIE_SECRET", originalEnv.AUTH_COOKIE_SECRET);
+  if (!retried.ok) {
+    throw new Error(`Expected GitHub App restart to succeed, got ${retried.errorKind}.`);
   }
+  expect(retried.action).toBe("https://github.com/settings/apps/new");
+  expect(retried.state).not.toBe(manifestState);
+  expect(retried.state).toMatch(/^[A-Za-z0-9_-]+$/);
 });
 
-test("GitHub manifest callback rejects callbacks that do not match setup Agent state", async () => {
+test("GitHub manifest callback rejects state values that do not match the issued nonce", async () => {
   const setupAgent = await getSetupAgent();
-  const setupState = buildCloudflareVerifiedSetupState();
-  setupAgent.setState({
-    ...setupState,
-    githubApp: {
-      ...setupState.githubApp,
-      status: "creating",
-      manifestState: "expected-state",
-    },
-  });
-  const setupClaim = await issueSetupClaim(setupAgent);
+  const { setupClaim } = await startClaimedGitHubApp(setupAgent);
 
   const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/manifest/callback?code=test-manifest-code&state=wrong-state",
+    `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=wrong-state`,
     {
       headers: { Cookie: setupClaim.cookieHeader },
     },
@@ -1133,22 +1052,17 @@ test("GitHub manifest callback rejects callbacks that do not match setup Agent s
   });
 });
 
-test("GitHub manifest callback is bound to the setup claim that started it", async () => {
+test("GitHub manifest callback requires a currently valid setup claim", async () => {
   const setupAgent = await getSetupAgent();
-  setupAgent.setState(buildCloudflareVerifiedSetupState());
-  const firstSetupClaim = await issueSetupClaim(setupAgent);
-  const manifest = await setupAgent.startGitHubManifest({
-    origin: "https://sigvelo-agent-tests.example.workers.dev",
-    ownerType: "user",
-    setupClaimToken: firstSetupClaim.token,
-  });
-  const secondSetupClaim = await issueSetupClaim(setupAgent);
+  const { manifestState } = await startClaimedGitHubApp(setupAgent);
+  // Issuing a new claim invalidates the one that started the manifest.
+  await issueSetupClaim(setupAgent);
   const originalFetch = globalThis.fetch;
   let conversionRequests = 0;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
-    if (request.url === "https://api.github.com/app-manifests/test-manifest-code/conversions") {
+    if (request.url === GITHUB_MANIFEST_CONVERSION_URL) {
       conversionRequests += 1;
       return Response.json(buildGitHubManifestConversion());
     }
@@ -1158,17 +1072,17 @@ test("GitHub manifest callback is bound to the setup claim that started it", asy
 
   try {
     const response = await nanitesHttpApp.request(
-      `https://sigvelo-agent-tests.example.workers.dev/setup/github/manifest/callback?code=test-manifest-code&state=${manifest.state}`,
+      `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=${manifestState}`,
       {
-        headers: { Cookie: secondSetupClaim.cookieHeader },
+        headers: { Cookie: `${SETUP_CLAIM_COOKIE_NAME}=stale-claim-token` },
       },
       env,
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(403);
     expect(conversionRequests).toBe(0);
     await expect(response.json()).resolves.toEqual({
-      code: "invalid_setup_state",
+      code: "setup_claim_required",
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -1177,12 +1091,14 @@ test("GitHub manifest callback is bound to the setup claim that started it", asy
 
 test("GitHub manifest setup failure leaves the setup Agent retryable", async () => {
   const setupAgent = await getSetupAgent();
-  const { setupClaim, manifest } = await startClaimedGitHubManifest(setupAgent);
+  const { setupClaim, manifestState } = await startClaimedGitHubApp(setupAgent);
+  // The manifest nonce survives unrelated status refreshes before the callback.
+  await setupAgent.refresh({ origin: SETUP_ORIGIN });
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
-    if (request.url === "https://api.github.com/app-manifests/test-manifest-code/conversions") {
+    if (request.url === GITHUB_MANIFEST_CONVERSION_URL) {
       return Response.json({ message: "conversion failed" }, { status: 500 });
     }
 
@@ -1190,8 +1106,9 @@ test("GitHub manifest setup failure leaves the setup Agent retryable", async () 
   };
 
   try {
+    const callbackUrl = `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=${manifestState}`;
     const response = await nanitesHttpApp.request(
-      `https://sigvelo-agent-tests.example.workers.dev/setup/github/manifest/callback?code=test-manifest-code&state=${manifest.state}`,
+      callbackUrl,
       {
         headers: { Cookie: setupClaim.cookieHeader },
       },
@@ -1202,15 +1119,35 @@ test("GitHub manifest setup failure leaves the setup Agent retryable", async () 
     await expect(response.json()).resolves.toEqual({
       code: "github_app_manifest_conversion_failed",
     });
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
+      githubApp: {
+        status: "ready",
+        error: expect.any(String),
+      },
+    });
+
+    // The manifest nonce is one-shot: replaying the callback is rejected.
+    const replayedResponse = await nanitesHttpApp.request(
+      callbackUrl,
+      {
+        headers: { Cookie: setupClaim.cookieHeader },
+      },
+      env,
+    );
+    expect(replayedResponse.status).toBe(400);
+    await expect(replayedResponse.json()).resolves.toEqual({
+      code: "invalid_setup_state",
+    });
 
     await expect(
-      setupAgent.startGitHubManifest({
-        origin: "https://sigvelo-agent-tests.example.workers.dev",
+      setupAgent.startGitHubApp({
+        origin: SETUP_ORIGIN,
         ownerType: "user",
-        setupClaimToken: setupClaim.token,
+        claimToken: setupClaim.token,
       }),
     ).resolves.toMatchObject({
-      action: expect.stringContaining("https://github.com/settings/apps/new"),
+      ok: true,
+      action: "https://github.com/settings/apps/new",
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -1219,12 +1156,12 @@ test("GitHub manifest setup failure leaves the setup Agent retryable", async () 
 
 test("GitHub manifest callback rejects apps missing required permissions", async () => {
   const setupAgent = await getSetupAgent();
-  const { setupClaim, manifest } = await startClaimedGitHubManifest(setupAgent);
+  const { setupClaim, manifestState } = await startClaimedGitHubApp(setupAgent);
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
-    if (request.url === "https://api.github.com/app-manifests/test-manifest-code/conversions") {
+    if (request.url === GITHUB_MANIFEST_CONVERSION_URL) {
       return Response.json(
         buildGitHubManifestConversion({
           permissions: {
@@ -1243,7 +1180,7 @@ test("GitHub manifest callback rejects apps missing required permissions", async
 
   try {
     const response = await nanitesHttpApp.request(
-      `https://sigvelo-agent-tests.example.workers.dev/setup/github/manifest/callback?code=test-manifest-code&state=${manifest.state}`,
+      `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=${manifestState}`,
       {
         headers: { Cookie: setupClaim.cookieHeader },
       },
@@ -1261,23 +1198,12 @@ test("GitHub manifest callback rejects apps missing required permissions", async
 
 test("GitHub manifest callback reports Cloudflare Worker secret write failures separately", async () => {
   const setupAgent = await getSetupAgent();
-  const { setupClaim, manifest } = await startClaimedGitHubManifest(setupAgent);
+  const { setupClaim, manifestState } = await startClaimedGitHubApp(setupAgent);
   const originalFetch = globalThis.fetch;
-  const originalEnv = {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
-    AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
-  };
-
-  Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", "");
-  Reflect.set(env, "GITHUB_CLIENT_SECRET", "");
-  Reflect.set(env, "GITHUB_WEBHOOK_SECRET", "");
-  Reflect.set(env, "AUTH_COOKIE_SECRET", "");
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
-    if (request.url === "https://api.github.com/app-manifests/test-manifest-code/conversions") {
+    if (request.url === GITHUB_MANIFEST_CONVERSION_URL) {
       return Response.json(buildGitHubManifestConversion());
     }
 
@@ -1285,8 +1211,9 @@ test("GitHub manifest callback reports Cloudflare Worker secret write failures s
   };
 
   try {
+    // No Cloudflare MCP server is connected, so the Worker secret write fails.
     const response = await nanitesHttpApp.request(
-      `https://sigvelo-agent-tests.example.workers.dev/setup/github/manifest/callback?code=test-manifest-code&state=${manifest.state}`,
+      `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=${manifestState}`,
       {
         headers: { Cookie: setupClaim.cookieHeader },
       },
@@ -1297,15 +1224,11 @@ test("GitHub manifest callback reports Cloudflare Worker secret write failures s
     await expect(response.json()).resolves.toEqual({
       code: "cloudflare_worker_secret_write_failed",
     });
-    await expect(
-      setupAgent.refresh({
-        origin: "https://sigvelo-agent-tests.example.workers.dev",
-      }),
-    ).resolves.toMatchObject({
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
       githubApp: {
-        status: "failed",
-        orphanedHtmlUrl: "https://github.com/apps/nanites-test",
-        cleanupInstructions: expect.stringContaining("https://github.com/apps/nanites-test"),
+        status: "ready",
+        orphanedAppUrl: "https://github.com/apps/nanites-test",
+        error: expect.stringContaining("generated secrets"),
       },
       repositories: {
         status: "locked",
@@ -1314,70 +1237,130 @@ test("GitHub manifest callback reports Cloudflare Worker secret write failures s
     });
   } finally {
     globalThis.fetch = originalFetch;
-    Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", originalEnv.GITHUB_APP_PRIVATE_KEY);
-    Reflect.set(env, "GITHUB_CLIENT_SECRET", originalEnv.GITHUB_CLIENT_SECRET);
-    Reflect.set(env, "GITHUB_WEBHOOK_SECRET", originalEnv.GITHUB_WEBHOOK_SECRET);
-    Reflect.set(env, "AUTH_COOKIE_SECRET", originalEnv.AUTH_COOKIE_SECRET);
   }
 });
 
-test("repository install callable waits for readable runtime GitHub App config", async () => {
-  const request = new Request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/verify?installation_id=42",
-  );
+test("GitHub manifest callback redirects to the install URL once the deployment is configured", async () => {
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
-  const cookieHeader = joinCookieHeaders(
-    await buildAuthenticatedSetupCookieHeader(request),
-    setupClaim.cookieHeader,
-  );
-  const originalEnv = {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
-  };
   const originalFetch = globalThis.fetch;
-
-  Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", "");
-  Reflect.set(env, "GITHUB_CLIENT_SECRET", "");
-  Reflect.set(env, "GITHUB_WEBHOOK_SECRET", "");
-
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const githubRequest = input instanceof Request ? input : new Request(input, init);
-    if (isVisibleInstallationsRequest(githubRequest)) {
-      return Response.json({ installations: [buildVisibleInstallation(42)] });
-    }
-    if (isInstallationRepositoriesRequest(githubRequest, 42)) {
-      return Response.json({ repositories: [buildVisibleRepository()] });
-    }
-
-    return originalFetch(input, init);
-  };
+  globalThis.fetch = buildFakeCloudflareMcpFetch(originalFetch);
 
   try {
+    await connectFakeCloudflareMcpServer(setupAgent);
+    const started = await setupAgent.startGitHubApp({
+      origin: SETUP_ORIGIN,
+      ownerType: "user",
+      claimToken: setupClaim.token,
+    });
+    if (!started.ok) {
+      throw new Error(`Expected GitHub App start to succeed, got ${started.errorKind}.`);
+    }
+
     const response = await nanitesHttpApp.request(
-      request,
+      `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=${started.state}`,
       {
-        headers: { Cookie: cookieHeader },
+        headers: { Cookie: setupClaim.cookieHeader },
       },
       env,
     );
 
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
-      code: "invalid_setup_state",
+    expect(response.status).toBe(302);
+    const location = readRedirectLocation(response);
+    expect(`${location.origin}${location.pathname}`).toBe(
+      "https://github.com/apps/nanites-test/installations/new",
+    );
+    expect(location.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]+$/);
+
+    await expect(readDeploymentGitHubAppMetadata(createDbClient(env.DB))).resolves.toMatchObject({
+      slug: "nanites-test",
+      clientId: "generated-client-id",
+    });
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
+      githubApp: {
+        status: "complete",
+        slug: "nanites-test",
+      },
+      repositories: {
+        status: "ready",
+        githubInstallationId: null,
+      },
     });
   } finally {
     globalThis.fetch = originalFetch;
-    Reflect.set(env, "GITHUB_APP_PRIVATE_KEY", originalEnv.GITHUB_APP_PRIVATE_KEY);
-    Reflect.set(env, "GITHUB_CLIENT_SECRET", originalEnv.GITHUB_CLIENT_SECRET);
-    Reflect.set(env, "GITHUB_WEBHOOK_SECRET", originalEnv.GITHUB_WEBHOOK_SECRET);
   }
 });
 
-test("GitHub setup verification returns to setup with launch ready and the star optional", async () => {
+test("GitHub manifest callback returns to setup while generated secrets propagate", async () => {
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+  const setupClaim = await issueSetupClaim(setupAgent);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = buildFakeCloudflareMcpFetch(originalFetch);
+  const originalEnv = snapshotGeneratedSecretEnv();
+  applyGeneratedSecretEnv({
+    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
+    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
+    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
+  });
+
+  try {
+    await connectFakeCloudflareMcpServer(setupAgent);
+    const started = await setupAgent.startGitHubApp({
+      origin: SETUP_ORIGIN,
+      ownerType: "user",
+      claimToken: setupClaim.token,
+    });
+    if (!started.ok) {
+      throw new Error(`Expected GitHub App start to succeed, got ${started.errorKind}.`);
+    }
+
+    const response = await nanitesHttpApp.request(
+      `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=${started.state}`,
+      {
+        headers: { Cookie: setupClaim.cookieHeader },
+      },
+      env,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/setup?github_app=created");
+  } finally {
+    globalThis.fetch = originalFetch;
+    applyGeneratedSecretEnv(originalEnv);
+    for (const schedule of await setupAgent.listSchedules()) {
+      await setupAgent.cancelSchedule(schedule.id);
+    }
+  }
+});
+
+test("repository install waits for readable runtime GitHub App config", async () => {
   await saveGeneratedGitHubAppMetadata();
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+  const setupClaim = await issueSetupClaim(setupAgent);
+  const installState = await readRepositoryInstallState(setupAgent);
+  const originalEnv = blankGeneratedSecretEnv();
+
+  try {
+    await expect(
+      setupAgent.recordRepositoryInstall({
+        githubInstallationId: 42,
+        claimToken: setupClaim.token,
+        installState,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      errorKind: "invalidSetupState",
+    });
+  } finally {
+    applyGeneratedSecretEnv(originalEnv);
+  }
+});
+
+test("GitHub setup verification returns to setup with the repositories step complete", async () => {
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
@@ -1409,7 +1392,7 @@ test("GitHub setup verification returns to setup with launch ready and the star 
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/setup");
-    await expect(setupAgent.refresh({ origin: request.url })).resolves.toMatchObject({
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
       setupComplete: true,
       currentStep: "launch",
       repositories: {
@@ -1417,10 +1400,7 @@ test("GitHub setup verification returns to setup with launch ready and the star 
         githubInstallationId: 42,
       },
       upstreamStar: {
-        status: "ready",
-      },
-      launch: {
-        status: "ready",
+        starred: false,
       },
     });
   } finally {
@@ -1430,7 +1410,7 @@ test("GitHub setup verification returns to setup with launch ready and the star 
 
 test("GitHub login redirects to setup when no deployment app config exists", async () => {
   const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/auth/github/login?returnTo=/nanites",
+    `${SETUP_ORIGIN}/auth/github/login?returnTo=/nanites`,
     {},
     env,
   );
@@ -1441,7 +1421,7 @@ test("GitHub login redirects to setup when no deployment app config exists", asy
 
 test("MCP route reports setup required when no deployment app config exists", async () => {
   const response = await worker.fetch(
-    new Request("https://sigvelo-agent-tests.example.workers.dev/mcp"),
+    new Request(`${SETUP_ORIGIN}/mcp`),
     env,
     createExecutionContext(),
   );
@@ -1458,7 +1438,7 @@ test("GitHub setup URL sends the claimed installation id through OAuth for verif
   const setupClaim = await issueSetupClaim(setupAgent);
 
   const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/installed?installation_id=42&setup_action=install&state=test-install-state",
+    `${SETUP_ORIGIN}/setup/github/installed?installation_id=42&setup_action=install&state=test-install-state`,
     {
       headers: { Cookie: setupClaim.cookieHeader },
     },
@@ -1475,7 +1455,7 @@ test("GitHub setup URL sends the claimed installation id through OAuth for verif
 
 test("GitHub setup URL requires the setup claim", async () => {
   const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/installed?installation_id=42&setup_action=install",
+    `${SETUP_ORIGIN}/setup/github/installed?installation_id=42&setup_action=install`,
     {},
     env,
   );
@@ -1492,7 +1472,7 @@ test("GitHub setup URL requires GitHub's returned installation id", async () => 
   const setupClaim = await issueSetupClaim(setupAgent);
 
   const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/installed?setup_action=install",
+    `${SETUP_ORIGIN}/setup/github/installed?setup_action=install`,
     {
       headers: { Cookie: setupClaim.cookieHeader },
     },
@@ -1513,7 +1493,7 @@ test("GitHub setup URL requires GitHub's setup action", async () => {
   const setupClaim = await issueSetupClaim(setupAgent);
 
   const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/installed?installation_id=42",
+    `${SETUP_ORIGIN}/setup/github/installed?installation_id=42`,
     {
       headers: { Cookie: setupClaim.cookieHeader },
     },
@@ -1528,28 +1508,25 @@ test("GitHub setup URL requires GitHub's setup action", async () => {
   });
 });
 
-test("GitHub setup verification requires the install nonce for claimed setup", async () => {
-  const request = new Request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/verify?installation_id=42",
-  );
+test("GitHub setup verification rejects install nonces that do not match the issued one", async () => {
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
-  await saveGeneratedGitHubAppMetadata();
-  await setupAgent.refresh({
-    origin: "https://sigvelo-agent-tests.example.workers.dev",
+  const request = await buildClaimedGitHubSetupVerifyRequest({
+    setupAgent,
+    installState: "not-the-issued-install-nonce",
   });
   const cookieHeader = joinCookieHeaders(
     await buildAuthenticatedSetupCookieHeader(request),
     setupClaim.cookieHeader,
   );
   const originalFetch = globalThis.fetch;
-  let githubApiRequests = 0;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const githubRequest = input instanceof Request ? input : new Request(input, init);
-    if (new URL(githubRequest.url).origin === GITHUB_API_ORIGIN) {
-      githubApiRequests += 1;
+    const githubResponse = handleSuccessfulSetupVerificationGitHubRequest(githubRequest);
+    if (githubResponse) {
+      return githubResponse;
     }
 
     return originalFetch(input, init);
@@ -1565,11 +1542,17 @@ test("GitHub setup verification requires the install nonce for claimed setup", a
     );
 
     expect(response.status).toBe(403);
-    expect(githubApiRequests).toBe(0);
     await expect(response.json()).resolves.toEqual({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
       reason: "install_state_mismatch",
+    });
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
+      setupComplete: false,
+      repositories: {
+        status: "ready",
+        githubInstallationId: null,
+      },
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -1705,9 +1688,7 @@ test("GitHub setup verification proves the app can mint an installation token", 
 });
 
 test("GitHub setup verification requires the setup claim", async () => {
-  const request = new Request(
-    "https://sigvelo-agent-tests.example.workers.dev/setup/github/verify?installation_id=42",
-  );
+  const request = new Request(`${SETUP_ORIGIN}/setup/github/verify?installation_id=42`);
   const cookieHeader = await buildAuthenticatedSetupCookieHeader(request);
   const response = await nanitesHttpApp.request(
     request,
@@ -1724,11 +1705,7 @@ test("GitHub setup verification requires the setup claim", async () => {
 });
 
 test("upstream star verification requires GitHub sign-in", async () => {
-  const response = await nanitesHttpApp.request(
-    "https://sigvelo-agent-tests.example.workers.dev/api/setup/upstream-star",
-    {},
-    env,
-  );
+  const response = await nanitesHttpApp.request(`${SETUP_ORIGIN}/api/setup/upstream-star`, {}, env);
 
   expect(response.status).toBe(401);
   await expect(response.json()).resolves.toEqual({
@@ -1736,23 +1713,18 @@ test("upstream star verification requires GitHub sign-in", async () => {
   });
 });
 
-test("upstream star verification completes setup when GitHub confirms the star", async () => {
+test("upstream star verification records the confirmed star", async () => {
   await saveGeneratedGitHubAppMetadata();
-  const request = new Request(
-    "https://sigvelo-agent-tests.example.workers.dev/api/setup/upstream-star",
-  );
+  const request = new Request(`${SETUP_ORIGIN}/api/setup/upstream-star`);
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
-    setupClaimToken: setupClaim.token,
+    claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
-  const cookieHeader = joinCookieHeaders(
-    await buildAuthenticatedSetupCookieHeader(request),
-    setupClaim.cookieHeader,
-  );
+  const cookieHeader = await buildAuthenticatedSetupCookieHeader(request);
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1774,15 +1746,12 @@ test("upstream star verification completes setup when GitHub confirms the star",
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Set-Cookie")).toContain(`${SETUP_CLAIM_COOKIE_NAME}=`);
     await expect(response.json()).resolves.toMatchObject({
       setupComplete: true,
       currentStep: "launch",
       upstreamStar: {
-        status: "complete",
-      },
-      launch: {
-        status: "ready",
+        starred: true,
+        error: null,
       },
     });
   } finally {
@@ -1790,17 +1759,15 @@ test("upstream star verification completes setup when GitHub confirms the star",
   }
 });
 
-test("upstream star verification keeps launch ready when GitHub does not confirm the star", async () => {
+test("upstream star verification keeps setup complete when GitHub does not confirm the star", async () => {
   await saveGeneratedGitHubAppMetadata();
-  const request = new Request(
-    "https://sigvelo-agent-tests.example.workers.dev/api/setup/upstream-star",
-  );
+  const request = new Request(`${SETUP_ORIGIN}/api/setup/upstream-star`);
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
-    setupClaimToken: setupClaim.token,
+    claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
   const cookieHeader = await buildAuthenticatedSetupCookieHeader(request);
@@ -1829,12 +1796,8 @@ test("upstream star verification keeps launch ready when GitHub does not confirm
       setupComplete: true,
       currentStep: "launch",
       upstreamStar: {
-        status: "failed",
-        verifiedAt: null,
+        starred: false,
         error: "GitHub did not confirm that this user starred WebMCP-org/nanites.",
-      },
-      launch: {
-        status: "ready",
       },
     });
   } finally {
@@ -1844,16 +1807,13 @@ test("upstream star verification keeps launch ready when GitHub does not confirm
 
 test("upstream star action stars through the signed-in GitHub user token", async () => {
   await saveGeneratedGitHubAppMetadata();
-  const request = new Request(
-    "https://sigvelo-agent-tests.example.workers.dev/api/setup/upstream-star",
-    { method: "PUT" },
-  );
+  const request = new Request(`${SETUP_ORIGIN}/api/setup/upstream-star`, { method: "PUT" });
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
-    setupClaimToken: setupClaim.token,
+    claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
   const cookieHeader = await buildAuthenticatedSetupCookieHeader(request);
@@ -1886,10 +1846,8 @@ test("upstream star action stars through the signed-in GitHub user token", async
       setupComplete: true,
       currentStep: "launch",
       upstreamStar: {
-        status: "complete",
-      },
-      launch: {
-        status: "ready",
+        starred: true,
+        error: null,
       },
     });
   } finally {

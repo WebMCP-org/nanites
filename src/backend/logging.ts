@@ -210,10 +210,13 @@ const AGENTS_SDK_SAFE_PAYLOAD_KEYS = [
   "recoveryReason",
   "removedToolCalls",
   "requestId",
+  "reason",
   "runCount",
   "runId",
   "serverId",
+  "shortened",
   "stage",
+  "state",
   "status",
   "streaming",
   "timeoutMs",
@@ -271,7 +274,47 @@ function addLogProperty(
   }
 }
 
-function getAgentsSdkObservabilityLogLevel(event: ObservabilityEvent): "error" | "info" | "warn" {
+function sanitizeUrlForLog(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
+function addUrlLogProperty(
+  properties: StructuredLogProperties,
+  attribute: string,
+  value: unknown,
+): void {
+  const sanitizedUrl = sanitizeUrlForLog(value);
+  if (sanitizedUrl) {
+    properties[attribute] = sanitizedUrl;
+  }
+}
+
+function getAgentsSdkObservabilityLogLevel(
+  event: ObservabilityEvent,
+): "debug" | "error" | "info" | "warn" {
+  const eventPayload: unknown = event.payload;
+  const payload: Record<string, unknown> = isRecord(eventPayload) ? eventPayload : {};
+  if (
+    isLogPropertyValue(payload.error) ||
+    payload.state === "failed" ||
+    payload.state === "error"
+  ) {
+    return "error";
+  }
+
   if (
     event.type.endsWith(":error") ||
     event.type.endsWith(":failed") ||
@@ -292,7 +335,11 @@ function getAgentsSdkObservabilityLogLevel(event: ObservabilityEvent): "error" |
     return "warn";
   }
 
-  return "info";
+  if (event.type === "mcp:client:authorize") {
+    return "info";
+  }
+
+  return "debug";
 }
 
 function createAgentsSdkObservabilityLogProperties(
@@ -319,6 +366,7 @@ function createAgentsSdkObservabilityLogProperties(
   addLogProperty(properties, OTEL_ATTRS.SUBMISSION_ID, payload.submissionId);
   addLogProperty(properties, OTEL_ATTRS.REQUEST_DURATION_MS, payload.elapsedMs);
   addLogProperty(properties, OTEL_ATTRS.MCP_SERVER_ID, payload.serverId);
+  addUrlLogProperty(properties, `${AGENTS_SDK_PAYLOAD_ATTRIBUTE_PREFIX}url`, payload.url);
 
   if (isLogPropertyValue(payload.method)) {
     properties[OTEL_ATTRS.RPC_SYSTEM] = "agents.sdk";
@@ -349,8 +397,11 @@ function logAgentsSdkObservabilityEvent(
     case "warn":
       agentsSdkObservabilityLogger.warn(LOG_EVENTS.AGENTS_SDK_OBSERVABILITY_EVENT, properties);
       break;
-    default:
+    case "info":
       agentsSdkObservabilityLogger.info(LOG_EVENTS.AGENTS_SDK_OBSERVABILITY_EVENT, properties);
+      break;
+    default:
+      agentsSdkObservabilityLogger.debug(LOG_EVENTS.AGENTS_SDK_OBSERVABILITY_EVENT, properties);
       break;
   }
 }

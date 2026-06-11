@@ -719,7 +719,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export async function normalizeNaniteManifestModelConfig(
+async function normalizeNaniteManifestModelConfig(
   _env: Env,
   manifest: NaniteManifest,
 ): Promise<NaniteManifest> {
@@ -742,7 +742,7 @@ export async function normalizeNaniteManifestModelConfig(
   };
 }
 
-export async function resolveNaniteRunModelSnapshot(input: {
+async function resolveNaniteRunModelSnapshot(input: {
   env: Env;
   manifest: NaniteManifest;
   manifestVersionId: string;
@@ -763,7 +763,7 @@ function isGitHubEventSource(
   return isRecord(value) && value.type === "github";
 }
 
-export function shouldResyncNaniteDuringMaintenance(nanite: ManagedNanite): boolean {
+function shouldResyncNaniteDuringMaintenance(nanite: ManagedNanite): boolean {
   const eventSource = nanite.manifest.eventSource;
   if (!isRecord(eventSource)) {
     return true;
@@ -1795,7 +1795,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     const { triggerResult } = triggerEvaluation;
     const dispatchIntentCount = getDispatchIntents(triggerResult.intents).length;
     const noopReasons = getNoopIntents(triggerResult.intents).map((intent) => intent.reason);
-    naniteManagerLogger.info(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
+    const triggerEvaluationLogProperties = {
       ...createManagerLogContext(this.name, { naniteId: input.naniteId }),
       [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: dispatchIntentCount > 0,
       [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: triggerResult.intents.length,
@@ -1803,7 +1803,8 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       hasGeneratedTrigger: true,
       test: true,
       eventType,
-    });
+    };
+    naniteManagerLogger.debug(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, triggerEvaluationLogProperties);
 
     return {
       ok: true,
@@ -2515,12 +2516,23 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     };
 
     this.setState(updateRuntimeActivity(current, input.naniteId, activity, observedAt));
-    naniteManagerLogger.info(LOG_EVENTS.NANITE_RUNTIME_ACTIVITY_RECORDED, {
+    const runtimeActivityLogProperties = {
       ...createManagerLogContext(this.name, { naniteId: input.naniteId, runId: input.runId }),
       [OTEL_ATTRS.NANITE_ACTIVITY_STATE]: input.state,
       [OTEL_ATTRS.NANITE_TOOL_NAME]: input.toolName ?? undefined,
       error: input.error ?? undefined,
-    });
+    };
+    if (input.error) {
+      naniteManagerLogger.warn(
+        LOG_EVENTS.NANITE_RUNTIME_ACTIVITY_RECORDED,
+        runtimeActivityLogProperties,
+      );
+    } else {
+      naniteManagerLogger.debug(
+        LOG_EVENTS.NANITE_RUNTIME_ACTIVITY_RECORDED,
+        runtimeActivityLogProperties,
+      );
+    }
     return activity;
   }
 
@@ -2563,13 +2575,17 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
       const { triggerResult } = triggerEvaluation;
       const dispatchIntents = getDispatchIntents(triggerResult.intents);
-      naniteManagerLogger.info(LOG_EVENTS.NANITE_TRIGGER_EVALUATED, {
+      const triggerEvaluationLogProperties = {
         ...createManagerLogContext(this.name, { naniteId: nanite.manifest.id }),
         [OTEL_ATTRS.NANITE_TRIGGER_ACCEPTED]: dispatchIntents.length > 0,
         [OTEL_ATTRS.NANITE_TRIGGER_INTENT_COUNT]: triggerResult.intents.length,
         dispatchIntentCount: dispatchIntents.length,
         eventType,
-      });
+      };
+      naniteManagerLogger.debug(
+        LOG_EVENTS.NANITE_TRIGGER_EVALUATED,
+        triggerEvaluationLogProperties,
+      );
 
       for (const intent of dispatchIntents) {
         dispatches.push({

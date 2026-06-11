@@ -1122,7 +1122,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       await this.refreshLifecycleWatchdog(runId);
     }
     await this.reportRuntimeActivity("thinking");
-    naniteLogger.info(LOG_EVENTS.NANITE_TURN_STARTED, {
+    naniteLogger.debug(LOG_EVENTS.NANITE_TURN_STARTED, {
       ...createRunLogContext(this),
       continuation: ctx.continuation,
       messageCount: ctx.messages.length,
@@ -1163,7 +1163,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     };
 
     if (ctx.success) {
-      naniteLogger.info(LOG_EVENTS.NANITE_TOOL_CALL_FINISHED, base);
+      naniteLogger.debug(LOG_EVENTS.NANITE_TOOL_CALL_FINISHED, base);
       return;
     }
 
@@ -1191,7 +1191,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       this.ctx.waitUntil(this.refreshLifecycleWatchdog(diagnostic.runId));
     }
 
-    naniteLogger.info(LOG_EVENTS.NANITE_STEP_FINISHED, {
+    naniteLogger.debug(LOG_EVENTS.NANITE_STEP_FINISHED, {
       ...createRunLogContext(this),
       stepNumber: diagnostic.stepNumber,
       finishReason: diagnostic.finishReason,
@@ -1223,7 +1223,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       this.completedResponsesWithoutLifecycle.delete(result.requestId);
     }
 
-    naniteLogger.info(LOG_EVENTS.NANITE_CHAT_RESPONSE, {
+    const chatResponseProperties = {
       ...createRunLogContext(this),
       requestId: result.requestId,
       continuation: result.continuation,
@@ -1231,7 +1231,12 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       error: result.error,
       messagePartCount: result.message.parts.length,
       hasLifecycleToolCall,
-    });
+    };
+    if (result.error) {
+      naniteLogger.warn(LOG_EVENTS.NANITE_CHAT_RESPONSE, chatResponseProperties);
+    } else {
+      naniteLogger.debug(LOG_EVENTS.NANITE_CHAT_RESPONSE, chatResponseProperties);
+    }
     await this.cancelSubmissionAfterLifecycleResponse(
       resolveLifecycleResponseRunId(result.requestId),
     );
@@ -1684,7 +1689,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     });
     await this.refreshLifecycleWatchdog(input.run.runId, acceptedAt);
     await this.attachGitHubMcpServer(input.nanite.manifest);
-    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
+    naniteLogger.debug(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
       [OTEL_ATTRS.AGENT_CLASS]: "SigveloNaniteAgent",
       [OTEL_ATTRS.AGENT_NAME]: this.name,
       [OTEL_ATTRS.NANITE_ID]: input.nanite.manifest.id,
@@ -1706,7 +1711,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         runId: input.run.runId,
       },
     });
-    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
+    naniteLogger.debug(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
       ...createRunLogContext(this, input.run.runId),
       [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
       [OTEL_ATTRS.NANITE_SUBMISSION_ID]: input.run.runId,
@@ -1735,7 +1740,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           })
         : submission.error;
 
-    naniteLogger.info(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
+    const submissionStatusProperties = {
       ...createRunLogContext(this, runId),
       [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submission.submissionId,
       status: submission.status,
@@ -1743,7 +1748,14 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       lastStepNumber: diagnostic?.runId === runId ? diagnostic.stepNumber : undefined,
       lastFinishReason: diagnostic?.runId === runId ? diagnostic.finishReason : undefined,
       maxSteps: this.maxSteps,
-    });
+    };
+    if (submission.status === "error") {
+      naniteLogger.error(LOG_EVENTS.NANITE_SUBMISSION_STATUS, submissionStatusProperties);
+    } else if (diagnosticError) {
+      naniteLogger.warn(LOG_EVENTS.NANITE_SUBMISSION_STATUS, submissionStatusProperties);
+    } else {
+      naniteLogger.debug(LOG_EVENTS.NANITE_SUBMISSION_STATUS, submissionStatusProperties);
+    }
 
     if (
       submission.status === "error" &&
@@ -2185,7 +2197,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       },
     });
 
-    naniteLogger.info(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
+    naniteLogger.debug(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
       ...createRunLogContext(this),
       mcpServer: githubMcpServerName,
       mcpServerId: result.id,

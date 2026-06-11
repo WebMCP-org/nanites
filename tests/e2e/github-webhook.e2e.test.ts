@@ -6,9 +6,9 @@ import {
   saveTestDeploymentGitHubAppMetadata,
 } from "../helpers/d1-baseline.ts";
 import {
-  createInitialNanitesSetupState,
+  createInitialSetupState,
   type NanitesSetupAgent,
-  type NanitesSetupAgentState,
+  type NanitesSetupState,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 import { encodeHex } from "#/backend/crypto.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
@@ -17,11 +17,11 @@ import { NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/nanites.ts";
 const textEncoder = new TextEncoder();
 
 type SetupAgentTestRpc = {
-  setState(state: NanitesSetupAgentState): void;
+  setState(state: NanitesSetupState): void;
   issueSetupClaim: NanitesSetupAgent["issueSetupClaim"];
-  refresh(): Promise<NanitesSetupAgentState>;
+  refresh(): Promise<NanitesSetupState>;
   recordRepositoryInstall: NanitesSetupAgent["recordRepositoryInstall"];
-  recordUpstreamStarVerified: NanitesSetupAgent["recordUpstreamStarVerified"];
+  recordUpstreamStar: NanitesSetupAgent["recordUpstreamStar"];
 };
 
 async function getSetupAgent(): Promise<SetupAgentTestRpc> {
@@ -101,42 +101,28 @@ function buildGitHubInstallationDeletedBody(githubInstallationId: number): strin
 async function resetSetupAgent(): Promise<SetupAgentTestRpc> {
   await ensureD1BaselineSchema(env.DB);
   const setupAgent = await getSetupAgent();
-  setupAgent.setState(createInitialNanitesSetupState());
+  setupAgent.setState(createInitialSetupState());
   return setupAgent;
 }
 
-function buildCloudflareVerifiedSetupState(): NanitesSetupAgentState {
-  const initialState = createInitialNanitesSetupState();
+function buildCloudflareVerifiedSetupState(): NanitesSetupState {
+  const initialState = createInitialSetupState();
   return {
     ...initialState,
+    currentStep: "github-app",
     cloudflare: {
       status: "verified",
       authorizationUrl: null,
       accountId: "test-account",
       accountName: "Test Account",
       scriptName: "sigvelo-agent-tests",
-      readiness: buildCloudflareReadyReadiness(),
+      readiness: { status: "ready", checkedAt: new Date().toISOString(), items: [] },
       error: null,
-      connectedAt: new Date().toISOString(),
     },
     githubApp: {
       ...initialState.githubApp,
       status: "ready",
     },
-  };
-}
-
-function buildCloudflareReadyReadiness(): NanitesSetupAgentState["cloudflare"]["readiness"] {
-  const readiness = createInitialNanitesSetupState().cloudflare.readiness;
-  return {
-    status: "ready",
-    checkedAt: new Date().toISOString(),
-    items: readiness.items.map((item) => ({
-      ...item,
-      status: "ready" as const,
-      detail: `${item.label} is ready.`,
-      action: null,
-    })),
   };
 }
 
@@ -184,24 +170,28 @@ test("GitHub installation deletion webhook moves completed setup back to reposit
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await setupAgent.issueSetupClaim();
   const setupState = await setupAgent.refresh();
-  const installState = setupState.repositories.installState;
+  const installUrl = setupState.githubApp.installUrl;
+  const installState = installUrl ? new URL(installUrl).searchParams.get("state") : null;
   if (!installState) {
     throw new Error("Expected setup Agent to expose a repository install nonce.");
   }
-  await setupAgent.recordRepositoryInstall({
-    githubInstallationId: 42,
-    setupClaimToken: setupClaim.claimToken,
-    installState,
-  });
-  await setupAgent.recordUpstreamStarVerified();
+  await expect(
+    setupAgent.recordRepositoryInstall({
+      githubInstallationId: 42,
+      claimToken: setupClaim.token,
+      installState,
+    }),
+  ).resolves.toMatchObject({ ok: true });
+  await setupAgent.recordUpstreamStar({ starred: true });
   await expect(setupAgent.refresh()).resolves.toMatchObject({
     setupComplete: true,
+    currentStep: "launch",
     repositories: {
       status: "complete",
       githubInstallationId: 42,
     },
-    launch: {
-      status: "ready",
+    upstreamStar: {
+      starred: true,
     },
   });
 
@@ -230,16 +220,7 @@ test("GitHub installation deletion webhook moves completed setup back to reposit
     repositories: {
       status: "ready",
       githubInstallationId: null,
-    },
-    upstreamStar: {
-      status: "locked",
-    },
-    launch: {
-      status: "locked",
-    },
-    error: {
-      step: "repositories",
-      message: expect.stringContaining("GitHub App installation was deleted"),
+      error: expect.stringContaining("GitHub App installation was deleted"),
     },
   });
 });
