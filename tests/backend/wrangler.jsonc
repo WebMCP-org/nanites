@@ -49,7 +49,7 @@
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "SigveloChatIngressV2",
+        "class_name": "SigveloChatIngress",
         "name": "SigveloChatIngress",
       },
       // Test-harness-only binding: production only needs to export this class,
@@ -59,15 +59,15 @@
         "name": "ChatSdkStateAgent",
       },
       {
-        "class_name": "SigveloManagerConversationAgentV2",
+        "class_name": "SigveloManagerConversationAgent",
         "name": "SigveloManagerConversationAgent",
       },
       {
-        "class_name": "SigveloNaniteManagerV2",
+        "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
       },
       {
-        "class_name": "NanitesSetupAgentV2",
+        "class_name": "NanitesSetupAgent",
         "name": "NanitesSetupAgent",
       },
     ],
@@ -75,13 +75,13 @@
   "migrations": [
     {
       "new_sqlite_classes": [
-        "SigveloChatIngressV2",
-        "SigveloManagerConversationAgentV2",
-        "SigveloNaniteManagerV2",
+        "SigveloChatIngress",
+        "SigveloManagerConversationAgent",
+        "SigveloNaniteManager",
         "SigveloNaniteAgent",
-        "NanitesSetupAgentV2",
+        "NanitesSetupAgent",
       ],
-      "tag": "v2",
+      "tag": "v1",
     },
   ],
 }

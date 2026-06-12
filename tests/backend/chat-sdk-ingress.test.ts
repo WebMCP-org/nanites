@@ -2,7 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getAgentByName } from "agents";
-import worker, { ChatSdkStateAgent, SigveloChatIngressV2 } from "#/server.ts";
+import worker, { ChatSdkStateAgent, SigveloChatIngress } from "#/server.ts";
 import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { encodeHex } from "#/backend/crypto.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
@@ -298,7 +298,7 @@ function managerConversationNameFor(fixture: GitHubIssueCommentFixture): string 
 }
 
 test("server exports the Chat SDK ingress Agent classes", () => {
-  expect(SigveloChatIngressV2).toBeDefined();
+  expect(SigveloChatIngress).toBeDefined();
   expect(ChatSdkStateAgent).toBeDefined();
   expect(ChatSdkStateAgent.name).toBe("ChatSdkStateAgent");
   expect(Object.getPrototypeOf(ChatSdkStateAgent.prototype)).toBe(

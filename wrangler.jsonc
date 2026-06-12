@@ -84,19 +84,19 @@
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "SigveloChatIngressV2",
+        "class_name": "SigveloChatIngress",
         "name": "SigveloChatIngress",
       },
       {
-        "class_name": "SigveloManagerConversationAgentV2",
+        "class_name": "SigveloManagerConversationAgent",
         "name": "SigveloManagerConversationAgent",
       },
       {
-        "class_name": "SigveloNaniteManagerV2",
+        "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
       },
       {
-        "class_name": "NanitesSetupAgentV2",
+        "class_name": "NanitesSetupAgent",
         "name": "NanitesSetupAgent",
       },
     ],
@@ -104,12 +104,12 @@
   "migrations": [
     {
       "new_sqlite_classes": [
-        "SigveloChatIngressV2",
-        "SigveloManagerConversationAgentV2",
-        "SigveloNaniteManagerV2",
-        "NanitesSetupAgentV2",
+        "SigveloChatIngress",
+        "SigveloManagerConversationAgent",
+        "SigveloNaniteManager",
+        "NanitesSetupAgent",
       ],
-      "tag": "v2-durable-object-baseline",
+      "tag": "v1-durable-object-baseline",
     },
   ],
   "observability": {

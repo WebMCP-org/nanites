@@ -51,11 +51,6 @@ export class SigveloChatIngress extends BaseSigveloChatIngress {}
 export class SigveloManagerConversationAgent extends BaseSigveloManagerConversationAgent {}
 export class SigveloNaniteManager extends BaseSigveloNaniteManager {}
 export class NanitesSetupAgent extends BaseNanitesSetupAgent {}
-// V2: multi-GitHub-app cutover (manager keys carry the app id; V1 storage purged).
-export class SigveloChatIngressV2 extends BaseSigveloChatIngress {}
-export class SigveloManagerConversationAgentV2 extends BaseSigveloManagerConversationAgent {}
-export class SigveloNaniteManagerV2 extends BaseSigveloNaniteManager {}
-export class NanitesSetupAgentV2 extends BaseNanitesSetupAgent {}
 
 export { ChatSdkStateAgent, HostBridgeLoopback, SigveloNaniteAgent };
 

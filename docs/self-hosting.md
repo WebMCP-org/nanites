@@ -137,8 +137,8 @@ root Worker name and setup hint aligned:
 {
   "name": "nanites-app-production",
   "vars": {
-    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production"
-  }
+    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
+  },
 }
 ```
 
@@ -149,16 +149,16 @@ dashboard and repo drift.
 For the maintained SigVelo production Worker (`nanites-app-production` on `app.sigvelo.com`), use
 these Workers Builds settings:
 
-| Setting                              | Value                         |
-| ------------------------------------ | ----------------------------- |
-| Production branch                    | `main`                        |
-| Build command                        | leave blank                   |
-| Deploy command                       | `pnpm run deploy:prod`        |
-| Non-production branch deploy command | `pnpm run deploy:preview`     |
+| Setting                              | Value                          |
+| ------------------------------------ | ------------------------------ |
+| Production branch                    | `main`                         |
+| Build command                        | leave blank                    |
+| Deploy command                       | `pnpm run deploy:prod`         |
+| Non-production branch deploy command | `pnpm run deploy:preview`      |
 | Root directory                       | `/` or blank for the repo root |
-| Build cache                          | enabled                       |
-| Build variable                       | `NODE_VERSION=22`             |
-| Build variable                       | `PNPM_VERSION=10.33.0`        |
+| Build cache                          | enabled                        |
+| Build variable                       | `NODE_VERSION=22`              |
+| Build variable                       | `PNPM_VERSION=10.33.0`         |
 
 Do not use raw `npx wrangler versions upload` for non-production branches. Nanites needs the package
 script because it builds first, then uploads `dist/nanites_app_production/index.js` with

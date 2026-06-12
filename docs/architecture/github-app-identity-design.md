@@ -10,33 +10,34 @@ with **no backwards compatibility** — we are pre-production and will wipe prod
 
 **Implementation deviations from the proposal:**
 
-- *Visible installations are not a cross-app union.* GitHub user tokens list
+- _Visible installations are not a cross-app union._ GitHub user tokens list
   installations of the app that minted them, and the deployment only holds a
   user token for the primary login app. Session/MCP snapshots are therefore
   tagged with the primary app's id (or the wizard app's id during setup
   verification), not unioned across apps. Cross-app session selection can be
   added later via per-app app-JWT listings if it is ever needed.
-- *Retire does not delete worker secrets.* The wizard drops its Cloudflare
+- _Retire does not delete worker secrets._ The wizard drops its Cloudflare
   connection after setup, so retiring marks the row `retired` (which makes the
   credentials unusable) and leaves the orphaned `GITHUB_APP_<ID>_*` secrets for
   manual `wrangler secret delete`.
-- *The setup wizard tracks the newest active app* (max `updated_at`, app id as
+- _The setup wizard tracks the newest active app_ (max `updated_at`, app id as
   tiebreaker) rather than rendering a full app-list UI. Register/retire/
   set-primary exist as claim-gated API routes
   (`/api/setup/github-apps[...]`); a management UI can layer on top later.
-- *DO purge is two deploys, not one.* Cloudflare validates `deleted_classes`
-  against the **currently deployed** bindings (API error 10061), so deleting
-  the V1 classes cannot ship in the same deploy that unbinds them. Phase 1
-  (`v2-multi-github-app-cutover`) creates the V2 classes and moves the
-  bindings; phase 2 (`v3-purge-v1-storage`, committed commented-out in
-  `wrangler.production.jsonc`) deletes the V1 classes — uncomment and deploy
-  again once phase 1 is live.
-- *App default name* is `<first-hostname-label> nanites <suffix>` (GitHub caps
+- _DO purge happens by deleting the production Worker, not by class
+  migrations._ Cloudflare validates `deleted_classes` against the currently
+  deployed bindings (API error 10061), so an in-place purge needs two deploys
+  and leaves V-suffixed class names behind as permanent debt. Pre-prod, the
+  clean route is `wrangler delete` (removes all DO storage, the migration
+  history, and the worker's secrets in one step) followed by a fresh deploy.
+  The configs keep plain class names and a single
+  `v1-durable-object-baseline` migration.
+- _App default name_ is `<first-hostname-label> nanites <suffix>` (GitHub caps
   names at 34 chars; the suffix keeps re-registrations unique).
-**Motivation:** the 2026-06-10 incident
-([findings](../investigations/github-app-identity-findings.md)) where the
-setup flow silently replaced the deployment's GitHub App identity, orphaning
-every installation, MCP grant, and manager DO referencing the original app.
+  **Motivation:** the 2026-06-10 incident
+  ([findings](../investigations/github-app-identity-findings.md)) where the
+  setup flow silently replaced the deployment's GitHub App identity, orphaning
+  every installation, MCP grant, and manager DO referencing the original app.
 
 ## Why multi-app instead of singleton-plus-guards
 
@@ -188,17 +189,20 @@ a status line; the app dimension only unfolds when there are ≥2 apps.
    for `0000_baseline.sql` (a previous migration collapse used the same
    name), so without the wipe `wrangler d1 migrations apply` reports "No
    migrations to apply" and silently leaves the old schema in place.
-3. ⚠ Purge DO state — two deploys (see deviations above): phase 1 binds the
-   new V2 classes alongside the code cutover; phase 2 deletes the V1 classes
-   (deletion purges storage) once phase 1 is live.
-4. ⚠ Delete obsolete worker secrets (`GITHUB_APP_PRIVATE_KEY`,
-   `GITHUB_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`).
-5. ⚠ GitHub-side cleanup: delete `nanites-cwkawta7yc`; uninstall/delete the
+3. ⚠ Delete the production Worker
+   (`wrangler delete --config wrangler.production.jsonc`) — this purges all
+   Durable Object storage, the DO migration history, and the worker's
+   secrets (D1/KV/R2 are separate resources and survive). Re-set the base
+   secrets (`AUTH_COOKIE_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `SENTRY_DSN`),
+   then `vp run deploy:prod` deploys fresh with plain DO class names and the
+   single baseline migration. Also clear the OAuth grant KV
+   (`OAUTH_KV`), which holds tokens referencing the old app.
+4. ⚠ GitHub-side cleanup: delete `nanites-cwkawta7yc`; uninstall/delete the
    dead experiments (`webmcp-org`, `char3-webmcp-org`). Keep or delete the
    old `sigvelo` app — with a fresh start there is no data pointing at it,
    so either register a brand-new app via the new flow (simplest) or keep
    the `sigvelo` slug/branding by re-registering it manually later.
-6. ⚠ Run setup fresh on app.sigvelo.com: register app, install on
+5. ⚠ Run setup fresh on app.sigvelo.com: register app, install on
    WebMCP-org, select repos. Then run the deferred watchdog repro
    (huge-diff nanite + long-poll) as the end-to-end success criterion.
 
