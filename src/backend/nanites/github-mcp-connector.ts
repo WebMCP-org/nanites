@@ -9,7 +9,8 @@ export type GitHubMcpConnectorOptions = {
   /**
    * Issues the per-connection request headers: a freshly scoped GitHub App
    * installation token plus the X-MCP tool-filter headers. Called once per
-   * connector instance, lazily on the first github.* call.
+   * connector instance — on the first execute call of the turn, when codemode
+   * setup describes every connector (not on the first github.* call).
    */
   createHeaders: () => Promise<Record<string, string>>;
   /** Overridable for tests; defaults to GitHub's hosted MCP server. */
@@ -42,17 +43,27 @@ export class GitHubMcpConnector extends McpConnector {
       return this.#options.createConnection();
     }
 
-    const headers = await this.#options.createHeaders();
-    const client = new Client({ name: "sigvelo-nanite", version: "0.0.0" });
-    const transport = new StreamableHTTPClientTransport(
-      new URL(this.#options.url ?? GITHUB_MCP_SERVER_URL),
-      { requestInit: { headers } },
-    );
-    await client.connect(transport);
-    return {
-      name: "github",
-      client,
-      fetchTools: async () => (await client.listTools()).tools,
-    };
+    // A failure here fails codemode setup — and with it every execute call of
+    // the current turn, git.* and state.* included — so make the cause
+    // unmistakably GitHub MCP rather than a generic execute error.
+    try {
+      const headers = await this.#options.createHeaders();
+      const client = new Client({ name: "sigvelo-nanite", version: "0.0.0" });
+      const transport = new StreamableHTTPClientTransport(
+        new URL(this.#options.url ?? GITHUB_MCP_SERVER_URL),
+        { requestInit: { headers } },
+      );
+      await client.connect(transport);
+      return {
+        name: "github",
+        client,
+        fetchTools: async () => (await client.listTools()).tools,
+      };
+    } catch (error) {
+      throw new Error(
+        `GitHub MCP connection failed; github.* tools (and the execute tool with them) are unavailable this turn: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
   }
 }

@@ -131,6 +131,10 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   };
   override maxSteps = 1000;
   override waitForMcpConnections = { timeout: 10_000 };
+  // Never externalize evicted transcript media into the workspace: repos are
+  // cloned at the workspace root, so a written /attachments directory would
+  // collide with (and git-shadow) a repo's own files. Drop the bytes instead.
+  override mediaEviction = { externalizeToWorkspace: false };
   // In-memory only: lost on hibernation, which forces a refresh on the first
   // turn after a wake. Never persisted alongside the token itself.
   private githubMcpTokenExpiresAtMs: number | null = null;

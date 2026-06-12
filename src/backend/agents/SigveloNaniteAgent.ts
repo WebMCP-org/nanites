@@ -255,9 +255,6 @@ const naniteToolOutputBudgetExcludedTools = new Set([
   "create_child_nanite",
   "artifact_read",
 ]);
-// Pre-connector deploys attached the GitHub MCP server through the agents SDK
-// under this name; onStart still removes any persisted leftovers.
-const githubMcpServerName = "github";
 const terminalSubmissionStatuses = new Set<ThinkSubmissionStatus>([
   "completed",
   "aborted",
@@ -673,7 +670,6 @@ function buildNaniteSystemPrompt(): string {
     "Do not use github.* tools to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
     "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Discover github.* methods with codemode.search/codemode.describe. It is not a shell and cannot use require(), child_process, or subprocess commands.",
     "Use artifact_read for saved SigVelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
-    'Approval-gated tools such as git.push_force pause the execute run with status "paused". When that happens, use ask_human to describe the pending action; the run resumes automatically once a human approves or rejects it.',
     "Keep GitHub-facing output concise. Keep detailed investigation in this transcript.",
     "",
     "Do not claim success without evidence. If authority, configuration, approval, or target scope is missing, use ask_human. If the target state is impossible or a deterministic tool/API error repeats, use fail.",
@@ -734,6 +730,10 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   override chatRecovery = { noProgressTimeoutMs: 10 * 60 * 1000 };
   override classifyChatError = defaultContextOverflowClassifier;
   override contextOverflow = { reactive: true, maxRetries: 2 };
+  // Never externalize evicted transcript media into the workspace: repos are
+  // cloned at the workspace root, so a written /attachments directory would
+  // collide with (and git-shadow) a repo's own files. Drop the bytes instead.
+  override mediaEviction = { externalizeToWorkspace: false };
   override workspace = new Workspace({
     sql: this.ctx.storage.sql,
     r2: this.env.WORKSPACE_FILES,
@@ -748,11 +748,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     if (this.state.version !== NANITE_AGENT_STATE_VERSION) {
       this.setState(createInitialNaniteAgentState());
     }
-
-    // GitHub MCP now reaches the model inside codemode (github.*), but older
-    // deploys attached it as an agents-SDK MCP server whose stale one-hour
-    // token the SDK persists across hibernation. Drop any leftovers for good.
-    await this.removeGitHubMcpServers();
   }
 
   override getModel(): LanguageModel {
@@ -2074,15 +2069,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         return headers;
       },
     });
-  }
-
-  private async removeGitHubMcpServers(): Promise<void> {
-    const servers = this.getMcpServers().servers;
-    await Promise.all(
-      Object.entries(servers)
-        .filter(([, server]) => server.name === githubMcpServerName)
-        .map(([serverId]) => this.removeMcpServer(serverId)),
-    );
   }
 
   private createGitToolProvider(): ToolProvider {

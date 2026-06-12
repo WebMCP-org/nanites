@@ -1,8 +1,8 @@
+import { createExecutionContext } from "cloudflare:test";
 import type { ToolProvider } from "@cloudflare/codemode";
-import {
-  hideAttachmentsFromGit,
-  wrapGitToolProviderWithLazyAuth,
-} from "#/backend/nanites/git-auth.ts";
+import { gitTools } from "@cloudflare/shell/git";
+import { wrapGitToolProviderWithLazyAuth } from "#/backend/nanites/git-auth.ts";
+import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
 
 type RecordedCall = { tool: string; options: Record<string, unknown> };
 
@@ -19,11 +19,6 @@ function createFakeGitProvider(calls: RecordedCall[]): ToolProvider {
       status: { description: "git status", execute: record("status") },
       push: { description: "git push", execute: record("push") },
     },
-    types: [
-      "declare const git: {",
-      "  push(opts?: { remote?: string; ref?: string; force?: boolean; dir?: string }): Promise<{ ok: boolean; refs: Record<string, unknown> }>;",
-      "};",
-    ].join("\n"),
   };
 }
 
@@ -34,7 +29,18 @@ function wrapFakeGitProvider(calls: RecordedCall[]): ToolProvider {
   });
 }
 
-test("plain git push rejects force flags and points at push_force", async () => {
+function wrapRealGitProvider(): ToolProvider {
+  // gitTools only wires up filesystem adapters at construction; the workspace
+  // is never touched until a tool executes, so a stub is enough to read the
+  // provider's model-facing types.
+  const workspace = {} as Parameters<typeof gitTools>[0];
+  return wrapGitToolProviderWithLazyAuth(gitTools(workspace), {
+    resolveAuth: async () => null,
+    isAuthRejection: () => false,
+  });
+}
+
+test("git push rejects force flags", async () => {
   const calls: RecordedCall[] = [];
   const wrapped = wrapFakeGitProvider(calls);
   const tools = wrapped.tools as Record<
@@ -42,69 +48,49 @@ test("plain git push rejects force flags and points at push_force", async () => 
     { execute: (...args: unknown[]) => Promise<unknown> }
   >;
 
-  await expect(tools.push?.execute({ force: true })).rejects.toThrow(/push_force/);
+  await expect(tools.push?.execute({ force: true })).rejects.toThrow(
+    /Force pushes are not allowed/,
+  );
+  await expect(tools.push?.execute({ forceWithLease: true })).rejects.toThrow(
+    /Force pushes are not allowed/,
+  );
   expect(calls).toEqual([]);
 });
 
-test("push_force requires approval, forces the push, and injects lazy auth", async () => {
+test("git push injects lazy auth into plain pushes", async () => {
   const calls: RecordedCall[] = [];
   const wrapped = wrapFakeGitProvider(calls);
   const tools = wrapped.tools as Record<
     string,
-    { requiresApproval?: boolean; execute: (...args: unknown[]) => Promise<unknown> }
+    { execute: (...args: unknown[]) => Promise<unknown> }
   >;
 
-  expect(tools.push_force?.requiresApproval).toBe(true);
-  expect(tools.push?.requiresApproval).toBeUndefined();
-
-  await tools.push_force?.execute({ ref: "main" });
-  expect(calls).toEqual([
-    { tool: "push", options: { ref: "main", force: true, token: "test-token" } },
-  ]);
+  await tools.push?.execute({ ref: "main" });
+  expect(calls).toEqual([{ tool: "push", options: { ref: "main", token: "test-token" } }]);
 });
 
-test("wrapped git types drop force from push and document push_force", () => {
-  const wrapped = wrapFakeGitProvider([]);
+test("wrapped git types drop the rejected force option from push", () => {
+  const raw = gitTools({} as Parameters<typeof gitTools>[0]);
+  // Drift guard: if upstream stops advertising force on push (or reformats the
+  // line so the rewrite stops matching), this fails at the dep bump.
+  expect(raw.types).toMatch(/^\s*push\(.* force\?: boolean;.*$/m);
 
-  expect(wrapped.types).toContain(
-    "push_force(opts?: { remote?: string; ref?: string; dir?: string })",
-  );
-  expect(wrapped.types).toContain("pauses for human approval");
-  expect(wrapped.types).not.toContain(
-    "push(opts?: { remote?: string; ref?: string; force?: boolean;",
-  );
+  const wrapped = wrapRealGitProvider();
+  expect(wrapped.types).toMatch(/^\s*push\(/m);
+  expect(wrapped.types).not.toMatch(/^\s*push\(.*force\?: boolean.*$/m);
 });
 
-test("git-facing workspace hides /attachments so evicted transcript media is never committed", async () => {
-  const workspace = {
-    label: "fake-workspace",
-    readDir: async (path: string) => {
-      if (path === "/" || path === "" || path === ".") {
-        return [
-          { name: "attachments", type: "dir" },
-          { name: "src", type: "dir" },
-          { name: "README.md", type: "file" },
-        ];
-      }
-      if (path.replace(/\/+$/, "") === "/attachments") {
-        return [{ name: "evicted", type: "dir" }];
-      }
-      return [];
-    },
-    readFile: async (path: string) => `content:${path}`,
-  };
+test("connector describe() surfaces the provider types as model-facing instructions", async () => {
+  const connector = new ToolProviderConnector(
+    createExecutionContext() as unknown as DurableObjectState,
+    wrapRealGitProvider(),
+  );
 
-  const gitWorkspace = hideAttachmentsFromGit(
-    workspace as unknown as Parameters<typeof hideAttachmentsFromGit>[0],
-  ) as unknown as typeof workspace;
-
-  expect((await gitWorkspace.readDir("/")).map((entry) => entry.name)).toEqual([
-    "src",
-    "README.md",
-  ]);
-  // Non-root listings and other methods pass through to the real workspace.
-  expect((await gitWorkspace.readDir("/attachments")).map((entry) => entry.name)).toEqual([
-    "evicted",
-  ]);
-  expect(await gitWorkspace.readFile("/src/index.ts")).toBe("content:/src/index.ts");
+  const description = await connector.describe();
+  expect(description.name).toBe("git");
+  expect(Object.keys(description.descriptors)).toContain("push");
+  // codemode renders codemode.search/describe from descriptors + instructions;
+  // the hand-written types block is the only signature documentation we have.
+  expect(description.instructions).toContain("declare const git");
+  expect(description.instructions).not.toMatch(/^\s*push\(.*force\?: boolean.*$/m);
 });

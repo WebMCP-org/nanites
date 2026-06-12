@@ -23,7 +23,13 @@ export class ToolProviderConnector extends CodemodeConnector {
     return this.#provider.tools as ConnectorTools;
   }
 
-  override async getTypeScriptTypes(): Promise<string> {
-    return this.#provider.types ?? super.getTypeScriptTypes();
+  /**
+   * codemode renders codemode.search/describe output from each tool's JSON
+   * inputSchema plus this instructions string. SigVelo's providers carry no
+   * inputSchemas — their hand-written `types` block is the only signature
+   * documentation the model can get, so surface it here.
+   */
+  protected override instructions(): string | undefined {
+    return this.#provider.types;
   }
 }

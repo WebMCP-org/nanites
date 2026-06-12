@@ -26,11 +26,6 @@ type ExecutableGitTool = {
   execute: (...args: unknown[]) => Promise<unknown>;
 };
 
-type WrappedGitTool = ExecutableGitTool & {
-  /** Honored by the codemode connector layer: pauses the run for approval. */
-  requiresApproval?: boolean;
-};
-
 function isTruthyForceOption(value: unknown): boolean {
   return value === true || value === "true" || value === 1;
 }
@@ -46,7 +41,7 @@ function assertSafeGitCommandOptions(command: string, options: Record<string, un
     isTruthyForceOption(options.force_with_lease)
   ) {
     throw new Error(
-      "Plain git push never forces. Fetch and rebase or merge the remote branch, then push normally. If a history rewrite is truly required, call git.push_force — it pauses for human approval before executing.",
+      "Force pushes are not allowed. Fetch and rebase or merge the remote branch, then push normally. If remote history truly must be rewritten, use ask_human — a human has to do it.",
     );
   }
 }
@@ -123,7 +118,7 @@ export function wrapGitToolProviderWithLazyAuth(
 ): ToolProvider {
   const tools = provider.tools as Record<string, ExecutableGitTool>;
 
-  const wrappedTools: Record<string, WrappedGitTool> = Object.fromEntries(
+  const wrappedTools: Record<string, ExecutableGitTool> = Object.fromEntries(
     Object.entries(tools).map(([command, gitTool]) => [
       command,
       {
@@ -148,54 +143,20 @@ export function wrapGitToolProviderWithLazyAuth(
     ]),
   );
 
-  const pushTool = tools.push;
-  if (!pushTool) {
-    return {
-      ...provider,
-      tools: wrappedTools,
-    };
-  }
-
-  wrappedTools.push_force = {
-    description:
-      "git push --force. Rewrites remote history, so it pauses for human approval before executing. Prefer fetch + rebase/merge + plain push.",
-    requiresApproval: true,
-    execute: async (...args: unknown[]) => {
-      const [firstArg, ...restArgs] = args;
-      const explicitOptions = isExplicitOptions(firstArg) ? firstArg : {};
-      return executeWithLazyAuth({
-        command: "push",
-        gitTool: pushTool,
-        commandOptions: { ...explicitOptions, force: true },
-        restArgs,
-        options,
-      });
-    },
-  };
-
   return {
     ...provider,
-    types: addPushForceToGitTypes(provider.types),
+    types: removeForceFromPushTypes(provider.types),
     tools: wrappedTools,
   };
 }
 
 /**
  * The upstream git type block advertises `force?: boolean` on push, but the
- * wrapper rejects it; forcing lives on the approval-gated push_force instead.
- * Keep the model-facing types honest about both.
+ * wrapper rejects it. Keep the model-facing types honest.
  */
-function addPushForceToGitTypes(types: string | undefined): string | undefined {
-  if (!types) {
-    return types;
-  }
-
-  return types.replace(/^(\s*)(push\(.*)$/m, (_line, indent: string, pushLine: string) =>
-    [
-      `${indent}${pushLine.replace(" force?: boolean;", "")}`,
-      `${indent}/** git push --force; pauses for human approval. */`,
-      `${indent}push_force(opts?: { remote?: string; ref?: string; dir?: string }): Promise<{ ok: boolean; refs: Record<string, unknown> }>;`,
-    ].join("\n"),
+function removeForceFromPushTypes(types: string | undefined): string | undefined {
+  return types?.replace(/^(\s*push\(.*)$/m, (pushLine) =>
+    pushLine.replace(" force?: boolean;", ""),
   );
 }
 
@@ -299,45 +260,11 @@ type GitHubInstallationGitToolsOptions = {
   issueToken: (input: { repository: string }) => Promise<string | null>;
 };
 
-type GitWorkspace = Parameters<typeof gitTools>[0];
-
-/**
- * think's media eviction (on by default) preserves oversized transcript media
- * as workspace files under /attachments/evicted/. A repository cloned at the
- * workspace root would see that directory as untracked, and a broad git add
- * would commit transcript attachments into the repo. Hide /attachments from
- * the git tools' directory walks; workspace read tools still see it.
- */
-export function hideAttachmentsFromGit(workspace: GitWorkspace): GitWorkspace {
-  return new Proxy(workspace, {
-    get(target, property, receiver) {
-      if (property === "readDir") {
-        return async (path: string, ...rest: unknown[]) => {
-          const readDir = target.readDir.bind(target) as (
-            ...args: unknown[]
-          ) => Promise<{ name: string }[]>;
-          const entries = await readDir(path, ...rest);
-          const isRoot = path.replace(/\/+$/, "") === "" || path === "/" || path === ".";
-          return isRoot ? entries.filter((entry) => entry.name !== "attachments") : entries;
-        };
-      }
-
-      void receiver;
-      const value = Reflect.get(target, property, target);
-      // Workspace methods rely on private fields, which a Proxy receiver
-      // breaks; rebind them to the real instance.
-      return typeof value === "function"
-        ? (value as (...args: unknown[]) => unknown).bind(target)
-        : value;
-    },
-  });
-}
-
 export function gitToolsWithGitHubInstallationAuth(
   workspace: Parameters<typeof gitTools>[0],
   options: GitHubInstallationGitToolsOptions,
 ): ToolProvider {
-  return wrapGitToolProviderWithLazyAuth(gitTools(hideAttachmentsFromGit(workspace)), {
+  return wrapGitToolProviderWithLazyAuth(gitTools(workspace), {
     isAuthRejection: isGitHubAuthRejection,
     resolveAuth: async ({ command, options: gitOptions }) => {
       const repository = await resolveGitCommandRepository({
