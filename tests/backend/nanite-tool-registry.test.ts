@@ -51,6 +51,18 @@ test("MCP tools/list exposes Nanite tools with schemas, output schemas, and anno
     expect(JSON.stringify(listedTool.inputSchema)).not.toContain("managerName");
   }
 
+  // Top-level union input schemas are advertised as empty objects by MCP tool
+  // registration, leaving clients unable to discover any parameters. Every tool
+  // that accepts input must advertise at least one property.
+  const exploreWorkspace = listedToolByName.get("sigvelo_explore_nanite_workspace");
+  expect(exploreWorkspace?.inputSchema).toMatchObject({
+    type: "object",
+    required: expect.arrayContaining(["action", "naniteId"]),
+  });
+  expect(Object.keys(exploreWorkspace?.inputSchema.properties ?? {})).toEqual(
+    expect.arrayContaining(["action", "naniteId", "path", "query", "limit"]),
+  );
+
   await client.close();
   await server.close();
 });
