@@ -125,7 +125,7 @@ cp docs/env.local.example .env
 SigVelo needs a GitHub App installed on the repositories Nanites may maintain. For self-hosted
 deployments, `/setup` creates the app. Locally, the dev-only `/setup/local` page (mounted only in
 dev builds and only answering loopback hostnames) does the same job: it runs GitHub's app-manifest
-flow with nanites' default permissions and registers the resulting app in the local D1 database.
+flow with Nanites' default permissions and registers the resulting app in the local D1 database.
 
 First-time setup (once per developer):
 
@@ -135,7 +135,9 @@ First-time setup (once per developer):
    shows a pre-filled confirmation page; one click registers a personal dev app and returns here.
 4. Append the printed secret block (`GITHUB_APP_<ID>_*` plus `AUTH_COOKIE_SECRET`) to `.dev.vars`
    and restart `vp run dev`. The worker cannot write `.dev.vars` itself; this is the only paste.
-5. Install the app on at least one repository (the page links to the install URL), then sign in at
+5. Optional: upload `public/assets/nanite-github-app-badge.png` as the app badge in GitHub App
+   settings under **Display information**. GitHub App manifests cannot set badges.
+6. Install the app on at least one repository (the page links to the install URL), then sign in at
    `http://localhost:5173` and activate the installation.
 
 After any `rm -rf .wrangler` (the supported reset for stale local state), the secrets in

@@ -61,7 +61,10 @@ const SECRET_PROPAGATION_STALL_AFTER_MS = 2 * 60 * 1_000;
 const READINESS_SMOKE_WORKER_KEY = "nanites-setup-readiness";
 const READINESS_SMOKE_WORKER_RESPONSE = "nanites-readiness-ok";
 
-// The app is the self-hoster's own private GitHub App, so the default ceiling
+export const GITHUB_APP_MANIFEST_DESCRIPTION =
+  "Nanites runs small durable agents that maintain selected GitHub repositories through scoped events, schedules, and manual prompts.";
+
+// The app is the self-hoster's own customer-owned GitHub App, so the default ceiling
 // is broad: per-run nanite tokens are downscoped from it
 // (issueScopedGitHubInstallationToken), and downscoping can only subtract.
 // Defaults apply to new registrations only — widening later forces every
@@ -454,25 +457,25 @@ function resolveWorkerRoute(origin: string, env: Env): WorkerRoute | null {
 const GITHUB_APP_NAME_MAX_LENGTH = 34;
 
 function buildGitHubAppManifest(origin: string, manifestState: string) {
-  // The deployment's first hostname label makes the app legible in GitHub
-  // settings lists; the short suffix dodges GitHub's global app-name
-  // uniqueness on re-registration. The user can still edit the name on
-  // GitHub's manifest confirmation page.
+  // Keep Nanites first for GitHub UI branding. The deployment's first hostname
+  // label keeps multiple apps legible, and the short suffix dodges GitHub's
+  // global app-name uniqueness on re-registration. The user can still edit the
+  // name on GitHub's manifest confirmation page.
   const nameSuffix = manifestState
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "")
     .slice(0, 4);
-  const fixedPartLength = " nanites ".length + nameSuffix.length;
+  const fixedPartLength = "Nanites  ".length + nameSuffix.length;
   const hostLabel = (new URL(origin).hostname.split(".")[0] ?? "deployment").slice(
     0,
     GITHUB_APP_NAME_MAX_LENGTH - fixedPartLength,
   );
-  const name = `${hostLabel} nanites ${nameSuffix}`;
+  const name = `Nanites ${hostLabel} ${nameSuffix}`;
 
   return {
     name,
     url: origin,
-    description: "Self-hosted durable agents for GitHub repository maintenance.",
+    description: GITHUB_APP_MANIFEST_DESCRIPTION,
     // Private apps 404 GitHub's OAuth authorize endpoint for everyone but the
     // owner, which blocks teammates from signing in to the deployment. Public
     // here only means other accounts may authorize/install — it does not list

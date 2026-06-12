@@ -1,7 +1,7 @@
 {
   "extends": "agents/tsconfig",
-  "strict": true,
   "compilerOptions": {
+    "strict": true,
     "paths": {
       "#/*": ["./src/*"]
     }

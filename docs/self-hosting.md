@@ -239,9 +239,9 @@ After Cloudflare verifies ownership, the setup Agent redirects back to `/setup` 
 HttpOnly setup claim in the same browser. This is not a manual secret; it only keeps GitHub App
 setup bound to the browser that proved Cloudflare ownership.
 
-Setup creates a private GitHub App owned by your GitHub account or organization. GitHub App names
+Setup creates a customer-owned GitHub App owned by your GitHub account or organization. GitHub App names
 must be unique across GitHub, so Nanites gives the manifest a short generated default name such as
-`Nanites 1a2b3c4d5e`. The manifest uses the deployed origin for:
+`Nanites app 1a2b`. The manifest uses the deployed origin for:
 
 ```text
 OAuth callback: https://<your-origin>/auth/github/callback
@@ -249,6 +249,9 @@ Webhook URL:    https://<your-origin>/api/github/webhook
 Setup URL:      https://<your-origin>/setup/github/installed
 Manifest URL:   https://<your-origin>/setup/github/manifest/callback
 ```
+
+Optional: upload `public/assets/nanite-github-app-badge.png` as the app badge in GitHub App settings
+under **Display information**. GitHub App manifests cannot set badges.
 
 Nanites does not use GitHub's "Request user authorization (OAuth) during installation" option.
 Keep that disabled for manually configured apps. Nanites uses the setup URL first, then starts its

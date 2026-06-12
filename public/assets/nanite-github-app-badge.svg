@@ -1,0 +1,16 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="nanite-badge-title nanite-badge-desc">
+  <title id="nanite-badge-title">Nanites GitHub App badge</title>
+  <desc id="nanite-badge-desc">The Nanites React component mark scaled for a GitHub App badge.</desc>
+  <g transform="translate(100 118) scale(3.75)">
+    <rect x="-15" y="-21" width="30" height="36" rx="8" fill="#2d5a8a" />
+    <circle cx="-5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="5.5" cy="-8" r="4.5" fill="#0d1520" />
+    <circle cx="-4" cy="-10" r="1.5" fill="#ffffff" opacity="0.45" />
+    <circle cx="7" cy="-10" r="1.5" fill="#ffffff" opacity="0.45" />
+    <rect x="-12" y="13" width="9" height="5" rx="2.5" fill="#2d5a8a" opacity="0.7" />
+    <rect x="3" y="13" width="9" height="5" rx="2.5" fill="#2d5a8a" opacity="0.7" />
+    <path d="M -9 -22 Q -9 -31 0 -31 Q 9 -31 9 -22 Z" fill="#d4a636" />
+    <rect x="-12" y="-23" width="24" height="3.5" rx="1.5" fill="#c49525" />
+    <circle cx="0" cy="-28" r="2" fill="#f0d060" />
+  </g>
+</svg>

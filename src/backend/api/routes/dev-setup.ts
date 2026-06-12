@@ -36,6 +36,7 @@ import {
 import {
   DEFAULT_GITHUB_APP_EVENTS,
   DEFAULT_GITHUB_APP_PERMISSIONS,
+  GITHUB_APP_MANIFEST_DESCRIPTION,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
@@ -102,9 +103,9 @@ function buildDevGitHubAppManifest(localhostOrigin: string, manifestState: strin
     .slice(0, 4);
 
   return {
-    name: `nanites dev ${nameSuffix}`,
+    name: `Nanites dev ${nameSuffix}`,
     url: localhostOrigin,
-    description: "Personal local-development GitHub App for nanites.",
+    description: GITHUB_APP_MANIFEST_DESCRIPTION,
     // Unlike the wizard's deployment app, nobody but the owner ever signs in
     // to a personal localhost instance, so the app stays private.
     public: false,
@@ -295,6 +296,7 @@ ${
     <button onclick="navigator.clipboard.writeText(document.getElementById('paste-block').textContent)">Copy</button>
   </li>
   <li>Restart <code>vp run dev</code> so the new secrets load.</li>
+  <li>Optional: upload the <a href="/assets/nanite-github-app-badge.png">Nanites badge</a> in GitHub App settings under Display information.</li>
   <li><a href="${installUrl}">Install the app</a> on at least one repository.</li>
   <li><a href="${GITHUB_OAUTH_LOGIN_PATH}">Sign in</a> and activate the installation.</li>
 </ol>
@@ -360,8 +362,10 @@ already loaded but the database has no matching row (typical after
       : `<p class="missing"><code>AUTH_COOKIE_SECRET</code> is not set — creating an app below includes one in the paste block.</p>`;
 
     const createSection = `<h2>Create a personal dev GitHub App</h2>
-<p>GitHub opens a confirmation page pre-filled with nanites' default
-permissions; one click registers the app and returns here.</p>
+<p>GitHub opens a confirmation page pre-filled with Nanites branding and default
+permissions; one click registers the app and returns here. GitHub App manifests
+cannot set a badge, so after creation you can upload the <a href="/assets/nanite-github-app-badge.png">Nanites badge</a>
+in GitHub App settings under Display information.</p>
 <form method="post" action="https://github.com/settings/apps/new?state=${encodeURIComponent(manifestState)}">
   <input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest))}" />
   <button class="primary" type="submit">Create dev GitHub App on GitHub</button>

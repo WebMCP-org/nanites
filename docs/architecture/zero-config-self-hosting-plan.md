@@ -268,7 +268,10 @@ Confirmed by first-party docs and live probes:
 - GitHub App names cannot be fixed for every self-hosted install. GitHub's
   [registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
   docs say the name cannot be longer than 34 characters and must be unique across GitHub. The setup
-  manifest therefore uses a short generated default name like `Nanites 1a2b3c4d5e`.
+  manifest therefore uses a branded generated default name like `Nanites app 1a2b`.
+- GitHub App manifests cannot set the app badge. Nanites ships
+  `public/assets/nanite-github-app-badge.png`, a 200x200 PNG under 1 MB, for the owner to upload in
+  GitHub App settings under **Display information** after registration.
 - GitHub returns the generated GitHub App secrets to Nanites. GitHub's manifest docs say the flow
   generates the GitHub App ID, webhook secret, private key PEM, client secret, and client id. The
   [manifest conversion endpoint](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10#create-a-github-app-from-a-manifest)
@@ -683,10 +686,10 @@ Example manifest shape:
 
 ```json
 {
-  "name": "Nanites 1a2b3c4d5e",
+  "name": "Nanites app 1a2b",
   "url": "https://<origin>",
-  "description": "Self-hosted durable agents for GitHub repository maintenance.",
-  "public": false,
+  "description": "Nanites runs small durable agents that maintain selected GitHub repositories through scoped events, schedules, and manual prompts.",
+  "public": true,
   "redirect_url": "https://<origin>/setup/github/manifest/callback",
   "callback_urls": ["https://<origin>/auth/github/callback"],
   "setup_url": "https://<origin>/setup/github/installed",

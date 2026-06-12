@@ -32,7 +32,7 @@ with **no backwards compatibility** — we are pre-production and will wipe prod
   history, and the worker's secrets in one step) followed by a fresh deploy.
   The configs keep plain class names and a single
   `v1-durable-object-baseline` migration.
-- _App default name_ is `<first-hostname-label> nanites <suffix>` (GitHub caps
+- _App default name_ is `Nanites <first-hostname-label> <suffix>` (GitHub caps
   names at 34 chars; the suffix keeps re-registrations unique).
   **Motivation:** the 2026-06-10 incident
   ([findings](../investigations/github-app-identity-findings.md)) where the

@@ -24,6 +24,7 @@ import type {
 } from "#/backend/agents/NanitesSetupAgent.ts";
 
 const SETUP_STEP_COUNT = 5;
+const GITHUB_APP_BADGE_ASSET_PATH = "/assets/nanite-github-app-badge.png";
 
 export const Route = createFileRoute("/setup")({
   loader: async () => {
@@ -465,7 +466,14 @@ function SetupPage() {
     stepContent = (
       <>
         <h2 className="setup-step__title">Create the GitHub App for this deployment</h2>
-        <p className="setup-step__note">Nanites will use an app owned by this deployment.</p>
+        <p className="setup-step__note">
+          Nanites will use an app owned by this deployment. GitHub App manifests cannot set a badge,
+          so after creation you can upload the{" "}
+          <a href={GITHUB_APP_BADGE_ASSET_PATH} download>
+            Nanites badge
+          </a>{" "}
+          in GitHub App settings under Display information.
+        </p>
         {githubAppFinishing ? null : (
           <div className="setup-step__actions">
             <div className="setup-owner-toggle" role="radiogroup" aria-label="GitHub App owner">

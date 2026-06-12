@@ -16,6 +16,7 @@ import {
   CLOUDFLARE_SETUP_OAUTH_SCOPE,
   DEFAULT_GITHUB_APP_EVENTS,
   DEFAULT_GITHUB_APP_PERMISSIONS,
+  GITHUB_APP_MANIFEST_DESCRIPTION,
   createInitialSetupState,
   type NanitesSetupAgent,
   type NanitesSetupState,
@@ -970,13 +971,22 @@ test("GitHub App creation route returns the manifest form for the claimed browse
   );
 
   expect(response.status).toBe(200);
-  await expect(response.json()).resolves.toMatchObject({
+  const body = (await response.json()) as {
+    readonly action: string;
+    readonly state: string;
+    readonly manifest: Record<string, unknown>;
+  };
+  expect(body).toMatchObject({
     action: "https://github.com/settings/apps/new",
     state: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
     manifest: {
-      name: expect.stringMatching(/^sigvelo-agent-tests nanites [a-z0-9]{1,4}$/),
+      name: expect.stringMatching(/^Nanites sigvelo-agent-tests [a-z0-9]{1,4}$/),
+      description: GITHUB_APP_MANIFEST_DESCRIPTION,
     },
   });
+  expect(body.manifest).not.toHaveProperty("logo_url");
+  expect(body.manifest).not.toHaveProperty("avatar_url");
+  expect(body.manifest).not.toHaveProperty("badge_url");
 });
 
 test("GitHub App start returns a first-party manifest form target after Cloudflare proof", async () => {
@@ -997,7 +1007,8 @@ test("GitHub App start returns a first-party manifest form target after Cloudfla
   expect(result.action).toBe("https://github.com/organizations/WebMCP-org/settings/apps/new");
   expect(result.state).toMatch(/^[A-Za-z0-9_-]+$/);
   expect(result.manifest).toMatchObject({
-    name: expect.stringMatching(/^sigvelo-agent-tests nanites [a-z0-9]{1,4}$/),
+    name: expect.stringMatching(/^Nanites sigvelo-agent-tests [a-z0-9]{1,4}$/),
+    description: GITHUB_APP_MANIFEST_DESCRIPTION,
     redirect_url: `${SETUP_ORIGIN}/setup/github/manifest/callback`,
     callback_urls: [`${SETUP_ORIGIN}/auth/github/callback`],
     setup_url: `${SETUP_ORIGIN}/setup/github/installed`,
@@ -1012,6 +1023,9 @@ test("GitHub App start returns a first-party manifest form target after Cloudfla
       starring: "write",
     },
   });
+  expect(result.manifest).not.toHaveProperty("logo_url");
+  expect(result.manifest).not.toHaveProperty("avatar_url");
+  expect(result.manifest).not.toHaveProperty("badge_url");
 });
 
 test("GitHub App start requires a setup claim and ready Cloudflare readiness", async () => {

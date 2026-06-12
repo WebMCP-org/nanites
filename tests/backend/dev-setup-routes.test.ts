@@ -3,6 +3,7 @@ import { beforeEach } from "vite-plus/test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { readGitHubAppMetadata, resolveGitHubApp } from "#/backend/github/apps.ts";
+import { GITHUB_APP_MANIFEST_DESCRIPTION } from "#/backend/agents/NanitesSetupAgent.ts";
 import { TEST_GITHUB_APP_ID, resetGitHubAppTables } from "../helpers/d1-baseline.ts";
 
 const LOCAL_ORIGIN = "http://localhost:5173";
@@ -62,6 +63,23 @@ function readStateCookie(response: Response): string {
     throw new Error("Expected the dev setup page to set a manifest state cookie.");
   }
   return match[1];
+}
+
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function readManifestFromPage(body: string): Record<string, unknown> {
+  const match = /name="manifest" value="([^"]+)"/.exec(body);
+  if (!match?.[1]) {
+    throw new Error("Expected local setup page to render a manifest input.");
+  }
+  return JSON.parse(decodeHtmlAttribute(match[1])) as Record<string, unknown>;
 }
 
 test("dev setup routes are hidden off loopback hostnames", async () => {
@@ -142,7 +160,17 @@ test("manifest callback registers the app and prints the .dev.vars paste block",
   const state = readStateCookie(pageResponse);
   // The OAuth callback registered on the dev app must use localhost, or
   // sign-in fails only after a real app has been created on GitHub.
-  expect(await pageResponse.text()).toContain("http://localhost:5173/auth/github/callback");
+  const pageBody = await pageResponse.text();
+  expect(pageBody).toContain("http://localhost:5173/auth/github/callback");
+  expect(pageBody).toContain("/assets/nanite-github-app-badge.png");
+  const manifest = readManifestFromPage(pageBody);
+  expect(manifest).toMatchObject({
+    name: expect.stringMatching(/^Nanites dev [a-z0-9]{1,4}$/),
+    description: GITHUB_APP_MANIFEST_DESCRIPTION,
+  });
+  expect(manifest).not.toHaveProperty("logo_url");
+  expect(manifest).not.toHaveProperty("avatar_url");
+  expect(manifest).not.toHaveProperty("badge_url");
 
   const stub = withStubbedFetch((request) =>
     request.url === GITHUB_MANIFEST_CONVERSION_URL && request.method === "POST"
@@ -171,6 +199,7 @@ test("manifest callback registers the app and prints the .dev.vars paste block",
     new RegExp(`GITHUB_APP_${CONVERTED_APP_ID}_WEBHOOK_SECRET=&quot;[0-9a-f]{64}&quot;`),
   );
   expect(body).toContain("https://github.com/apps/nanites-dev-test/installations/new");
+  expect(body).toContain("/assets/nanite-github-app-badge.png");
   // The trimmed dev permissions drift from the defaults only warns.
   expect(body).toContain("Missing default permission");
 
