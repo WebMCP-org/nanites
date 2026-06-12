@@ -1,5 +1,7 @@
 import { Agent, DurableObjectOAuthClientProvider, getCurrentAgent } from "agents";
 import type { MCPClientOAuthResult } from "agents/mcp/client";
+import type { RestEndpointMethodTypes } from "@octokit/plugin-rest-endpoint-methods";
+import type { EmitterWebhookEventName } from "@octokit/webhooks";
 import { getLogger } from "@logtape/logtape";
 import { generateCookie } from "hono/cookie";
 import { z } from "zod";
@@ -67,15 +69,29 @@ const READINESS_SMOKE_WORKER_RESPONSE = "nanites-readiness-ok";
 // avoids. Deliberately excluded: `administration` (irreversible non-git
 // damage, no nanite use case) and all org/security scopes (a different trust
 // conversation than repo automation).
+//
+// Every key must appear in GitHub's `app-permissions` API schema: the
+// manifest endpoint rejects the whole registration ("Default permission ...
+// resource is not included in the list") for keys it does not know, and its
+// allowlist lags the settings UI. UI-only permissions (`discussions`,
+// `merge_queues`, `variables`, artifact metadata) can be granted manually on
+// the app after creation. The `satisfies` clause enforces schema membership
+// at compile time.
+type GitHubAppManifestPermissions = NonNullable<
+  RestEndpointMethodTypes["apps"]["createInstallationAccessToken"]["parameters"]["permissions"]
+>;
+
+// Manifests take top-level webhook event names, not the `event.action`
+// variants the emitter also names.
+type GitHubAppManifestEvent = Exclude<EmitterWebhookEventName, `${string}.${string}`>;
+
 export const DEFAULT_GITHUB_APP_PERMISSIONS = {
   actions: "write",
   checks: "write",
   contents: "write",
   deployments: "write",
-  discussions: "write",
   environments: "write",
   issues: "write",
-  merge_queues: "write",
   metadata: "read",
   pages: "write",
   pull_requests: "write",
@@ -84,14 +100,16 @@ export const DEFAULT_GITHUB_APP_PERMISSIONS = {
   secrets: "write",
   starring: "write",
   statuses: "write",
-  variables: "write",
   // Without `workflows`, any nanite push touching .github/workflows/ is
   // rejected by GitHub.
   workflows: "write",
-} as const;
+} as const satisfies GitHubAppManifestPermissions;
 
 // Unhandled events are cheap no-ops at the webhook ingress, so subscribe
 // wide: new trigger types become possible without re-registering the app.
+// Every event must be backed by a permission above (GitHub validates the
+// pairing at registration), so `discussion`/`discussion_comment`/
+// `merge_group` are out until their permissions can ride a manifest.
 export const DEFAULT_GITHUB_APP_EVENTS = [
   "check_run",
   "check_suite",
@@ -100,13 +118,10 @@ export const DEFAULT_GITHUB_APP_EVENTS = [
   "delete",
   "deployment",
   "deployment_status",
-  "discussion",
-  "discussion_comment",
   "fork",
   "issue_comment",
   "issues",
   "label",
-  "merge_group",
   "milestone",
   "public",
   "pull_request",
@@ -123,7 +138,7 @@ export const DEFAULT_GITHUB_APP_EVENTS = [
   "workflow_dispatch",
   "workflow_job",
   "workflow_run",
-] as const;
+] as const satisfies readonly GitHubAppManifestEvent[];
 
 // ---------------------------------------------------------------------------
 // Public state
