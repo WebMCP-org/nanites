@@ -732,6 +732,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (this.state.version !== SETUP_STATE_VERSION) {
       this.setState(createInitialSetupState());
     }
+    this.recoverInterruptedSteps();
     this.mcp.configureOAuthCallback({
       // The SDK types the handler as returning Response, but it awaits the
       // returned value, so an async handler works.
@@ -1063,6 +1064,26 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       );
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Request-scoped statuses cannot survive a Durable Object restart: the
+   * request that set them died with the previous instance, so finding one at
+   * startup means the step was interrupted. Demote it to a retryable failure
+   * instead of leaving the wizard on an eternal spinner. ("authenticating" is
+   * exempt — it legitimately spans restarts while the user completes the
+   * Cloudflare consent screen in another tab.)
+   */
+  private recoverInterruptedSteps(): void {
+    if (this.state.cloudflare.status === "verifying") {
+      this.markCloudflareFailed("Cloudflare verification was interrupted. Retry the connection.");
+    }
+    if (this.state.githubApp.status === "writing-secrets") {
+      this.recordGitHubAppFailure(
+        "GitHub App setup was interrupted while writing Worker secrets. Retry creating the app.",
+        null,
+      );
     }
   }
 

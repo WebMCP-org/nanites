@@ -71,6 +71,9 @@ function cloudflareButtonLabel(cloudflare: NanitesSetupState["cloudflare"]): str
   if (cloudflare.status === "verified") {
     return "Reconnect Cloudflare";
   }
+  if (cloudflare.status === "authenticating") {
+    return "Restart connection";
+  }
   return cloudflare.status === "failed" ? "Retry Cloudflare" : "Connect Cloudflare";
 }
 
@@ -276,6 +279,7 @@ function SetupPage() {
   const [ownerType, setOwnerType] = useState<"user" | "organization">("user");
   const [ownerLogin, setOwnerLogin] = useState("");
   const [cloudflareActionError, setCloudflareActionError] = useState<string | null>(null);
+  const [cloudflareActionPending, setCloudflareActionPending] = useState(false);
   const [githubActionError, setGithubActionError] = useState<string | null>(null);
   const [starActionRunning, setStarActionRunning] = useState(false);
   const [starActionError, setStarActionError] = useState<string | null>(null);
@@ -296,10 +300,13 @@ function SetupPage() {
   const viewingCompletedStep = viewedStepIndex < progressIndex;
   const trimmedOwnerLogin = ownerLogin.trim();
   const cloudflareVerified = status.cloudflare.status === "verified";
-  const cloudflareRunning =
-    status.cloudflare.status === "authenticating" ||
-    status.cloudflare.status === "verifying" ||
-    status.cloudflare.readiness.status === "checking";
+  // "authenticating" waits on the user finishing Cloudflare's consent screen —
+  // unbounded, and the consent tab can be lost — so the connect button stays
+  // enabled as the restart path (connectCloudflare tears down and starts
+  // over). "verifying" is server-side work whose every step carries a timeout,
+  // so disabling for it cannot stick.
+  const cloudflareAwaitingAuthorization = status.cloudflare.status === "authenticating";
+  const cloudflareVerifying = status.cloudflare.status === "verifying";
   const githubAppFinishing =
     status.githubApp.status === "writing-secrets" || status.githubApp.status === "propagating";
   const githubAppCanCreate =
@@ -314,12 +321,17 @@ function SetupPage() {
 
   async function connectCloudflare(): Promise<void> {
     setCloudflareActionError(null);
-    const result = await postSetupAction<{
-      state: NanitesSetupState;
-      authorizationUrl: string | null;
-    }>("/api/setup/cloudflare");
-    if (result.authorizationUrl) {
-      window.location.href = result.authorizationUrl;
+    setCloudflareActionPending(true);
+    try {
+      const result = await postSetupAction<{
+        state: NanitesSetupState;
+        authorizationUrl: string | null;
+      }>("/api/setup/cloudflare");
+      if (result.authorizationUrl) {
+        window.location.href = result.authorizationUrl;
+      }
+    } finally {
+      setCloudflareActionPending(false);
     }
   }
 
@@ -364,7 +376,7 @@ function SetupPage() {
   let stepErrors: readonly string[] = [];
 
   if (viewedStepIndex === 0) {
-    stepWorking = cloudflareRunning;
+    stepWorking = cloudflareActionPending || cloudflareVerifying || cloudflareAwaitingAuthorization;
     const blockedDetails = status.cloudflare.readiness.items
       .filter((item) => item.status === "blocked")
       .map((item) => item.detail);
@@ -384,7 +396,7 @@ function SetupPage() {
     primaryAction = (
       <Button
         color="primary"
-        disabled={cloudflareRunning}
+        disabled={cloudflareActionPending || cloudflareVerifying}
         onClick={() => {
           void connectCloudflare().catch(() => {
             setCloudflareActionError("Cloudflare setup did not start.");
@@ -403,7 +415,15 @@ function SetupPage() {
           external API provider key is required.
         </p>
         <StepStatus
-          runningLabel={cloudflareRunning ? "Verifying…" : undefined}
+          runningLabel={
+            cloudflareActionPending
+              ? "Contacting Cloudflare…"
+              : cloudflareVerifying
+                ? "Verifying…"
+                : cloudflareAwaitingAuthorization
+                  ? "Waiting for Cloudflare authorization. If the authorization tab is gone or stuck, restart the connection."
+                  : undefined
+          }
           errors={stepErrors}
         />
       </>
