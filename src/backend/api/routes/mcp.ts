@@ -1,11 +1,11 @@
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
 import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
 import { secureHeaders } from "hono/secure-headers";
+import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { AppError, describeError } from "#/backend/errors.ts";
+import { AppError, describeError, requestValidationHook } from "#/backend/errors.ts";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import {
   clearRevokedSessionSelectionIfNeeded,
@@ -104,6 +104,7 @@ const mcpConsentFormInput = zValidator(
       intent: value.intent,
       selectedInstallationId: value.github_installation_id,
     })),
+  requestValidationHook,
 );
 
 const mcpOAuthProviderRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {

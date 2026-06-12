@@ -12,6 +12,7 @@ import {
   requireGitHubApp,
   requirePrimaryGitHubApp,
 } from "#/backend/github/apps.ts";
+import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
 
 const GITHUB_REST_API_BASE_URL = "https://api.github.com";
 const GITHUB_REST_API_ACCEPT_HEADER = "application/vnd.github+json";
@@ -323,6 +324,63 @@ function throwUpstreamStarVerificationError(error: RequestError): never {
     cause: error,
     details: { githubResponseStatus: error.status },
   });
+}
+
+export type AuthenticatedGitHubAppProfile = {
+  readonly appId: number;
+  readonly slug: string;
+  readonly htmlUrl: string;
+  readonly ownerLogin: string | null;
+  readonly ownerType: string | null;
+  readonly clientId: string;
+  readonly permissions: Record<string, string>;
+  readonly events: readonly string[];
+};
+
+/**
+ * Reads the app's own profile (`GET /app`) authenticated by nothing but its id
+ * and private key — the one credential pair that survives a local state wipe.
+ * Lets the local-dev setup route rebuild a `github_apps` row without
+ * re-registering the app.
+ */
+export async function fetchAuthenticatedGitHubApp(input: {
+  readonly appId: number;
+  readonly privateKey: string;
+}): Promise<AuthenticatedGitHubAppProfile> {
+  const auth = createAppAuth({
+    appId: input.appId,
+    privateKey: normalizeGitHubAppPrivateKeyToPkcs8(input.privateKey),
+  });
+  const { token } = await auth({ type: "app" });
+  const octokit = createGitHubSetupOctokit();
+  const response = await observeGitHubOperation({ operation: "app.profile.read" }, () =>
+    octokit.rest.apps.getAuthenticated({ headers: { authorization: `bearer ${token}` } }),
+  );
+
+  const app = response.data;
+  if (!app || typeof app.slug !== "string" || typeof app.client_id !== "string") {
+    throw new AppError("githubAppNotFound", { details: { githubAppId: input.appId } });
+  }
+
+  const permissions: Record<string, string> = {};
+  for (const [permission, access] of Object.entries(app.permissions ?? {})) {
+    if (typeof access === "string") {
+      permissions[permission] = access;
+    }
+  }
+
+  return {
+    appId: app.id,
+    slug: app.slug,
+    htmlUrl: app.html_url,
+    ownerLogin: app.owner?.login ?? null,
+    ownerType: app.owner && "type" in app.owner ? (app.owner.type ?? null) : null,
+    clientId: app.client_id,
+    permissions,
+    events: Array.isArray(app.events)
+      ? app.events.filter((event): event is string => typeof event === "string")
+      : [],
+  };
 }
 
 export async function convertGitHubAppManifestCode(

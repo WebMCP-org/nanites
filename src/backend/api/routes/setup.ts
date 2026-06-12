@@ -1,11 +1,11 @@
 import { Hono, type Context } from "hono";
-import { zValidator } from "@hono/zod-validator";
 import { createMiddleware } from "hono/factory";
 import { parse } from "hono/utils/cookie";
 import { getAgentByName } from "agents";
 import { getLogger } from "@logtape/logtape";
+import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { AppError, describeError } from "#/backend/errors.ts";
+import { AppError, describeError, requestValidationHook } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
@@ -86,6 +86,7 @@ const githubAppIdParamInput = zValidator(
       .transform((value) => Number(value))
       .pipe(z.number().int().positive()),
   }),
+  requestValidationHook,
 );
 
 function toGitHubAppListEntry(app: GitHubAppMetadata) {

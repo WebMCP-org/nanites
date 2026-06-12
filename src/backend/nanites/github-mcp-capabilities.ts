@@ -84,7 +84,10 @@ export function deriveNaniteGitHubMcpAccess(input: {
     tools.add("actions_get");
   }
 
-  if (grantsAtLeast(appPermissions, "issues", "write")) {
+  if (
+    grantsAtLeast(appPermissions, "issues", "write") ||
+    grantsAtLeast(appPermissions, "pull_requests", "write")
+  ) {
     tools.add("add_issue_comment");
   }
 

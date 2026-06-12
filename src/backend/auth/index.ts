@@ -1,5 +1,5 @@
 import { getLogger } from "@logtape/logtape";
-import { APP_ERRORS, AppError, readPublicAppErrorBody } from "#/backend/errors.ts";
+import { AppError, createAppErrorProblemResponse } from "#/backend/errors.ts";
 import { createDbClient, type DbClient } from "#/backend/db/index.ts";
 import { getWebFlowAuthorizationUrl } from "@octokit/oauth-methods";
 import {
@@ -326,15 +326,12 @@ type AgentRouteTarget = {
 };
 
 function toAgentErrorResponse(error: AppError, request?: Request): Response {
-  const headers = new Headers({ "content-type": "application/json" });
+  const headers = new Headers();
   if (error.kind === "authenticationRequired" && request) {
     appendExpiredAuthCookies(request, headers);
   }
 
-  return new Response(JSON.stringify(readPublicAppErrorBody(error)), {
-    status: APP_ERRORS[error.kind].status,
-    headers,
-  });
+  return createAppErrorProblemResponse(error, request, headers);
 }
 
 function decodePathSegment(value: string): string | null {

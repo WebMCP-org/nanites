@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { saveTestGitHubApp } from "../helpers/d1-baseline.ts";
+import { resetGitHubAppTables, saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 import {
   createInitialSetupState,
   type NanitesSetupAgent,
@@ -85,6 +85,7 @@ test("setup Agent restores selected installation from deployment metadata after 
 });
 
 test("setup Agent demotes an interrupted Cloudflare verification to a retryable failure on restart", async () => {
+  await resetGitHubAppTables(env.DB);
   const setupAgent = await getSetupAgent("setup-recovery-interrupted-verify");
   const initialState = createInitialSetupState();
   setupAgent.setState({
@@ -97,9 +98,10 @@ test("setup Agent demotes an interrupted Cloudflare verification to a retryable 
     },
   });
 
-  // A Durable Object restart re-runs onStart; the request that set
-  // "verifying" cannot have survived it.
-  await setupAgent.onStart();
+  // A Durable Object restart re-runs onStart, whose recovery pass treats the
+  // lingering "verifying" as interrupted: the request that set it cannot have
+  // survived the restart.
+  await setupAgent.recoverInterruptedSteps();
 
   await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
     currentStep: "cloudflare",
@@ -112,6 +114,7 @@ test("setup Agent demotes an interrupted Cloudflare verification to a retryable 
 });
 
 test("setup Agent demotes an interrupted GitHub App secret write to a retryable failure on restart", async () => {
+  await resetGitHubAppTables(env.DB);
   const setupAgent = await getSetupAgent("setup-recovery-interrupted-secrets");
   const verifiedState = buildCloudflareVerifiedSetupState();
   setupAgent.setState({
@@ -119,7 +122,7 @@ test("setup Agent demotes an interrupted GitHub App secret write to a retryable 
     githubApp: { ...verifiedState.githubApp, status: "writing-secrets" },
   });
 
-  await setupAgent.onStart();
+  await setupAgent.recoverInterruptedSteps();
 
   await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
     cloudflare: { status: "verified" },

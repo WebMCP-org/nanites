@@ -106,6 +106,23 @@ function readErrorCode(error: unknown): unknown {
   return (data as { code?: unknown }).code;
 }
 
+export function readApiErrorMessage(error: unknown): string | null {
+  const data = readDetailedErrorData(error);
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+
+  if ("detail" in data && typeof (data as { detail?: unknown }).detail === "string") {
+    return (data as { detail: string }).detail;
+  }
+
+  if ("title" in data && typeof (data as { title?: unknown }).title === "string") {
+    return (data as { title: string }).title;
+  }
+
+  return null;
+}
+
 export function isAuthenticationRequiredError(error: unknown): boolean {
   if (!(error instanceof DetailedError)) {
     return false;

@@ -1,16 +1,13 @@
 # Copy to `.dev.vars` for local development. Do not commit `.dev.vars`.
 
-# Runtime secret bindings.
-#
-# Fresh self-hosted deploys should not type these in. The first-launch setup flow creates the
-# customer-owned GitHub App and writes generated values to Worker Secrets after Cloudflare ownership
-# is verified. Env-provided secrets are not enough by themselves; runtime GitHub App identity is
-# read from D1 deployment metadata.
+# Keep the first-launch setup wizard hidden locally; its Cloudflare ownership
+# verification cannot run on localhost. Local GitHub identity comes from
+# http://localhost:5173/setup/local instead (see docs/development.md).
 NANITES_SHOW_SETUP="false"
-AUTH_COOKIE_SECRET="replace-with-a-long-random-value"
-GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nreplace-with-your-github-app-private-key\n-----END PRIVATE KEY-----"
-GITHUB_CLIENT_SECRET="replace-with-your-github-app-client-secret"
-GITHUB_WEBHOOK_SECRET="replace-with-your-github-app-webhook-secret"
+
+# GitHub App credentials (`GITHUB_APP_<ID>_PRIVATE_KEY`, `GITHUB_APP_<ID>_CLIENT_SECRET`,
+# `GITHUB_APP_<ID>_WEBHOOK_SECRET`) and `AUTH_COOKIE_SECRET` are not typed in by hand:
+# creating a dev GitHub App at /setup/local prints the exact block to append here.
 
 # Required only when using ALLOW_TEST_AUTH=true for local MCP/browser smoke tests.
 GITHUB_TEST_USER_TOKEN=""

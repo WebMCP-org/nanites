@@ -119,21 +119,30 @@ test("active installation route validates JSON at the Hono boundary", async () =
 
   expect(response.status).toBe(400);
   const body = (await response.json()) as {
-    success: boolean;
-    error: { name: string; message: string };
+    code: string;
+    kind: string;
+    target: string;
+    issues: readonly { readonly path: string; readonly code: string; readonly message: string }[];
   };
   expect(body).toMatchObject({
-    success: false,
-    error: { name: "ZodError" },
+    code: "request_validation_failed",
+    kind: "requestValidationFailed",
+    target: "json",
+    issues: [
+      {
+        path: "githubInstallationId",
+        code: "too_small",
+      },
+    ],
   });
-  expect(body.error.message).toContain("githubInstallationId");
+  expect(body.issues[0]?.message).toContain("number to be >0");
 });
 
 test("test auth token failures bubble through the root error handler", async () => {
   const response = await nanitesHttpApp.request("/auth/test/mint-session?redirect=0", {}, env);
 
   expect(response.status).toBe(400);
-  expect(await response.json()).toEqual({
+  expect(await response.json()).toMatchObject({
     code: "test_auth_token_required",
     hint: expect.stringContaining("GITHUB_TEST_USER_TOKEN"),
   });
@@ -147,7 +156,7 @@ test("root error handler maps auth failures from mounted API routes", async () =
   );
 
   expect(response.status).toBe(401);
-  expect(await response.json()).toEqual({
+  expect(await response.json()).toMatchObject({
     code: "authentication_required",
   });
 });

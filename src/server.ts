@@ -12,7 +12,7 @@ import {
   MCP_TOKEN_ROUTE,
   SUPPORTED_MCP_SCOPES,
 } from "#/mcp.ts";
-import { downscopeMcpAuthPropsForToken, sigveloMcpAuthPropsSchema } from "#/backend/mcp/index.ts";
+import { downscopeMcpAuthPropsForToken, requireSigveloMcpGrantProps } from "#/backend/mcp/index.ts";
 import {
   configureAgentLogging,
   createWorkerRequestId,
@@ -218,13 +218,8 @@ const oauthProvider = new OAuthProvider<Env>({
   clientIdMetadataDocumentEnabled: true,
   onError: logOAuthProviderErrorResponse,
   tokenExchangeCallback: ({ props, requestedScope }) => {
-    const parsedProps = sigveloMcpAuthPropsSchema.safeParse(props);
-    if (!parsedProps.success) {
-      return;
-    }
-
     const accessTokenProps = downscopeMcpAuthPropsForToken({
-      props: parsedProps.data,
+      props: requireSigveloMcpGrantProps(props),
       requestedScopes: requestedScope,
     });
     if (accessTokenProps.scopes.length === 0) {

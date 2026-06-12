@@ -946,7 +946,7 @@ test("GitHub App creation route requires the setup claim", async () => {
   );
 
   expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "setup_claim_required",
   });
 });
@@ -1125,7 +1125,7 @@ test("GitHub manifest callback rejects state values that do not match the issued
   );
 
   expect(response.status).toBe(400);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "invalid_setup_state",
   });
 });
@@ -1159,7 +1159,7 @@ test("GitHub manifest callback requires a currently valid setup claim", async ()
 
     expect(response.status).toBe(403);
     expect(conversionRequests).toBe(0);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "setup_claim_required",
     });
   } finally {
@@ -1194,7 +1194,7 @@ test("GitHub manifest setup failure leaves the setup Agent retryable", async () 
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "github_app_manifest_conversion_failed",
     });
     await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
@@ -1213,7 +1213,7 @@ test("GitHub manifest setup failure leaves the setup Agent retryable", async () 
       env,
     );
     expect(replayedResponse.status).toBe(400);
-    await expect(replayedResponse.json()).resolves.toEqual({
+    await expect(replayedResponse.json()).resolves.toMatchObject({
       code: "invalid_setup_state",
     });
 
@@ -1266,7 +1266,7 @@ test("GitHub manifest callback rejects apps missing required permissions", async
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "github_app_manifest_conversion_failed",
     });
   } finally {
@@ -1299,7 +1299,7 @@ test("GitHub manifest callback reports Cloudflare Worker secret write failures s
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "cloudflare_worker_secret_write_failed",
     });
     await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
@@ -1505,7 +1505,7 @@ test("GitHub login reports setup required when setup visibility is disabled", as
   );
 
   expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "deployment_github_app_setup_required",
   });
 });
@@ -1518,7 +1518,7 @@ test("MCP route reports setup required when no deployment app config exists", as
   );
 
   expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "deployment_github_app_setup_required",
   });
 });
@@ -1552,7 +1552,7 @@ test("GitHub setup URL requires the setup claim", async () => {
   );
 
   expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "setup_claim_required",
   });
 });
@@ -1571,7 +1571,7 @@ test("GitHub setup URL requires GitHub's returned installation id", async () => 
   );
 
   expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "setup_installation_verification_failed",
     githubInstallationId: null,
     reason: "invalid_install_callback_query",
@@ -1592,7 +1592,7 @@ test("GitHub setup URL requires GitHub's setup action", async () => {
   );
 
   expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "setup_installation_verification_failed",
     githubInstallationId: null,
     reason: "invalid_install_callback_query",
@@ -1633,7 +1633,7 @@ test("GitHub setup verification rejects install nonces that do not match the iss
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
       reason: "install_state_mismatch",
@@ -1721,7 +1721,7 @@ test("GitHub setup verification requires at least one visible repository", async
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
       reason: "no_visible_repositories",
@@ -1767,7 +1767,7 @@ test("GitHub setup verification proves the app can mint an installation token", 
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
       reason: "installation_token_mint_failed",
@@ -1790,7 +1790,7 @@ test("GitHub setup verification requires the setup claim", async () => {
   );
 
   expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "setup_claim_required",
   });
 });
@@ -1799,7 +1799,7 @@ test("upstream star verification requires GitHub sign-in", async () => {
   const response = await nanitesHttpApp.request(`${SETUP_ORIGIN}/api/setup/upstream-star`, {}, env);
 
   expect(response.status).toBe(401);
-  await expect(response.json()).resolves.toEqual({
+  await expect(response.json()).resolves.toMatchObject({
     code: "authentication_required",
   });
 });
@@ -1976,7 +1976,7 @@ test("GitHub setup verification rejects spoofed installation ids", async () => {
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
       reason: "installation_not_visible",
