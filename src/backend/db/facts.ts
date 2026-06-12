@@ -1,7 +1,13 @@
 import { eq } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import type { DbClient } from "./index.ts";
-import { accounts, accountInstallations, authFunnelFacts, platformUsageFacts } from "./schema.ts";
+import {
+  accounts,
+  accountInstallations,
+  authFunnelFacts,
+  platformUsageFacts,
+  type GitHubAccountType,
+} from "./schema.ts";
 
 type Defined<T> = Exclude<T, undefined>;
 type PlatformUsageFactInsert = InferInsertModel<typeof platformUsageFacts>;
@@ -42,6 +48,24 @@ type PlatformUsageFactInput = {
   metadata?: Record<string, unknown>;
   occurredAt?: Defined<PlatformUsageFactInsert["occurredAt"]>;
 };
+
+export async function findInstallationAccount(
+  db: DbClient,
+  githubInstallationId: number,
+): Promise<{ githubAccountLogin: string; githubAccountType: GitHubAccountType } | null> {
+  const row = await db
+    .select({
+      githubAccountLogin: accounts.githubAccountLogin,
+      githubAccountType: accounts.githubAccountType,
+    })
+    .from(accountInstallations)
+    .innerJoin(accounts, eq(accountInstallations.accountId, accounts.id))
+    .where(eq(accountInstallations.githubInstallationId, githubInstallationId))
+    .limit(1)
+    .get();
+
+  return row ?? null;
+}
 
 export async function findAccountIdByInstallationId(
   db: DbClient,

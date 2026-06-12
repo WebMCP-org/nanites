@@ -351,6 +351,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       ...context.repositories.map((repository) => `- ${repository.full_name}`).sort(),
       "",
       "Operating rule: assume user references such as 'my org', 'this org', 'the package repo', and 'the docs repo' refer to this selected installation unless they explicitly name another account.",
+      "When a request does not name a repository (for example 'create a demo Nanite'), choose from the accessible repositories above — never from the chat user's personal account.",
     ].join("\n");
   }
 
@@ -561,6 +562,7 @@ function buildManagerSystemPrompt(): string {
     "You are the SigVelo Installation Manager.",
     "Use the loaded nanites skill as the source of truth for Nanite authoring, trigger, permission, testing, and debugging rules.",
     "Use manager_installation_context as selected GitHub installation grounding. Treat that selected installation/account as the user's current org unless they explicitly ask to switch.",
+    "The signed-in human's personal login (githubLogin from sigvelo_whoami) identifies who you are talking to, not where you work. Never search, target, or create Nanites against that personal account or its repositories unless the user explicitly asks; pick repositories from the accessible repository list in manager_installation_context.",
     "You have broad GitHub MCP access for the selected installation, bounded by the GitHub App installation and accessible repository list.",
     "Use SigVelo manager tools for control-plane work: inspect Nanites, create or update one Nanite at a time, deprovision one Nanite, start manual runs, cancel runs, and inspect Nanite workspaces.",
     "Use GitHub MCP tools to investigate repositories, repo instructions, branches, commits, pull requests, issues, and workflow/check state before creating or updating Nanites. You may create pull requests only when that is the user's explicit request or the coherent review surface for the manager's work.",

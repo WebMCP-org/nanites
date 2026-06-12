@@ -24,6 +24,7 @@ export type NaniteToolContext = {
 export type NaniteToolRuntime = {
   context: NaniteToolContext;
   auth: SigveloMcpAuthProps;
+  env: Env;
   manager: DurableObjectStub<SigveloNaniteManager>;
 };
 
@@ -100,6 +101,7 @@ async function resolveAuthorizedNaniteToolRuntime(input: {
       requestId: input.requestId ?? crypto.randomUUID(),
     },
     auth: input.props,
+    env: input.env,
     manager: await getAgentByName<Env, SigveloNaniteManager>(
       input.env.SigveloNaniteManager,
       managerName,
