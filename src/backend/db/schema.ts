@@ -7,10 +7,12 @@
  * - Business enum domains live with the schema until another owner earns them.
  * - API semantics and mutation command shapes do not belong here.
  */
+import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
 
 export const GITHUB_ACCOUNT_TYPES = ["User", "Organization"] as const;
+export const GITHUB_APP_STATUSES = ["active", "retired"] as const;
 export const INSTALLATION_STATUSES = ["active", "suspended", "removed"] as const;
 export const PERSON_RELATIONSHIPS = ["sign_in_user", "github_actor"] as const;
 export const RUN_TRIGGER_KINDS = [
@@ -84,6 +86,7 @@ export const AUDIT_TARGET_TYPES = [
 ] as const;
 
 export type GitHubAccountType = (typeof GITHUB_ACCOUNT_TYPES)[number];
+export type GitHubAppStatus = (typeof GITHUB_APP_STATUSES)[number];
 export type InstallationStatus = (typeof INSTALLATION_STATUSES)[number];
 export type PersonRelationship = (typeof PERSON_RELATIONSHIPS)[number];
 export type RunTriggerKind = (typeof RUN_TRIGGER_KINDS)[number];
@@ -145,6 +148,9 @@ export const accountInstallations = sqliteTable(
     accountId: text("account_id")
       .notNull()
       .references(() => accounts.id, { onDelete: "cascade" }),
+    githubAppId: integer("github_app_id")
+      .notNull()
+      .references(() => githubApps.appId),
     githubInstallationId: integer("github_installation_id").notNull().unique(),
     status: text("status", { enum: INSTALLATION_STATUSES }).notNull(),
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" })
@@ -163,7 +169,14 @@ export const accountInstallations = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (table) => [
+    // An installation id belongs to exactly one app; the single-column unique
+    // keeps the cross-table FK target valid, the composite states the pair
+    // invariant every (app, installation) reference relies on.
     uniqueIndex("account_installations_github_installation_id_unique").on(
+      table.githubInstallationId,
+    ),
+    uniqueIndex("account_installations_app_installation_unique").on(
+      table.githubAppId,
       table.githubInstallationId,
     ),
   ],
@@ -176,6 +189,7 @@ export const accountRepositories = sqliteTable(
     accountId: text("account_id")
       .notNull()
       .references(() => accounts.id, { onDelete: "cascade" }),
+    githubAppId: integer("github_app_id").notNull(),
     githubInstallationId: integer("github_installation_id")
       .notNull()
       .references(() => accountInstallations.githubInstallationId, { onDelete: "cascade" }),
@@ -231,27 +245,45 @@ export const accountPeople = sqliteTable(
   ],
 );
 
-export const deploymentGitHubAppConfig = sqliteTable("deployment_github_app_config", {
-  id: text("id").primaryKey(),
-  appId: integer("app_id").notNull(),
-  slug: text("slug").notNull(),
-  htmlUrl: text("html_url").notNull(),
-  ownerLogin: text("owner_login"),
-  ownerType: text("owner_type"),
-  selectedGithubInstallationId: integer("selected_github_installation_id"),
-  clientId: text("client_id").notNull(),
-  clientSecretBinding: text("client_secret_binding").notNull(),
-  webhookSecretBinding: text("webhook_secret_binding").notNull(),
-  privateKeyBinding: text("private_key_binding").notNull(),
-  permissionsJson: text("permissions_json").notNull(),
-  eventsJson: text("events_json").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
+/**
+ * Every GitHub App this deployment can authenticate as.
+ *
+ * App identity is explicit data, never a global: each row owns its worker
+ * secret binding names, and every installation-bearing row records which app
+ * it belongs to. Registering a new app adds a row and touches nothing else.
+ * Exactly one active app is the primary browser/MCP OAuth login app, enforced
+ * by a partial unique index.
+ */
+export const githubApps = sqliteTable(
+  "github_apps",
+  {
+    appId: integer("app_id").primaryKey(),
+    slug: text("slug").notNull(),
+    htmlUrl: text("html_url").notNull(),
+    ownerLogin: text("owner_login"),
+    ownerType: text("owner_type"),
+    clientId: text("client_id").notNull(),
+    privateKeyBinding: text("private_key_binding").notNull(),
+    clientSecretBinding: text("client_secret_binding").notNull(),
+    webhookSecretBinding: text("webhook_secret_binding").notNull(),
+    permissionsJson: text("permissions_json").notNull(),
+    eventsJson: text("events_json").notNull(),
+    isPrimary: integer("is_primary", { mode: "boolean" }).notNull().default(false),
+    status: text("status", { enum: GITHUB_APP_STATUSES }).notNull().default("active"),
+    retiredAt: integer("retired_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("github_apps_primary_unique")
+      .on(table.isPrimary)
+      .where(sql`${table.isPrimary} = 1 AND ${table.status} = 'active'`),
+  ],
+);
 
 export const naniteRunFacts = sqliteTable(
   "nanite_run_facts",
@@ -260,6 +292,7 @@ export const naniteRunFacts = sqliteTable(
     accountId: text("account_id")
       .notNull()
       .references(() => accounts.id, { onDelete: "cascade" }),
+    githubAppId: integer("github_app_id").notNull(),
     githubInstallationId: integer("github_installation_id")
       .notNull()
       .references(() => accountInstallations.githubInstallationId, { onDelete: "cascade" }),
@@ -332,6 +365,7 @@ export const aiUsageFacts = sqliteTable(
     accountId: text("account_id")
       .notNull()
       .references(() => accounts.id, { onDelete: "cascade" }),
+    githubAppId: integer("github_app_id").notNull(),
     githubInstallationId: integer("github_installation_id")
       .notNull()
       .references(() => accountInstallations.githubInstallationId, { onDelete: "cascade" }),
@@ -376,6 +410,7 @@ export const naniteCatalog = sqliteTable(
   {
     id: text("id").primaryKey(),
     accountId: text("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    githubAppId: integer("github_app_id").notNull(),
     githubInstallationId: integer("github_installation_id").notNull(),
     naniteId: text("nanite_id").notNull(),
     name: text("name").notNull(),
@@ -409,6 +444,7 @@ export const auditEvents = sqliteTable("audit_events", {
   occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
   eventName: text("event_name").notNull(),
   accountId: text("account_id").references(() => accounts.id, { onDelete: "set null" }),
+  githubAppId: integer("github_app_id"),
   githubInstallationId: integer("github_installation_id"),
   githubRepositoryId: integer("github_repository_id"),
   repositoryFullName: text("repository_full_name"),
@@ -434,6 +470,7 @@ export const auditEvents = sqliteTable("audit_events", {
 export const platformUsageFacts = sqliteTable("platform_usage_facts", {
   id: text("id").primaryKey(),
   accountId: text("account_id").references(() => accounts.id, { onDelete: "cascade" }),
+  githubAppId: integer("github_app_id"),
   githubInstallationId: integer("github_installation_id").references(
     () => accountInstallations.githubInstallationId,
     { onDelete: "cascade" },
@@ -454,6 +491,7 @@ export const platformUsageFacts = sqliteTable("platform_usage_facts", {
 export const authFunnelFacts = sqliteTable("auth_funnel_facts", {
   id: text("id").primaryKey(),
   accountId: text("account_id").references(() => accounts.id, { onDelete: "cascade" }),
+  githubAppId: integer("github_app_id"),
   githubInstallationId: integer("github_installation_id").references(
     () => accountInstallations.githubInstallationId,
     { onDelete: "cascade" },

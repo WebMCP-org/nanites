@@ -57,6 +57,7 @@ import type {
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getDispatchIntents, runGeneratedTrigger } from "#/backend/nanites/triggers.ts";
 import { getGitHubWebhookRepositoryFullName, getGitHubWebhookRepositoryId } from "#/github.ts";
+import { parseNaniteManagerKey, type NaniteManagerIdentity } from "#/nanites.ts";
 import {
   buildNaniteAiGatewayMetadata,
   naniteTriggerActor,
@@ -322,11 +323,8 @@ function isLifecycleTerminalStatus(status: NaniteRunStatus): boolean {
   );
 }
 
-function parseManagerInstallationId(managerName: string): number | null {
-  const installationId = managerName.startsWith("installation:")
-    ? Number(managerName.slice("installation:".length))
-    : Number.NaN;
-  return Number.isInteger(installationId) && installationId > 0 ? installationId : null;
+function parseManagerIdentity(managerName: string): NaniteManagerIdentity | null {
+  return parseNaniteManagerKey(managerName);
 }
 
 function createUserMessage(text: string): UIMessage {
@@ -1060,15 +1058,16 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
    * unreliable in production.
    */
   private async recordChatErrorAuditEvent(error: string): Promise<void> {
-    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
-    if (!githubInstallationId) {
+    const identity = parseManagerIdentity(this.requireManagerName());
+    if (!identity) {
       return;
     }
 
     const runId = this.state.activeRunId;
     await recordAuditEvent(createDbClient(this.env.DB), {
       eventName: "audit.run.chat_error",
-      githubInstallationId,
+      githubAppId: identity.githubAppId,
+      githubInstallationId: identity.githubInstallationId,
       naniteId: this.state.naniteId,
       runKey: runId,
       actor: this.state.trigger
@@ -1923,20 +1922,20 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     run: NaniteRunRecord | null,
   ): Promise<Record<string, string> | undefined> {
     try {
-      const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+      const identity = parseManagerIdentity(this.requireManagerName());
       const naniteId = this.state.naniteId;
-      if (!githubInstallationId || !naniteId || !run) {
+      if (!identity || !naniteId || !run) {
         return undefined;
       }
 
       const billing = await resolveNaniteBillingAttribution(createDbClient(this.env.DB), {
-        githubInstallationId,
+        githubInstallationId: identity.githubInstallationId,
         naniteId,
         actor: naniteTriggerActor(run.trigger),
       });
 
       return buildNaniteAiGatewayMetadata({
-        githubInstallationId,
+        githubInstallationId: identity.githubInstallationId,
         naniteId,
         runKey: run.runId,
         billingGithubUserId: billing.githubUserId,
@@ -1953,9 +1952,9 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private async recordStepUsage(ctx: StepContext): Promise<void> {
-    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+    const identity = parseManagerIdentity(this.requireManagerName());
     const run = await this.readRun(this.state.activeRunId);
-    if (!githubInstallationId || !run) {
+    if (!identity || !run) {
       return;
     }
 
@@ -1969,13 +1968,14 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     const actor = naniteTriggerActor(run.trigger);
     const db = createDbClient(this.env.DB);
     const billing = await resolveNaniteBillingAttribution(db, {
-      githubInstallationId,
+      githubInstallationId: identity.githubInstallationId,
       naniteId: run.naniteId,
       actor,
     });
 
     await recordAiUsageFact(db, {
-      githubInstallationId,
+      githubAppId: identity.githubAppId,
+      githubInstallationId: identity.githubInstallationId,
       githubRepositoryId: repository.githubRepositoryId,
       naniteId: run.naniteId,
       runKey: run.runId,
@@ -2055,15 +2055,16 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       return;
     }
 
-    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
-    if (!githubInstallationId) {
+    const identity = parseManagerIdentity(this.requireManagerName());
+    if (!identity) {
       throw new AppError("naniteAgentGithubMcpInstallationRequired");
     }
 
     await this.removeGitHubMcpServers();
     const scopedToken = await issueScopedGitHubInstallationToken({
       env: this.env,
-      installationId: githubInstallationId,
+      githubAppId: identity.githubAppId,
+      installationId: identity.githubInstallationId,
       repositories: githubPermissions.repositories,
       permissions: capability.appPermissions,
     });
@@ -2117,15 +2118,16 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private async issueGitToolToken(): Promise<string | null> {
-    const githubInstallationId = parseManagerInstallationId(this.requireManagerName());
+    const identity = parseManagerIdentity(this.requireManagerName());
     const permissions = this.state.manifest?.permissions.github;
-    if (!githubInstallationId || !permissions || permissions.repositories.length === 0) {
+    if (!identity || !permissions || permissions.repositories.length === 0) {
       return null;
     }
 
     const scopedToken = await issueScopedGitHubInstallationToken({
       env: this.env,
-      installationId: githubInstallationId,
+      githubAppId: identity.githubAppId,
+      installationId: identity.githubInstallationId,
       repositories: permissions.repositories,
       permissions: permissions.appPermissions ?? {},
     });

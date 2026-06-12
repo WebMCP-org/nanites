@@ -10,7 +10,7 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nanites-app",
+  "name": "nanites-app-production",
   "main": "src/server.ts",
   "compatibility_date": "2026-03-02",
   "compatibility_flags": [
@@ -34,7 +34,7 @@
     "remote": true,
   },
   "vars": {
-    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app",
+    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
     "NANITES_SHOW_SETUP": "true",
     "ALLOW_TEST_AUTH": "false",
     "SENTRY_ENVIRONMENT": "development",
@@ -84,19 +84,19 @@
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "SigveloChatIngressV1",
+        "class_name": "SigveloChatIngress",
         "name": "SigveloChatIngress",
       },
       {
-        "class_name": "SigveloManagerConversationAgentV1",
+        "class_name": "SigveloManagerConversationAgent",
         "name": "SigveloManagerConversationAgent",
       },
       {
-        "class_name": "SigveloNaniteManagerV1",
+        "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
       },
       {
-        "class_name": "NanitesSetupAgentV1",
+        "class_name": "NanitesSetupAgent",
         "name": "NanitesSetupAgent",
       },
     ],
@@ -104,10 +104,10 @@
   "migrations": [
     {
       "new_sqlite_classes": [
-        "SigveloChatIngressV1",
-        "SigveloManagerConversationAgentV1",
-        "SigveloNaniteManagerV1",
-        "NanitesSetupAgentV1",
+        "SigveloChatIngress",
+        "SigveloManagerConversationAgent",
+        "SigveloNaniteManager",
+        "NanitesSetupAgent",
       ],
       "tag": "v1-durable-object-baseline",
     },

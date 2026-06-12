@@ -58,7 +58,10 @@ function validateWranglerConfig() {
   const db = d1.find((entry) => entry?.binding === "DB");
   const runWorkerFirst = config.assets?.run_worker_first ?? [];
 
-  expect(config.name === "nanites-app", "default Worker name must stay nanites-app.");
+  expect(
+    config.name === "nanites-app-production",
+    "default Worker name must stay nanites-app-production.",
+  );
   expect(
     vars.NANITES_CLOUDFLARE_SCRIPT_NAME === config.name,
     "NANITES_CLOUDFLARE_SCRIPT_NAME must match the default Worker name.",
@@ -77,16 +80,16 @@ function validateWranglerConfig() {
   expect(hasBinding(config.kv_namespaces, "TOOL_OUTPUTS"), "TOOL_OUTPUTS KV binding is required.");
   expect(
     config.durable_objects?.bindings?.some(
-      (entry) => entry?.name === "NanitesSetupAgent" && entry?.class_name === "NanitesSetupAgentV1",
+      (entry) => entry?.name === "NanitesSetupAgent" && entry?.class_name === "NanitesSetupAgentV2",
     ),
     "NanitesSetupAgent Durable Object binding is required.",
   );
   expect(
     config.migrations?.some(
       (migration) =>
-        migration?.tag === "v1-durable-object-baseline" &&
+        migration?.tag === "v2-durable-object-baseline" &&
         Array.isArray(migration.new_sqlite_classes) &&
-        migration.new_sqlite_classes.includes("NanitesSetupAgentV1"),
+        migration.new_sqlite_classes.includes("NanitesSetupAgentV2"),
     ),
     "NanitesSetupAgent Durable Object migration is required.",
   );

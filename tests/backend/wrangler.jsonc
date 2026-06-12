@@ -17,9 +17,9 @@
     "NANITES_LLM_FIXTURE": "complete",
     "NANITES_CLOUDFLARE_SCRIPT_NAME": "sigvelo-agent-tests",
     // Test-only generated RSA key. It is not connected to any GitHub App.
-    "GITHUB_APP_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\nMIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBALO3J+D6jD7x60wu\n2U1GeSCgSdmYOOIAKmN1s4NI8Ehh7CBblLDJhRkcjaHeuwHu7HzBlZkARn8bMc6A\nZ2oHuPvvbVQOC0oO1V9hA4FGiSprTc3Thz/tDpkBHYaR0wrLpzwAzzsnZdAU+0fQ\nw0BxQkoQWfHwGOKpy6yEJwrdkkv3AgMBAAECgYAQtgFBTErqN3iXtuuB4gG1ZPI5\nB4ySh01pvjIZDRk6wdBBGgLzhWmY8izBVoKxJVRcLWwJtBraCt9QwmPbWih7LLhr\nVm5ItnfSDfAWxDh8+OEHJftN5kQKa/leVOiPspYBMu7vXw8ZuknWz6zO8oh3HOJL\nfE9z4VtEWBbhrYaHwQJBAOnRneMpMtZNCl1GGfT7TjXkPDlV+5odwJ3qTtP11XIt\n0l8UYBFYhImpWLsrNvnzJ2IsSVjiSjF5N8FEOBOEYzECQQDEw54E1t5PR11tLN1Z\ne6mSq9tpMQUTwzHy9kriy0mMpzYBgPSLJuMi/TLSkHME5w2ek3jCcVDE+0JLRzvL\nI0enAkAmmlj63B5siyOe6qf2blcnRps6zBtSAn9+kuSY0gl/ZFlLIU4LDxYytCbW\nH/hfo+lop+8kIZgmOuEdo2murzjBAkEAgA8EYAfr5dL/hheF9EAci/3Xre2ebU9D\nyenrsRE3TBhjeLUR8yKa/2Gk2w/yG8W4wnUeSgZv19PjQJUa4EmUzwJBANVg6dVU\nI7VowdV3HFyVFI3l135kySVWKK1+uroHOxjkaVIpHHUSknMhKz9eUJnYyncTSQMJ\n8RW9W1WyF0OX94c=\n-----END PRIVATE KEY-----",
-    "GITHUB_CLIENT_SECRET": "test-client-secret",
-    "GITHUB_WEBHOOK_SECRET": "test-webhook-secret",
+    "GITHUB_APP_12345_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\nMIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBALO3J+D6jD7x60wu\n2U1GeSCgSdmYOOIAKmN1s4NI8Ehh7CBblLDJhRkcjaHeuwHu7HzBlZkARn8bMc6A\nZ2oHuPvvbVQOC0oO1V9hA4FGiSprTc3Thz/tDpkBHYaR0wrLpzwAzzsnZdAU+0fQ\nw0BxQkoQWfHwGOKpy6yEJwrdkkv3AgMBAAECgYAQtgFBTErqN3iXtuuB4gG1ZPI5\nB4ySh01pvjIZDRk6wdBBGgLzhWmY8izBVoKxJVRcLWwJtBraCt9QwmPbWih7LLhr\nVm5ItnfSDfAWxDh8+OEHJftN5kQKa/leVOiPspYBMu7vXw8ZuknWz6zO8oh3HOJL\nfE9z4VtEWBbhrYaHwQJBAOnRneMpMtZNCl1GGfT7TjXkPDlV+5odwJ3qTtP11XIt\n0l8UYBFYhImpWLsrNvnzJ2IsSVjiSjF5N8FEOBOEYzECQQDEw54E1t5PR11tLN1Z\ne6mSq9tpMQUTwzHy9kriy0mMpzYBgPSLJuMi/TLSkHME5w2ek3jCcVDE+0JLRzvL\nI0enAkAmmlj63B5siyOe6qf2blcnRps6zBtSAn9+kuSY0gl/ZFlLIU4LDxYytCbW\nH/hfo+lop+8kIZgmOuEdo2murzjBAkEAgA8EYAfr5dL/hheF9EAci/3Xre2ebU9D\nyenrsRE3TBhjeLUR8yKa/2Gk2w/yG8W4wnUeSgZv19PjQJUa4EmUzwJBANVg6dVU\nI7VowdV3HFyVFI3l135kySVWKK1+uroHOxjkaVIpHHUSknMhKz9eUJnYyncTSQMJ\n8RW9W1WyF0OX94c=\n-----END PRIVATE KEY-----",
+    "GITHUB_APP_12345_CLIENT_SECRET": "test-client-secret",
+    "GITHUB_APP_12345_WEBHOOK_SECRET": "test-webhook-secret",
     "AUTH_COOKIE_SECRET": "test-auth-cookie-secret",
   },
   "d1_databases": [
@@ -49,7 +49,7 @@
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "SigveloChatIngressV1",
+        "class_name": "SigveloChatIngress",
         "name": "SigveloChatIngress",
       },
       // Test-harness-only binding: production only needs to export this class,
@@ -59,15 +59,15 @@
         "name": "ChatSdkStateAgent",
       },
       {
-        "class_name": "SigveloManagerConversationAgentV1",
+        "class_name": "SigveloManagerConversationAgent",
         "name": "SigveloManagerConversationAgent",
       },
       {
-        "class_name": "SigveloNaniteManagerV1",
+        "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
       },
       {
-        "class_name": "NanitesSetupAgentV1",
+        "class_name": "NanitesSetupAgent",
         "name": "NanitesSetupAgent",
       },
     ],
@@ -75,11 +75,11 @@
   "migrations": [
     {
       "new_sqlite_classes": [
-        "SigveloChatIngressV1",
-        "SigveloManagerConversationAgentV1",
-        "SigveloNaniteManagerV1",
+        "SigveloChatIngress",
+        "SigveloManagerConversationAgent",
+        "SigveloNaniteManager",
         "SigveloNaniteAgent",
-        "NanitesSetupAgentV1",
+        "NanitesSetupAgent",
       ],
       "tag": "v1",
     },

@@ -5,12 +5,13 @@ import { createDbClient } from "#/backend/db/index.ts";
 import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import { AppError } from "#/backend/errors.ts";
 import {
-  requireActiveGithubInstallationId,
+  requireActiveGithubInstallation,
   requireGitHubUserToken,
   requireSession,
   readSessionInstallationSnapshots,
 } from "#/backend/auth/session.ts";
 import { listInstallationRepositories, listVisibleInstallations } from "#/backend/github/index.ts";
+import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
   OBSERVABILITY_RANGES,
@@ -75,9 +76,11 @@ async function resolveObservabilityScope(
   const requestedInstallationId =
     filters.installationId ??
     session.activeGithubInstallationId ??
-    requireActiveGithubInstallationId(session);
+    requireActiveGithubInstallation(session).githubInstallationId;
+  const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
   const visibleInstallations = readSessionInstallationSnapshots(
     await listVisibleInstallations(token.accessToken),
+    primaryGitHubApp.appId,
   );
   await recordVisibleInstallationSnapshots(db, visibleInstallations);
   const visibleInstallation = visibleInstallations.find(

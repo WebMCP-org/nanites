@@ -20,12 +20,13 @@ import {
   nanitesSessionSchema,
   readSessionInstallationSnapshots,
   readSessionCookie,
-  requireActiveGithubInstallationId,
+  requireActiveGithubInstallation,
   requireGitHubUserToken,
   requireSession,
   sealSessionCookie,
 } from "#/backend/auth/session.ts";
 import { listVisibleInstallations } from "#/backend/github/index.ts";
+import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
   AUTH_RETURN_TO_PARAM,
@@ -51,7 +52,7 @@ export const activeGithubInstallationRequired = createMiddleware<WorkerHonoEnv>(
   async (context, next) => {
     const session = await requireSession(context.req.raw, context.env);
     context.set("browserSession", session);
-    context.set("activeGithubInstallationId", requireActiveGithubInstallationId(session));
+    context.set("activeGithubInstallation", requireActiveGithubInstallation(session));
     await next();
   },
 );
@@ -246,10 +247,13 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
     );
   })
   .get("/installations/visible", browserAuthRequired, async (context) => {
+    const db = createDbClient(context.env.DB);
+    const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
     const installations = readSessionInstallationSnapshots(
       await listVisibleInstallations(context.get("githubUserToken").accessToken),
+      primaryGitHubApp.appId,
     );
-    await recordVisibleInstallationSnapshots(createDbClient(context.env.DB), installations);
+    await recordVisibleInstallationSnapshots(db, installations);
     await clearRevokedSessionSelectionIfNeeded({
       req: context.req.raw,
       env: context.env,
@@ -262,10 +266,13 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
   })
   .post("/installations/active", activeInstallationInput, browserAuthRequired, async (context) => {
     const { githubInstallationId } = context.req.valid("json");
+    const db = createDbClient(context.env.DB);
+    const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
     const installations = readSessionInstallationSnapshots(
       await listVisibleInstallations(context.get("githubUserToken").accessToken),
+      primaryGitHubApp.appId,
     );
-    await recordVisibleInstallationSnapshots(createDbClient(context.env.DB), installations);
+    await recordVisibleInstallationSnapshots(db, installations);
     const activeInstallation =
       installations.find((installation) => installation.id === githubInstallationId) ?? null;
 
@@ -285,6 +292,7 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
 
     const nextSession = nanitesSessionSchema.parse({
       ...context.get("browserSession"),
+      activeGithubAppId: activeInstallation.githubAppId,
       activeGithubInstallationId: githubInstallationId,
       sessionInstallationSnapshot: activeInstallation,
       expiresAt: buildBrowserSessionExpiration(),

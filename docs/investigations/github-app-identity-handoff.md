@@ -11,9 +11,9 @@ Production can no longer mint GitHub installation tokens for installation
 which blocks all nanite work for that installation. The leading hypothesis: the
 self-host setup flow was exercised against production and **replaced the
 deployment's GitHub App identity** (the singleton `deployment_github_app_config`
-row and/or the `GITHUB_APP_*` worker secrets) with a *different* app, while the
+row and/or the `GITHUB_APP_*` worker secrets) with a _different_ app, while the
 D1 account/installation rows and the live installations still belong to the
-*original* app. Underneath the immediate breakage is a data-model gap: the
+_original_ app. Underneath the immediate breakage is a data-model gap: the
 system was built assuming **one GitHub App, SaaS-style**, and the self-host
 pivot makes app identity per-deployment — and potentially plural.
 
@@ -57,7 +57,7 @@ messed up when I did the self-hosting thing."
   `GITHUB_WEBHOOK_SECRET`, `SENTRY_DSN`.
 - `deployment_github_app_config` (src/backend/db/schema.ts:234) is a
   **singleton** (`id = "current"`) storing appId, slug, ownerLogin,
-  `selectedGithubInstallationId`, clientId, and *bindings* that point at the
+  `selectedGithubInstallationId`, clientId, and _bindings_ that point at the
   worker secrets above. The setup flow (NanitesSetupAgent +
   src/backend/api/routes/setup.ts) writes both the row and the secrets — see
   recent commits `04394a2` (worker secret write content type), `f5df47f`
@@ -71,7 +71,7 @@ messed up when I did the self-hosting thing."
   nanites, no runs) — consistent with Alex's old nanites living under a
   different manager/installation, or state having been reset during testing.
 - Webhook signature verification uses `GITHUB_WEBHOOK_SECRET`; if the app
-  identity changed, webhooks from the *old* app would now fail verification
+  identity changed, webhooks from the _old_ app would now fail verification
   too (worth checking the funnel — `auth_funnel_facts` / webhook logs).
 
 ## Leading hypothesis (confirm or kill)
@@ -111,21 +111,21 @@ names (`installation:<id>`), and OAuth client expectations.
      deployment, silently replaceable — no history, no guard against orphaning
      installations).
    - D1 fact tables key on `github_installation_id` with **no app_id column**
-     — installation IDs are only unique *per app*.
+     — installation IDs are only unique _per app_.
    - `getAgentByName(env.SigveloNaniteManager, "installation:<id>")` — DO
      identity also lacks app scoping.
    - Webhook ingress assumes one webhook secret (one app).
    - Browser/MCP auth assumes one OAuth client (`GITHUB_CLIENT_SECRET`).
    - `/api/auth/installations/visible` and the session's
      `requireActiveGithubInstallationId` (src/backend/auth/session.ts) — how do
-     they behave when the user has installations of *multiple* apps?
+     they behave when the user has installations of _multiple_ apps?
 
 ## Design brief (Alex's framing, lightly structured)
 
 The original model was SaaS: one GitHub App, many users, maybe some
 self-hosters reusing the main app. The real model after the self-host pivot:
 
-- **One deployment ↔ one GitHub App** is probably the right *invariant* per
+- **One deployment ↔ one GitHub App** is probably the right _invariant_ per
   instance (each self-hoster registers their own app via the setup manifest
   flow), but the app and the "client" (deployment owner) can differ, a user
   can be associated with **multiple apps** (e.g. Alex: the SaaS app + his

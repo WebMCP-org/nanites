@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createSigveloNanitesMcpServer, registerSigveloNaniteTools } from "#/backend/mcp/index.ts";
 import { naniteTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_SCOPES } from "#/mcp.ts";
+import { TEST_GITHUB_APP_ID } from "../helpers/d1-baseline.ts";
 
 test("MCP tools/list exposes Nanite tools with schemas, output schemas, and annotations", async () => {
   const server = createSigveloNanitesMcpServer();
@@ -12,6 +13,7 @@ test("MCP tools/list exposes Nanite tools with schemas, output schemas, and anno
       authKind: "mcp",
       githubUserId: 1,
       githubLogin: "octocat",
+      githubAppId: TEST_GITHUB_APP_ID,
       githubInstallationId: 2,
       clientId: "test-client",
       scopes: [MCP_SCOPES.read, MCP_SCOPES.write],

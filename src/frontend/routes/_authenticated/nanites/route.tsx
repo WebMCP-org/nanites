@@ -2113,7 +2113,10 @@ function NanitesRoute() {
     return <NanitesZeroInstallState />;
   }
 
-  const managerName = buildNaniteManagerKey(activeInstallation.id);
+  const managerName = buildNaniteManagerKey({
+    githubAppId: activeInstallation.githubAppId,
+    githubInstallationId: activeInstallation.id,
+  });
   const requestedAccount = search.account ?? activeInstallation.account.login;
   const requestedInstallationId = search.installationId ?? activeInstallation.id;
   const installationMatches =
@@ -2861,6 +2864,7 @@ function NanitesRuntimeSurface({
                   emptyDescription={`Describe how you want Nanites configured for ${activeInstallation.account.login}, including repos, triggers, responsibilities, and stop conditions.`}
                   emptyTitle="Configure Nanites"
                   errorDescription="The Nanite configuration conversation could not connect."
+                  githubAppId={activeInstallation.githubAppId}
                   githubInstallationId={activeInstallation.id}
                   loadingDescription={`Connecting the configuration agent for ${activeInstallation.account.login}. You’ll be able to describe how you want Nanites configured here in a moment.`}
                   loadingPlaceholder="Connecting to Nanite configuration..."

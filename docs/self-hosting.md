@@ -127,17 +127,63 @@ and assets. The deploy wrapper reads the D1 database name and migrations directo
 database id. It prefers the project-local `node_modules/.bin/vp` binary for build and Wrangler
 commands, so Workers Builds does not need a globally installed Vite+ CLI. This keeps the public
 `wrangler.jsonc` free of account-specific D1, R2, and KV ids.
+
+### Workers Builds Git integration
+
+Cloudflare Workers Builds reads the root `wrangler.jsonc` when connecting the repository. Keep the
+root Worker name and setup hint aligned:
+
+```jsonc
+{
+  "name": "nanites-app-production",
+  "vars": {
+    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
+  },
+}
+```
+
+Wrangler v3.109.0 and newer may generate a follow-up PR after a build if the connected Worker name
+does not match the repository config. Accept the same value in both places instead of letting the
+dashboard and repo drift.
+
+For the maintained SigVelo production Worker (`nanites-app-production` on `app.sigvelo.com`), use
+these Workers Builds settings:
+
+| Setting                              | Value                          |
+| ------------------------------------ | ------------------------------ |
+| Production branch                    | `main`                         |
+| Build command                        | leave blank                    |
+| Deploy command                       | `pnpm run deploy:prod`         |
+| Non-production branch deploy command | `pnpm run deploy:preview`      |
+| Root directory                       | `/` or blank for the repo root |
+| Build cache                          | enabled                        |
+| Build variable                       | `NODE_VERSION=22`              |
+| Build variable                       | `PNPM_VERSION=10.33.0`         |
+
+Do not use raw `npx wrangler versions upload` for non-production branches. Nanites needs the package
+script because it builds first, then uploads `dist/nanites_app_production/index.js` with
+`dist/client` assets and `wrangler.production.jsonc`.
+
+If Cloudflare warns that the selected build token is missing `ai_search_write`, that warning is not
+required for the current Nanites runtime. Nanites uses the Workers AI binding named `AI`, not
+Cloudflare AI Search. The token still needs enough access for Workers Builds, Worker uploads, routes,
+KV/R2 resources, and D1 migrations.
+
+For a fresh self-hosted install, prefer the Deploy to Cloudflare button or `pnpm run deploy`. Do not
+use `pnpm run deploy:prod` unless you also own the explicit route and resource ids in
+`wrangler.production.jsonc`.
+
 V1 assumes one Nanites deployment per Cloudflare account. This is intentionally not an idempotent
 multi-install installer for one account. The default resource names are
-`nanites-db`, `nanites-app-oauth-kv`, `nanites-app-tool-outputs`, and
-`nanites-app-workspace-files`; setup verifies and configures that one selected account instead of
-trying to namespace or reconcile multiple Nanites deployments in the same Cloudflare account. Those
-default-named resources should be fresh, or already owned by this Nanites template's migration
-history. V1 does not reconcile arbitrary legacy resources that happen to use the same names. If a
-Cloudflare account already contains conflicting default resources, use a fresh account or remove the
-conflicting resources before using the zero-config path. When `vp run deploy` stops while applying
-D1 migrations, treat that as the same account-freshness problem first: an older `nanites-db` can
-exist with tables but without this template's migration history.
+`nanites-db`, plus KV/R2 names derived from the Worker prefix `nanites-app-production`; setup
+verifies and configures that one selected account instead of trying to namespace or reconcile
+multiple Nanites deployments in the same Cloudflare account. Those default-named resources should be
+fresh, or already owned by this Nanites template's migration history. V1 does not reconcile
+arbitrary legacy resources that happen to use the same names. If a Cloudflare account already
+contains conflicting default resources, use a fresh account or remove the conflicting resources
+before using the zero-config path. When `vp run deploy` stops while applying D1 migrations, treat
+that as the same account-freshness problem first: an older `nanites-db` can exist with tables but
+without this template's migration history.
 
 To validate the public deploy shape without creating or updating Cloudflare resources, run:
 
@@ -150,7 +196,7 @@ path must stay prompt-free, the generated secrets must stay out of deploy-time e
 default Wrangler config must keep the D1, R2, KV, Durable Object, Browser, Workers AI, and Worker
 Loader bindings that `/setup` depends on.
 
-Named SigVelo environments still use their explicit `env.<name>` blocks:
+The maintained SigVelo production deployment still uses the explicit production config:
 
 ```bash
 vp run deploy:prod

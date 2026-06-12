@@ -7,14 +7,12 @@ import { createDbClient } from "#/backend/db/index.ts";
 import { AppError, describeError } from "#/backend/errors.ts";
 import {
   AUTH_COOKIE_SECRET_BINDING,
-  GITHUB_APP_PRIVATE_KEY_BINDING,
-  GITHUB_CLIENT_SECRET_BINDING,
-  GITHUB_WEBHOOK_SECRET_BINDING,
-  readDeploymentGitHubAppConfig,
-  readDeploymentGitHubAppMetadata,
-  saveDeploymentGitHubAppConfig,
-  saveDeploymentGitHubAppSelectedInstallation,
-} from "#/backend/github/app-config.ts";
+  buildGitHubAppSecretBindings,
+  readAuthCookieSecret,
+  readNewestActiveGitHubAppMetadata,
+  registerGitHubApp,
+  resolveGitHubApp,
+} from "#/backend/github/apps.ts";
 import {
   convertGitHubAppManifestCode,
   type GitHubAppManifestConversion,
@@ -32,7 +30,7 @@ const setupLogger = getLogger(LOGGING.NANITES_CATEGORY).getChild("setup");
 // Constants
 // ---------------------------------------------------------------------------
 
-const SETUP_STATE_VERSION = 2;
+const SETUP_STATE_VERSION = 3;
 
 const CLOUDFLARE_MCP_SERVER_ID = "cloudflare-api";
 const CLOUDFLARE_MCP_SERVER_NAME = "Cloudflare API";
@@ -51,6 +49,7 @@ const SETUP_CLAIM_TTL_MS = 60 * 60 * 1_000;
 const MANIFEST_NONCE_STORAGE_KEY = "nanites:setup:manifest";
 const MANIFEST_NONCE_TTL_MS = 60 * 60 * 1_000;
 const INSTALL_NONCE_STORAGE_KEY = "nanites:setup:install-nonce";
+const SELECTED_INSTALLATION_STORAGE_KEY = "nanites:setup:selected-installation";
 const SETUP_TOKEN_BYTE_LENGTH = 32;
 const AUTH_COOKIE_SECRET_BYTE_LENGTH = 48;
 
@@ -60,19 +59,69 @@ const SECRET_PROPAGATION_STALL_AFTER_MS = 2 * 60 * 1_000;
 const READINESS_SMOKE_WORKER_KEY = "nanites-setup-readiness";
 const READINESS_SMOKE_WORKER_RESPONSE = "nanites-readiness-ok";
 
-const DEFAULT_GITHUB_APP_PERMISSIONS = {
+// The app is the self-hoster's own private GitHub App, so the default ceiling
+// is broad: per-run nanite tokens are downscoped from it
+// (issueScopedGitHubInstallationToken), and downscoping can only subtract.
+// Defaults apply to new registrations only — widening later forces every
+// existing installation to re-approve, which is the friction a broad default
+// avoids. Deliberately excluded: `administration` (irreversible non-git
+// damage, no nanite use case) and all org/security scopes (a different trust
+// conversation than repo automation).
+export const DEFAULT_GITHUB_APP_PERMISSIONS = {
+  actions: "write",
+  checks: "write",
   contents: "write",
-  pull_requests: "write",
-  actions: "read",
+  deployments: "write",
+  discussions: "write",
+  environments: "write",
   issues: "write",
+  merge_queues: "write",
+  metadata: "read",
+  pages: "write",
+  pull_requests: "write",
+  repository_hooks: "write",
+  repository_projects: "write",
+  secrets: "write",
   starring: "write",
+  statuses: "write",
+  variables: "write",
+  // Without `workflows`, any nanite push touching .github/workflows/ is
+  // rejected by GitHub.
+  workflows: "write",
 } as const;
 
-const DEFAULT_GITHUB_APP_EVENTS = [
-  "push",
-  "pull_request",
+// Unhandled events are cheap no-ops at the webhook ingress, so subscribe
+// wide: new trigger types become possible without re-registering the app.
+export const DEFAULT_GITHUB_APP_EVENTS = [
+  "check_run",
+  "check_suite",
+  "commit_comment",
+  "create",
+  "delete",
+  "deployment",
+  "deployment_status",
+  "discussion",
+  "discussion_comment",
+  "fork",
   "issue_comment",
+  "issues",
+  "label",
+  "merge_group",
+  "milestone",
+  "public",
+  "pull_request",
+  "pull_request_review",
   "pull_request_review_comment",
+  "pull_request_review_thread",
+  "push",
+  "release",
+  "repository",
+  "repository_dispatch",
+  "star",
+  "status",
+  "watch",
+  "workflow_dispatch",
+  "workflow_job",
   "workflow_run",
 ] as const;
 
@@ -120,6 +169,7 @@ export type NanitesSetupState = {
       | "propagating"
       | "stalled"
       | "complete";
+    readonly appId: number | null;
     readonly slug: string | null;
     readonly htmlUrl: string | null;
     readonly ownerLogin: string | null;
@@ -154,6 +204,7 @@ export function createInitialSetupState(): NanitesSetupState {
     },
     githubApp: {
       status: "locked",
+      appId: null,
       slug: null,
       htmlUrl: null,
       ownerLogin: null,
@@ -291,6 +342,11 @@ const storedSetupTokenSchema = z.object({
   expiresAt: z.string().min(1),
 });
 
+const selectedInstallationSchema = z.object({
+  githubAppId: z.number().int().positive(),
+  githubInstallationId: z.number().int().positive(),
+});
+
 const manifestNonceSchema = z.object({
   state: z.string().min(1),
   expiresAt: z.string().min(1),
@@ -380,14 +436,26 @@ function resolveWorkerRoute(origin: string, env: Env): WorkerRoute | null {
 // GitHub App manifest
 // ---------------------------------------------------------------------------
 
+const GITHUB_APP_NAME_MAX_LENGTH = 34;
+
 function buildGitHubAppManifest(origin: string, manifestState: string) {
+  // The deployment's first hostname label makes the app legible in GitHub
+  // settings lists; the short suffix dodges GitHub's global app-name
+  // uniqueness on re-registration. The user can still edit the name on
+  // GitHub's manifest confirmation page.
   const nameSuffix = manifestState
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "")
-    .slice(0, 10);
+    .slice(0, 4);
+  const fixedPartLength = " nanites ".length + nameSuffix.length;
+  const hostLabel = (new URL(origin).hostname.split(".")[0] ?? "deployment").slice(
+    0,
+    GITHUB_APP_NAME_MAX_LENGTH - fixedPartLength,
+  );
+  const name = `${hostLabel} nanites ${nameSuffix}`;
 
   return {
-    name: `Nanites ${nameSuffix}`,
+    name,
     url: origin,
     description: "Self-hosted durable agents for GitHub repository maintenance.",
     public: false,
@@ -664,6 +732,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (this.state.version !== SETUP_STATE_VERSION) {
       this.setState(createInitialSetupState());
     }
+    this.recoverInterruptedSteps();
     this.mcp.configureOAuthCallback({
       // The SDK types the handler as returning Response, but it awaits the
       // returned value, so an async handler works.
@@ -686,23 +755,31 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
 
   async refresh(input: RefreshSetupInput = {}): Promise<NanitesSetupState> {
     const db = createDbClient(this.env.DB);
-    const metadata = await readDeploymentGitHubAppMetadata(db);
+    // The wizard works with the most recently registered active app.
+    // Registering a new app adds a row; it never edits earlier apps.
+    const metadata = await readNewestActiveGitHubAppMetadata(db);
     const runtimeConfigReadable =
       metadata !== null &&
       (input.runtimeConfigReadable === true ||
-        (await readDeploymentGitHubAppConfig(db, this.env)) !== null);
+        (readAuthCookieSecret(this.env) !== null &&
+          (await resolveGitHubApp(db, this.env, metadata.appId)) !== null));
 
     let githubApp: NanitesSetupState["githubApp"];
     let repositories: NanitesSetupState["repositories"];
     if (metadata) {
       const installNonce = await this.ensureInstallNonce();
-      const installedId = metadata.selectedGithubInstallationId;
+      const selectedInstallation = await this.readSelectedInstallation();
+      const installedId =
+        selectedInstallation && selectedInstallation.githubAppId === metadata.appId
+          ? selectedInstallation.githubInstallationId
+          : null;
       githubApp = {
         status: runtimeConfigReadable
           ? "complete"
           : Date.now() - metadata.configUpdatedAt.getTime() >= SECRET_PROPAGATION_STALL_AFTER_MS
             ? "stalled"
             : "propagating",
+        appId: metadata.appId,
         slug: metadata.slug,
         htmlUrl: metadata.htmlUrl,
         ownerLogin: metadata.ownerLogin,
@@ -716,6 +793,9 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         error: installedId !== null ? null : this.state.repositories.error,
       };
     } else {
+      // No registered apps (e.g. a wiped deployment): any recorded selection
+      // points at an app row that no longer exists.
+      await this.ctx.storage.delete(SELECTED_INSTALLATION_STORAGE_KEY);
       githubApp = {
         status:
           this.state.githubApp.status === "writing-secrets"
@@ -723,6 +803,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
             : cloudflareAllowsGitHubApp(this.state.cloudflare)
               ? "ready"
               : "locked",
+        appId: null,
         slug: null,
         htmlUrl: null,
         ownerLogin: null,
@@ -983,6 +1064,26 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       );
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Request-scoped statuses cannot survive a Durable Object restart: the
+   * request that set them died with the previous instance, so finding one at
+   * startup means the step was interrupted. Demote it to a retryable failure
+   * instead of leaving the wizard on an eternal spinner. ("authenticating" is
+   * exempt — it legitimately spans restarts while the user completes the
+   * Cloudflare consent screen in another tab.)
+   */
+  private recoverInterruptedSteps(): void {
+    if (this.state.cloudflare.status === "verifying") {
+      this.markCloudflareFailed("Cloudflare verification was interrupted. Retry the connection.");
+    }
+    if (this.state.githubApp.status === "writing-secrets") {
+      this.recordGitHubAppFailure(
+        "GitHub App setup was interrupted while writing Worker secrets. Retry creating the app.",
+        null,
+      );
     }
   }
 
@@ -1283,19 +1384,24 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       const privateKey = normalizeGitHubAppPrivateKeyToPkcs8(
         requireManifestString(githubApp, "pem"),
       );
+      const secretBindings = buildGitHubAppSecretBindings(githubApp.id);
       await this.writeWorkerSecrets({
         accountId,
         scriptName,
         secrets: {
-          [AUTH_COOKIE_SECRET_BINDING]: randomToken(AUTH_COOKIE_SECRET_BYTE_LENGTH),
-          [GITHUB_APP_PRIVATE_KEY_BINDING]: privateKey,
-          [GITHUB_CLIENT_SECRET_BINDING]: requireManifestString(githubApp, "client_secret"),
-          [GITHUB_WEBHOOK_SECRET_BINDING]: requireManifestString(githubApp, "webhook_secret"),
+          // The cookie secret is deployment-wide; rotating it on every app
+          // registration would invalidate live sessions, so only seed it once.
+          ...(readAuthCookieSecret(this.env)
+            ? {}
+            : { [AUTH_COOKIE_SECRET_BINDING]: randomToken(AUTH_COOKIE_SECRET_BYTE_LENGTH) }),
+          [secretBindings.privateKeyBinding]: privateKey,
+          [secretBindings.clientSecretBinding]: requireManifestString(githubApp, "client_secret"),
+          [secretBindings.webhookSecretBinding]: requireManifestString(githubApp, "webhook_secret"),
         },
       });
 
       const owner = githubApp.owner;
-      await saveDeploymentGitHubAppConfig(createDbClient(this.env.DB), {
+      await registerGitHubApp(createDbClient(this.env.DB), {
         appId: githubApp.id,
         slug: appSlug,
         htmlUrl: githubApp.html_url,
@@ -1400,10 +1506,13 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       return { ok: false, errorKind: "installStateMismatch" };
     }
 
-    await saveDeploymentGitHubAppSelectedInstallation(
-      createDbClient(this.env.DB),
-      input.githubInstallationId,
-    );
+    if (current.githubApp.appId === null) {
+      return { ok: false, errorKind: "invalidSetupState" };
+    }
+    await this.ctx.storage.put(SELECTED_INSTALLATION_STORAGE_KEY, {
+      githubAppId: current.githubApp.appId,
+      githubInstallationId: input.githubInstallationId,
+    } satisfies z.infer<typeof selectedInstallationSchema>);
     const next = finalizeSetupState({
       ...this.state,
       setupComplete: true,
@@ -1418,15 +1527,21 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   }
 
   async recordInstallationRepair(input: {
+    readonly githubAppId: number;
     readonly githubInstallationId: number;
     readonly reason: GitHubInstallationRepairReason;
   }): Promise<NanitesSetupState> {
     const current = await this.refresh();
-    if (current.repositories.githubInstallationId !== input.githubInstallationId) {
+    const selectedInstallation = await this.readSelectedInstallation();
+    if (
+      selectedInstallation?.githubAppId !== input.githubAppId ||
+      selectedInstallation.githubInstallationId !== input.githubInstallationId ||
+      current.repositories.githubInstallationId !== input.githubInstallationId
+    ) {
       return current;
     }
 
-    await saveDeploymentGitHubAppSelectedInstallation(createDbClient(this.env.DB), null);
+    await this.ctx.storage.delete(SELECTED_INSTALLATION_STORAGE_KEY);
     await this.ctx.storage.put(INSTALL_NONCE_STORAGE_KEY, randomToken(SETUP_TOKEN_BYTE_LENGTH));
     this.setState({
       ...this.state,
@@ -1436,6 +1551,15 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       },
     });
     return await this.refresh();
+  }
+
+  private async readSelectedInstallation(): Promise<z.infer<
+    typeof selectedInstallationSchema
+  > | null> {
+    const stored = selectedInstallationSchema.safeParse(
+      await this.ctx.storage.get(SELECTED_INSTALLATION_STORAGE_KEY),
+    );
+    return stored.success ? stored.data : null;
   }
 
   // -- Upstream star -----------------------------------------------------------

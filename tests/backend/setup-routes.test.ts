@@ -3,15 +3,19 @@ import { getAgentByName } from "agents";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import {
-  readDeploymentGitHubAppConfig,
-  readDeploymentGitHubAppMetadata,
-} from "#/backend/github/app-config.ts";
+  readNewestActiveGitHubAppMetadata,
+  resolveGitHubApp,
+  resolvePrimaryGitHubApp,
+} from "#/backend/github/apps.ts";
 import {
-  resetDeploymentGitHubAppConfigTable,
-  saveTestDeploymentGitHubAppMetadata,
+  TEST_GITHUB_APP_ID,
+  resetGitHubAppTables,
+  saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import {
   CLOUDFLARE_SETUP_OAUTH_SCOPE,
+  DEFAULT_GITHUB_APP_EVENTS,
+  DEFAULT_GITHUB_APP_PERMISSIONS,
   createInitialSetupState,
   type NanitesSetupAgent,
   type NanitesSetupState,
@@ -61,11 +65,15 @@ type SetupAgentTestRpc = {
 };
 
 beforeEach(async () => {
-  await resetDeploymentGitHubAppConfigTable(env.DB);
+  await resetGitHubAppTables(env.DB);
   const setupAgent = await getSetupAgent();
   for (const schedule of await setupAgent.listSchedules()) {
     await setupAgent.cancelSchedule(schedule.id);
   }
+  setupAgent.setState(createInitialSetupState());
+  // Refreshing against the emptied github_apps table drops any selected
+  // installation a previous test recorded in the Agent's durable storage.
+  await setupAgent.refresh();
   setupAgent.setState(createInitialSetupState());
 });
 
@@ -80,9 +88,21 @@ function readRedirectLocation(response: Response): URL {
 
 function envWithoutGeneratedGitHubAppSecrets(): Env {
   const testEnv = { ...env } as Env;
-  Reflect.set(testEnv, "GITHUB_APP_PRIVATE_KEY", "replace-with-github-private-key");
-  Reflect.set(testEnv, "GITHUB_CLIENT_SECRET", "replace-with-github-client-secret");
-  Reflect.set(testEnv, "GITHUB_WEBHOOK_SECRET", "replace-with-github-webhook-secret");
+  Reflect.set(
+    testEnv,
+    `GITHUB_APP_${TEST_GITHUB_APP_ID}_PRIVATE_KEY`,
+    "replace-with-github-private-key",
+  );
+  Reflect.set(
+    testEnv,
+    `GITHUB_APP_${TEST_GITHUB_APP_ID}_CLIENT_SECRET`,
+    "replace-with-github-client-secret",
+  );
+  Reflect.set(
+    testEnv,
+    `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`,
+    "replace-with-github-webhook-secret",
+  );
   Reflect.set(testEnv, "AUTH_COOKIE_SECRET", "replace-with-auth-cookie-secret");
   return testEnv;
 }
@@ -99,11 +119,17 @@ function envWithSetupVisibility(showSetup: boolean): Env {
   return testEnv;
 }
 
+const TEST_GITHUB_APP_SECRET_KEYS = [
+  `GITHUB_APP_${TEST_GITHUB_APP_ID}_PRIVATE_KEY`,
+  `GITHUB_APP_${TEST_GITHUB_APP_ID}_CLIENT_SECRET`,
+  `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`,
+] as const;
+
 function snapshotGeneratedSecretEnv(): Record<string, unknown> {
   return {
-    GITHUB_APP_PRIVATE_KEY: env.GITHUB_APP_PRIVATE_KEY,
-    GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-    GITHUB_WEBHOOK_SECRET: env.GITHUB_WEBHOOK_SECRET,
+    [TEST_GITHUB_APP_SECRET_KEYS[0]]: Reflect.get(env, TEST_GITHUB_APP_SECRET_KEYS[0]),
+    [TEST_GITHUB_APP_SECRET_KEYS[1]]: Reflect.get(env, TEST_GITHUB_APP_SECRET_KEYS[1]),
+    [TEST_GITHUB_APP_SECRET_KEYS[2]]: Reflect.get(env, TEST_GITHUB_APP_SECRET_KEYS[2]),
     AUTH_COOKIE_SECRET: env.AUTH_COOKIE_SECRET,
   };
 }
@@ -117,9 +143,9 @@ function applyGeneratedSecretEnv(values: Record<string, unknown>): void {
 function blankGeneratedSecretEnv(): Record<string, unknown> {
   const original = snapshotGeneratedSecretEnv();
   applyGeneratedSecretEnv({
-    GITHUB_APP_PRIVATE_KEY: "",
-    GITHUB_CLIENT_SECRET: "",
-    GITHUB_WEBHOOK_SECRET: "",
+    [TEST_GITHUB_APP_SECRET_KEYS[0]]: "",
+    [TEST_GITHUB_APP_SECRET_KEYS[1]]: "",
+    [TEST_GITHUB_APP_SECRET_KEYS[2]]: "",
     AUTH_COOKIE_SECRET: "",
   });
   return original;
@@ -136,6 +162,7 @@ async function buildAuthenticatedSetupCookieHeader(request: Request): Promise<st
   const expiresAt = buildBrowserSessionExpiration();
   const session = nanitesSessionSchema.parse({
     githubViewer: { id: 1, login: "alice" },
+    activeGithubAppId: null,
     activeGithubInstallationId: null,
     sessionInstallationSnapshot: null,
     expiresAt,
@@ -303,20 +330,8 @@ function buildGitHubManifestConversion(
     webhook_secret: "generated-webhook-secret",
     pem: "generated-private-key",
     owner: { login: "WebMCP-org", type: "Organization" },
-    permissions: {
-      contents: "write",
-      pull_requests: "write",
-      actions: "read",
-      issues: "write",
-      starring: "write",
-    },
-    events: [
-      "push",
-      "pull_request",
-      "issue_comment",
-      "pull_request_review_comment",
-      "workflow_run",
-    ],
+    permissions: { ...DEFAULT_GITHUB_APP_PERMISSIONS },
+    events: [...DEFAULT_GITHUB_APP_EVENTS],
     ...overrides,
   };
 }
@@ -475,7 +490,7 @@ async function connectFakeCloudflareMcpServer(setupAgent: SetupAgentTestRpc): Pr
 async function saveGeneratedGitHubAppMetadata(
   input: { readonly appId?: number; readonly slug?: string; readonly htmlUrl?: string } = {},
 ): Promise<void> {
-  await saveTestDeploymentGitHubAppMetadata(env.DB, input);
+  await saveTestGitHubApp(env.DB, input);
 }
 
 test("setup status exposes the setup visibility policy", async () => {
@@ -601,27 +616,42 @@ test("regenerating the GitHub App returns the repositories step to ready", async
     installState: await readRepositoryInstallState(setupAgent),
   });
 
-  // Re-saving the deployment config (a regenerated app) resets the selected
-  // installation, so the repositories step must be redone.
+  // Registering a second app makes it the wizard app without touching the
+  // first app's row; the previous selection belongs to the old app, so the
+  // repositories step must be redone for the new one.
   await saveGeneratedGitHubAppMetadata({
     appId: 67890,
     slug: "nanites-next",
     htmlUrl: "https://github.com/apps/nanites-next",
   });
+  const nextAppSecretKeys = [
+    "GITHUB_APP_67890_PRIVATE_KEY",
+    "GITHUB_APP_67890_CLIENT_SECRET",
+    "GITHUB_APP_67890_WEBHOOK_SECRET",
+  ] as const;
+  for (const key of nextAppSecretKeys) {
+    Reflect.set(env, key, "generated-secret");
+  }
 
-  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
-    setupComplete: false,
-    currentStep: "repositories",
-    githubApp: {
-      status: "complete",
-      slug: "nanites-next",
-      installUrl: expect.stringContaining("state="),
-    },
-    repositories: {
-      status: "ready",
-      githubInstallationId: null,
-    },
-  });
+  try {
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
+      setupComplete: false,
+      currentStep: "repositories",
+      githubApp: {
+        status: "complete",
+        slug: "nanites-next",
+        installUrl: expect.stringContaining("state="),
+      },
+      repositories: {
+        status: "ready",
+        githubInstallationId: null,
+      },
+    });
+  } finally {
+    for (const key of nextAppSecretKeys) {
+      Reflect.deleteProperty(env, key);
+    }
+  }
 });
 
 test("deployment GitHub App config waits for generated Worker secrets after metadata exists", async () => {
@@ -629,19 +659,19 @@ test("deployment GitHub App config waits for generated Worker secrets after meta
 
   const db = createDbClient(env.DB);
 
-  await expect(readDeploymentGitHubAppMetadata(db)).resolves.toMatchObject({
+  await expect(readNewestActiveGitHubAppMetadata(db)).resolves.toMatchObject({
     slug: "nanites-test",
     clientId: "generated-client-id",
   });
   await expect(
-    readDeploymentGitHubAppConfig(db, envWithoutGeneratedGitHubAppSecrets()),
+    resolveGitHubApp(db, envWithoutGeneratedGitHubAppSecrets(), TEST_GITHUB_APP_ID),
   ).resolves.toBe(null);
 
   const originalEnv = snapshotGeneratedSecretEnv();
   applyGeneratedSecretEnv({
-    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
-    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
-    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[0]]: "replace-with-github-private-key",
+    [TEST_GITHUB_APP_SECRET_KEYS[1]]: "replace-with-github-client-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[2]]: "replace-with-github-webhook-secret",
     AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
   });
 
@@ -667,16 +697,24 @@ test("setup status can unlock generated GitHub App config from the current Worke
   await saveGeneratedGitHubAppMetadata();
   const setupAgent = await getSetupAgent();
   const readyEnv = { ...env } as Env;
-  Reflect.set(readyEnv, "GITHUB_APP_PRIVATE_KEY", "generated-private-key");
-  Reflect.set(readyEnv, "GITHUB_CLIENT_SECRET", "generated-client-secret");
-  Reflect.set(readyEnv, "GITHUB_WEBHOOK_SECRET", "generated-webhook-secret");
+  Reflect.set(readyEnv, `GITHUB_APP_${TEST_GITHUB_APP_ID}_PRIVATE_KEY`, "generated-private-key");
+  Reflect.set(
+    readyEnv,
+    `GITHUB_APP_${TEST_GITHUB_APP_ID}_CLIENT_SECRET`,
+    "generated-client-secret",
+  );
+  Reflect.set(
+    readyEnv,
+    `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`,
+    "generated-webhook-secret",
+  );
   Reflect.set(readyEnv, "AUTH_COOKIE_SECRET", "generated-auth-cookie-secret");
 
   const originalEnv = snapshotGeneratedSecretEnv();
   applyGeneratedSecretEnv({
-    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
-    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
-    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[0]]: "replace-with-github-private-key",
+    [TEST_GITHUB_APP_SECRET_KEYS[1]]: "replace-with-github-client-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[2]]: "replace-with-github-webhook-secret",
     AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
   });
 
@@ -713,16 +751,24 @@ test("setup Agent checks generated GitHub App secret propagation through the cur
   await saveGeneratedGitHubAppMetadata();
   const setupAgent = await getSetupAgent();
   const readyEnv = { ...env } as Env;
-  Reflect.set(readyEnv, "GITHUB_APP_PRIVATE_KEY", "generated-private-key");
-  Reflect.set(readyEnv, "GITHUB_CLIENT_SECRET", "generated-client-secret");
-  Reflect.set(readyEnv, "GITHUB_WEBHOOK_SECRET", "generated-webhook-secret");
+  Reflect.set(readyEnv, `GITHUB_APP_${TEST_GITHUB_APP_ID}_PRIVATE_KEY`, "generated-private-key");
+  Reflect.set(
+    readyEnv,
+    `GITHUB_APP_${TEST_GITHUB_APP_ID}_CLIENT_SECRET`,
+    "generated-client-secret",
+  );
+  Reflect.set(
+    readyEnv,
+    `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`,
+    "generated-webhook-secret",
+  );
   Reflect.set(readyEnv, "AUTH_COOKIE_SECRET", "generated-auth-cookie-secret");
   const originalFetch = globalThis.fetch;
   const originalEnv = snapshotGeneratedSecretEnv();
   applyGeneratedSecretEnv({
-    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
-    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
-    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[0]]: "replace-with-github-private-key",
+    [TEST_GITHUB_APP_SECRET_KEYS[1]]: "replace-with-github-client-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[2]]: "replace-with-github-webhook-secret",
     AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
   });
 
@@ -765,7 +811,7 @@ test("setup Agent checks generated GitHub App secret propagation through the cur
 
 test("deployment GitHub App config becomes retryable when generated secrets do not propagate", async () => {
   await saveGeneratedGitHubAppMetadata();
-  await env.DB.exec("UPDATE deployment_github_app_config SET updated_at = 1 WHERE id = 'current';");
+  await env.DB.exec(`UPDATE github_apps SET updated_at = 1 WHERE app_id = ${TEST_GITHUB_APP_ID};`);
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const originalEnv = blankGeneratedSecretEnv();
@@ -797,7 +843,7 @@ test("deployment GitHub App config waits for generated auth-cookie secret", asyn
   await saveGeneratedGitHubAppMetadata();
 
   await expect(
-    readDeploymentGitHubAppConfig(createDbClient(env.DB), envWithoutAuthCookieSecret()),
+    resolvePrimaryGitHubApp(createDbClient(env.DB), envWithoutAuthCookieSecret()),
   ).resolves.toBe(null);
 });
 
@@ -928,7 +974,7 @@ test("GitHub App creation route returns the manifest form for the claimed browse
     action: "https://github.com/settings/apps/new",
     state: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
     manifest: {
-      name: expect.stringMatching(/^Nanites [a-z0-9]{10}$/),
+      name: expect.stringMatching(/^sigvelo-agent-tests nanites [a-z0-9]{1,4}$/),
     },
   });
 });
@@ -951,7 +997,7 @@ test("GitHub App start returns a first-party manifest form target after Cloudfla
   expect(result.action).toBe("https://github.com/organizations/WebMCP-org/settings/apps/new");
   expect(result.state).toMatch(/^[A-Za-z0-9_-]+$/);
   expect(result.manifest).toMatchObject({
-    name: expect.stringMatching(/^Nanites [a-z0-9]{10}$/),
+    name: expect.stringMatching(/^sigvelo-agent-tests nanites [a-z0-9]{1,4}$/),
     redirect_url: `${SETUP_ORIGIN}/setup/github/manifest/callback`,
     callback_urls: [`${SETUP_ORIGIN}/auth/github/callback`],
     setup_url: `${SETUP_ORIGIN}/setup/github/installed`,
@@ -1305,7 +1351,7 @@ test("GitHub manifest callback redirects to the install URL once the deployment 
     );
     expect(location.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]+$/);
 
-    await expect(readDeploymentGitHubAppMetadata(createDbClient(env.DB))).resolves.toMatchObject({
+    await expect(readNewestActiveGitHubAppMetadata(createDbClient(env.DB))).resolves.toMatchObject({
       slug: "nanites-test",
       clientId: "generated-client-id",
     });
@@ -1332,9 +1378,9 @@ test("GitHub manifest callback returns to setup while generated secrets propagat
   globalThis.fetch = buildFakeCloudflareMcpFetch(originalFetch);
   const originalEnv = snapshotGeneratedSecretEnv();
   applyGeneratedSecretEnv({
-    GITHUB_APP_PRIVATE_KEY: "replace-with-github-private-key",
-    GITHUB_CLIENT_SECRET: "replace-with-github-client-secret",
-    GITHUB_WEBHOOK_SECRET: "replace-with-github-webhook-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[0]]: "replace-with-github-private-key",
+    [TEST_GITHUB_APP_SECRET_KEYS[1]]: "replace-with-github-client-secret",
+    [TEST_GITHUB_APP_SECRET_KEYS[2]]: "replace-with-github-webhook-secret",
     AUTH_COOKIE_SECRET: "replace-with-auth-cookie-secret",
   });
 

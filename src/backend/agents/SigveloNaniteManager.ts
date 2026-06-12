@@ -32,7 +32,12 @@ import {
   type GitHubPushFixtureOverrides,
   type TriggerDispatchInput,
 } from "#/backend/nanites/triggers.ts";
-import { NANITE_AGENT_NAME, buildNaniteManagerKey } from "#/nanites.ts";
+import {
+  NANITE_AGENT_NAME,
+  buildNaniteManagerKey,
+  parseNaniteManagerKey,
+  type NaniteManagerIdentity,
+} from "#/nanites.ts";
 import {
   getGitHubWebhookBranch,
   getGitHubWebhookEventName,
@@ -493,16 +498,18 @@ export type RecordNaniteRuntimeActivityInput = {
 
 export async function dispatchGitHubWebhookToNaniteManager({
   env,
+  githubAppId,
   githubInstallationId,
   event,
 }: {
   env: Env;
+  githubAppId: number;
   githubInstallationId: number;
   event: EmitterWebhookEvent;
 }): Promise<NaniteWebhookEvaluation[]> {
   const manager = await getAgentByName<Env, SigveloNaniteManager>(
     env.SigveloNaniteManager,
-    buildNaniteManagerKey(githubInstallationId),
+    buildNaniteManagerKey({ githubAppId, githubInstallationId }),
   );
   // The concrete DO stub expands the manager's full RPC graph and trips TS2589.
   const managerRpc = manager as unknown as {
@@ -547,18 +554,6 @@ function assertNaniteRunStatusTransition(
       message: `${APP_ERRORS.naniteInvalidRunTransition.message}: ${currentStatus} -> ${nextStatus}`,
     });
   }
-}
-
-function getGitHubInstallationIdFromManagerName(managerName: string): number | null {
-  const [, rawInstallationId] = /^installation:(\d+)$/.exec(managerName) ?? [];
-  if (!rawInstallationId) {
-    return null;
-  }
-
-  const githubInstallationId = Number(rawInstallationId);
-  return Number.isInteger(githubInstallationId) && githubInstallationId > 0
-    ? githubInstallationId
-    : null;
 }
 
 function sortJsonValue(value: unknown): unknown {
@@ -794,9 +789,9 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   async registerNanite(input: RegisterNaniteInput): Promise<ManagedNanite> {
     const manifest = normalizeNaniteManifest(input.manifest);
 
-    const githubInstallationId = this.installationId();
-    if (githubInstallationId) {
-      await this.assertRepositoriesBelongToInstallation(githubInstallationId, manifest);
+    const identity = this.identity();
+    if (identity) {
+      await this.assertRepositoriesBelongToInstallation(identity, manifest);
     }
 
     if (manifest.eventSource.type !== "manual") {
@@ -847,16 +842,18 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     await this.recordObservabilityFact(
       existing ? "nanite.updated" : "nanite.created",
-      async (db, installationId) => {
+      async (db, identity) => {
         const actor = input.actor ?? systemActor("maintenance");
         await recordNaniteCatalogProjection(db, {
-          githubInstallationId: installationId,
+          githubAppId: identity.githubAppId,
+          githubInstallationId: identity.githubInstallationId,
           nanite,
           actor,
         });
         await recordAuditEvent(db, {
           eventName: existing ? "audit.nanite.updated" : "audit.nanite.created",
-          githubInstallationId: installationId,
+          githubAppId: identity.githubAppId,
+          githubInstallationId: identity.githubInstallationId,
           naniteId: manifest.id,
           actor,
           targetType: "nanite",
@@ -925,15 +922,16 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       removedRunIds,
     });
 
-    await this.recordObservabilityFact("nanite.deprovisioned", async (db, installationId) => {
+    await this.recordObservabilityFact("nanite.deprovisioned", async (db, identity) => {
       const actor = input.actor ?? systemActor("maintenance");
       await deleteNaniteCatalogProjection(db, {
-        githubInstallationId: installationId,
+        githubInstallationId: identity.githubInstallationId,
         naniteId: input.naniteId,
       });
       await recordAuditEvent(db, {
         eventName: "audit.nanite.deprovisioned",
-        githubInstallationId: installationId,
+        githubAppId: identity.githubAppId,
+        githubInstallationId: identity.githubInstallationId,
         naniteId: input.naniteId,
         actor,
         targetType: "nanite",
@@ -1031,10 +1029,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     const actor = input.actor ?? naniteTriggerActor(run.trigger);
     await this.recordRunFact({ run, actor });
-    await this.recordObservabilityFact("run.started.audit", async (db, installationId) => {
+    await this.recordObservabilityFact("run.started.audit", async (db, identity) => {
       await recordAuditEvent(db, {
         eventName: "audit.run.started",
-        githubInstallationId: installationId,
+        githubAppId: identity.githubAppId,
+        githubInstallationId: identity.githubInstallationId,
         naniteId: run.naniteId,
         runKey: run.runId,
         actor,
@@ -1333,10 +1332,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     const actor = input.actor ?? systemActor("maintenance");
     for (const run of canceledRuns) {
       await this.recordRunFact({ run, actor });
-      await this.recordObservabilityFact("run.canceled.audit", async (db, installationId) => {
+      await this.recordObservabilityFact("run.canceled.audit", async (db, identity) => {
         await recordAuditEvent(db, {
           eventName: "audit.run.canceled",
-          githubInstallationId: installationId,
+          githubAppId: identity.githubAppId,
+          githubInstallationId: identity.githubInstallationId,
           naniteId: run.naniteId,
           runKey: run.runId,
           actor,
@@ -1714,8 +1714,12 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   // Internals
   // -------------------------------------------------------------------------
 
+  private identity(): NaniteManagerIdentity | null {
+    return parseNaniteManagerKey(this.name);
+  }
+
   private installationId(): number | null {
-    return getGitHubInstallationIdFromManagerName(this.name);
+    return this.identity()?.githubInstallationId ?? null;
   }
 
   private requireNanite(naniteId: string): ManagedNanite {
@@ -1878,7 +1882,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   }
 
   private async assertRepositoriesBelongToInstallation(
-    githubInstallationId: number,
+    identity: NaniteManagerIdentity,
     manifest: NaniteManifest,
   ): Promise<void> {
     const requested = collectManifestRepositories(manifest);
@@ -1887,14 +1891,21 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     }
 
     const accessible = new Set(
-      (await listReposAccessibleToInstallation({ env: this.env, githubInstallationId })).map(
-        (repository) => repository.full_name,
-      ),
+      (
+        await listReposAccessibleToInstallation({
+          env: this.env,
+          githubAppId: identity.githubAppId,
+          githubInstallationId: identity.githubInstallationId,
+        })
+      ).map((repository) => repository.full_name),
     );
     const inaccessible = requested.filter((repository) => !accessible.has(repository));
     if (inaccessible.length > 0) {
       throw new AppError("naniteRepositoryScopeForbidden", {
-        details: { githubInstallationId, repositories: inaccessible },
+        details: {
+          githubInstallationId: identity.githubInstallationId,
+          repositories: inaccessible,
+        },
         message: `${APP_ERRORS.naniteRepositoryScopeForbidden.message}: ${inaccessible.join(", ")}`,
       });
     }
@@ -1902,15 +1913,18 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
   private async recordObservabilityFact(
     operation: string,
-    record: (db: ReturnType<typeof createDbClient>, githubInstallationId: number) => Promise<void>,
+    record: (
+      db: ReturnType<typeof createDbClient>,
+      identity: NaniteManagerIdentity,
+    ) => Promise<void>,
   ): Promise<void> {
-    const githubInstallationId = this.installationId();
-    if (!githubInstallationId) {
+    const identity = this.identity();
+    if (!identity) {
       return;
     }
 
     try {
-      await record(createDbClient(this.env.DB), githubInstallationId);
+      await record(createDbClient(this.env.DB), identity);
     } catch (error) {
       naniteManagerLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
         ...this.logContext({}),
@@ -1924,10 +1938,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     run: NaniteRunRecord;
     reasonCode: string;
   }): Promise<void> {
-    await this.recordObservabilityFact("run.failed.audit", async (db, installationId) => {
+    await this.recordObservabilityFact("run.failed.audit", async (db, identity) => {
       await recordAuditEvent(db, {
         eventName: "audit.run.failed",
-        githubInstallationId: installationId,
+        githubAppId: identity.githubAppId,
+        githubInstallationId: identity.githubInstallationId,
         naniteId: input.run.naniteId,
         runKey: input.run.runId,
         actor: naniteTriggerActor(input.run.trigger),
@@ -1948,13 +1963,14 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     run: NaniteRunRecord;
     actor?: ObservabilityActor | null;
   }): Promise<void> {
-    await this.recordObservabilityFact("nanite.run_fact", async (db, githubInstallationId) => {
+    await this.recordObservabilityFact("nanite.run_fact", async (db, identity) => {
       let outputPullRequest: GitHubPullRequestImpact | null = null;
       if (input.run.outputUrl) {
         try {
           outputPullRequest = await fetchGitHubPullRequestImpact({
             env: this.env,
-            installationId: githubInstallationId,
+            githubAppId: identity.githubAppId,
+            installationId: identity.githubInstallationId,
             outputUrl: input.run.outputUrl,
           });
         } catch (error) {
@@ -1967,7 +1983,8 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       }
 
       await recordNaniteRunFact(db, {
-        githubInstallationId,
+        githubAppId: identity.githubAppId,
+        githubInstallationId: identity.githubInstallationId,
         run: input.run,
         nanite: this.state.nanites[input.run.naniteId],
         actor: input.actor ?? naniteTriggerActor(input.run.trigger),

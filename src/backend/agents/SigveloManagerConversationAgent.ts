@@ -84,6 +84,7 @@ type ManagerGitHubReplyStatus =
 
 export type ManagerReplyPublication = {
   conversationName: string;
+  githubAppId: number;
   startedAt: number;
   statusMessageId: string;
   submissionId: string;
@@ -93,6 +94,7 @@ export type ManagerReplyPublication = {
 
 export type ManagerBrowserSessionInput = {
   managerName: string;
+  githubAppId: number;
   githubInstallationId: number;
   accountLogin: string;
   actor: {
@@ -109,6 +111,7 @@ type DisconnectedManagerConversationState = {
 type ConnectedManagerConversationState = {
   status: "connected";
   managerName: string;
+  githubAppId: number;
   githubInstallationId: number;
   githubAccountLogin: string;
   sigveloToolAuthProps: SigveloMcpAuthProps;
@@ -242,11 +245,16 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   private async ensureGitHubMcpConnected(props: SigveloMcpAuthProps, accountLogin: string) {
     const repositories = await listReposAccessibleToInstallation({
       env: this.env,
+      githubAppId: props.githubAppId,
       githubInstallationId: props.githubInstallationId,
     });
     this.setState({
       status: "connected",
-      managerName: buildNaniteManagerKey(props.githubInstallationId),
+      managerName: buildNaniteManagerKey({
+        githubAppId: props.githubAppId,
+        githubInstallationId: props.githubInstallationId,
+      }),
+      githubAppId: props.githubAppId,
       githubInstallationId: props.githubInstallationId,
       githubAccountLogin: accountLogin,
       sigveloToolAuthProps: props,
@@ -260,7 +268,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       return;
     }
 
-    await this.refreshGitHubMcpServer(props.githubInstallationId, repositories);
+    await this.refreshGitHubMcpServer(props.githubAppId, props.githubInstallationId, repositories);
   }
 
   private async ensureFreshGitHubMcpForTurn(): Promise<void> {
@@ -280,16 +288,22 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       return;
     }
 
-    await this.refreshGitHubMcpServer(state.githubInstallationId, state.repositories);
+    await this.refreshGitHubMcpServer(
+      state.githubAppId,
+      state.githubInstallationId,
+      state.repositories,
+    );
   }
 
   private async refreshGitHubMcpServer(
+    githubAppId: number,
     githubInstallationId: number,
     repositories: readonly GitHubInstallationRepository[],
   ): Promise<void> {
     await this.removeGitHubMcpServers();
     const scopedToken = await issueScopedGitHubInstallationToken({
       env: this.env,
+      githubAppId,
       installationId: githubInstallationId,
       repositories: repositories.map((repository) => repository.full_name).sort(),
     });
@@ -468,6 +482,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
 
     const scopedToken = await issueScopedGitHubInstallationToken({
       env: this.env,
+      githubAppId: state.githubAppId,
       installationId: state.githubInstallationId,
       repositories: [repository],
     });
@@ -486,6 +501,7 @@ function createSigveloToolAuthProps(input: HandleManagerChatMessageInput): Sigve
     authKind: "mcp",
     githubUserId: Number(input.author.userId),
     githubLogin: input.author.userName,
+    githubAppId: input.githubAppId,
     githubInstallationId: installationId,
     clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
     scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
@@ -501,7 +517,13 @@ function createSigveloToolAuthPropsFromBrowser(
   if (!Number.isInteger(installationId) || installationId <= 0) {
     throw new AppError("managerConversationInstallationRequired");
   }
-  if (input.managerName !== buildNaniteManagerKey(installationId)) {
+  if (
+    input.managerName !==
+    buildNaniteManagerKey({
+      githubAppId: input.githubAppId,
+      githubInstallationId: installationId,
+    })
+  ) {
     throw new AppError("managerConversationInstallationMismatch");
   }
 
@@ -509,6 +531,7 @@ function createSigveloToolAuthPropsFromBrowser(
     authKind: "mcp",
     githubUserId: input.actor.id,
     githubLogin: input.actor.login,
+    githubAppId: input.githubAppId,
     githubInstallationId: installationId,
     clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
     scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
@@ -622,6 +645,7 @@ function parseGitHubReplyPublication(value: unknown): ManagerReplyPublication | 
   const publication = value as Record<string, unknown>;
   if (
     typeof publication.conversationName !== "string" ||
+    typeof publication.githubAppId !== "number" ||
     typeof publication.startedAt !== "number" ||
     typeof publication.statusMessageId !== "string" ||
     typeof publication.submissionId !== "string" ||
@@ -633,6 +657,7 @@ function parseGitHubReplyPublication(value: unknown): ManagerReplyPublication | 
 
   return {
     conversationName: publication.conversationName,
+    githubAppId: publication.githubAppId,
     startedAt: publication.startedAt,
     statusMessageId: publication.statusMessageId,
     submissionId: publication.submissionId,

@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
-import { saveTestDeploymentGitHubAppMetadata } from "../helpers/d1-baseline.ts";
+import { TEST_GITHUB_APP_ID, saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 
 const GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token";
 
 beforeEach(async () => {
-  await saveTestDeploymentGitHubAppMetadata(env.DB);
+  await saveTestGitHubApp(env.DB);
 });
 
 function readCookieHeader(response: Response): string {
@@ -140,7 +140,11 @@ test("test auth token failures bubble through the root error handler", async () 
 });
 
 test("root error handler maps auth failures from mounted API routes", async () => {
-  const response = await nanitesHttpApp.request("/api/nanites/manager/installation:1", {}, env);
+  const response = await nanitesHttpApp.request(
+    `/api/nanites/manager/app:${TEST_GITHUB_APP_ID}:installation:1`,
+    {},
+    env,
+  );
 
   expect(response.status).toBe(401);
   expect(await response.json()).toEqual({

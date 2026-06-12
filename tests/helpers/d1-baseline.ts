@@ -1,6 +1,13 @@
 import baselineMigrationSql from "#/backend/db/migrations/0000_baseline.sql?raw";
 import { createDbClient } from "#/backend/db/index.ts";
-import { saveDeploymentGitHubAppConfig } from "#/backend/github/app-config.ts";
+import { registerGitHubApp } from "#/backend/github/apps.ts";
+
+/**
+ * The GitHub App id used across backend tests. The test wrangler config
+ * provides this app's per-app worker secrets
+ * (`GITHUB_APP_12345_PRIVATE_KEY` and friends).
+ */
+export const TEST_GITHUB_APP_ID = 12345;
 
 const initializedDatabases = new WeakSet<D1Database>();
 
@@ -28,18 +35,20 @@ export async function ensureD1BaselineSchema(db: D1Database): Promise<void> {
   initializedDatabases.add(db);
 }
 
-export async function resetDeploymentGitHubAppConfigTable(db: D1Database): Promise<void> {
+export async function resetGitHubAppTables(db: D1Database): Promise<void> {
   await ensureD1BaselineSchema(db);
-  await db.exec("DELETE FROM deployment_github_app_config;");
+  // account_installations references github_apps, so clear it first.
+  await db.exec("DELETE FROM account_installations;");
+  await db.exec("DELETE FROM github_apps;");
 }
 
-export async function saveTestDeploymentGitHubAppMetadata(
+export async function saveTestGitHubApp(
   db: D1Database,
   input: { readonly appId?: number; readonly slug?: string; readonly htmlUrl?: string } = {},
 ): Promise<void> {
   await ensureD1BaselineSchema(db);
-  await saveDeploymentGitHubAppConfig(createDbClient(db), {
-    appId: input.appId ?? 12345,
+  await registerGitHubApp(createDbClient(db), {
+    appId: input.appId ?? TEST_GITHUB_APP_ID,
     slug: input.slug ?? "nanites-test",
     htmlUrl: input.htmlUrl ?? "https://github.com/apps/nanites-test",
     ownerLogin: "WebMCP-org",
