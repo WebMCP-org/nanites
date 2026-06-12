@@ -24,7 +24,7 @@ The manager owns policy and aggregate state. Think Nanites own transcript, strea
 ## Key Areas
 
 - `src/backend/agents/SigveloNaniteManager.ts` - installation manager, registry, routing, run summaries, and GitHub feedback.
-- `src/backend/agents/SigveloNaniteAgent.ts` - stable Think Nanite runtime, workspace tools, GitHub-aware git auth, GitHub MCP attachment, lifecycle tools.
+- `src/backend/agents/SigveloNaniteAgent.ts` - stable Think Nanite runtime, workspace tools, GitHub-aware git auth, GitHub MCP codemode connector, lifecycle tools.
 - `src/backend/nanites/triggers.ts` - Worker Loader execution for generated inbound trigger handlers.
 - `src/backend/mcp/index.ts` - SigVelo MCP tools for model operators.
 - `src/frontend/routes/_authenticated/nanites/route.tsx` - Nanites product UI.

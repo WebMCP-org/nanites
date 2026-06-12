@@ -129,7 +129,7 @@ Do not include:
 
 GitHub MCP capability is derived from `permissions.github`. The authoring model should request repository scope and GitHub App permission grants, not individual MCP tools.
 
-Use Workspace git tools for file changes, branches, commits, and pushes. Use derived GitHub MCP tools for PR lookup, PR creation/update, workflow/check reads, and other GitHub API work that fits the granted app permissions.
+Use Workspace git tools for file changes, branches, commits, and pushes. The derived GitHub MCP tools are exposed inside the Nanite's execute sandbox as `github.*` for PR lookup, PR creation/update, workflow/check reads, and other GitHub API work that fits the granted app permissions.
 
 Typical permission grants:
 

@@ -15,6 +15,7 @@ import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import type { FileInfo } from "@cloudflare/shell";
 import type { ToolProvider } from "@cloudflare/codemode";
+import { GitHubMcpConnector } from "#/backend/nanites/github-mcp-connector.ts";
 import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
 import { getLogger } from "@logtape/logtape";
 import { callable } from "agents";
@@ -252,12 +253,9 @@ const naniteToolOutputBudgetExcludedTools = new Set([
   "create_child_nanite",
   "artifact_read",
 ]);
+// Pre-connector deploys attached the GitHub MCP server through the agents SDK
+// under this name; onStart still removes any persisted leftovers.
 const githubMcpServerName = "github";
-const githubMcpServerId = "github";
-const githubMcpServerUrl = "https://api.githubcopilot.com/mcp/";
-// GitHub installation tokens expire after one hour. Refresh ahead of expiry so
-// a turn never starts with credentials about to lapse mid-turn.
-const githubMcpTokenRefreshMarginMs = 5 * 60_000;
 const terminalSubmissionStatuses = new Set<ThinkSubmissionStatus>([
   "completed",
   "aborted",
@@ -669,9 +667,9 @@ function buildNaniteSystemPrompt(): string {
     "You are a SigVelo Nanite: a durable maintenance agent for one narrow responsibility inside a GitHub installation.",
     "Your transcript, workspace, and memory are durable. Keep durable memory compact and evidence-backed.",
     "Use nanite_task_context for the current manifest, repository scope, permission grants, generated trigger source, and active trigger payload.",
-    "Use the smallest execution plane that can satisfy the run: GitHub MCP for pull requests, checks, comments, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; ask_human for missing authority or product decisions.",
-    "Do not use GitHub MCP to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
-    "The execute tool runs Worker-compatible JavaScript with state.* and git.* providers. It is not a shell and cannot use require(), child_process, or subprocess commands.",
+    "Use the smallest execution plane that can satisfy the run: github.* tools inside execute for pull requests, checks, comments, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; ask_human for missing authority or product decisions.",
+    "Do not use github.* tools to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
+    "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Discover github.* methods with codemode.search/codemode.describe. It is not a shell and cannot use require(), child_process, or subprocess commands.",
     "Use artifact_read for saved SigVelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
     "Keep GitHub-facing output concise. Keep detailed investigation in this transcript.",
     "",
@@ -730,7 +728,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   initialState: NaniteAgentState = createInitialNaniteAgentState();
   extensionLoader = this.env.LOADER;
   override maxSteps = naniteMaxSteps;
-  override waitForMcpConnections = { timeout: 10_000 };
   override chatRecovery = { noProgressTimeoutMs: 10 * 60 * 1000 };
   override classifyChatError = defaultContextOverflowClassifier;
   override contextOverflow = { reactive: true, maxRetries: 2 };
@@ -743,19 +740,15 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
   private lastStepDiagnostic: LastStepDiagnostic | null = null;
   private currentTurnContinuation = false;
-  // In-memory only: lost on hibernation, which forces a token refresh on the
-  // first turn after a wake. Never persisted alongside the token itself.
-  private githubMcpTokenExpiresAtMs: number | null = null;
 
   override async onStart(): Promise<void> {
     if (this.state.version !== NANITE_AGENT_STATE_VERSION) {
       this.setState(createInitialNaniteAgentState());
     }
 
-    // The GitHub MCP server authenticates with a static one-hour installation
-    // token that the agents SDK persists (and replays) in transport headers
-    // across hibernation. A restored server is therefore stale by definition:
-    // drop it here and let the next run/turn reconnect with a fresh token.
+    // GitHub MCP now reaches the model inside codemode (github.*), but older
+    // deploys attached it as an agents-SDK MCP server whose stale one-hour
+    // token the SDK persists across hibernation. Drop any leftovers for good.
     await this.removeGitHubMcpServers();
   }
 
@@ -801,6 +794,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   override getTools(): ToolSet {
     const workspaceTools = createWorkspaceTools(this.workspace);
     const artifactStore = this.createToolOutputArtifactStore();
+    const githubMcpConnector = this.createGitHubMcpConnector();
     const extensionTools = this.extensionManager
       ? {
           ...createExtensionTools({ manager: this.extensionManager }),
@@ -817,6 +811,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         connectors: [
           new ToolProviderConnector(this.ctx, this.createGitToolProvider()),
           new ToolProviderConnector(this.ctx, artifactStore.provider()),
+          ...(githubMcpConnector ? [githubMcpConnector] : []),
         ],
         loader: this.env.LOADER,
       }),
@@ -945,7 +940,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     }
 
     this.touchActivity();
-    await this.ensureFreshGitHubMcpForTurn();
     await this.reportRuntimeActivity("thinking");
     naniteLogger.debug(LOG_EVENTS.NANITE_TURN_STARTED, {
       ...this.logContext(),
@@ -1106,7 +1100,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       watchdogScheduleId: this.state.watchdogScheduleId,
       updatedAt: acceptedAt,
     });
-    await this.attachGitHubMcpServer(input.nanite.manifest);
     await this.armWatchdog(input.run.runId);
     naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
       ...this.logContext(input.run.runId),
@@ -1844,7 +1837,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       manifest,
       updatedAt: nowIso(),
     });
-    await this.attachGitHubMcpServer(manifest);
   }
 
   private async finishRun(input: {
@@ -2032,77 +2024,47 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   // GitHub MCP + git auth
   // -------------------------------------------------------------------------
 
-  private async ensureFreshGitHubMcpForTurn(): Promise<void> {
+  /**
+   * GitHub MCP tools live inside the codemode sandbox as `github.*` —
+   * discoverable via codemode.search, zero prompt-token cost, and gated by
+   * the same derived capability as before. Returns null when the manifest
+   * grants no GitHub access, so the sandbox simply has no github namespace.
+   */
+  private createGitHubMcpConnector(): GitHubMcpConnector | null {
     const manifest = this.state.manifest;
-    if (!manifest) {
-      return;
-    }
-
-    const server = this.getMcpServers().servers[githubMcpServerId];
-    const expiresAtMs = this.githubMcpTokenExpiresAtMs;
-    const tokenIsFresh =
-      expiresAtMs !== null && Date.now() < expiresAtMs - githubMcpTokenRefreshMarginMs;
-    if (server?.state === "ready" && tokenIsFresh) {
-      return;
-    }
-
-    await this.attachGitHubMcpServer(manifest);
-  }
-
-  private async attachGitHubMcpServer(manifest: NaniteManifest): Promise<void> {
-    const githubPermissions = manifest.permissions.github;
+    const githubPermissions = manifest?.permissions.github;
     const capability =
       githubPermissions && githubPermissions.repositories.length > 0
         ? deriveNaniteGitHubMcpAccess({ appPermissions: githubPermissions.appPermissions })
         : null;
     if (!githubPermissions || !capability) {
-      await this.removeGitHubMcpServers();
-      return;
+      return null;
     }
 
-    const identity = parseManagerIdentity(this.requireManagerName());
-    if (!identity) {
-      throw new AppError("naniteAgentGithubMcpInstallationRequired");
-    }
+    return new GitHubMcpConnector(this.ctx, {
+      createHeaders: async () => {
+        const identity = parseManagerIdentity(this.requireManagerName());
+        if (!identity) {
+          throw new AppError("naniteAgentGithubMcpInstallationRequired");
+        }
 
-    await this.removeGitHubMcpServers();
-    const scopedToken = await issueScopedGitHubInstallationToken({
-      env: this.env,
-      githubAppId: identity.githubAppId,
-      installationId: identity.githubInstallationId,
-      repositories: githubPermissions.repositories,
-      permissions: capability.appPermissions,
-    });
-    this.githubMcpTokenExpiresAtMs = Date.parse(scopedToken.expiresAt);
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${scopedToken.token}`,
-      "X-MCP-Tools": capability.tools.join(","),
-      "X-MCP-Exclude-Tools": capability.deniedTools.join(","),
-    };
-    if (capability.readonly) {
-      headers["X-MCP-Readonly"] = "true";
-    }
-
-    const result = await this.addMcpServer(githubMcpServerName, githubMcpServerUrl, {
-      id: githubMcpServerId,
-      transport: {
-        type: "streamable-http",
-        headers,
+        const scopedToken = await issueScopedGitHubInstallationToken({
+          env: this.env,
+          githubAppId: identity.githubAppId,
+          installationId: identity.githubInstallationId,
+          repositories: githubPermissions.repositories,
+          permissions: capability.appPermissions,
+        });
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${scopedToken.token}`,
+          "X-MCP-Tools": capability.tools.join(","),
+          "X-MCP-Exclude-Tools": capability.deniedTools.join(","),
+        };
+        if (capability.readonly) {
+          headers["X-MCP-Readonly"] = "true";
+        }
+        return headers;
       },
-      retry: {
-        maxAttempts: 2,
-        baseDelayMs: 500,
-        maxDelayMs: 2_000,
-      },
-    });
-
-    naniteLogger.debug(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-      ...this.logContext(),
-      mcpServer: githubMcpServerName,
-      mcpServerId: result.id,
-      state: result.state,
-      toolCount: capability.tools.length,
-      readonly: capability.readonly,
     });
   }
 

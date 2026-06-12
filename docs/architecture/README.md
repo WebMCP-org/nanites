@@ -248,11 +248,11 @@ chat or the explicit MCP start/test tools.
 ## What the Nanite receives
 
 The stable Think Nanite gets a Run prompt, direct Workspace tools, GitHub-aware git auth, optional
-GitHub MCP tools, and lifecycle tools.
+GitHub MCP tools exposed inside the execute sandbox as `github.*`, and lifecycle tools.
 
 ```text
 Use Workspace git tools for repository changes and branch pushes.
-Use GitHub MCP for PR lookup, PR creation/update, and workflow/check reads.
+Use github.* tools inside execute for PR lookup, PR creation/update, and workflow/check reads.
 Never push directly to a default branch.
 When stacked PRs are useful:
 - the bottom branch targets the repo default branch
@@ -275,7 +275,7 @@ first-class SigVelo stack model.
 | Transcript, streaming, tool turns, workspace | Think Nanite              | UI connects directly with Agents SDK hooks.              |
 | GitHub webhook or schedule predicates        | Generated trigger handler | Emits intents; manager validates and executes.           |
 | Repo edits and git operations                | Workspace + Shell git     | Uses scoped GitHub installation auth.                    |
-| PR/search/status operations                  | GitHub MCP                | Nanite-scoped tool inventory.                            |
+| PR/search/status operations                  | GitHub MCP via codemode   | `github.*` in execute; Nanite-scoped tool inventory.     |
 | Build, typecheck, test truth                 | GitHub CI                 | Prefer CI signals over a SigVelo process harness.        |
 | Final outcome                                | Lifecycle tools           | `complete`, `no_change`, `fail`, `ask_human`.            |
 
