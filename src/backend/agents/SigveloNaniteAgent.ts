@@ -212,6 +212,8 @@ export type NaniteDebugInspectInput = {
 export type NaniteDebugInspectOutput = {
   transcript?: unknown[];
   submissions?: ThinkSubmissionInspection[];
+  /** Internal onStart steps that failed on this wake; empty when boot was clean. */
+  onStartDegradations?: { step: string; error: string }[];
 };
 
 export type NaniteDebugResetOutput = {
@@ -1571,6 +1573,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         status: input.submissions?.status,
       });
     }
+
+    output.onStartDegradations = this.getOnStartDegradations().map((degradation) => ({
+      step: degradation.step,
+      error: describeError(degradation.error),
+    }));
 
     return output;
   }

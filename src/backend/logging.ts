@@ -311,6 +311,13 @@ function addUrlLogProperty(
 function getAgentsSdkObservabilityLogLevel(
   event: ObservabilityEvent,
 ): "debug" | "error" | "info" | "warn" {
+  // Degraded-but-running signals: the agent came up (or hydrated a window)
+  // despite the failure, so warn rather than letting the payload error
+  // classify them as hard errors.
+  if (event.type === "chat:onstart:degraded" || event.type === "chat:hydration:windowed") {
+    return "warn";
+  }
+
   const eventPayload: unknown = event.payload;
   const payload: Record<string, unknown> = isRecord(eventPayload) ? eventPayload : {};
   if (

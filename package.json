@@ -33,14 +33,15 @@
     "db:migrate:prod": "vp exec wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc",
     "deploy": "node scripts/deploy-self-host.mjs",
     "deploy:validate": "node scripts/deploy-self-host.mjs --validate",
-    "deploy:preview": "vp build && vp exec wrangler versions upload dist/nanites_app_production/index.js --assets dist/client --config wrangler.production.jsonc",
+    "deploy:preview": "vp build && vp exec wrangler versions upload dist/nanites_app_production/index.js --assets dist/client --tag $(git rev-parse --short HEAD) --config wrangler.production.jsonc",
     "deploy:prod": "VITE_SENTRY_ENVIRONMENT=production VITE_SENTRY_TRACES_SAMPLE_RATE=0.1 vp build && vp run db:migrate:prod && vp exec wrangler deploy dist/nanites_app_production/index.js --assets dist/client --config wrangler.production.jsonc",
     "test": "vp test",
     "test:e2e": "vp test -c tests/e2e/vitest.config.ts",
     "test:workers-integration": "vp run test:e2e",
     "types": "vp exec wrangler types env.d.ts --include-runtime false --strict-vars false --config wrangler.production.jsonc && vp fmt env.d.ts",
     "check": "vp check",
-    "prepare": "vp config"
+    "prepare": "vp config",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.67",
@@ -99,6 +100,7 @@
     "drizzle-kit": "^0.31.10",
     "msw": "^2.14.6",
     "playwright": "^1.60.0",
+    "react-doctor": "^0.5.1",
     "typescript": "^6.0.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.1.24",
     "vite-plus": "0.1.24",
