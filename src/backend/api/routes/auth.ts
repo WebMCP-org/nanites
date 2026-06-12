@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import {
   clearGitHubUserTokenCookie,
   clearSessionCookie,
   clearRevokedSessionSelectionIfNeeded,
+  appendExpiredAuthCookies,
   buildBrowserSessionExpiration,
   nanitesSessionSchema,
   readSessionInstallationSnapshots,
@@ -24,8 +25,9 @@ import {
   requireGitHubUserToken,
   requireSession,
   sealSessionCookie,
+  type SessionInstallationSnapshot,
 } from "#/backend/auth/session.ts";
-import { listVisibleInstallations } from "#/backend/github/index.ts";
+import { isGitHubAuthenticationFailure, listVisibleInstallations } from "#/backend/github/index.ts";
 import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
@@ -64,6 +66,27 @@ const activeInstallationInput = zValidator(
   }),
   requestValidationHook,
 );
+
+async function listCurrentSessionInstallationSnapshots(
+  context: Context<WorkerHonoEnv>,
+): Promise<SessionInstallationSnapshot[]> {
+  const db = createDbClient(context.env.DB);
+  const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
+
+  try {
+    return readSessionInstallationSnapshots(
+      await listVisibleInstallations(context.get("githubUserToken").accessToken),
+      primaryGitHubApp.appId,
+    );
+  } catch (error) {
+    if (isGitHubAuthenticationFailure(error)) {
+      appendExpiredAuthCookies(context.req.raw, context.res.headers);
+      throw new AppError("authenticationRequired", { cause: error });
+    }
+
+    throw error;
+  }
+}
 
 const testAuthQueryInput = zValidator(
   "query",
@@ -259,11 +282,7 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
   })
   .get("/installations/visible", browserAuthRequired, async (context) => {
     const db = createDbClient(context.env.DB);
-    const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
-    const installations = readSessionInstallationSnapshots(
-      await listVisibleInstallations(context.get("githubUserToken").accessToken),
-      primaryGitHubApp.appId,
-    );
+    const installations = await listCurrentSessionInstallationSnapshots(context);
     await recordVisibleInstallationSnapshots(db, installations);
     await clearRevokedSessionSelectionIfNeeded({
       req: context.req.raw,
@@ -278,11 +297,7 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
   .post("/installations/active", activeInstallationInput, browserAuthRequired, async (context) => {
     const { githubInstallationId } = context.req.valid("json");
     const db = createDbClient(context.env.DB);
-    const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
-    const installations = readSessionInstallationSnapshots(
-      await listVisibleInstallations(context.get("githubUserToken").accessToken),
-      primaryGitHubApp.appId,
-    );
+    const installations = await listCurrentSessionInstallationSnapshots(context);
     await recordVisibleInstallationSnapshots(db, installations);
     const activeInstallation =
       installations.find((installation) => installation.id === githubInstallationId) ?? null;

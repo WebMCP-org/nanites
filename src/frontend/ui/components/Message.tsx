@@ -173,7 +173,7 @@ interface MessageBranchContextValue {
 const MessageBranchContext = React.createContext<MessageBranchContextValue | null>(null);
 
 function useMessageBranch(component: string): MessageBranchContextValue {
-  const ctx = React.useContext(MessageBranchContext);
+  const ctx = React.use(MessageBranchContext);
   if (!ctx) {
     throw new Error(`${component} must be used inside a <MessageBranch>.`);
   }

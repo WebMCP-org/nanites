@@ -2,7 +2,6 @@ import "./observability.css";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { UseQueryResult } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import {
   ActivityIcon,
@@ -57,7 +56,6 @@ import {
   observabilityDashboardQueryKey,
   observabilityEventDetailQueryKey,
   type ObservabilityDashboardData,
-  type ObservabilityDashboardFilterOptions,
 } from "./-queries.ts";
 import {
   OBSERVABILITY_SEARCH_RANGES,
@@ -73,6 +71,7 @@ import type {
   KpiMetric,
   NaniteCreatorPoint,
   NaniteCatalogRow,
+  ObservabilityDashboardFilterOptions,
   ObservabilityEventDetail,
   ObservabilityEventRow,
   ObservabilityImpactSummary,
@@ -1716,25 +1715,27 @@ function ObservabilityHeader({ search }: { readonly search: ObservabilitySearch 
 }
 
 function ObservabilityDashboardState({
-  query,
+  data,
+  isPending,
   search,
   session,
   onSearchChange,
   onSelectEvent,
 }: {
-  readonly query: UseQueryResult<ObservabilityDashboardData>;
+  readonly data: ObservabilityDashboardData | undefined;
+  readonly isPending: boolean;
   readonly search: ObservabilitySearch;
   readonly session: BrowserNanitesContext | null | undefined;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
-  if (query.isPending || !query.data) {
+  if (isPending || !data) {
     return <RoutePendingPage />;
   }
 
   return (
     <Dashboard
-      data={query.data}
+      data={data}
       search={search}
       session={session}
       onSearchChange={onSearchChange}
@@ -1782,13 +1783,13 @@ function ObservabilityRoute() {
   const navigate = Route.useNavigate();
   const normalizedSearch = useMemo(() => observabilitySearchSchema.parse(search), [search]);
   const selectedEventId = normalizedSearch.selectedEvent;
-  const dashboardQuery = useQuery({
+  const { data: dashboard, isPending: isDashboardPending } = useQuery({
     queryKey: observabilityDashboardQueryKey(normalizedSearch),
     queryFn: () => fetchObservabilityDashboard(normalizedSearch),
     refetchInterval: normalizedSearch.live ? liveRefreshIntervalMs : false,
     throwOnError: true,
   });
-  const selectedEventQuery = useQuery({
+  const { data: selectedEvent, isPending: isSelectedEventPending } = useQuery({
     queryKey: observabilityEventDetailQueryKey(normalizedSearch, selectedEventId),
     queryFn: () =>
       selectedEventId
@@ -1797,7 +1798,7 @@ function ObservabilityRoute() {
     enabled: Boolean(selectedEventId),
     throwOnError: true,
   });
-  const sessionQuery = useQuery({
+  const { data: session } = useQuery({
     queryKey: AUTH_SESSION_QUERY_KEY,
     queryFn: fetchOptionalSession,
     throwOnError: true,
@@ -1819,21 +1820,22 @@ function ObservabilityRoute() {
       <ObservabilityHeader search={normalizedSearch} />
       <ObservabilityFilters
         search={normalizedSearch}
-        options={dashboardQuery.data?.filterOptions ?? emptyFilterOptions}
+        options={dashboard?.filterOptions ?? emptyFilterOptions}
         onChange={setSearch}
       />
       <ObservabilityTabs search={normalizedSearch} />
       <ActiveFilterChips search={normalizedSearch} onChange={setSearch} />
       <ObservabilityDashboardState
-        query={dashboardQuery}
+        data={dashboard}
+        isPending={isDashboardPending}
         search={normalizedSearch}
-        session={sessionQuery.data}
+        session={session}
         onSearchChange={setSearch}
         onSelectEvent={(eventId) => setSearch({ selectedEvent: eventId })}
       />
       <SelectedEventDetail
-        event={selectedEventQuery.data}
-        isPending={Boolean(selectedEventId) && selectedEventQuery.isPending}
+        event={selectedEvent}
+        isPending={Boolean(selectedEventId) && isSelectedEventPending}
         onClose={() => setSearch({ selectedEvent: undefined })}
       />
       <footer className="observability-footer">

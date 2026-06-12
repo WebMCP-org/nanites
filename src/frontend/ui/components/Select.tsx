@@ -142,7 +142,7 @@ export function SelectValue({
   ref,
   ...props
 }: SelectValueProps & { ref?: React.Ref<HTMLSpanElement> }) {
-  const context = React.useContext(SelectLabelsContext);
+  const context = React.use(SelectLabelsContext);
 
   // If custom children provided, use that
   if (children) {
@@ -203,7 +203,7 @@ export function SelectOption({
   ref,
   ...props
 }: SelectOptionProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const context = React.useContext(SelectLabelsContext);
+  const context = React.use(SelectLabelsContext);
   const contextRef = React.useRef(context);
   contextRef.current = context;
   const childrenRef = React.useRef(children);

@@ -1,13 +1,15 @@
-import { eq } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import type { DbClient } from "./index.ts";
 import {
   accounts,
   accountInstallations,
+  accountRepositories,
   authFunnelFacts,
   platformUsageFacts,
   type GitHubAccountType,
 } from "./schema.ts";
+import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
 
 type Defined<T> = Exclude<T, undefined>;
 type PlatformUsageFactInsert = InferInsertModel<typeof platformUsageFacts>;
@@ -218,6 +220,73 @@ export async function recordVisibleInstallationSnapshots(
       })
       .run();
   }
+}
+
+export async function recordInstallationRepositorySnapshots(
+  db: DbClient,
+  input: {
+    githubAppId: number;
+    githubInstallationId: number;
+    repositories: readonly GitHubInstallationRepository[];
+  },
+  observedAt = new Date(),
+): Promise<void> {
+  const installation = await db.query.accountInstallations.findFirst({
+    columns: {
+      accountId: true,
+    },
+    where: and(
+      eq(accountInstallations.githubAppId, input.githubAppId),
+      eq(accountInstallations.githubInstallationId, input.githubInstallationId),
+    ),
+  });
+
+  if (!installation) {
+    return;
+  }
+
+  const repositoryIds = [...new Set(input.repositories.map((repository) => repository.id))];
+  for (const repository of input.repositories) {
+    await db
+      .insert(accountRepositories)
+      .values({
+        id: `github-repository:${input.githubAppId}:${input.githubInstallationId}:${repository.id}`,
+        accountId: installation.accountId,
+        githubAppId: input.githubAppId,
+        githubInstallationId: input.githubInstallationId,
+        githubRepositoryId: repository.id,
+        githubRepository: repository,
+        firstSeenAt: observedAt,
+        lastSeenAt: observedAt,
+        createdAt: observedAt,
+        updatedAt: observedAt,
+      })
+      .onConflictDoUpdate({
+        target: [accountRepositories.accountId, accountRepositories.githubRepositoryId],
+        set: {
+          githubAppId: input.githubAppId,
+          githubInstallationId: input.githubInstallationId,
+          githubRepository: repository,
+          lastSeenAt: observedAt,
+          updatedAt: observedAt,
+        },
+      })
+      .run();
+  }
+
+  const staleRepositoryFilter =
+    repositoryIds.length > 0
+      ? and(
+          eq(accountRepositories.githubAppId, input.githubAppId),
+          eq(accountRepositories.githubInstallationId, input.githubInstallationId),
+          notInArray(accountRepositories.githubRepositoryId, repositoryIds),
+        )
+      : and(
+          eq(accountRepositories.githubAppId, input.githubAppId),
+          eq(accountRepositories.githubInstallationId, input.githubInstallationId),
+        );
+
+  await db.delete(accountRepositories).where(staleRepositoryFilter).run();
 }
 
 export async function recordAuthFunnelFact(

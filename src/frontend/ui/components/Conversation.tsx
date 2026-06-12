@@ -27,7 +27,7 @@ interface ConversationContextValue {
 const ConversationContext = React.createContext<ConversationContextValue | null>(null);
 
 function useConversationContext(component: string): ConversationContextValue {
-  const ctx = React.useContext(ConversationContext);
+  const ctx = React.use(ConversationContext);
   if (!ctx) {
     throw new Error(`${component} must be used inside a <Conversation>.`);
   }

@@ -72,15 +72,18 @@ import type {
   TestNaniteTriggerInput,
   TestNaniteTriggerOutput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
-import type { NaniteWorkspaceInfo } from "#/backend/agents/SigveloNaniteAgent.ts";
+import type {
+  NaniteAgentState,
+  NaniteWorkspaceInfo,
+  SigveloNaniteAgent,
+} from "#/backend/agents/SigveloNaniteAgent.ts";
 import type { FileInfo } from "@cloudflare/shell";
 import {
   ManagerRuntimeChatConnector,
-  NaniteAgentProvider,
   NaniteRuntimeChatConnector,
   NaniteRuntimeChatLoading,
   NaniteRuntimeChatPlaceholder,
-  useNaniteAgent,
+  type NaniteAgentInstance,
 } from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
 import {
   getNextNaniteDesktopPanel,
@@ -94,7 +97,7 @@ import {
   fetchOptionalSession,
   invalidateAuthQueries,
 } from "#/frontend/lib/auth.ts";
-import { NANITE_MANAGER_NAME } from "#/nanites.ts";
+import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/nanites.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import { buildGitHubAppInstallHref, SIGVELO_GITHUB_APP_URL } from "#/github.ts";
 import {
@@ -259,6 +262,15 @@ export const Route = createFileRoute("/_authenticated/nanites")({
   component: NanitesRoute,
 });
 
+const naniteDateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+const naniteRelativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
+  numeric: "auto",
+  style: "narrow",
+});
+
 function formatStatus(status: NaniteRunStatus): string {
   return status.replaceAll("_", " ");
 }
@@ -268,10 +280,7 @@ function formatDate(value: string | null): string {
     return "Not recorded";
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return naniteDateFormatter.format(new Date(value));
 }
 
 function formatRelativeDate(value: string | null): string {
@@ -293,11 +302,9 @@ function formatRelativeDate(value: string | null): string {
     { unit: "hour", ms: 60 * 60 * 1000 },
     { unit: "minute", ms: 60 * 1000 },
   ];
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto", style: "narrow" });
-
   for (const { unit, ms } of units) {
     if (absoluteMs >= ms) {
-      return formatter.format(Math.round(-elapsedMs / ms), unit);
+      return naniteRelativeTimeFormatter.format(Math.round(-elapsedMs / ms), unit);
     }
   }
 
@@ -476,7 +483,11 @@ function InstallationPicker({
   const navigate = Route.useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const installationsQuery = useQuery({
+  const {
+    data: installationsData,
+    isFetching: isFetchingInstallations,
+    refetch: refetchInstallations,
+  } = useQuery({
     queryKey: visibleInstallationsQueryKey,
     queryFn: fetchVisibleInstallations,
     enabled: false,
@@ -486,7 +497,7 @@ function InstallationPicker({
     mutationFn: setActiveInstallation,
     onSuccess: async (_data, variables) => {
       await invalidateAuthQueries(queryClient);
-      const installation = installationsQuery.data?.installations.find(
+      const installation = installationsData?.installations.find(
         (candidate) => candidate.id === variables.githubInstallationId,
       );
       await navigate({
@@ -514,7 +525,7 @@ function InstallationPicker({
     },
   });
 
-  const installations = installationsQuery.data?.installations ?? [];
+  const installations = installationsData?.installations ?? [];
   const otherInstallations = installations.filter(
     (installation) => installation.id !== activeInstallation.id,
   );
@@ -532,8 +543,8 @@ function InstallationPicker({
       <Popover.Trigger
         className="account-menu__trigger account-menu__trigger--nanites"
         onClick={() => {
-          if (!installationsQuery.isFetching) {
-            void installationsQuery.refetch();
+          if (!isFetchingInstallations) {
+            void refetchInstallations();
           }
         }}
       >
@@ -564,7 +575,7 @@ function InstallationPicker({
               </div>
             </div>
 
-            {installationsQuery.isFetching && installations.length === 0 ? (
+            {isFetchingInstallations && installations.length === 0 ? (
               <div className="account-menu__empty">
                 <span className="account-menu__empty-title">Loading accounts</span>
               </div>
@@ -1127,7 +1138,8 @@ function NaniteRunInfoPanel({
   readonly run: NaniteRunRecord | null;
   readonly testTriggerError: unknown;
 }) {
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [confirmingDeleteNaniteId, setConfirmingDeleteNaniteId] = useState<string | null>(null);
+  const isConfirmingDelete = confirmingDeleteNaniteId === nanite?.manifest.id;
   const canTestTrigger = nanite ? buildBrowserTriggerTestEvent(nanite) !== null : false;
   const repository =
     (run ? getRunRepository(run) : null) ??
@@ -1233,10 +1245,6 @@ function NaniteRunInfoPanel({
       : null,
   ].filter((row) => row !== null);
 
-  useEffect(() => {
-    setIsConfirmingDelete(false);
-  }, [nanite?.manifest.id]);
-
   return (
     <aside className="nanites-workspace__info-rail" aria-label="Run details">
       <section className="nanites-workspace__info-card">
@@ -1254,7 +1262,7 @@ function NaniteRunInfoPanel({
                 disabled={isDeleting}
                 onClick={() => {
                   if (!isConfirmingDelete) {
-                    setIsConfirmingDelete(true);
+                    setConfirmingDeleteNaniteId(nanite.manifest.id);
                     return;
                   }
 
@@ -1274,7 +1282,7 @@ function NaniteRunInfoPanel({
                 <button
                   type="button"
                   className="nanites-workspace__danger-cancel"
-                  onClick={() => setIsConfirmingDelete(false)}
+                  onClick={() => setConfirmingDeleteNaniteId(null)}
                 >
                   Cancel
                 </button>
@@ -1392,6 +1400,8 @@ const naniteDefinitionRootPath = "/nanite";
 const naniteWorkspaceDirectoryLimit = 1_000;
 const naniteWorkspaceFilePreviewMaxBytes = 1_000_000;
 const naniteWorkspaceFilterScanEntryLimit = 2_000;
+const emptyLoadedDirectories = new Set<string>();
+const emptyWorkspaceTreeEntries: readonly NaniteWorkspaceTreeEntry[] = [];
 
 function resolveWorkspaceRoot(info: NaniteWorkspaceInfo | null): string {
   return info?.repositoryRoot ?? naniteWorkspaceFallbackRootPath;
@@ -1492,10 +1502,12 @@ function uniqueWorkspaceEntries(
 }
 
 function NaniteWorkspacePanel({
+  agent,
   nanite,
   naniteId,
   refreshKey,
 }: {
+  readonly agent: NaniteAgentInstance | null;
   readonly nanite: ManagedNanite | null;
   readonly naniteId: string | null;
   readonly refreshKey: string;
@@ -1522,19 +1534,20 @@ function NaniteWorkspacePanel({
         </section>
       }
     >
-      <NaniteWorkspaceReview key={naniteId} nanite={nanite} refreshKey={refreshKey} />
+      <NaniteWorkspaceReview key={naniteId} agent={agent} nanite={nanite} refreshKey={refreshKey} />
     </Suspense>
   );
 }
 
 function NaniteWorkspaceReview({
+  agent: naniteAgent,
   nanite,
   refreshKey,
 }: {
+  readonly agent: NaniteAgentInstance | null;
   readonly nanite: ManagedNanite | null;
   readonly refreshKey: string;
 }) {
-  const naniteAgent = useNaniteAgent();
   const [files, setFiles] = useState<readonly NaniteWorkspaceReviewFile[]>([]);
   const [entriesByDirectory, setEntriesByDirectory] = useState<
     Record<string, readonly NaniteWorkspaceTreeEntry[]>
@@ -1547,16 +1560,22 @@ function NaniteWorkspaceReview({
   const [loading, setLoading] = useState(false);
   const [loadingDirectories, setLoadingDirectories] = useState<ReadonlySet<string>>(new Set());
   const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
-  const [filterSearchEntries, setFilterSearchEntries] = useState<
-    readonly NaniteWorkspaceTreeEntry[]
-  >([]);
-  const [filterSearchLoading, setFilterSearchLoading] = useState(false);
+  const [filterSearch, setFilterSearch] = useState<{
+    readonly entries: readonly NaniteWorkspaceTreeEntry[];
+    readonly filter: string;
+    readonly loading: boolean;
+  } | null>(null);
   const [copiedFile, setCopiedFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const loadedDirectoriesRef = useRef<ReadonlySet<string>>(new Set());
+  const loadedDirectoriesRef = useRef<ReadonlySet<string>>(emptyLoadedDirectories);
   const copiedFileTimeoutRef = useRef<number | null>(null);
 
   const workspaceRoot = resolveWorkspaceRoot(info);
+  const workspaceFilter = useMemo(() => fileFilter.trim().toLowerCase(), [fileFilter]);
+  const filterSearchEntries =
+    filterSearch?.filter === workspaceFilter ? filterSearch.entries : emptyWorkspaceTreeEntries;
+  const filterSearchLoading =
+    workspaceFilter.length > 0 && filterSearch?.filter === workspaceFilter && filterSearch.loading;
 
   const definitionFiles = useMemo(() => buildNaniteDefinitionFiles(nanite), [nanite]);
   const definitionFilesByPath = useMemo(
@@ -1724,16 +1743,15 @@ function NaniteWorkspaceReview({
   }, []);
 
   useEffect(() => {
-    const filter = fileFilter.trim().toLowerCase();
-    if (!filter) {
-      setFilterSearchEntries([]);
-      setFilterSearchLoading(false);
-      return;
-    }
+    if (!workspaceFilter) return;
 
     let canceled = false;
     const timeout = window.setTimeout(() => {
-      setFilterSearchLoading(true);
+      setFilterSearch((current) => ({
+        entries: current?.filter === workspaceFilter ? current.entries : emptyWorkspaceTreeEntries,
+        filter: workspaceFilter,
+        loading: true,
+      }));
       void (async () => {
         const matches: NaniteWorkspaceTreeEntry[] = [];
         const directories = [workspaceRoot];
@@ -1757,7 +1775,7 @@ function NaniteWorkspaceReview({
                 directories.push(entry.path);
                 continue;
               }
-              if (entry.path.toLowerCase().includes(filter)) {
+              if (entry.path.toLowerCase().includes(workspaceFilter)) {
                 matches.push(entry);
               }
               if (scannedEntries >= naniteWorkspaceFilterScanEntryLimit) {
@@ -1767,16 +1785,28 @@ function NaniteWorkspaceReview({
           }
 
           if (!canceled) {
-            setFilterSearchEntries(uniqueWorkspaceEntries(matches));
+            setFilterSearch({
+              entries: uniqueWorkspaceEntries(matches),
+              filter: workspaceFilter,
+              loading: false,
+            });
           }
         } catch (searchError) {
           if (!canceled) {
-            setFilterSearchEntries([]);
+            setFilterSearch({
+              entries: emptyWorkspaceTreeEntries,
+              filter: workspaceFilter,
+              loading: false,
+            });
             setError(searchError instanceof Error ? searchError.message : String(searchError));
           }
         } finally {
           if (!canceled) {
-            setFilterSearchLoading(false);
+            setFilterSearch((current) =>
+              current?.filter === workspaceFilter && current.loading
+                ? { ...current, loading: false }
+                : current,
+            );
           }
         }
       })();
@@ -1786,30 +1816,29 @@ function NaniteWorkspaceReview({
       canceled = true;
       window.clearTimeout(timeout);
     };
-  }, [fileFilter, naniteAgent, workspaceRoot]);
+  }, [naniteAgent, workspaceFilter, workspaceRoot]);
 
   const loadedFileEntries = useMemo(() => {
     const entries = Object.values(entriesByDirectory).flat();
     return entries.filter((entry) => entry.type !== "directory");
   }, [entriesByDirectory]);
   const filteredFileEntries = useMemo(() => {
-    const filter = fileFilter.trim().toLowerCase();
-    if (!filter) {
+    if (!workspaceFilter) {
       return loadedFileEntries;
     }
     return uniqueWorkspaceEntries(
       [...loadedFileEntries, ...filterSearchEntries].filter((entry) =>
-        entry.path.toLowerCase().includes(filter),
+        entry.path.toLowerCase().includes(workspaceFilter),
       ),
     );
-  }, [fileFilter, filterSearchEntries, loadedFileEntries]);
+  }, [filterSearchEntries, loadedFileEntries, workspaceFilter]);
   const selectedFile = selectedPath ? (filesByPath.get(selectedPath) ?? null) : null;
   const selectedFileIsLoading = selectedPath !== null && loadingFilePath === selectedPath;
   const hasWorkspaceEntries =
     (entriesByDirectory[workspaceRoot]?.length ?? 0) > 0 || definitionFiles.length > 0;
   const visibleTreeEntries = useMemo(
-    () => (fileFilter.trim() ? filteredFileEntries : (entriesByDirectory[workspaceRoot] ?? [])),
-    [entriesByDirectory, fileFilter, filteredFileEntries, workspaceRoot],
+    () => (workspaceFilter ? filteredFileEntries : (entriesByDirectory[workspaceRoot] ?? [])),
+    [entriesByDirectory, filteredFileEntries, workspaceFilter, workspaceRoot],
   );
 
   const handleSelectFile = useCallback(
@@ -2084,28 +2113,27 @@ function NaniteWorkspaceReview({
 function NanitesRoute() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const sessionQuery = useQuery({
+  const { data: session, isPending: isSessionPending } = useQuery({
     queryKey: AUTH_SESSION_QUERY_KEY,
     queryFn: fetchOptionalSession,
     throwOnError: true,
   });
-  const session = sessionQuery.data;
   const activeInstallation = session?.activeInstallation ?? null;
   const actor = session?.actor ?? null;
-  const shouldLoadInstallations = !sessionQuery.isPending && !activeInstallation;
-  const installationsQuery = useQuery({
+  const shouldLoadInstallations = !isSessionPending && !activeInstallation;
+  const { data: installationsData, isPending: isInstallationsPending } = useQuery({
     queryKey: visibleInstallationsQueryKey,
     queryFn: fetchVisibleInstallations,
     enabled: shouldLoadInstallations,
     throwOnError: true,
   });
 
-  if (sessionQuery.isPending || (shouldLoadInstallations && installationsQuery.isPending)) {
+  if (isSessionPending || (shouldLoadInstallations && isInstallationsPending)) {
     return <RoutePendingPage />;
   }
 
   if (!activeInstallation || !actor) {
-    const installations = installationsQuery.data?.installations ?? [];
+    const installations = installationsData?.installations ?? [];
     if (installations.length > 0) {
       return <NanitesChooseInstallationState installations={installations} />;
     }
@@ -2330,7 +2358,7 @@ function NanitesRuntimeSurface({
   const [sidebarWidth, setSidebarWidth] = useState(248);
   const [asideWidth, setAsideWidth] = useState(340);
   const mobileTouchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
-  const managerStateQuery = useQuery({
+  const { data: managerStateData, refetch: refetchManagerState } = useQuery({
     queryKey: ["nanites", "manager", managerName],
     queryFn: () => fetchManagerState(managerName),
     throwOnError: true,
@@ -2342,8 +2370,8 @@ function NanitesRuntimeSurface({
     // testNaniteTrigger waits for a terminal run outcome and routinely needs longer.
     defaultCallTimeout: 120_000,
   });
-  const initialState = isNaniteManagerState(managerStateQuery.data?.state)
-    ? managerStateQuery.data.state
+  const initialState = isNaniteManagerState(managerStateData?.state)
+    ? managerStateData.state
     : emptyState;
   const state = pickManagerState({
     initialState,
@@ -2398,11 +2426,35 @@ function NanitesRuntimeSurface({
     null;
   const selectedNanite = activeNaniteItem?.nanite ?? null;
   const selectedNaniteAgentId = activeNaniteItem?.id ?? null;
+  const naniteAgent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
+    agent: NANITE_MANAGER_NAME,
+    name: managerName,
+    enabled: selectedNaniteAgentId !== null,
+    sub: [
+      {
+        agent: NANITE_AGENT_NAME,
+        name: selectedNaniteAgentId ?? "unselected",
+      },
+    ],
+  });
+  const selectedNaniteAgent = selectedNaniteAgentId ? naniteAgent : null;
   const createModeBaselineNaniteIdsRef = useRef<ReadonlySet<string> | null>(null);
+  const preferredMobileViewRef = useRef<{
+    readonly naniteId: string;
+    readonly view: NaniteMobileView;
+  } | null>(null);
   const visibleMobileViews = useMemo(
     () => (isCreateMode ? (["nanites", "chat"] as const) : naniteMobileViews),
     [isCreateMode],
   );
+  const preferredMobileView =
+    preferredMobileViewRef.current?.naniteId === selectedNaniteAgentId
+      ? preferredMobileViewRef.current.view
+      : null;
+  const requestedMobileView = preferredMobileView ?? mobileView;
+  const activeMobileView = visibleMobileViews.includes(requestedMobileView)
+    ? requestedMobileView
+    : "chat";
   const effectiveDesktopPanel = isCreateMode ? null : desktopPanel;
   const deleteNanite = useMutation({
     mutationFn: async (input: { readonly naniteId: string }) => {
@@ -2426,7 +2478,7 @@ function NanitesRuntimeSurface({
     },
     onSuccess: async (_output, input) => {
       const nextItem = naniteItems.find((item) => item.id !== input.naniteId) ?? null;
-      await managerStateQuery.refetch();
+      await refetchManagerState();
       await navigate({
         search: (previous) => ({
           ...previous,
@@ -2464,7 +2516,7 @@ function NanitesRuntimeSurface({
     },
     onSuccess: async (output) => {
       const latestRun = output.runs[0] ?? null;
-      await managerStateQuery.refetch();
+      await refetchManagerState();
       await navigate({
         search: (previous) => ({
           ...previous,
@@ -2482,11 +2534,12 @@ function NanitesRuntimeSurface({
   });
 
   const selectMobileView = (view: NaniteMobileView) => {
+    preferredMobileViewRef.current = null;
     setMobileView(view);
   };
 
   const moveMobileView = (direction: 1 | -1) => {
-    const currentIndex = visibleMobileViews.indexOf(mobileView);
+    const currentIndex = visibleMobileViews.indexOf(activeMobileView);
     const nextIndex = Math.min(
       visibleMobileViews.length - 1,
       Math.max(0, currentIndex + direction),
@@ -2496,12 +2549,6 @@ function NanitesRuntimeSurface({
       selectMobileView(nextView);
     }
   };
-
-  useEffect(() => {
-    if (!visibleMobileViews.includes(mobileView)) {
-      setMobileView("chat");
-    }
-  }, [mobileView, visibleMobileViews]);
 
   useEffect(() => {
     if (isCreateMode) {
@@ -2535,8 +2582,8 @@ function NanitesRuntimeSurface({
     }
 
     createModeBaselineNaniteIdsRef.current = new Set(naniteItems.map((item) => item.id));
+    preferredMobileViewRef.current = { naniteId: createdNanite.id, view: "chat" };
     setSelection({ naniteId: createdNanite.id });
-    setMobileView("chat");
   }, [isCreateMode, naniteItems, setSelection]);
 
   useEffect(() => {
@@ -2594,7 +2641,7 @@ function NanitesRuntimeSurface({
       className="nanites-workspace"
       data-desktop-panel={effectiveDesktopPanel ?? "closed"}
       data-sidebar-open={isSidebarOpen}
-      data-mobile-view={mobileView}
+      data-mobile-view={activeMobileView}
       aria-label="Nanite runtime"
       style={
         {
@@ -2898,7 +2945,10 @@ function NanitesRuntimeSurface({
                   />
                 }
               >
-                <NaniteRuntimeChatConnector key={selectedNaniteAgentId} />
+                <NaniteRuntimeChatConnector
+                  key={selectedNaniteAgentId}
+                  agent={selectedNaniteAgent}
+                />
               </Suspense>
             ) : (
               <NaniteRuntimeChatPlaceholder />
@@ -2949,6 +2999,7 @@ function NanitesRuntimeSurface({
         >
           <div className="nanites-workspace__files-slot">
             <NaniteWorkspacePanel
+              agent={selectedNaniteAgent}
               nanite={selectedNanite}
               naniteId={selectedNaniteAgentId}
               refreshKey={`${selectedRun?.runId ?? "no-run"}:${selectedRun?.updatedAt ?? "no-update"}`}
@@ -2968,7 +3019,7 @@ function NanitesRuntimeSurface({
       >
         <button
           type="button"
-          data-selected={mobileView === "nanites"}
+          data-selected={activeMobileView === "nanites"}
           onClick={() => selectMobileView("nanites")}
         >
           <FolderSimpleIcon size={18} aria-hidden="true" />
@@ -2976,7 +3027,7 @@ function NanitesRuntimeSurface({
         </button>
         <button
           type="button"
-          data-selected={mobileView === "chat"}
+          data-selected={activeMobileView === "chat"}
           onClick={() => selectMobileView("chat")}
         >
           <ChatCircleTextIcon size={18} aria-hidden="true" />
@@ -2985,7 +3036,7 @@ function NanitesRuntimeSurface({
         {!isCreateMode ? (
           <button
             type="button"
-            data-selected={mobileView === "files"}
+            data-selected={activeMobileView === "files"}
             onClick={() => selectMobileView("files")}
           >
             <FileIcon size={18} aria-hidden="true" />
@@ -2995,7 +3046,7 @@ function NanitesRuntimeSurface({
         {!isCreateMode ? (
           <button
             type="button"
-            data-selected={mobileView === "summary"}
+            data-selected={activeMobileView === "summary"}
             onClick={() => selectMobileView("summary")}
           >
             <SlidersHorizontalIcon size={18} aria-hidden="true" />
@@ -3005,18 +3056,6 @@ function NanitesRuntimeSurface({
       </nav>
     </main>
   );
-
-  if (selectedNaniteAgentId) {
-    return (
-      <NaniteAgentProvider
-        key={selectedNaniteAgentId}
-        managerName={managerName}
-        naniteId={selectedNaniteAgentId}
-      >
-        {main}
-      </NaniteAgentProvider>
-    );
-  }
 
   return main;
 }

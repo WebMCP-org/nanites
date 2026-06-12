@@ -39,7 +39,7 @@ interface CodeBlockContextValue {
 const CodeBlockContext = React.createContext<CodeBlockContextValue | null>(null);
 
 function useCodeBlockContext(): CodeBlockContextValue {
-  const ctx = React.useContext(CodeBlockContext);
+  const ctx = React.use(CodeBlockContext);
   if (!ctx) {
     throw new Error("CodeBlock subcomponents must be used inside <CodeBlock>.");
   }

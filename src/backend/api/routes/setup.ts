@@ -235,8 +235,13 @@ async function requireGitHubBrowserAuth(context: Context<WorkerHonoEnv>) {
 async function requireInstallationHasVisibleRepository(
   accessToken: string,
   githubInstallationId: number,
+  projection: { env: Env; githubAppId: number },
 ): Promise<string> {
-  const repositories = await listInstallationRepositories(accessToken, githubInstallationId);
+  const repositories = await listInstallationRepositories(
+    accessToken,
+    githubInstallationId,
+    projection,
+  );
   const repository = repositories[0] ?? null;
   if (!repository) {
     throwInstallationVerificationFailed({
@@ -401,9 +406,11 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       });
     }
 
+    await recordVisibleInstallationSnapshots(db, [verifiedInstallation]);
     const firstVisibleRepositoryFullName = await requireInstallationHasVisibleRepository(
       githubUserToken.accessToken,
       verifiedInstallation.id,
+      { env: context.env, githubAppId: wizardApp.appId },
     );
     await proveInstallationTokenCanBeMinted({
       env: context.env,
@@ -411,8 +418,6 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       githubInstallationId: verifiedInstallation.id,
       repositoryFullName: firstVisibleRepositoryFullName,
     });
-    await recordVisibleInstallationSnapshots(db, [verifiedInstallation]);
-
     const setupAgent = await getSetupAgent(context.env);
     const result = await setupAgent.recordRepositoryInstall({
       claimToken,

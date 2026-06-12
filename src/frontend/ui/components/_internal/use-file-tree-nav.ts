@@ -22,7 +22,7 @@ export interface FileTreeContextValue {
 export const FileTreeContext = React.createContext<FileTreeContextValue | null>(null);
 
 export function useFileTreeContext(): FileTreeContextValue {
-  const ctx = React.useContext(FileTreeContext);
+  const ctx = React.use(FileTreeContext);
   if (!ctx) {
     throw new Error("FileTree subcomponents must be used inside <FileTree>.");
   }

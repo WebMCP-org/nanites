@@ -42,7 +42,7 @@ interface ToolContextValue {
 const ToolContext = React.createContext<ToolContextValue | null>(null);
 
 function useToolContext(): ToolContextValue {
-  const ctx = React.useContext(ToolContext);
+  const ctx = React.use(ToolContext);
   if (!ctx) {
     throw new Error("Tool subcomponents must be used inside <Tool>.");
   }

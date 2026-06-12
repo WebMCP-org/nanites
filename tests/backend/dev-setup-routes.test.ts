@@ -39,7 +39,7 @@ function buildManifestConversion() {
     owner: { login: "alexmnahas", type: "User" },
     client_id: "Iv1.devtest",
     client_secret: "dev-client-secret",
-    // GitHub may omit the webhook secret when hooks start inactive.
+    // The local hook starts inactive, so GitHub may not return a webhook secret.
     webhook_secret: null,
     pem: "-----BEGIN RSA PRIVATE KEY-----\ntest-key-body\n-----END RSA PRIVATE KEY-----\n",
     permissions: { issues: "write" },
@@ -171,6 +171,12 @@ test("manifest callback registers the app and prints the .dev.vars paste block",
   expect(manifest).not.toHaveProperty("logo_url");
   expect(manifest).not.toHaveProperty("avatar_url");
   expect(manifest).not.toHaveProperty("badge_url");
+  expect(manifest).toMatchObject({
+    hook_attributes: {
+      url: "https://example.com/nanites-local-webhook",
+      active: false,
+    },
+  });
 
   const stub = withStubbedFetch((request) =>
     request.url === GITHUB_MANIFEST_CONVERSION_URL && request.method === "POST"

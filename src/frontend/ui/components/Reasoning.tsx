@@ -19,7 +19,7 @@ const AUTO_CLOSE_DELAY_MS = 1_000;
 const MS_IN_S = 1_000;
 
 export function useReasoning(): ReasoningContextValue {
-  const ctx = React.useContext(ReasoningContext);
+  const ctx = React.use(ReasoningContext);
   if (!ctx) {
     throw new Error("Reasoning subcomponents must be used inside <Reasoning>.");
   }
@@ -73,7 +73,7 @@ export function Reasoning({
   const previousStreamingRef = React.useRef(isStreaming);
   const startTimeRef = React.useRef<number | null>(isStreaming ? Date.now() : null);
   const hasEverStreamedRef = React.useRef(isStreaming);
-  const [hasAutoClosed, setHasAutoClosed] = React.useState(false);
+  const hasAutoClosedRef = React.useRef(false);
 
   const isControlled = open !== undefined;
   const currentOpen = isControlled ? open : internalOpen;
@@ -102,7 +102,7 @@ export function Reasoning({
   React.useEffect(() => {
     if (isStreaming) {
       hasEverStreamedRef.current = true;
-      setHasAutoClosed(false);
+      hasAutoClosedRef.current = false;
       if (duration === undefined) {
         setInternalDuration(undefined);
       }
@@ -132,11 +132,11 @@ export function Reasoning({
       wasStreaming &&
       hasEverStreamedRef.current &&
       currentOpen &&
-      !hasAutoClosed
+      !hasAutoClosedRef.current
     ) {
       const closeTimer = window.setTimeout(() => {
         setOpenState(false);
-        setHasAutoClosed(true);
+        hasAutoClosedRef.current = true;
       }, AUTO_CLOSE_DELAY_MS);
 
       previousStreamingRef.current = isStreaming;
@@ -144,7 +144,7 @@ export function Reasoning({
     }
 
     previousStreamingRef.current = isStreaming;
-  }, [currentOpen, hasAutoClosed, isStreaming, preventAutoOpen, setOpenState]);
+  }, [currentOpen, isStreaming, preventAutoOpen, setOpenState]);
 
   const handleOpenChange = React.useCallback(
     (next: boolean, _eventDetails: CollapsibleRootChangeEventDetails) => {

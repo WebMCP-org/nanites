@@ -18,6 +18,7 @@ import {
   sealSessionCookie,
   appendExpiredAuthCookies,
   requireSession,
+  type SessionInstallationSnapshot,
 } from "#/backend/auth/session.ts";
 import { recordAuthFunnelFact, recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import {
@@ -39,6 +40,25 @@ const authLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .with({
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
+
+function chooseDefaultActiveInstallation(
+  installations: readonly SessionInstallationSnapshot[],
+): SessionInstallationSnapshot | null {
+  return installations.length === 1 ? (installations[0] ?? null) : null;
+}
+
+function chooseRequestedOrDefaultActiveInstallation(
+  installations: readonly SessionInstallationSnapshot[],
+  requestedInstallationId: number | null,
+): SessionInstallationSnapshot | null {
+  if (requestedInstallationId !== null) {
+    return (
+      installations.find((installation) => installation.id === requestedInstallationId) ?? null
+    );
+  }
+
+  return chooseDefaultActiveInstallation(installations);
+}
 
 async function recordAccountAuthFunnelEvent(
   db: DbClient,
@@ -177,18 +197,19 @@ export async function completeGitHubOAuthCallback({
     primaryGitHubApp.appId,
   );
   await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
+  const activeInstallation = chooseDefaultActiveInstallation(sessionInstallationSnapshots);
   const session = nanitesSessionSchema.parse({
     githubViewer: actor,
-    activeGithubAppId: sessionInstallationSnapshots[0]?.githubAppId ?? null,
-    activeGithubInstallationId: sessionInstallationSnapshots[0]?.id ?? null,
-    sessionInstallationSnapshot: sessionInstallationSnapshots[0] ?? null,
+    activeGithubAppId: activeInstallation?.githubAppId ?? null,
+    activeGithubInstallationId: activeInstallation?.id ?? null,
+    sessionInstallationSnapshot: activeInstallation,
     expiresAt: buildBrowserSessionExpiration(),
   });
 
   await recordAccountAuthFunnelEvent(db, {
     githubUserId: actor.id,
     githubLogin: actor.login,
-    githubInstallationId: sessionInstallationSnapshots[0]?.id ?? null,
+    githubInstallationId: activeInstallation?.id ?? null,
     eventType: "github_oauth_callback_succeeded",
     metadata: {
       visibleInstallationCount: visibleInstallations.length,
@@ -198,20 +219,20 @@ export async function completeGitHubOAuthCallback({
   await recordAccountAuthFunnelEvent(db, {
     githubUserId: actor.id,
     githubLogin: actor.login,
-    githubInstallationId: sessionInstallationSnapshots[0]?.id ?? null,
+    githubInstallationId: activeInstallation?.id ?? null,
     eventType: "first_session_created",
     metadata: {
       activeGithubInstallationId: session.activeGithubInstallationId,
     },
   });
-  if (sessionInstallationSnapshots[0]) {
+  if (activeInstallation) {
     await recordAccountAuthFunnelEvent(db, {
       githubUserId: actor.id,
       githubLogin: actor.login,
-      githubInstallationId: sessionInstallationSnapshots[0].id,
+      githubInstallationId: activeInstallation.id,
       eventType: "first_visible_installation_auto_selected",
       metadata: {
-        githubInstallationId: sessionInstallationSnapshots[0].id,
+        githubInstallationId: activeInstallation.id,
       },
     });
   }
@@ -266,23 +287,22 @@ export async function mintTestAuthSession({
   }
 
   const viewer = await fetchGitHubViewer(realGitHubUserToken);
-  const primaryGitHubApp = await requirePrimaryGitHubApp(createDbClient(env.DB), env);
+  const db = createDbClient(env.DB);
+  const primaryGitHubApp = await requirePrimaryGitHubApp(db, env);
   const visibleInstallations = await listVisibleInstallations(realGitHubUserToken);
   const sessionInstallationSnapshots = readSessionInstallationSnapshots(
     visibleInstallations,
     primaryGitHubApp.appId,
   );
-  const activeInstallationSnapshot =
-    sessionInstallationSnapshots.find(
-      (installation) => installation.id === params.activeGithubInstallationId,
-    ) ??
-    sessionInstallationSnapshots[0] ??
-    null;
+  await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
+  const activeInstallationSnapshot = chooseRequestedOrDefaultActiveInstallation(
+    sessionInstallationSnapshots,
+    params.activeGithubInstallationId,
+  );
   const session = nanitesSessionSchema.parse({
     githubViewer: viewer,
     activeGithubAppId: activeInstallationSnapshot?.githubAppId ?? null,
-    activeGithubInstallationId:
-      params.activeGithubInstallationId ?? sessionInstallationSnapshots[0]?.id ?? null,
+    activeGithubInstallationId: activeInstallationSnapshot?.id ?? null,
     sessionInstallationSnapshot: activeInstallationSnapshot,
     expiresAt: sessionExpiresAt,
   });

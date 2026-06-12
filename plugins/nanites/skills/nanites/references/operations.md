@@ -65,13 +65,16 @@ Expected scopes:
 - Read: `nanites:read`
 - Write: `nanites:write`
 
-Local MCP smoke tests can use the GitHub CLI token already stored in the user's keychain. Do not print or commit the token. Start the local app with:
+Local MCP smoke tests should use the real local GitHub App OAuth flow. A plain `gh auth token` is a
+GitHub CLI token, not a GitHub App user token, and GitHub rejects it for app installation listing.
+Start the local app with:
 
 ```bash
-ALLOW_TEST_AUTH=true GITHUB_TEST_USER_TOKEN="$(gh auth token)" vp run dev
+vp run dev
 ```
 
-Run that from the repository root, then point MCPJam at the local server:
+Run that from the repository root, open `http://localhost:5173/auth/github/login`, complete OAuth,
+select the intended installation, then point MCPJam at the local server:
 
 ```bash
 mcpjam oauth login \

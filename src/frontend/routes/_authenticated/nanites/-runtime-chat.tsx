@@ -4,8 +4,6 @@ import type { UIMessage } from "ai";
 import { useAgent } from "agents/react";
 import {
   Component,
-  createContext,
-  use,
   useCallback,
   useEffect,
   useMemo,
@@ -73,11 +71,7 @@ import type {
   SigveloManagerConversationAgent,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import type { NaniteAgentState, SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
-import {
-  MANAGER_CONVERSATION_AGENT_NAME,
-  NANITE_AGENT_NAME,
-  NANITE_MANAGER_NAME,
-} from "#/nanites.ts";
+import { MANAGER_CONVERSATION_AGENT_NAME } from "#/nanites.ts";
 
 type PartialUIMessage = Partial<UIMessage> & {
   readonly id?: unknown;
@@ -793,34 +787,15 @@ export function NaniteRuntimeChatLoading({
   );
 }
 
-type NaniteAgentInstance = ReturnType<typeof useAgent<SigveloNaniteAgent, NaniteAgentState>>;
-const NaniteAgentContext = createContext<NaniteAgentInstance | null>(null);
+export type NaniteAgentInstance = ReturnType<typeof useAgent<SigveloNaniteAgent, NaniteAgentState>>;
 
-export function NaniteAgentProvider({
-  children,
-  managerName,
-  naniteId,
+export function NaniteRuntimeChatConnector({
+  agent,
 }: {
-  readonly children: ReactNode;
-  readonly managerName: string;
-  readonly naniteId: string;
+  readonly agent: NaniteAgentInstance | null;
 }) {
-  const agent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
-    agent: NANITE_MANAGER_NAME,
-    name: managerName,
-    sub: [{ agent: NANITE_AGENT_NAME, name: naniteId }],
-  });
-  return <NaniteAgentContext.Provider value={agent}>{children}</NaniteAgentContext.Provider>;
-}
-
-export function useNaniteAgent(): NaniteAgentInstance | null {
-  return use(NaniteAgentContext);
-}
-
-export function NaniteRuntimeChatConnector() {
-  const naniteAgent = use(NaniteAgentContext);
-  if (!naniteAgent) return <NaniteRuntimeChatPlaceholder />;
-  return <NaniteRuntimeChatSession agent={naniteAgent} />;
+  if (!agent) return <NaniteRuntimeChatPlaceholder />;
+  return <NaniteRuntimeChatSession agent={agent} />;
 }
 
 export function ManagerRuntimeChatConnector({

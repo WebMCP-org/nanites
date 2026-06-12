@@ -12,6 +12,8 @@ export type StepIndicators = {
   loading?: React.ReactNode;
 };
 
+const defaultStepIndicators: StepIndicators = {};
+
 export interface StepperContextValue {
   activeStep: number;
   setActiveStep: (step: number) => void;
@@ -37,7 +39,7 @@ const StepperContext = React.createContext<StepperContextValue | undefined>(unde
 const StepItemContext = React.createContext<StepItemContextValue | undefined>(undefined);
 
 export function useStepper() {
-  const context = React.useContext(StepperContext);
+  const context = React.use(StepperContext);
 
   if (!context) {
     throw new Error("useStepper must be used within a Stepper");
@@ -47,7 +49,7 @@ export function useStepper() {
 }
 
 export function useStepItem() {
-  const context = React.useContext(StepItemContext);
+  const context = React.use(StepItemContext);
 
   if (!context) {
     throw new Error("useStepItem must be used within a StepperItem");
@@ -69,7 +71,7 @@ export function Stepper({
   value,
   onValueChange,
   orientation = "horizontal",
-  indicators = {},
+  indicators = defaultStepIndicators,
   className,
   children,
   ref,
@@ -78,7 +80,11 @@ export function Stepper({
   const generatedId = React.useId();
   const idPrefix = `stepper-${generatedId}`;
   const [uncontrolledValue, setUncontrolledValue] = React.useState(defaultValue);
-  const triggerNodes = React.useRef(new Map<number, HTMLButtonElement>());
+  const triggerNodesRef = React.useRef<Map<number, HTMLButtonElement> | null>(null);
+  if (triggerNodesRef.current === null) {
+    triggerNodesRef.current = new Map<number, HTMLButtonElement>();
+  }
+  const triggerNodes = triggerNodesRef.current;
   const [triggerSteps, setTriggerSteps] = React.useState<number[]>([]);
   const activeStep = value ?? uncontrolledValue;
 
@@ -93,28 +99,34 @@ export function Stepper({
     [onValueChange, value],
   );
 
-  const registerTrigger = React.useCallback((step: number, node: HTMLButtonElement | null) => {
-    if (node) {
-      triggerNodes.current.set(step, node);
-      setTriggerSteps((steps) => (steps.includes(step) ? steps : [...steps, step]));
-      return;
-    }
+  const registerTrigger = React.useCallback(
+    (step: number, node: HTMLButtonElement | null) => {
+      if (node) {
+        triggerNodes.set(step, node);
+        setTriggerSteps((steps) => (steps.includes(step) ? steps : [...steps, step]));
+        return;
+      }
 
-    triggerNodes.current.delete(step);
-    setTriggerSteps((steps) => steps.filter((currentStep) => currentStep !== step));
-  }, []);
+      triggerNodes.delete(step);
+      setTriggerSteps((steps) => steps.filter((currentStep) => currentStep !== step));
+    },
+    [triggerNodes],
+  );
 
-  const focusStep = React.useCallback((step: number) => {
-    triggerNodes.current.get(step)?.focus();
-  }, []);
+  const focusStep = React.useCallback(
+    (step: number) => {
+      triggerNodes.get(step)?.focus();
+    },
+    [triggerNodes],
+  );
 
   const getEnabledSteps = React.useCallback(
     () =>
       triggerSteps.filter((step) => {
-        const node = triggerNodes.current.get(step);
+        const node = triggerNodes.get(step);
         return node && !node.disabled;
       }),
-    [triggerSteps],
+    [triggerNodes, triggerSteps],
   );
 
   const focusNext = React.useCallback(
@@ -345,6 +357,7 @@ export function StepperTrigger({
 
   return (
     <button
+      type="button"
       ref={setTriggerRef}
       role="tab"
       id={triggerId}

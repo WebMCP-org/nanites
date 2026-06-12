@@ -331,6 +331,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           await listInstallationRepositories(
             authContext.githubUserToken.accessToken,
             activeInstallation.id,
+            { env: context.env, githubAppId: activeInstallation.githubAppId },
           )
         ).length === 0
       ) {
@@ -420,6 +421,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
             await listInstallationRepositories(
               authContext.githubUserToken.accessToken,
               installation.id,
+              { env: context.env, githubAppId: installation.githubAppId },
             )
           ).length,
           manageAccessHref: buildGitHubAppInstallHref({

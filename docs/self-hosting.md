@@ -291,13 +291,15 @@ The local `.dev.vars` template hides the setup wizard with `NANITES_SHOW_SETUP=f
 runtime GitHub App config: local OAuth and MCP still need the `github_apps` D1 row plus
 `AUTH_COOKIE_SECRET` and the per-app `GITHUB_APP_<ID>_*` secrets that `/setup/local` provides.
 
-For local MCP/browser smoke testing, you can use the GitHub CLI token from your keychain:
+For local MCP/browser smoke testing, use the real local GitHub App OAuth flow. A plain
+`gh auth token` is not a GitHub App user token and cannot list app installations.
 
 ```bash
-ALLOW_TEST_AUTH=true GITHUB_TEST_USER_TOKEN="$(gh auth token)" vp run dev
+vp run dev
 ```
 
-Then point an MCP client at:
+Open `http://localhost:5173/auth/github/login`, complete OAuth, select the intended installation,
+then point an MCP client at:
 
 ```text
 http://localhost:5173/mcp

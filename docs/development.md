@@ -148,9 +148,10 @@ vp run db:migrate:local && vp run dev
 curl -X POST http://localhost:5173/setup/local/restore
 ```
 
-The dev app is created with webhook deliveries inactive — GitHub cannot reach localhost, and local
-webhook behavior is covered by the test suite. For live local webhooks, point the app's webhook URL
-at a [smee.io](https://smee.io) channel in GitHub settings, activate it, and run
+The dev app manifest uses an inactive `https://example.com/nanites-local-webhook` placeholder
+because GitHub requires a hook URL but rejects localhost hook URLs. Local webhook behavior is
+covered by the test suite. For live local webhooks, point the app's webhook URL at a public
+[smee.io](https://smee.io) channel in GitHub settings, activate it, and run
 `npx smee-client --url <channel> --target http://localhost:5173/api/github/webhook`.
 
 The Nanite runtime should prefer Workspace git plus GitHub MCP/Octokit for GitHub API work. Do not assume shell `gh` is authenticated inside a Nanite unless `GH_TOKEN` injection is explicitly added.
@@ -205,14 +206,16 @@ Minimal MCP config:
 }
 ```
 
-Local MCP smoke tests can use the GitHub CLI token already stored in the user's keychain. Do not
-print or commit the token. Start the local app with:
+Local browser and MCP smoke tests should use the real local GitHub App OAuth flow. A plain
+`gh auth token` is a GitHub CLI token, not a GitHub App user token, and GitHub rejects it for
+`/user/installations`.
 
 ```bash
-ALLOW_TEST_AUTH=true GITHUB_TEST_USER_TOKEN="$(gh auth token)" vp run dev
+vp run dev
 ```
 
-Run that from the repository root, then point MCPJam at the local server:
+Open `http://localhost:5173/auth/github/login`, complete OAuth for the local/Sigvelo app, and select
+the intended installation in the UI. Then point MCPJam at the local server:
 
 ```bash
 mcpjam oauth login \
@@ -220,6 +223,9 @@ mcpjam oauth login \
   --scopes "nanites:read nanites:write" \
   --verify-tools
 ```
+
+The dev-only `/auth/test/mint-session` path is still available when `ALLOW_TEST_AUTH=true`, but it
+requires a GitHub App user token minted by the app, not the GitHub CLI token.
 
 ## Generated Trigger Contract
 

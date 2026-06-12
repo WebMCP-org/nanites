@@ -6,7 +6,10 @@ import { Octokit, RequestError } from "octokit";
 import { AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { createDbClient } from "#/backend/db/index.ts";
-import { recordPlatformUsageFact } from "#/backend/db/facts.ts";
+import {
+  recordInstallationRepositorySnapshots,
+  recordPlatformUsageFact,
+} from "#/backend/db/facts.ts";
 import {
   type GitHubAppCredentials,
   requireGitHubApp,
@@ -67,6 +70,10 @@ type GitHubOperationLogContext = {
   repository?: string;
   metadata?: Record<string, unknown>;
 };
+type GitHubRepositoryProjectionOptions = {
+  env: Env;
+  githubAppId: number;
+};
 
 function createGitHubOperationLogContext(
   context: GitHubOperationLogContext,
@@ -103,6 +110,10 @@ function logGitHubOperationFailure(
       ? { [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CODE]: error.status }
       : {}),
   });
+}
+
+export function isGitHubAuthenticationFailure(error: unknown): boolean {
+  return error instanceof RequestError && (error.status === 401 || error.status === 403);
 }
 
 async function observeGitHubOperation<T>(
@@ -373,7 +384,7 @@ export async function fetchAuthenticatedGitHubApp(input: {
     appId: app.id,
     slug: app.slug,
     htmlUrl: app.html_url,
-    ownerLogin: app.owner?.login ?? null,
+    ownerLogin: app.owner && "login" in app.owner ? app.owner.login : null,
     ownerType: app.owner && "type" in app.owner ? (app.owner.type ?? null) : null,
     clientId: app.client_id,
     permissions,
@@ -537,6 +548,7 @@ export async function listVisibleInstallations(
 export async function listInstallationRepositories(
   accessToken: string,
   githubInstallationId: number,
+  projection?: GitHubRepositoryProjectionOptions,
 ): Promise<GitHubInstallationRepository[]> {
   return observeGitHubOperation(
     {
@@ -558,6 +570,14 @@ export async function listInstallationRepositories(
         if (response.data.repositories.length < GITHUB_API_PAGE_SIZE) {
           break;
         }
+      }
+
+      if (projection) {
+        await recordInstallationRepositorySnapshots(createDbClient(projection.env.DB), {
+          githubAppId: projection.githubAppId,
+          githubInstallationId,
+          repositories,
+        });
       }
 
       return repositories;
@@ -607,6 +627,11 @@ export async function listReposAccessibleToInstallation(input: {
           pageCount,
           repositoryCount: repositories.length,
         },
+      });
+      await recordInstallationRepositorySnapshots(createDbClient(input.env.DB), {
+        githubAppId: input.githubAppId,
+        githubInstallationId: input.githubInstallationId,
+        repositories,
       });
       return repositories;
     },

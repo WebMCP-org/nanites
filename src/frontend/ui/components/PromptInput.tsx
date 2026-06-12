@@ -26,7 +26,7 @@ interface PromptInputContextValue {
 const PromptInputContext = React.createContext<PromptInputContextValue | null>(null);
 
 function usePromptInputContext(component: string): PromptInputContextValue {
-  const ctx = React.useContext(PromptInputContext);
+  const ctx = React.use(PromptInputContext);
   if (!ctx) {
     throw new Error(`${component} must be used inside a <PromptInput>.`);
   }

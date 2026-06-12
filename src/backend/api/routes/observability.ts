@@ -100,6 +100,7 @@ async function resolveObservabilityScope(
   const repositories = await listInstallationRepositories(
     token.accessToken,
     requestedInstallationId,
+    { env: context.env, githubAppId: visibleInstallation.githubAppId },
   );
   const visibleRepositoryFullNames = repositories.map((repository) => repository.full_name);
   const visibleRepositoryIds = repositories.map((repository) => repository.id);

@@ -53,7 +53,12 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 
 ## Local auth note
 
-Live local browser verification through `/auth/test/mint-session` requires a real GitHub user token.
+Live local browser verification should normally use real app OAuth at
+`http://localhost:5173/auth/github/login`.
+
+The dev-only `/auth/test/mint-session` helper requires a GitHub App user token for the app under
+test. A plain `gh auth token` is a GitHub CLI token and GitHub rejects it for app installation
+listing.
 
 Provide it with one of:
 

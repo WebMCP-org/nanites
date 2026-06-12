@@ -39,12 +39,12 @@ import {
   GITHUB_APP_MANIFEST_DESCRIPTION,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
-import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 
 export const DEV_LOCAL_SETUP_PATH = "/setup/local";
 const DEV_LOCAL_SETUP_CALLBACK_PATH = `${DEV_LOCAL_SETUP_PATH}/github/callback`;
 export const DEV_LOCAL_SETUP_RESTORE_PATH = `${DEV_LOCAL_SETUP_PATH}/restore`;
+const DEV_LOCAL_PLACEHOLDER_WEBHOOK_URL = "https://example.com/nanites-local-webhook";
 
 const MANIFEST_STATE_COOKIE_NAME = "nanites_dev_setup_state";
 const MANIFEST_STATE_COOKIE_MAX_AGE_SECONDS = 15 * 60;
@@ -112,11 +112,11 @@ function buildDevGitHubAppManifest(localhostOrigin: string, manifestState: strin
     redirect_url: new URL(DEV_LOCAL_SETUP_CALLBACK_PATH, localhostOrigin).toString(),
     callback_urls: [new URL(GITHUB_OAUTH_CALLBACK_PATH, localhostOrigin).toString()],
     request_oauth_on_install: false,
-    // GitHub cannot reach localhost, so deliveries stay off. A real webhook
-    // secret is still stored because credential resolution requires all three
-    // secrets; live local webhooks only need this URL repointed at a tunnel.
+    // GitHub App manifests require a hook URL but reject localhost URLs, even
+    // when the hook starts inactive. Use a public placeholder until a developer
+    // adds a tunnel URL in GitHub App settings.
     hook_attributes: {
-      url: new URL(GITHUB_WEBHOOK_PATH, localhostOrigin).toString(),
+      url: DEV_LOCAL_PLACEHOLDER_WEBHOOK_URL,
       active: false,
     },
     default_permissions: DEFAULT_GITHUB_APP_PERMISSIONS,
@@ -424,7 +424,7 @@ cookie. <a href="${DEV_LOCAL_SETUP_PATH}">Start over</a>.</p>`,
       appId: conversion.id,
       slug,
       htmlUrl: conversion.html_url,
-      ownerLogin: conversion.owner?.login ?? null,
+      ownerLogin: conversion.owner && "login" in conversion.owner ? conversion.owner.login : null,
       ownerType:
         conversion.owner && "type" in conversion.owner ? (conversion.owner.type ?? null) : null,
       clientId: requireConversionString(conversion, "client_id"),
@@ -440,9 +440,9 @@ cookie. <a href="${DEV_LOCAL_SETUP_PATH}">Start over</a>.</p>`,
           slug,
           privateKey: requireConversionString(conversion, "pem"),
           clientSecret: requireConversionString(conversion, "client_secret"),
-          // GitHub may omit the webhook secret when hooks start inactive; the
-          // runtime requires the binding regardless, so mint one — nothing
-          // verifies against it until live webhooks are configured.
+          // Local manifests use an inactive placeholder webhook URL because
+          // GitHub rejects localhost hook URLs. The runtime requires the
+          // binding regardless, so mint one when GitHub has no hook secret yet.
           webhookSecret:
             typeof conversion.webhook_secret === "string" && conversion.webhook_secret.length > 0
               ? conversion.webhook_secret
