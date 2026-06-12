@@ -1,5 +1,8 @@
 import type { ToolProvider } from "@cloudflare/codemode";
-import { wrapGitToolProviderWithLazyAuth } from "#/backend/nanites/git-auth.ts";
+import {
+  hideAttachmentsFromGit,
+  wrapGitToolProviderWithLazyAuth,
+} from "#/backend/nanites/git-auth.ts";
 
 type RecordedCall = { tool: string; options: Record<string, unknown> };
 
@@ -70,4 +73,38 @@ test("wrapped git types drop force from push and document push_force", () => {
   expect(wrapped.types).not.toContain(
     "push(opts?: { remote?: string; ref?: string; force?: boolean;",
   );
+});
+
+test("git-facing workspace hides /attachments so evicted transcript media is never committed", async () => {
+  const workspace = {
+    label: "fake-workspace",
+    readDir: async (path: string) => {
+      if (path === "/" || path === "" || path === ".") {
+        return [
+          { name: "attachments", type: "dir" },
+          { name: "src", type: "dir" },
+          { name: "README.md", type: "file" },
+        ];
+      }
+      if (path.replace(/\/+$/, "") === "/attachments") {
+        return [{ name: "evicted", type: "dir" }];
+      }
+      return [];
+    },
+    readFile: async (path: string) => `content:${path}`,
+  };
+
+  const gitWorkspace = hideAttachmentsFromGit(
+    workspace as unknown as Parameters<typeof hideAttachmentsFromGit>[0],
+  ) as unknown as typeof workspace;
+
+  expect((await gitWorkspace.readDir("/")).map((entry) => entry.name)).toEqual([
+    "src",
+    "README.md",
+  ]);
+  // Non-root listings and other methods pass through to the real workspace.
+  expect((await gitWorkspace.readDir("/attachments")).map((entry) => entry.name)).toEqual([
+    "evicted",
+  ]);
+  expect(await gitWorkspace.readFile("/src/index.ts")).toBe("content:/src/index.ts");
 });

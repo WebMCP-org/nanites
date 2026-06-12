@@ -299,11 +299,45 @@ type GitHubInstallationGitToolsOptions = {
   issueToken: (input: { repository: string }) => Promise<string | null>;
 };
 
+type GitWorkspace = Parameters<typeof gitTools>[0];
+
+/**
+ * think's media eviction (on by default) preserves oversized transcript media
+ * as workspace files under /attachments/evicted/. A repository cloned at the
+ * workspace root would see that directory as untracked, and a broad git add
+ * would commit transcript attachments into the repo. Hide /attachments from
+ * the git tools' directory walks; workspace read tools still see it.
+ */
+export function hideAttachmentsFromGit(workspace: GitWorkspace): GitWorkspace {
+  return new Proxy(workspace, {
+    get(target, property, receiver) {
+      if (property === "readDir") {
+        return async (path: string, ...rest: unknown[]) => {
+          const readDir = target.readDir.bind(target) as (
+            ...args: unknown[]
+          ) => Promise<{ name: string }[]>;
+          const entries = await readDir(path, ...rest);
+          const isRoot = path.replace(/\/+$/, "") === "" || path === "/" || path === ".";
+          return isRoot ? entries.filter((entry) => entry.name !== "attachments") : entries;
+        };
+      }
+
+      void receiver;
+      const value = Reflect.get(target, property, target);
+      // Workspace methods rely on private fields, which a Proxy receiver
+      // breaks; rebind them to the real instance.
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(target)
+        : value;
+    },
+  });
+}
+
 export function gitToolsWithGitHubInstallationAuth(
   workspace: Parameters<typeof gitTools>[0],
   options: GitHubInstallationGitToolsOptions,
 ): ToolProvider {
-  return wrapGitToolProviderWithLazyAuth(gitTools(workspace), {
+  return wrapGitToolProviderWithLazyAuth(gitTools(hideAttachmentsFromGit(workspace)), {
     isAuthRejection: isGitHubAuthRejection,
     resolveAuth: async ({ command, options: gitOptions }) => {
       const repository = await resolveGitCommandRepository({
