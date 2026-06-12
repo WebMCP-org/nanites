@@ -1,17 +1,4 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gte,
-  inArray,
-  isNull,
-  like,
-  lte,
-  or,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, like, lte, or, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "#/backend/db/index.ts";
 import { aiUsageFacts, auditEvents, naniteCatalog, naniteRunFacts } from "#/backend/db/schema.ts";
@@ -145,6 +132,22 @@ export type ObservabilityOverviewResponse = {
   nanitesByCreator: NaniteCreatorPoint[];
   runsByActor: RunActorPoint[];
   recentEvents: ObservabilityEventRow[];
+};
+
+export type ObservabilityDashboardFilterOptions = {
+  repositories: string[];
+  nanites: string[];
+  creators: string[];
+  outcomes: string[];
+  surfaces: string[];
+};
+
+export type ObservabilityDashboardResponse = {
+  overview: ObservabilityOverviewResponse;
+  nanites: NaniteCatalogRow[];
+  runs: RunFeedRow[];
+  audit: AuditFeedRow[];
+  filterOptions: ObservabilityDashboardFilterOptions;
 };
 
 export type NaniteCatalogRow = {
@@ -453,7 +456,10 @@ function visibleRepositoryCondition(
   scope: ObservabilityVisibilityScope,
 ): SQL<unknown> {
   const visibleIdsCondition = scope.visibleRepositoryIds.length
-    ? inArray(column, [...scope.visibleRepositoryIds])
+    ? sql`${column} in (
+        select cast(json_each.value as integer)
+        from json_each(${JSON.stringify(scope.visibleRepositoryIds)})
+      )`
     : undefined;
 
   return requireWhereAny([isNull(column), eq(column, 0), visibleIdsCondition]);
@@ -464,7 +470,10 @@ function visibleRequiredRepositoryCondition(
   scope: ObservabilityVisibilityScope,
 ): SQL<unknown> {
   const visibleIdsCondition = scope.visibleRepositoryIds.length
-    ? inArray(column, [...scope.visibleRepositoryIds])
+    ? sql`${column} in (
+        select cast(json_each.value as integer)
+        from json_each(${JSON.stringify(scope.visibleRepositoryIds)})
+      )`
     : undefined;
 
   return requireWhereAny([eq(column, 0), visibleIdsCondition]);
@@ -540,17 +549,15 @@ function catalogVisibleRepositoryCondition(scope: ObservabilityVisibilityScope):
     return eq(naniteCatalog.repositoryCount, 0);
   }
 
-  const visibleNames = sql.join(
-    scope.visibleRepositoryFullNames.map((repository) => sql`${repository}`),
-    sql`, `,
-  );
-
   return requireWhereAny([
     eq(naniteCatalog.repositoryCount, 0),
     sql`exists (
       select 1
       from json_each(${naniteCatalog.repositoryFullNamesJson})
-      where json_each.value in (${visibleNames})
+      where json_each.value in (
+        select visible_repository.value
+        from json_each(${JSON.stringify(scope.visibleRepositoryFullNames)}) visible_repository
+      )
     )`,
   ]);
 }
@@ -1400,6 +1407,47 @@ export async function getAuditFeed(
   const auditRows = await readAuditRows(db, scope);
 
   return auditRows.map(mapAuditFeedRow);
+}
+
+export async function getObservabilityDashboard(
+  db: DbClient,
+  scope: ObservabilityVisibilityScope,
+): Promise<ObservabilityDashboardResponse> {
+  const [
+    overview,
+    nanites,
+    runs,
+    audit,
+    repositories,
+    naniteOptions,
+    creators,
+    outcomes,
+    surfaces,
+  ] = await Promise.all([
+    getObservabilityOverview(db, scope),
+    getNaniteCatalogRows(db, scope),
+    getRunFeed(db, scope),
+    getAuditFeed(db, scope),
+    getObservabilityFilterOptions(db, scope, "repository"),
+    getObservabilityFilterOptions(db, scope, "naniteId"),
+    getObservabilityFilterOptions(db, scope, "creator"),
+    getObservabilityFilterOptions(db, scope, "outcome"),
+    getObservabilityFilterOptions(db, scope, "surface"),
+  ]);
+
+  return {
+    overview,
+    nanites,
+    runs,
+    audit,
+    filterOptions: {
+      repositories: repositories.options,
+      nanites: naniteOptions.options,
+      creators: creators.options,
+      outcomes: outcomes.options,
+      surfaces: surfaces.options,
+    },
+  };
 }
 
 export async function getObservabilityEventDetail(

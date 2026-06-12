@@ -271,8 +271,8 @@ activates an installation that GitHub lists as visible to the signed-in user.
 
 ## 3. Run locally
 
-Local development can still use env-provided GitHub App credentials instead of the Cloudflare setup
-flow:
+Local development uses the dev-only `/setup/local` page instead of the Cloudflare setup flow, whose
+ownership verification cannot run on localhost:
 
 ```bash
 cp docs/dev.vars.local.example .dev.vars
@@ -280,10 +280,13 @@ vp run db:migrate:local
 vp run dev
 ```
 
+Then open `http://localhost:5173/setup/local` to create a personal dev GitHub App and follow its
+printed steps — full walkthrough in [development.md](./development.md#local-github-app-setup).
+
 The local `.dev.vars` template hides the setup wizard with `NANITES_SHOW_SETUP=false`. Change it to
 `NANITES_SHOW_SETUP=true` only when you want to exercise `/setup` locally. This flag does not bypass
-runtime GitHub App config: local OAuth and MCP still need the D1 deployment metadata row plus
-`AUTH_COOKIE_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_CLIENT_SECRET`, and `GITHUB_WEBHOOK_SECRET`.
+runtime GitHub App config: local OAuth and MCP still need the `github_apps` D1 row plus
+`AUTH_COOKIE_SECRET` and the per-app `GITHUB_APP_<ID>_*` secrets that `/setup/local` provides.
 
 For local MCP/browser smoke testing, you can use the GitHub CLI token from your keychain:
 
@@ -301,12 +304,13 @@ http://localhost:5173/mcp
 
 Nanites is still pre-production, so the supported recovery path for stale local setup state is a
 hard reset, not a compatibility shim. Delete local Wrangler state, apply the current baseline
-migration, and rerun setup:
+migration, and restore the GitHub App row from the secrets still in `.dev.vars`:
 
 ```bash
 rm -rf .wrangler
 vp run db:migrate:local
 vp run dev
+curl -X POST http://localhost:5173/setup/local/restore
 ```
 
 Keep binding names unchanged and regenerate Worker types after binding edits:

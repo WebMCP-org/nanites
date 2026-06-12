@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
 import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
-import { AppError } from "#/backend/errors.ts";
+import { AppError, requestValidationHook } from "#/backend/errors.ts";
 import {
   requireActiveGithubInstallation,
   requireGitHubUserToken,
@@ -18,6 +18,7 @@ import {
   getAuditFeed,
   getNaniteCatalogRows,
   getNaniteCostBreakdown,
+  getObservabilityDashboard,
   getObservabilityEventDetail,
   getObservabilityFilterOptions,
   getObservabilityOverview,
@@ -48,6 +49,7 @@ const observabilityQueryInput = zValidator(
       return value === "1" || value === "true";
     }, z.boolean().optional()),
   }),
+  requestValidationHook,
 );
 
 const eventDetailInput = zValidator(
@@ -55,6 +57,7 @@ const eventDetailInput = zValidator(
   z.object({
     eventId: z.string().min(1),
   }),
+  requestValidationHook,
 );
 
 const filterOptionsInput = zValidator(
@@ -62,6 +65,7 @@ const filterOptionsInput = zValidator(
   z.object({
     filter: z.enum(["repository", "naniteId", "creator", "outcome", "surface"]),
   }),
+  requestValidationHook,
 );
 
 async function resolveObservabilityScope(
@@ -132,6 +136,9 @@ async function withObservabilityScope<TResponse>(
 }
 
 export const observabilityApiRoutes = new Hono<WorkerHonoEnv>()
+  .get("/dashboard", observabilityQueryInput, async (context) =>
+    withObservabilityScope(context, context.req.valid("query"), getObservabilityDashboard),
+  )
   .get("/overview", observabilityQueryInput, async (context) =>
     withObservabilityScope(context, context.req.valid("query"), getObservabilityOverview),
   )

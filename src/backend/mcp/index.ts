@@ -1,6 +1,8 @@
-import { createMcpHandler, getMcpAuthContext } from "agents/mcp";
+import { createMcpHandler } from "agents/mcp";
+import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
 import {
@@ -11,6 +13,12 @@ import { naniteTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_ROUTE, MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/mcp.ts";
 
 type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
+type McpExecutionContext = ExecutionContext & {
+  props?: unknown;
+};
+
+export const INVALID_MCP_AUTH_PROPS_DESCRIPTION =
+  "SigVelo MCP authorization is invalid. Re-authorize SigVelo MCP.";
 
 export const sigveloMcpAuthPropsSchema = z.object({
   authKind: z.literal("mcp"),
@@ -24,6 +32,22 @@ export const sigveloMcpAuthPropsSchema = z.object({
 });
 
 export type SigveloMcpAuthProps = z.infer<typeof sigveloMcpAuthPropsSchema>;
+
+export function parseSigveloMcpAuthProps(props: unknown): SigveloMcpAuthProps | null {
+  const parsed = sigveloMcpAuthPropsSchema.safeParse(props);
+  return parsed.success ? parsed.data : null;
+}
+
+export function requireSigveloMcpGrantProps(props: unknown): SigveloMcpAuthProps {
+  const parsed = parseSigveloMcpAuthProps(props);
+  if (!parsed) {
+    throw new OAuthError("invalid_grant", {
+      description: INVALID_MCP_AUTH_PROPS_DESCRIPTION,
+    });
+  }
+
+  return parsed;
+}
 
 export function resolveGrantedMcpScopes(requestedScopes: readonly string[]): SigveloMcpScope[] {
   const unsupportedScopes = requestedScopes.filter(
@@ -91,8 +115,21 @@ function formatMcpToolResult(output: object): CallToolResult {
   };
 }
 
-function readMcpAuthProps(): SigveloMcpAuthProps {
-  return sigveloMcpAuthPropsSchema.parse(getMcpAuthContext()?.props);
+function createMcpProtectedResourceMetadataUrl(request: Request): string {
+  const url = new URL(request.url);
+  return `${url.origin}/.well-known/oauth-protected-resource${url.pathname}`;
+}
+
+function createInvalidMcpTokenResponse(request: Request): Response {
+  const resourceMetadataUrl = createMcpProtectedResourceMetadataUrl(request);
+  const error = new InvalidTokenError(INVALID_MCP_AUTH_PROPS_DESCRIPTION);
+
+  return Response.json(error.toResponseObject(), {
+    status: 401,
+    headers: {
+      "WWW-Authenticate": `Bearer realm="OAuth", resource_metadata="${resourceMetadataUrl}", error="${error.errorCode}", error_description="${error.message}"`,
+    },
+  });
 }
 
 function readMcpRequestId(requestId: unknown): string | undefined {
@@ -141,12 +178,21 @@ export function registerSigveloNaniteTools(
 
 export const nanitesMcpApiHandler = {
   async fetch(request: Request, env: Env, executionContext: ExecutionContext): Promise<Response> {
+    const props = parseSigveloMcpAuthProps((executionContext as McpExecutionContext).props);
+    if (!props) {
+      return createInvalidMcpTokenResponse(request);
+    }
+
     const server = createSigveloNanitesMcpServer();
     registerSigveloNaniteTools(server, {
       env,
-      getProps: readMcpAuthProps,
+      getProps: () => props,
     });
 
-    return createMcpHandler(server, { route: MCP_ROUTE })(request, env, executionContext);
+    return createMcpHandler(server, { route: MCP_ROUTE, authContext: { props } })(
+      request,
+      env,
+      executionContext,
+    );
   },
 } satisfies ExportedHandler<Env>;

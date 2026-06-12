@@ -10,6 +10,7 @@ import {
   getInstallationAuthErrorDetails,
   invalidateAuthQueries,
   isAuthenticationRequiredError,
+  readApiErrorMessage,
   type InstallationAuthErrorDetails,
 } from "#/frontend/lib/auth.ts";
 import { DEFAULT_AUTH_RETURN_TO_PATH, resolveAuthReturnTo } from "#/auth.ts";
@@ -100,7 +101,8 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
     Sentry.captureException(error);
   }, [error]);
 
-  const message = error instanceof Error ? error.message : "Unknown error.";
+  const message =
+    readApiErrorMessage(error) ?? (error instanceof Error ? error.message : "Unknown error.");
 
   return (
     <PageStateCard

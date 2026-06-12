@@ -90,30 +90,17 @@ vp exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
 ## Local Runtime Secrets
 
 Fresh self-hosted deploys should use the Deploy to Cloudflare button and `/setup`; that path creates
-the customer-owned GitHub App and generated runtime secrets without copy-paste. Set runtime secrets
-with Wrangler only when operating named environments that already have deployment metadata:
+the customer-owned GitHub App and writes generated runtime secrets to Worker Secrets without
+copy-paste. There are no hand-set GitHub secrets anywhere: runtime identity is a `github_apps` D1
+row plus per-app secret bindings (`GITHUB_APP_<ID>_PRIVATE_KEY` and friends).
 
-```bash
-vp exec wrangler secret put AUTH_COOKIE_SECRET --config wrangler.jsonc
-vp exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.jsonc
-vp exec wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
-vp exec wrangler secret put GITHUB_WEBHOOK_SECRET --config wrangler.jsonc
-```
-
-For local development, reset disposable Wrangler state and apply the current baseline migration
-instead of adding compatibility code for old local D1 or Durable Object state:
-
-```bash
-rm -rf .wrangler
-cp docs/dev.vars.local.example .dev.vars
-vp run db:migrate:local
-```
+Local development gets the same identity through the dev-only `/setup/local` page instead of the
+wizard (whose Cloudflare ownership verification cannot run on localhost). See
+[Local GitHub App Setup](#local-github-app-setup).
 
 The local `.dev.vars` template sets `NANITES_SHOW_SETUP=false` so normal local development does not
 auto-route into the first-launch setup wizard. Set `NANITES_SHOW_SETUP=true` in `.dev.vars` only
-when intentionally testing the setup flow. This only controls setup surfacing; GitHub OAuth, MCP,
-webhooks, and installation tokens still require readable deployment GitHub App metadata plus the
-runtime secret bindings.
+when intentionally testing the setup flow.
 
 Optional Sentry:
 
@@ -133,33 +120,36 @@ need it:
 cp docs/env.local.example .env
 ```
 
-## Manual GitHub App Setup
+## Local GitHub App Setup
 
-SigVelo needs a GitHub App installed on the repositories Nanites may maintain. For normal
-self-hosted deployments, `/setup` creates the GitHub App from a manifest and stores generated
-credentials as Worker Secrets. Use this manual path for local development, named SigVelo
-environments, and fallback debugging only.
+SigVelo needs a GitHub App installed on the repositories Nanites may maintain. For self-hosted
+deployments, `/setup` creates the app. Locally, the dev-only `/setup/local` page (mounted only in
+dev builds and only answering loopback hostnames) does the same job: it runs GitHub's app-manifest
+flow with nanites' default permissions and registers the resulting app in the local D1 database.
 
-Use the deployed origin for URLs:
+First-time setup (once per developer):
 
-- OAuth callback: `https://<origin>/auth/github/callback`
-- Webhook URL: `https://<origin>/api/github/webhook`
-- Webhook events: select the GitHub events you want the app to receive; Nanites route with
-  Octokit's webhook event names.
+1. `cp docs/dev.vars.local.example .dev.vars`
+2. `vp run db:migrate:local && vp run dev`
+3. Open `http://localhost:5173/setup/local` and click **Create dev GitHub App on GitHub** — GitHub
+   shows a pre-filled confirmation page; one click registers a personal dev app and returns here.
+4. Append the printed secret block (`GITHUB_APP_<ID>_*` plus `AUTH_COOKIE_SECRET`) to `.dev.vars`
+   and restart `vp run dev`. The worker cannot write `.dev.vars` itself; this is the only paste.
+5. Install the app on at least one repository (the page links to the install URL), then sign in at
+   `http://localhost:5173` and activate the installation.
 
-Typical permissions:
-
-- `contents`: read/write for branches and file changes
-- `pull_requests`: read/write for PR creation and updates
-- `actions`: read for workflow/check investigation
-- `issues`: read/write when issue or PR comment surfaces are needed
-
-Useful `gh` checks:
+After any `rm -rf .wrangler` (the supported reset for stale local state), the secrets in
+`.dev.vars` survive and the database row is rebuilt without a browser flow:
 
 ```bash
-gh api /user/installations --paginate
-gh api /user/installations/<installation_id>/repositories --paginate
+vp run db:migrate:local && vp run dev
+curl -X POST http://localhost:5173/setup/local/restore
 ```
+
+The dev app is created with webhook deliveries inactive — GitHub cannot reach localhost, and local
+webhook behavior is covered by the test suite. For live local webhooks, point the app's webhook URL
+at a [smee.io](https://smee.io) channel in GitHub settings, activate it, and run
+`npx smee-client --url <channel> --target http://localhost:5173/api/github/webhook`.
 
 The Nanite runtime should prefer Workspace git plus GitHub MCP/Octokit for GitHub API work. Do not assume shell `gh` is authenticated inside a Nanite unless `GH_TOKEN` injection is explicitly added.
 

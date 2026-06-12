@@ -29,3 +29,4 @@ Run `vp exec wrangler types env.d.ts --include-runtime false` from the repositor
 - Default to slice integration tests for app-local behavior.
 - Do not use Vitest or Jest mocks, stubs, or spies for app-local code.
 - Mock external HTTP boundaries only, preferably with MSW.
+- Never keep unit tests. If a unit test helps as scaffolding while developing, delete it before the change is finished.

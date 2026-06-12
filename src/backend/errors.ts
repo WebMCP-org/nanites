@@ -1,9 +1,9 @@
-import { getLogger } from "@logtape/logtape";
 import { OAuthError } from "@cloudflare/workers-oauth-provider";
+import type { Hook } from "@hono/zod-validator";
+import * as Sentry from "@sentry/cloudflare";
 import { deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
-import type { ErrorHandler } from "hono";
-import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
+import type { Env as HonoEnv, ErrorHandler } from "hono";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
   BROWSER_AUTH_COOKIE_NAMES,
@@ -18,12 +18,45 @@ import {
   MCP_CONSENT_COOKIE_PATH,
 } from "#/mcp.ts";
 
-type AppErrorDetails = Record<string, string | number | boolean | null | readonly string[]>;
+type AppErrorStatus = 400 | 401 | 403 | 404 | 500;
+type AppErrorDetails = Record<string, unknown>;
 type AppErrorDefinition = {
   readonly code: string;
-  readonly status: 400 | 401 | 403 | 404 | 500;
+  readonly status: AppErrorStatus;
   readonly message: string;
   readonly publicDetailKeys?: readonly string[];
+};
+type ErrorHandlerContext = Parameters<ErrorHandler<WorkerHonoEnv>>[1];
+type RequestValidationResult = Parameters<Hook<unknown, HonoEnv, string>>[0];
+
+type SerializedError = {
+  readonly type: string;
+  readonly message: string;
+  readonly stack?: string;
+  readonly cause?: SerializedError;
+};
+
+type ProblemDetails = {
+  readonly type: string;
+  readonly title: string;
+  readonly status: number;
+  readonly detail: string;
+  readonly code: string;
+  readonly instance?: string;
+  readonly requestId?: string;
+  readonly kind?: string;
+  readonly details?: Record<string, unknown>;
+  readonly diagnostics: {
+    readonly request: {
+      readonly id?: string;
+      readonly method: string;
+      readonly path: string;
+      readonly query: Record<string, unknown>;
+    };
+    readonly error: SerializedError;
+    readonly sentryEventId?: string;
+  };
+  [extension: string]: unknown;
 };
 
 export const APP_ERRORS = {
@@ -86,6 +119,17 @@ export const APP_ERRORS = {
     code: "invalid_setup_state",
     status: 400,
     message: "Setup state is missing, expired, or invalid.",
+  },
+  requestValidationFailed: {
+    code: "request_validation_failed",
+    status: 400,
+    message: "Request validation failed.",
+    publicDetailKeys: ["target", "issues"],
+  },
+  apiRouteNotFound: {
+    code: "api_route_not_found",
+    status: 404,
+    message: "API route not found.",
   },
   setupDatabaseMigrationRequired: {
     code: "setup_database_migration_required",
@@ -394,18 +438,41 @@ export class AppError extends Error {
   }
 }
 
-const apiErrorLogger = getLogger(LOGGING.SERVER_CATEGORY)
-  .getChild("api")
-  .with({
-    [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
-  });
+export function requestValidationHook(result: RequestValidationResult): void {
+  if (!result.success) {
+    throw new AppError("requestValidationFailed", {
+      cause: result.error,
+      details: {
+        target: result.target,
+        issues: result.error.issues.map((issue) => ({
+          path: issue.path.map((segment) => String(segment)).join("."),
+          code: issue.code,
+          message: issue.message,
+        })),
+      },
+    });
+  }
+}
+
+const PROBLEM_CONTENT_TYPE = "application/problem+json";
+const PROBLEM_TYPE_BASE_URL = "https://app.sigvelo.com/problems/";
+const REDACTED = "[redacted]";
+const MAX_DIAGNOSTIC_STRING_LENGTH = 4096;
+const MAX_SANITIZE_DEPTH = 4;
+const GENERAL_SENSITIVE_KEY =
+  /(?:authorization|cookie|password|private[_-]?key|secret|signature|token)/i;
+const QUERY_SENSITIVE_KEY =
+  /(?:authorization|code|cookie|key|password|private[_-]?key|secret|signature|state|token)/i;
+const SENSITIVE_TEXT_PATTERNS = [
+  /github_pat_[A-Za-z0-9_]+/g,
+  /gh[pousr]_[A-Za-z0-9_]+/g,
+  /Bearer\s+[-._~+/A-Za-z0-9]+=*/gi,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  /\b(?:authorization|code|cookie|password|private[_-]?key|secret|signature|state|token)\s*[:=]\s*[^&\s,;]+/gi,
+] as const;
 
 export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export function describeErrorWithStack(error: unknown): string {
-  return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 export function parseAppIsoDate(value: string, fieldName: string): Date {
@@ -432,30 +499,227 @@ export function createMcpTokenScopeUnavailableError(): OAuthError {
   });
 }
 
-function getRequestPath(context: Parameters<ErrorHandler<WorkerHonoEnv>>[1]): string {
-  return new URL(context.req.url).pathname;
+function redactText(value: string): string {
+  const redacted = SENSITIVE_TEXT_PATTERNS.reduce(
+    (current, pattern) => current.replace(pattern, REDACTED),
+    value,
+  );
+  return redacted.length > MAX_DIAGNOSTIC_STRING_LENGTH
+    ? `${redacted.slice(0, MAX_DIAGNOSTIC_STRING_LENGTH)}...`
+    : redacted;
 }
 
-export function readPublicAppErrorBody(error: AppError): Record<string, unknown> {
-  const definition: AppErrorDefinition = APP_ERRORS[error.kind];
-  const body: Record<string, unknown> = { code: definition.code };
+function sanitize(value: unknown, key?: string, depth = 0): unknown {
+  if (key && GENERAL_SENSITIVE_KEY.test(key)) {
+    return REDACTED;
+  }
 
-  for (const detailKey of definition.publicDetailKeys ?? []) {
-    const detail = error.details?.[detailKey];
-    if (detail !== undefined) {
-      body[detailKey] = detail;
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return redactText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return depth >= MAX_SANITIZE_DEPTH
+      ? "[array]"
+      : value.map((item) => sanitize(item, undefined, depth + 1));
+  }
+
+  if (typeof value === "object") {
+    if (depth >= MAX_SANITIZE_DEPTH) {
+      return "[object]";
+    }
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
+        entryKey,
+        sanitize(entryValue, entryKey, depth + 1),
+      ]),
+    );
+  }
+
+  return redactText(String(value));
+}
+
+function readQuery(url: URL): Record<string, unknown> {
+  const query: Record<string, unknown> = {};
+
+  for (const [key, value] of url.searchParams.entries()) {
+    const sanitizedValue = QUERY_SENSITIVE_KEY.test(key) ? REDACTED : sanitize(value, key);
+    const currentValue = query[key];
+    query[key] =
+      currentValue === undefined
+        ? sanitizedValue
+        : Array.isArray(currentValue)
+          ? [...currentValue, sanitizedValue]
+          : [currentValue, sanitizedValue];
+  }
+
+  return query;
+}
+
+function serializeError(error: unknown, depth = 0): SerializedError {
+  const type =
+    error instanceof Error
+      ? error.name === "Error"
+        ? error.constructor.name || "Error"
+        : error.name
+      : error === null
+        ? "null"
+        : typeof error;
+  const serialized: {
+    type: string;
+    message: string;
+    stack?: string;
+    cause?: SerializedError;
+  } = {
+    type,
+    message: redactText(describeError(error)),
+  };
+
+  if (error instanceof Error && error.stack) {
+    serialized.stack = redactText(error.stack);
+  }
+
+  if (error instanceof Error && error.cause !== undefined) {
+    serialized.cause =
+      depth >= MAX_SANITIZE_DEPTH
+        ? { type: "CauseDepthExceeded", message: "Nested error cause omitted." }
+        : serializeError(error.cause, depth + 1);
+  }
+
+  return serialized;
+}
+
+function captureServerError(error: unknown, status: number): string | undefined {
+  if (status < 500) {
+    return;
+  }
+
+  try {
+    const eventId = Sentry.captureException(error, {
+      mechanism: { handled: true, type: "hono.on_error" },
+    });
+    return typeof eventId === "string" ? eventId : undefined;
+  } catch {
+    return;
+  }
+}
+
+function writeProblemResponse(body: ProblemDetails, sourceHeaders?: Headers): Response {
+  const headers = new Headers();
+  sourceHeaders?.forEach((value, key) => {
+    headers.append(key, value);
+  });
+  headers.set("content-type", PROBLEM_CONTENT_TYPE);
+  headers.set("cache-control", "no-store");
+
+  return new Response(JSON.stringify(body), {
+    status: body.status,
+    headers,
+  });
+}
+
+function problemResponse(input: {
+  readonly error: unknown;
+  readonly request?: Request;
+  readonly requestId?: string;
+  readonly sourceHeaders?: Headers;
+  readonly status: number;
+  readonly code: string;
+  readonly title: string;
+  readonly kind?: string;
+  readonly details?: AppErrorDetails;
+  readonly publicDetailKeys?: readonly string[];
+}): Response {
+  const requestUrl = input.request ? new URL(input.request.url) : undefined;
+  const requestId = input.requestId;
+  const error = serializeError(input.error);
+  const details = input.details ? (sanitize(input.details) as Record<string, unknown>) : undefined;
+  const sentryEventId = captureServerError(input.error, input.status);
+  const body: ProblemDetails = {
+    type: `${PROBLEM_TYPE_BASE_URL}${input.code}`,
+    title: input.title,
+    status: input.status,
+    detail: error.message,
+    code: input.code,
+    ...(input.kind ? { kind: input.kind } : {}),
+    ...(requestId ? { instance: `urn:sigvelo:request:${requestId}`, requestId } : {}),
+    ...(details ? { details } : {}),
+    diagnostics: {
+      request: {
+        ...(requestId ? { id: requestId } : {}),
+        method: input.request?.method ?? "UNKNOWN",
+        path: requestUrl?.pathname ?? "unknown",
+        query: requestUrl ? readQuery(requestUrl) : {},
+      },
+      error,
+      ...(sentryEventId ? { sentryEventId } : {}),
+    },
+  };
+
+  for (const key of input.publicDetailKeys ?? []) {
+    const value = details?.[key];
+    if (value !== undefined) {
+      body[key] = value;
     }
   }
 
-  return body;
+  return writeProblemResponse(body, input.sourceHeaders);
+}
+
+function appErrorProblemResponse(
+  error: AppError,
+  request?: Request,
+  requestId?: string,
+  sourceHeaders?: Headers,
+): Response {
+  const definition = APP_ERRORS[error.kind];
+  const publicDetailKeys =
+    "publicDetailKeys" in definition ? definition.publicDetailKeys : undefined;
+  return problemResponse({
+    error,
+    request,
+    requestId,
+    sourceHeaders,
+    status: definition.status,
+    code: definition.code,
+    title: definition.message,
+    kind: error.kind,
+    details: error.details,
+    publicDetailKeys,
+  });
+}
+
+export function createAppErrorProblemResponse(
+  error: AppError,
+  request?: Request,
+  sourceHeaders?: Headers,
+): Response {
+  return appErrorProblemResponse(
+    error,
+    request,
+    request?.headers.get("x-request-id") ?? undefined,
+    sourceHeaders,
+  );
+}
+
+function getRequestPath(context: ErrorHandlerContext): string {
+  return new URL(context.req.url).pathname;
 }
 
 function readMcpAuthorizationErrorMessage(error: AppError): string {
-  const definition = APP_ERRORS[error.kind];
   const reason = error.details?.reason;
-
   return typeof reason === "string" && reason.length > 0
-    ? `${definition.message}: ${reason}`
+    ? `${APP_ERRORS[error.kind].message}: ${reason}`
     : error.message;
 }
 
@@ -466,7 +730,7 @@ function readGitHubOAuthCallbackErrorMessage(error: AppError): string {
     : error.message;
 }
 
-function expireMcpConsentCookie(context: Parameters<ErrorHandler<WorkerHonoEnv>>[1]): void {
+function expireMcpConsentCookie(context: ErrorHandlerContext): void {
   deleteCookie(context, MCP_CONSENT_COOKIE_NAME, {
     path: MCP_CONSENT_COOKIE_PATH,
     httpOnly: true,
@@ -475,10 +739,7 @@ function expireMcpConsentCookie(context: Parameters<ErrorHandler<WorkerHonoEnv>>
   });
 }
 
-function expireBrowserAuthCookie(
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
-  name: string,
-): void {
+function expireBrowserAuthCookie(context: ErrorHandlerContext, name: string): void {
   deleteCookie(context, name, {
     path: BROWSER_AUTH_COOKIE_PATH,
     httpOnly: true,
@@ -487,13 +748,13 @@ function expireBrowserAuthCookie(
   });
 }
 
-function expireBrowserSessionCookies(context: Parameters<ErrorHandler<WorkerHonoEnv>>[1]): void {
+function expireBrowserSessionCookies(context: ErrorHandlerContext): void {
   expireBrowserAuthCookie(context, BROWSER_AUTH_COOKIE_NAMES.session);
   expireBrowserAuthCookie(context, BROWSER_AUTH_COOKIE_NAMES.githubUserToken);
 }
 
 function redirectMcpOAuthError(
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
+  context: ErrorHandlerContext,
   error: "access_denied" | "invalid_scope",
   description: string,
 ): Response | null {
@@ -513,7 +774,7 @@ function redirectMcpOAuthError(
 
 function handleMcpAuthorizeContextError(
   error: AppError,
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
+  context: ErrorHandlerContext,
 ): Response | null {
   if (error.kind !== "invalidMcpAuthorizationRequest" && error.kind !== "unsupportedMcpScope") {
     return null;
@@ -531,10 +792,7 @@ function handleMcpAuthorizeContextError(
   );
 }
 
-function handleMcpAuthorizeError(
-  error: AppError,
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
-): Response | null {
+function handleMcpAuthorizeError(error: AppError, context: ErrorHandlerContext): Response | null {
   if (error.kind === "unsupportedMcpScope") {
     return redirectMcpOAuthError(context, "invalid_scope", error.message);
   }
@@ -558,7 +816,7 @@ function handleMcpAuthorizeError(
 
 function handleGitHubOAuthCallbackError(
   error: AppError,
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
+  context: ErrorHandlerContext,
 ): Response | null {
   if (
     error.kind !== "githubOAuthCallbackFailed" &&
@@ -577,45 +835,11 @@ function handleGitHubOAuthCallbackError(
   );
 }
 
-function logUnhandledError(
-  error: Error,
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
-): void {
-  apiErrorLogger.error(LOG_EVENTS.API_UNHANDLED_ERROR, {
-    [OTEL_ATTRS.REQUEST_ID]: context.get("requestId"),
-    [OTEL_ATTRS.HTTP_REQUEST_METHOD]: context.req.method,
-    [OTEL_ATTRS.URL_PATH]: getRequestPath(context),
-    [OTEL_ATTRS.ERROR_TYPE]: error.name,
-    [OTEL_ATTRS.EXCEPTION_MESSAGE]: error.message,
-  });
-}
-
-function logKnownServerError(
-  error: AppError,
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
-): void {
-  apiErrorLogger.error(LOG_EVENTS.API_UNHANDLED_ERROR, {
-    [OTEL_ATTRS.REQUEST_ID]: context.get("requestId"),
-    [OTEL_ATTRS.HTTP_REQUEST_METHOD]: context.req.method,
-    [OTEL_ATTRS.URL_PATH]: getRequestPath(context),
-    [OTEL_ATTRS.ERROR_TYPE]: error.kind,
-    [OTEL_ATTRS.EXCEPTION_MESSAGE]: error.message,
-  });
-}
-
-function handleAppErrorResponse(
-  error: AppError,
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
-): Response {
-  const definition = APP_ERRORS[error.kind];
+function handleAppErrorResponse(error: AppError, context: ErrorHandlerContext): Response {
   const requestPath = getRequestPath(context);
 
   if (error.kind === "authenticationRequired") {
     expireBrowserSessionCookies(context);
-  }
-
-  if (definition.status >= 500) {
-    logKnownServerError(error, context);
   }
 
   if (requestPath === MCP_AUTHORIZE_CONTEXT_ROUTE) {
@@ -639,18 +863,15 @@ function handleAppErrorResponse(
     }
   }
 
-  return context.json(readPublicAppErrorBody(error), definition.status);
+  return appErrorProblemResponse(
+    error,
+    context.req.raw,
+    context.get("requestId"),
+    context.res.headers,
+  );
 }
 
-function handleHttpException(
-  error: HTTPException,
-  context: Parameters<ErrorHandler<WorkerHonoEnv>>[1],
-): Response {
-  if (error.status >= 500) {
-    logUnhandledError(error, context);
-  }
-
-  const response = error.getResponse();
+function withContextHeaders(response: Response, context: ErrorHandlerContext): Response {
   const headers = new Headers(response.headers);
   context.res.headers.forEach((value, key) => {
     headers.append(key, value);
@@ -658,8 +879,15 @@ function handleHttpException(
 
   return new Response(response.body, {
     status: response.status,
+    statusText: response.statusText,
     headers,
   });
+}
+
+function handleHttpException(error: HTTPException, context: ErrorHandlerContext): Response {
+  const response = error.getResponse();
+  captureServerError(error, response.status);
+  return withContextHeaders(response, context);
 }
 
 export const handleAppError: ErrorHandler<WorkerHonoEnv> = (error, context) => {
@@ -671,9 +899,14 @@ export const handleAppError: ErrorHandler<WorkerHonoEnv> = (error, context) => {
     return handleHttpException(error, context);
   }
 
-  logUnhandledError(error, context);
-  return context.json(
-    { code: APP_ERRORS.internalServerError.code },
-    APP_ERRORS.internalServerError.status,
-  );
+  const definition = APP_ERRORS.internalServerError;
+  return problemResponse({
+    error,
+    request: context.req.raw,
+    requestId: context.get("requestId"),
+    sourceHeaders: context.res.headers,
+    status: definition.status,
+    code: definition.code,
+    title: definition.message,
+  });
 };

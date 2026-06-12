@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
 import { createMiddleware } from "hono/factory";
+import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
 import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
-import { AppError } from "#/backend/errors.ts";
+import { AppError, requestValidationHook } from "#/backend/errors.ts";
 import {
   completeGitHubOAuthCallback,
   mintTestAuthSession,
@@ -62,6 +62,7 @@ const activeInstallationInput = zValidator(
   z.object({
     githubInstallationId: z.number().int().positive(),
   }),
+  requestValidationHook,
 );
 
 const testAuthQueryInput = zValidator(
@@ -89,6 +90,7 @@ const testAuthQueryInput = zValidator(
       z.string().min(1).optional(),
     ),
   }),
+  requestValidationHook,
 );
 
 const githubOAuthLoginQueryInput = zValidator(
@@ -96,6 +98,7 @@ const githubOAuthLoginQueryInput = zValidator(
   z.object({
     [AUTH_RETURN_TO_PARAM]: z.string().optional(),
   }),
+  requestValidationHook,
 );
 
 const githubOAuthCallbackQueryInput = zValidator(
@@ -105,6 +108,7 @@ const githubOAuthCallbackQueryInput = zValidator(
     error: z.string().min(1).optional(),
     state: z.string().min(1).optional(),
   }),
+  requestValidationHook,
 );
 
 const githubInstallationIdQueryValueSchema = z
@@ -195,12 +199,19 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
         requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
       });
     } catch (error) {
-      if (
-        error instanceof AppError &&
-        error.kind === "deploymentGitHubAppSetupRequired" &&
-        shouldShowSetup(context.env)
-      ) {
-        return context.redirect("/setup", 302);
+      if (error instanceof AppError && error.kind === "deploymentGitHubAppSetupRequired") {
+        if (shouldShowSetup(context.env)) {
+          return context.redirect("/setup", 302);
+        }
+        // Literal path (not an import from dev-setup.ts) so production builds
+        // can still tree-shake the dev-only route module. Loopback IPs were
+        // already normalized to `localhost` above.
+        if (
+          import.meta.env.DEV &&
+          (requestUrl.hostname === "localhost" || requestUrl.hostname.endsWith(".localhost"))
+        ) {
+          return context.redirect("/setup/local", 302);
+        }
       }
       throw error;
     }

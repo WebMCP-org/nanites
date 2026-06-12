@@ -4,7 +4,7 @@ import { requestId, type RequestIdVariables } from "hono/request-id";
 import { routePath } from "hono/route";
 import { agentsMiddleware } from "hono-agents";
 import { authorizeAgentRequest } from "#/backend/auth/index.ts";
-import { handleAppError } from "#/backend/errors.ts";
+import { AppError, handleAppError } from "#/backend/errors.ts";
 import { browserAuthApiRoutes, browserAuthRoutes } from "#/backend/api/routes/auth.ts";
 import { clientConfigRoutes } from "#/backend/api/routes/client-config.ts";
 import { githubWebhookRoutes } from "#/backend/api/routes/github.ts";
@@ -90,6 +90,14 @@ export const nanitesHttpApp = app
   .route("/api/nanites", nanitesApiRoutes)
   .route("/api/observability", observabilityApiRoutes);
 
+// Local-development setup (/setup/local) exists only in dev servers and test
+// runs: the dynamic import behind the DEV gate keeps the module out of
+// production bundles entirely.
+if (import.meta.env.DEV) {
+  const { devLocalSetupRoutes } = await import("#/backend/api/routes/dev-setup.ts");
+  nanitesHttpApp.route("/", devLocalSetupRoutes);
+}
+
 nanitesHttpApp.use("/agents/*", async (context, next) => {
   if (new URL(context.req.url).pathname.startsWith(SETUP_AGENT_ROUTE_PREFIX)) {
     const middleware = agentsMiddleware<WorkerHonoEnv>();
@@ -106,6 +114,13 @@ nanitesHttpApp.use("/agents/*", async (context, next) => {
   return middleware(context, next);
 });
 
-nanitesHttpApp.notFound((context) => context.text("Not found", 404));
+nanitesHttpApp.notFound((context) => {
+  const pathname = new URL(context.req.url).pathname;
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    throw new AppError("apiRouteNotFound");
+  }
+
+  return context.text("Not found", 404);
+});
 
 export type NanitesHttpApp = typeof nanitesHttpApp;

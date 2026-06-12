@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
 import { getAgentByName } from "agents";
+import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { AppError } from "#/backend/errors.ts";
+import { AppError, requestValidationHook } from "#/backend/errors.ts";
 import { activeGithubInstallationRequired } from "#/backend/api/routes/auth.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
@@ -13,6 +13,7 @@ const managerNameInput = zValidator(
   z.object({
     managerName: z.string().regex(/^app:\d+:installation:\d+$/),
   }),
+  requestValidationHook,
 );
 
 export const nanitesApiRoutes = new Hono<WorkerHonoEnv>().get(
