@@ -671,6 +671,7 @@ function buildNaniteSystemPrompt(): string {
     "Do not use github.* tools to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
     "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Discover github.* methods with codemode.search/codemode.describe. It is not a shell and cannot use require(), child_process, or subprocess commands.",
     "Use artifact_read for saved SigVelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
+    'Approval-gated tools such as git.push_force pause the execute run with status "paused". When that happens, use ask_human to describe the pending action; the run resumes automatically once a human approves or rejects it.',
     "Keep GitHub-facing output concise. Keep detailed investigation in this transcript.",
     "",
     "Do not claim success without evidence. If authority, configuration, approval, or target scope is missing, use ask_human. If the target state is impossible or a deterministic tool/API error repeats, use fail.",

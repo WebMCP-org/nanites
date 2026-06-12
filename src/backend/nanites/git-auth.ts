@@ -26,6 +26,11 @@ type ExecutableGitTool = {
   execute: (...args: unknown[]) => Promise<unknown>;
 };
 
+type WrappedGitTool = ExecutableGitTool & {
+  /** Honored by the codemode connector layer: pauses the run for approval. */
+  requiresApproval?: boolean;
+};
+
 function isTruthyForceOption(value: unknown): boolean {
   return value === true || value === "true" || value === 1;
 }
@@ -41,7 +46,7 @@ function assertSafeGitCommandOptions(command: string, options: Record<string, un
     isTruthyForceOption(options.force_with_lease)
   ) {
     throw new Error(
-      "Git force pushes are disabled for Nanites. Fetch and rebase or merge the remote branch, then push normally. If a history rewrite is required, ask_human for explicit approval.",
+      "Plain git push never forces. Fetch and rebase or merge the remote branch, then push normally. If a history rewrite is truly required, call git.push_force — it pauses for human approval before executing.",
     );
   }
 }
@@ -77,56 +82,121 @@ async function resolveOptionsWithLazyAuth(input: {
   return auth ? { ...input.options, ...auth } : input.options;
 }
 
+type LazyGitAuthWrapOptions = {
+  resolveAuth: (input: {
+    command: LazyGitAuthCommand;
+    options: Record<string, unknown>;
+  }) => Promise<LazyGitAuthCredentials | null>;
+  isAuthRejection: (error: unknown) => boolean;
+};
+
+async function executeWithLazyAuth(input: {
+  command: LazyGitAuthCommand;
+  gitTool: ExecutableGitTool;
+  commandOptions: Record<string, unknown>;
+  restArgs: unknown[];
+  options: LazyGitAuthWrapOptions;
+}): Promise<unknown> {
+  const optionsWithAuth = await resolveOptionsWithLazyAuth({
+    command: input.command,
+    options: input.commandOptions,
+    resolveAuth: input.options.resolveAuth,
+  });
+
+  try {
+    return await input.gitTool.execute(optionsWithAuth, ...input.restArgs);
+  } catch (error) {
+    if (
+      lazyGitAuthRetryWithoutAuthCommandNames.has(input.command) &&
+      optionsWithAuth !== input.commandOptions &&
+      input.options.isAuthRejection(error)
+    ) {
+      return input.gitTool.execute(input.commandOptions, ...input.restArgs);
+    }
+    throw error;
+  }
+}
+
 export function wrapGitToolProviderWithLazyAuth(
   provider: ToolProvider,
-  options: {
-    resolveAuth: (input: {
-      command: LazyGitAuthCommand;
-      options: Record<string, unknown>;
-    }) => Promise<LazyGitAuthCredentials | null>;
-    isAuthRejection: (error: unknown) => boolean;
-  },
+  options: LazyGitAuthWrapOptions,
 ): ToolProvider {
   const tools = provider.tools as Record<string, ExecutableGitTool>;
 
+  const wrappedTools: Record<string, WrappedGitTool> = Object.fromEntries(
+    Object.entries(tools).map(([command, gitTool]) => [
+      command,
+      {
+        ...gitTool,
+        execute: async (...args: unknown[]) => {
+          if (!isLazyGitAuthCommand(command)) {
+            return gitTool.execute(...args);
+          }
+
+          const [firstArg, ...restArgs] = args;
+          const explicitOptions = isExplicitOptions(firstArg) ? firstArg : {};
+          assertSafeGitCommandOptions(command, explicitOptions);
+          return executeWithLazyAuth({
+            command,
+            gitTool,
+            commandOptions: explicitOptions,
+            restArgs,
+            options,
+          });
+        },
+      },
+    ]),
+  );
+
+  const pushTool = tools.push;
+  if (!pushTool) {
+    return {
+      ...provider,
+      tools: wrappedTools,
+    };
+  }
+
+  wrappedTools.push_force = {
+    description:
+      "git push --force. Rewrites remote history, so it pauses for human approval before executing. Prefer fetch + rebase/merge + plain push.",
+    requiresApproval: true,
+    execute: async (...args: unknown[]) => {
+      const [firstArg, ...restArgs] = args;
+      const explicitOptions = isExplicitOptions(firstArg) ? firstArg : {};
+      return executeWithLazyAuth({
+        command: "push",
+        gitTool: pushTool,
+        commandOptions: { ...explicitOptions, force: true },
+        restArgs,
+        options,
+      });
+    },
+  };
+
   return {
     ...provider,
-    tools: Object.fromEntries(
-      Object.entries(tools).map(([command, gitTool]) => [
-        command,
-        {
-          ...gitTool,
-          execute: async (...args: unknown[]) => {
-            if (!isLazyGitAuthCommand(command)) {
-              return gitTool.execute(...args);
-            }
-
-            const [firstArg, ...restArgs] = args;
-            const explicitOptions = isExplicitOptions(firstArg) ? firstArg : {};
-            assertSafeGitCommandOptions(command, explicitOptions);
-            const optionsWithAuth = await resolveOptionsWithLazyAuth({
-              command,
-              options: explicitOptions,
-              resolveAuth: options.resolveAuth,
-            });
-
-            try {
-              return await gitTool.execute(optionsWithAuth, ...restArgs);
-            } catch (error) {
-              if (
-                lazyGitAuthRetryWithoutAuthCommandNames.has(command) &&
-                optionsWithAuth !== explicitOptions &&
-                options.isAuthRejection(error)
-              ) {
-                return gitTool.execute(explicitOptions, ...restArgs);
-              }
-              throw error;
-            }
-          },
-        },
-      ]),
-    ),
+    types: addPushForceToGitTypes(provider.types),
+    tools: wrappedTools,
   };
+}
+
+/**
+ * The upstream git type block advertises `force?: boolean` on push, but the
+ * wrapper rejects it; forcing lives on the approval-gated push_force instead.
+ * Keep the model-facing types honest about both.
+ */
+function addPushForceToGitTypes(types: string | undefined): string | undefined {
+  if (!types) {
+    return types;
+  }
+
+  return types.replace(/^(\s*)(push\(.*)$/m, (_line, indent: string, pushLine: string) =>
+    [
+      `${indent}${pushLine.replace(" force?: boolean;", "")}`,
+      `${indent}/** git push --force; pauses for human approval. */`,
+      `${indent}push_force(opts?: { remote?: string; ref?: string; dir?: string }): Promise<{ ok: boolean; refs: Record<string, unknown> }>;`,
+    ].join("\n"),
+  );
 }
 
 const gitHubHttpsRepoPattern =

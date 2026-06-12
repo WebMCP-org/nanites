@@ -1,12 +1,13 @@
 import { useAgentChat } from "@cloudflare/ai-chat/react";
+import type { PendingAction } from "@cloudflare/codemode";
 import { getToolName, isToolUIPart } from "ai";
 import type { UIMessage } from "ai";
 import { useAgent } from "agents/react";
 import {
   Component,
   createContext,
+  use,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -15,6 +16,7 @@ import {
   type ReactNode,
 } from "react";
 import { Streamdown } from "streamdown";
+import { Button } from "#/frontend/ui/components/Button.tsx";
 import {
   CodeBlock,
   CodeBlockContainer,
@@ -96,7 +98,134 @@ type RuntimeConversationProps = {
   readonly onRegenerate?: () => void;
   readonly onClearConversation?: () => void;
   readonly placeholder?: string;
+  /** Pending approval cards rendered above the composer. */
+  readonly approvals?: ReactNode;
 };
+
+/**
+ * The Think base class registers these as client callables; both the Nanite
+ * and manager conversation agents inherit them.
+ */
+type ApprovalAgentStub = {
+  pendingExecutions: (executionId?: string) => Promise<PendingAction[]>;
+  approveExecution: (executionId: string) => Promise<unknown>;
+  rejectExecution: (executionId: string, reason?: string) => Promise<unknown>;
+};
+
+function usePendingApprovals(stub: ApprovalAgentStub, isStreaming: boolean) {
+  const [pendingActions, setPendingActions] = useState<readonly PendingAction[]>([]);
+  const [busyExecutionId, setBusyExecutionId] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setPendingActions(await stub.pendingExecutions());
+    } catch {
+      // The agent socket can drop between turns; keep the last known set and
+      // let the next stream-settled refresh reconcile.
+    }
+  }, [stub]);
+
+  // A gated call pauses the execution as its turn ends, so reconcile whenever
+  // streaming settles (and on mount, for approvals that outlived a reload).
+  useEffect(() => {
+    if (isStreaming) return;
+    void refresh();
+  }, [isStreaming, refresh]);
+
+  const decide = useCallback(
+    async (decision: "approve" | "reject", executionId: string) => {
+      setBusyExecutionId(executionId);
+      setDecisionError(null);
+      try {
+        if (decision === "approve") {
+          await stub.approveExecution(executionId);
+        } else {
+          await stub.rejectExecution(executionId, "Rejected from the SigVelo runtime chat.");
+        }
+      } catch (error) {
+        setDecisionError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusyExecutionId(null);
+        void refresh();
+      }
+    },
+    [refresh, stub],
+  );
+
+  return { busyExecutionId, decide, decisionError, pendingActions };
+}
+
+function formatApprovalArgs(args: unknown): string {
+  try {
+    const text = JSON.stringify(args, null, 2) ?? String(args);
+    return text.length > 2_000 ? `${text.slice(0, 2_000)}\n…` : text;
+  } catch {
+    return String(args);
+  }
+}
+
+export function PendingApprovalsCard({
+  busyExecutionId,
+  decide,
+  decisionError,
+  pendingActions,
+}: ReturnType<typeof usePendingApprovals>) {
+  if (pendingActions.length === 0 && !decisionError) return null;
+
+  return (
+    <div className="nanite-approvals" data-testid="pending-approvals">
+      {decisionError ? (
+        <div className="app__error" role="alert">
+          {decisionError}
+        </div>
+      ) : null}
+      {pendingActions.map((action) => {
+        const busy = busyExecutionId === action.executionId;
+        return (
+          <section
+            key={`${action.executionId}:${action.seq}`}
+            className="nanite-lifecycle-tool nanite-approvals__item"
+            data-tone="warning"
+            aria-label="Approval required"
+          >
+            <div className="nanite-lifecycle-tool__icon">
+              <WarningCircleIcon size={16} weight="fill" aria-hidden="true" />
+            </div>
+            <div className="nanite-lifecycle-tool__body">
+              <div className="nanite-lifecycle-tool__header">
+                <strong>
+                  Approval required: {action.connector}.{action.method}
+                </strong>
+                <span>paused</span>
+              </div>
+              <pre className="nanite-approvals__args">{formatApprovalArgs(action.args)}</pre>
+              <div className="nanite-approvals__actions">
+                <Button
+                  size="sm"
+                  color="primary"
+                  disabled={busy}
+                  onClick={() => void decide("approve", action.executionId)}
+                >
+                  Approve and resume
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  color="destructive"
+                  disabled={busy}
+                  onClick={() => void decide("reject", action.executionId)}
+                >
+                  Reject
+                </Button>
+              </div>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
 
 const DATA_URL_BASE64_RE = /^\s*data:([^;,]+(?:;[^;,=]+=[^;,]+)*)?;base64,/i;
 const BARE_BASE64_RE = /^[A-Za-z0-9+/=]+$/;
@@ -427,6 +556,7 @@ function RuntimeConversation({
   onRegenerate,
   onClearConversation,
   placeholder = "Ask for follow-up changes",
+  approvals,
 }: RuntimeConversationProps) {
   const [openToolIds, setOpenToolIds] = useState<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -636,6 +766,7 @@ function RuntimeConversation({
       </div>
 
       <div className="app__composer">
+        {approvals}
         {error ? (
           <div className="app__error" role="alert">
             {getErrorText(error)}
@@ -814,11 +945,11 @@ export function NaniteAgentProvider({
 }
 
 export function useNaniteAgent(): NaniteAgentInstance | null {
-  return useContext(NaniteAgentContext);
+  return use(NaniteAgentContext);
 }
 
 export function NaniteRuntimeChatConnector() {
-  const naniteAgent = useContext(NaniteAgentContext);
+  const naniteAgent = use(NaniteAgentContext);
   if (!naniteAgent) return <NaniteRuntimeChatPlaceholder />;
   return <NaniteRuntimeChatSession agent={naniteAgent} />;
 }
@@ -849,13 +980,29 @@ export function ManagerRuntimeChatConnector({
     agent: MANAGER_CONVERSATION_AGENT_NAME,
     name: `${managerName}:manager:${actor.id}`,
   });
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectError, setConnectError] = useState<unknown>(null);
+  const connectionKey = useMemo(
+    () =>
+      [managerName, githubAppId, githubInstallationId, accountLogin, actor.id, actor.login].join(
+        ":",
+      ),
+    [accountLogin, actor.id, actor.login, githubAppId, githubInstallationId, managerName],
+  );
+  const [connectionState, setConnectionState] = useState<
+    | {
+        readonly key: string;
+        readonly status: "connected";
+      }
+    | {
+        readonly error: unknown;
+        readonly key: string;
+        readonly status: "error";
+      }
+  >();
+  const activeConnectionState =
+    connectionState?.key === connectionKey ? connectionState : undefined;
 
   useEffect(() => {
     let canceled = false;
-    setIsConnected(false);
-    setConnectError(null);
     void conversationAgent.stub
       .connectBrowserInstallation({
         managerName,
@@ -866,32 +1013,40 @@ export function ManagerRuntimeChatConnector({
       })
       .then(() => {
         if (!canceled) {
-          setIsConnected(true);
+          setConnectionState({ key: connectionKey, status: "connected" });
         }
       })
       .catch((error: unknown) => {
         if (!canceled) {
-          setConnectError(error);
+          setConnectionState({ error, key: connectionKey, status: "error" });
         }
       });
 
     return () => {
       canceled = true;
     };
-  }, [accountLogin, actor, conversationAgent.stub, githubAppId, githubInstallationId, managerName]);
+  }, [
+    accountLogin,
+    actor,
+    connectionKey,
+    conversationAgent.stub,
+    githubAppId,
+    githubInstallationId,
+    managerName,
+  ]);
 
-  if (connectError) {
+  if (activeConnectionState?.status === "error") {
     return (
       <RuntimeConversation
         agentMessages={[]}
         isStreaming={false}
-        error={connectError}
+        error={activeConnectionState.error}
         emptyDescription={errorDescription}
       />
     );
   }
 
-  if (!isConnected) {
+  if (activeConnectionState?.status !== "connected") {
     return (
       <NaniteRuntimeChatLoading
         description={loadingDescription}
@@ -960,6 +1115,8 @@ function ManagerRuntimeChatSession({
     void agent.stub.clearConversation();
   }, [agent.stub, clearError, isStreaming]);
 
+  const approvals = usePendingApprovals(agent.stub as unknown as ApprovalAgentStub, isStreaming);
+
   return (
     <RuntimeConversation
       agentMessages={runMessages}
@@ -972,6 +1129,7 @@ function ManagerRuntimeChatSession({
       onRegenerate={handleRegenerate}
       onClearConversation={handleClearConversation}
       placeholder={placeholder}
+      approvals={<PendingApprovalsCard {...approvals} />}
     />
   );
 }
@@ -1013,6 +1171,8 @@ function NaniteRuntimeChatSession({
     void regenerate();
   }, [clearError, isStreaming, regenerate]);
 
+  const approvals = usePendingApprovals(agent.stub as unknown as ApprovalAgentStub, isStreaming);
+
   return (
     <RuntimeConversation
       agentMessages={runMessages}
@@ -1021,6 +1181,7 @@ function NaniteRuntimeChatSession({
       onSubmit={handleSubmit}
       onStop={() => void stop()}
       onRegenerate={handleRegenerate}
+      approvals={<PendingApprovalsCard {...approvals} />}
     />
   );
 }
