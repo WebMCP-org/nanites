@@ -130,24 +130,32 @@
       ],
       "tag": "v1-durable-object-baseline",
     },
-    // Multi-app cutover: deleting the V1 classes purges all Durable Object
-    // storage (manager keys changed from installation:<id> to
+    // Multi-app cutover, phase 1: switch the bindings to the empty V2 classes
+    // (manager keys changed from installation:<id> to
     // app:<appId>:installation:<id> with no legacy shim).
     {
-      "deleted_classes": [
-        "SigveloChatIngressV1",
-        "SigveloManagerConversationAgentV1",
-        "SigveloNaniteManagerV1",
-        "NanitesSetupAgentV1",
-      ],
       "new_sqlite_classes": [
         "SigveloChatIngressV2",
         "SigveloManagerConversationAgentV2",
         "SigveloNaniteManagerV2",
         "NanitesSetupAgentV2",
       ],
-      "tag": "v2-multi-github-app-purge",
+      "tag": "v2-multi-github-app-cutover",
     },
+    // Multi-app cutover, phase 2 — uncomment ONLY after the v2 deploy is live:
+    // deleting the V1 classes purges their Durable Object storage. Cloudflare
+    // validates deleted_classes against the currently deployed bindings (API
+    // error 10061), so this cannot ship in the same deploy that removes the
+    // V1 bindings.
+    // {
+    //   "deleted_classes": [
+    //     "SigveloChatIngressV1",
+    //     "SigveloManagerConversationAgentV1",
+    //     "SigveloNaniteManagerV1",
+    //     "NanitesSetupAgentV1",
+    //   ],
+    //   "tag": "v3-purge-v1-storage",
+    // },
   ],
   "observability": {
     "enabled": true,

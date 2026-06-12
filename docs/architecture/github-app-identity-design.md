@@ -24,8 +24,13 @@ with **no backwards compatibility** — we are pre-production and will wipe prod
   tiebreaker) rather than rendering a full app-list UI. Register/retire/
   set-primary exist as claim-gated API routes
   (`/api/setup/github-apps[...]`); a management UI can layer on top later.
-- *DO purge:* implemented as the `v2-multi-github-app-purge` wrangler migration
-  (deletes the V1 DO classes, adds V2), shipped in the same deploy as the code.
+- *DO purge is two deploys, not one.* Cloudflare validates `deleted_classes`
+  against the **currently deployed** bindings (API error 10061), so deleting
+  the V1 classes cannot ship in the same deploy that unbinds them. Phase 1
+  (`v2-multi-github-app-cutover`) creates the V2 classes and moves the
+  bindings; phase 2 (`v3-purge-v1-storage`, committed commented-out in
+  `wrangler.production.jsonc`) deletes the V1 classes — uncomment and deploy
+  again once phase 1 is live.
 - *App default name* is `<first-hostname-label> nanites <suffix>` (GitHub caps
   names at 34 chars; the suffix keeps re-registrations unique).
 **Motivation:** the 2026-06-10 incident
@@ -178,11 +183,14 @@ a status line; the app dimension only unfolds when there are ≥2 apps.
 1. Implement the refactor on a branch; D1 migrations are written from
    scratch against the new schema (pre-prod: collapse/replace existing
    migration history rather than appending ALTERs).
-2. ⚠ Wipe prod D1 (drop all tables, re-run migrations from zero).
-3. ⚠ Purge DO state: wrangler DO migration deleting the existing classes
-   (`SigveloNaniteManager`, nanite DOs, setup agent, chat ingress) and
-   re-adding them — deletion purges storage. Ship in the same deploy as the
-   code cutover.
+2. ⚠ Wipe prod D1 (drop all tables, re-run migrations from zero). This MUST
+   include dropping `d1_migrations`: the old history already contains a row
+   for `0000_baseline.sql` (a previous migration collapse used the same
+   name), so without the wipe `wrangler d1 migrations apply` reports "No
+   migrations to apply" and silently leaves the old schema in place.
+3. ⚠ Purge DO state — two deploys (see deviations above): phase 1 binds the
+   new V2 classes alongside the code cutover; phase 2 deletes the V1 classes
+   (deletion purges storage) once phase 1 is live.
 4. ⚠ Delete obsolete worker secrets (`GITHUB_APP_PRIVATE_KEY`,
    `GITHUB_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`).
 5. ⚠ GitHub-side cleanup: delete `nanites-cwkawta7yc`; uninstall/delete the
