@@ -15,6 +15,7 @@ import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import type { FileInfo } from "@cloudflare/shell";
 import type { ToolProvider } from "@cloudflare/codemode";
+import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
 import { getLogger } from "@logtape/logtape";
 import { callable } from "agents";
 import { hasToolCall, tool, type LanguageModel, type ToolSet, type UIMessage } from "ai";
@@ -810,9 +811,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return {
       ...workspaceTools,
       execute: createExecuteTool({
+        ctx: this.ctx,
         tools: workspaceTools,
         state: createWorkspaceStateBackend(this.workspace),
-        providers: [this.createGitToolProvider(), artifactStore.provider()],
+        connectors: [
+          new ToolProviderConnector(this.ctx, this.createGitToolProvider()),
+          new ToolProviderConnector(this.ctx, artifactStore.provider()),
+        ],
         loader: this.env.LOADER,
       }),
       ...extensionTools,

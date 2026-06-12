@@ -3,6 +3,7 @@ import type { Session, ThinkSubmissionInspection, ThinkSubmissionStatus } from "
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
+import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
 import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
 import { callable, getAgentByName } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
@@ -216,9 +217,10 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
           this.state.status === "connected" ? this.state.sigveloToolAuthProps : null,
       }),
       execute: createExecuteTool({
+        ctx: this.ctx,
         tools: workspaceTools,
         state: createWorkspaceStateBackend(this.workspace),
-        providers: [this.createGitToolProvider()],
+        connectors: [new ToolProviderConnector(this.ctx, this.createGitToolProvider())],
         loader: this.env.LOADER,
       }),
     };
