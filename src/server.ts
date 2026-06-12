@@ -54,6 +54,12 @@ export class NanitesSetupAgent extends BaseNanitesSetupAgent {}
 
 export { ChatSdkStateAgent, HostBridgeLoopback, SigveloNaniteAgent };
 
+// The codemode execute tool runs inside a DO facet. Production workerd only
+// accepts a facet class through ctx.exports (a loopback namespace), so the
+// runtime class must be a worker-entry export; the in-module class fallback
+// works in the vitest workerd pool but not in deployed Workers.
+export { CodemodeRuntime } from "@cloudflare/think/server-entry";
+
 function parseSamplingRate(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
