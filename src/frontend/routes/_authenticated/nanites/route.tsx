@@ -2338,6 +2338,9 @@ function NanitesRuntimeSurface({
   const manager = useAgent<SigveloNaniteManager, NaniteManagerState>({
     agent: NANITE_MANAGER_NAME,
     name: managerName,
+    // agents 0.16 defaults non-streaming RPC calls to a 30s timeout;
+    // testNaniteTrigger waits for a terminal run outcome and routinely needs longer.
+    defaultCallTimeout: 120_000,
   });
   const initialState = isNaniteManagerState(managerStateQuery.data?.state)
     ? managerStateQuery.data.state
