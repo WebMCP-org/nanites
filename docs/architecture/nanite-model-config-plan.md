@@ -34,7 +34,7 @@ Example:
 
 ```json
 {
-  "model": "@cf/moonshotai/kimi-k2.6"
+  "model": "@cf/moonshotai/kimi-k2.7-code"
 }
 ```
 
@@ -101,8 +101,8 @@ Nanites only stores the selected model id and immutable run snapshot metadata.
 
 ## References
 
-- [Cloudflare Workers AI model: Kimi K2.6](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) -
-  Cloudflare-hosted `@cf/moonshotai/kimi-k2.6` model with multi-turn tool calling.
+- [Cloudflare Workers AI model: Kimi K2.7 Code](https://developers.cloudflare.com/workers-ai/models/kimi-k2.7-code/) -
+  Cloudflare-hosted `@cf/moonshotai/kimi-k2.7-code` model with multi-turn tool calling.
 - [Cloudflare AI Gateway Workers Bindings](https://developers.cloudflare.com/ai-gateway/integrations/worker-binding-methods/) -
   `env.AI.run()` accepts Workers AI `@cf/...` ids and third-party `{author}/{model}` ids
   through the deployment AI Gateway.

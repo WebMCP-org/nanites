@@ -78,7 +78,7 @@ vp exec wrangler kv namespace create TOOL_OUTPUTS
 
 `/setup` uses Cloudflare API MCP with Billing Read to confirm the selected account has an active
 Workers paid subscription. The default model is Cloudflare-hosted
-`@cf/moonshotai/kimi-k2.6` through Workers AI and AI Gateway `default`; provider API keys are not
+`@cf/moonshotai/kimi-k2.7-code` through Workers AI and AI Gateway `default`; provider API keys are not
 required unless a future deployment chooses non-Workers-AI models.
 
 Apply database migrations before relying on an environment:

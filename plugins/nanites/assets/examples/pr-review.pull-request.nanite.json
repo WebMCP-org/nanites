@@ -3,7 +3,7 @@
     "id": "pr-quality-guard",
     "name": "PR Quality Guard",
     "description": "Reviews pull requests for shallow tests, missing docs, and risky changes.",
-    "model": "@cf/moonshotai/kimi-k2.6",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
     "eventSource": {
       "type": "github",
       "events": ["pull_request.opened", "pull_request.synchronize", "pull_request.reopened"],

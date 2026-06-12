@@ -3,7 +3,7 @@
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP documentation aligned when the package changes.",
-    "model": "@cf/moonshotai/kimi-k2.6",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
     "eventSource": {
       "type": "github",
       "events": ["push"],

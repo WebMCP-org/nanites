@@ -71,6 +71,6 @@ test("Nanite plugin examples include explicit model ids", () => {
       };
     };
 
-    expect(payload.manifest?.model).toBe("@cf/moonshotai/kimi-k2.6");
+    expect(payload.manifest?.model).toBe("@cf/moonshotai/kimi-k2.7-code");
   }
 });
