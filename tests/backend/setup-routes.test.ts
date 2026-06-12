@@ -14,6 +14,8 @@ import {
 } from "../helpers/d1-baseline.ts";
 import {
   CLOUDFLARE_SETUP_OAUTH_SCOPE,
+  DEFAULT_GITHUB_APP_EVENTS,
+  DEFAULT_GITHUB_APP_PERMISSIONS,
   createInitialSetupState,
   type NanitesSetupAgent,
   type NanitesSetupState,
@@ -328,20 +330,8 @@ function buildGitHubManifestConversion(
     webhook_secret: "generated-webhook-secret",
     pem: "generated-private-key",
     owner: { login: "WebMCP-org", type: "Organization" },
-    permissions: {
-      contents: "write",
-      pull_requests: "write",
-      actions: "read",
-      issues: "write",
-      starring: "write",
-    },
-    events: [
-      "push",
-      "pull_request",
-      "issue_comment",
-      "pull_request_review_comment",
-      "workflow_run",
-    ],
+    permissions: { ...DEFAULT_GITHUB_APP_PERMISSIONS },
+    events: [...DEFAULT_GITHUB_APP_EVENTS],
     ...overrides,
   };
 }

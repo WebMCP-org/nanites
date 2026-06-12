@@ -59,19 +59,69 @@ const SECRET_PROPAGATION_STALL_AFTER_MS = 2 * 60 * 1_000;
 const READINESS_SMOKE_WORKER_KEY = "nanites-setup-readiness";
 const READINESS_SMOKE_WORKER_RESPONSE = "nanites-readiness-ok";
 
-const DEFAULT_GITHUB_APP_PERMISSIONS = {
+// The app is the self-hoster's own private GitHub App, so the default ceiling
+// is broad: per-run nanite tokens are downscoped from it
+// (issueScopedGitHubInstallationToken), and downscoping can only subtract.
+// Defaults apply to new registrations only — widening later forces every
+// existing installation to re-approve, which is the friction a broad default
+// avoids. Deliberately excluded: `administration` (irreversible non-git
+// damage, no nanite use case) and all org/security scopes (a different trust
+// conversation than repo automation).
+export const DEFAULT_GITHUB_APP_PERMISSIONS = {
+  actions: "write",
+  checks: "write",
   contents: "write",
-  pull_requests: "write",
-  actions: "read",
+  deployments: "write",
+  discussions: "write",
+  environments: "write",
   issues: "write",
+  merge_queues: "write",
+  metadata: "read",
+  pages: "write",
+  pull_requests: "write",
+  repository_hooks: "write",
+  repository_projects: "write",
+  secrets: "write",
   starring: "write",
+  statuses: "write",
+  variables: "write",
+  // Without `workflows`, any nanite push touching .github/workflows/ is
+  // rejected by GitHub.
+  workflows: "write",
 } as const;
 
-const DEFAULT_GITHUB_APP_EVENTS = [
-  "push",
-  "pull_request",
+// Unhandled events are cheap no-ops at the webhook ingress, so subscribe
+// wide: new trigger types become possible without re-registering the app.
+export const DEFAULT_GITHUB_APP_EVENTS = [
+  "check_run",
+  "check_suite",
+  "commit_comment",
+  "create",
+  "delete",
+  "deployment",
+  "deployment_status",
+  "discussion",
+  "discussion_comment",
+  "fork",
   "issue_comment",
+  "issues",
+  "label",
+  "merge_group",
+  "milestone",
+  "public",
+  "pull_request",
+  "pull_request_review",
   "pull_request_review_comment",
+  "pull_request_review_thread",
+  "push",
+  "release",
+  "repository",
+  "repository_dispatch",
+  "star",
+  "status",
+  "watch",
+  "workflow_dispatch",
+  "workflow_job",
   "workflow_run",
 ] as const;
 
