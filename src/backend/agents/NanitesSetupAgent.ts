@@ -473,7 +473,11 @@ function buildGitHubAppManifest(origin: string, manifestState: string) {
     name,
     url: origin,
     description: "Self-hosted durable agents for GitHub repository maintenance.",
-    public: false,
+    // Private apps 404 GitHub's OAuth authorize endpoint for everyone but the
+    // owner, which blocks teammates from signing in to the deployment. Public
+    // here only means other accounts may authorize/install — it does not list
+    // the app anywhere.
+    public: true,
     redirect_url: new URL(GITHUB_APP_MANIFEST_CALLBACK_PATH, origin).toString(),
     callback_urls: [new URL(GITHUB_OAUTH_CALLBACK_PATH, origin).toString()],
     setup_url: new URL(GITHUB_APP_INSTALL_CALLBACK_PATH, origin).toString(),
