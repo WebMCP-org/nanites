@@ -3,9 +3,8 @@ import { createMiddleware } from "hono/factory";
 import { parse } from "hono/utils/cookie";
 import { getAgentByName } from "agents";
 import { getLogger } from "@logtape/logtape";
-import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { AppError, describeError, requestValidationHook } from "#/backend/errors.ts";
+import { AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
@@ -27,14 +26,11 @@ import {
 import {
   listGitHubApps,
   readAuthCookieSecret,
-  readNewestActiveGitHubAppMetadata,
+  readDeploymentGitHubAppMetadata,
   requireGitHubAppsTableReady,
   resolveGitHubApp,
-  retireGitHubApp,
-  setPrimaryGitHubApp,
   type GitHubAppMetadata,
 } from "#/backend/github/apps.ts";
-import { recordAuditEvent, systemActor } from "#/backend/observability/recorders.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/nanites.ts";
@@ -77,39 +73,14 @@ export type SetupStatusResponse = NanitesSetupState & {
   readonly showSetup: boolean;
 };
 
-const githubAppIdParamInput = zValidator(
-  "param",
-  z.object({
-    appId: z
-      .string()
-      .min(1)
-      .transform((value) => Number(value))
-      .pipe(z.number().int().positive()),
-  }),
-  requestValidationHook,
-);
-
 function toGitHubAppListEntry(app: GitHubAppMetadata) {
   return {
     appId: app.appId,
     slug: app.slug,
     htmlUrl: app.htmlUrl,
     ownerLogin: app.ownerLogin,
-    isPrimary: app.isPrimary,
     status: app.status,
   };
-}
-
-async function requireKnownGitHubApp(
-  db: ReturnType<typeof createDbClient>,
-  appId: number,
-): Promise<GitHubAppMetadata> {
-  const app = (await listGitHubApps(db)).find((candidate) => candidate.appId === appId);
-  if (!app) {
-    throw new AppError("githubAppNotFound", { details: { githubAppId: appId } });
-  }
-
-  return app;
 }
 
 const setupVisibleRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {
@@ -129,7 +100,7 @@ async function getSetupAgent(env: Env): Promise<DurableObjectStub<NanitesSetupAg
 
 async function isRuntimeConfigReadable(env: Env): Promise<boolean> {
   const db = createDbClient(env.DB);
-  const wizardApp = await readNewestActiveGitHubAppMetadata(db);
+  const wizardApp = await readDeploymentGitHubAppMetadata(db);
   return (
     wizardApp !== null &&
     readAuthCookieSecret(env) !== null &&
@@ -383,14 +354,14 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
     }
 
     const db = createDbClient(context.env.DB);
-    const wizardApp = await readNewestActiveGitHubAppMetadata(db);
+    const wizardApp = await readDeploymentGitHubAppMetadata(db);
     if (!wizardApp) {
       throw new AppError("deploymentGitHubAppSetupRequired");
     }
 
     const requestedInstallationId = verificationQuery.installation_id;
-    // The login session rides the primary app, but the install being verified
-    // belongs to the app the wizard just registered.
+    // The login session rides the singleton deployment app, and GitHub remains
+    // authoritative for which installations the browser token can see.
     const visibleInstallations = readSessionInstallationSnapshots(
       await listVisibleInstallations(githubUserToken.accessToken),
       wizardApp.appId,
@@ -479,53 +450,4 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
     requireSetupClaimToken(context.req.raw);
     const apps = await listGitHubApps(createDbClient(context.env.DB));
     return context.json({ apps: apps.map(toGitHubAppListEntry) });
-  })
-  .post(
-    "/api/setup/github-apps/:appId/retire",
-    setupVisibleRequired,
-    githubAppIdParamInput,
-    async (context) => {
-      requireSetupClaimToken(context.req.raw);
-      const { appId } = context.req.valid("param");
-      const db = createDbClient(context.env.DB);
-      const app = await requireKnownGitHubApp(db, appId);
-      await retireGitHubApp(db, appId);
-      // Retiring leaves the app's worker secrets in place: deleting them needs
-      // a live Cloudflare connection the wizard drops after setup. They are
-      // unused once the row is retired and can be removed with
-      // `wrangler secret delete` at leisure.
-      await recordAuditEvent(db, {
-        eventName: "audit.deployment.github_app_retired",
-        actor: systemActor("maintenance"),
-        targetType: "auth",
-        targetId: String(appId),
-        outcome: "success",
-        metadata: { slug: app.slug, wasPrimary: app.isPrimary },
-      });
-      return context.json({
-        apps: (await listGitHubApps(db)).map(toGitHubAppListEntry),
-      });
-    },
-  )
-  .post(
-    "/api/setup/github-apps/:appId/primary",
-    setupVisibleRequired,
-    githubAppIdParamInput,
-    async (context) => {
-      requireSetupClaimToken(context.req.raw);
-      const { appId } = context.req.valid("param");
-      const db = createDbClient(context.env.DB);
-      await requireKnownGitHubApp(db, appId);
-      await setPrimaryGitHubApp(db, appId);
-      await recordAuditEvent(db, {
-        eventName: "audit.deployment.github_app_primary_changed",
-        actor: systemActor("maintenance"),
-        targetType: "auth",
-        targetId: String(appId),
-        outcome: "success",
-      });
-      return context.json({
-        apps: (await listGitHubApps(db)).map(toGitHubAppListEntry),
-      });
-    },
-  );
+  });

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
+import { authorizeAgentRequest } from "#/backend/auth/index.ts";
 import {
   buildBrowserSessionExpiration,
   githubUserTokenSchema,
@@ -14,6 +15,7 @@ import {
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
+import { MANAGER_CONVERSATION_AGENT_NAME, buildNaniteManagerKey } from "#/nanites.ts";
 
 const GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token";
 
@@ -90,6 +92,8 @@ async function buildAuthenticatedCookieHeader(request: Request): Promise<string>
     expiresAt: null,
     refreshToken: null,
     refreshTokenExpiresAt: null,
+    githubAppId: TEST_GITHUB_APP_ID,
+    githubAppClientId: "generated-client-id",
   });
 
   return [
@@ -284,6 +288,71 @@ test("visible installations clears stale auth cookies when GitHub rejects the us
   } finally {
     restore();
   }
+});
+
+test("manager conversation agent auth derives trusted browser installation headers", async () => {
+  const managerName = buildNaniteManagerKey({
+    githubAppId: TEST_GITHUB_APP_ID,
+    githubInstallationId: 122769206,
+  });
+  const request = new Request(
+    `http://localhost:5173/agents/${MANAGER_CONVERSATION_AGENT_NAME}/${managerName}:manager:94631653`,
+    {
+      headers: {
+        Cookie: await buildAuthenticatedCookieHeader(
+          new Request("http://localhost:5173/api/auth/installations/visible"),
+        ),
+        "x-nanites-active-github-app-id": "999",
+        "x-nanites-active-installation-id": "999",
+        "x-nanites-github-login": "spoofed-login",
+        "x-nanites-github-user-id": "999",
+        "x-nanites-installation-account-login": "SpoofedOrg",
+      },
+    },
+  );
+  const restore = mockGitHubViewerAndInstallations({
+    total_count: 1,
+    installations: [buildVisibleInstallation(122769206, "WebMCP-org")],
+  });
+
+  try {
+    const authorized = await authorizeAgentRequest(request, env);
+
+    expect(authorized).toBeInstanceOf(Request);
+    const headers = (authorized as Request).headers;
+    expect(headers.get("x-nanites-active-github-app-id")).toBe(String(TEST_GITHUB_APP_ID));
+    expect(headers.get("x-nanites-active-installation-id")).toBe("122769206");
+    expect(headers.get("x-nanites-github-login")).toBe("MiguelsPizza");
+    expect(headers.get("x-nanites-github-user-id")).toBe("94631653");
+    expect(headers.get("x-nanites-installation-account-login")).toBe("WebMCP-org");
+  } finally {
+    restore();
+  }
+});
+
+test("manager conversation agent auth rejects another actor suffix", async () => {
+  const managerName = buildNaniteManagerKey({
+    githubAppId: TEST_GITHUB_APP_ID,
+    githubInstallationId: 122769206,
+  });
+  const request = new Request(
+    `http://localhost:5173/agents/${MANAGER_CONVERSATION_AGENT_NAME}/${managerName}:manager:999`,
+    {
+      headers: {
+        Cookie: await buildAuthenticatedCookieHeader(
+          new Request("http://localhost:5173/api/auth/installations/visible"),
+        ),
+      },
+    },
+  );
+
+  const authorized = await authorizeAgentRequest(request, env);
+
+  expect(authorized).toBeInstanceOf(Response);
+  expect((authorized as Response).status).toBe(403);
+  await expect((authorized as Response).json()).resolves.toMatchObject({
+    code: "agent_authorization_forbidden",
+  });
 });
 
 test("test auth token failures bubble through the root error handler", async () => {

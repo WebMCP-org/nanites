@@ -2,7 +2,7 @@ import "./observability.css";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
 import {
   ActivityIcon,
   ArrowClockwiseIcon,
@@ -33,8 +33,13 @@ import {
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import {
   AUTH_SESSION_QUERY_KEY,
+  EMPTY_VISIBLE_INSTALLATIONS,
+  VISIBLE_INSTALLATIONS_QUERY_KEY,
+  fetchVisibleInstallations,
   fetchOptionalSession,
+  resolveBrowserInstallationSelection,
   type BrowserNanitesContext,
+  type SessionInstallationSnapshot,
 } from "#/frontend/lib/auth.ts";
 import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
 import { Badge, type BadgeColor } from "#/frontend/ui/components/Badge.tsx";
@@ -64,6 +69,8 @@ import {
   observabilitySearchSchema,
   type ObservabilitySearch,
 } from "./-search.ts";
+import { InstallationFilterSelect } from "./-installation-filter-select.tsx";
+import { ObservabilityInstallationRequiredState } from "./-installation-required-state.tsx";
 import type {
   AuditFeedRow,
   CostPoint,
@@ -233,17 +240,16 @@ function actorIdentityPerson(
 }
 
 function installationIdentityPerson(
-  session: BrowserNanitesContext | null | undefined,
+  installation: SessionInstallationSnapshot | null | undefined,
 ): GitHubIdentityPerson {
-  const installation = session?.activeInstallation;
   const login = installation?.account.login;
 
   return {
     eyebrow: "Installation",
-    title: login ?? "No active installation",
+    title: login ?? "No installation selected",
     fallback: avatarFallback(login),
     avatarUrl: withAvatarSize(installation?.account.avatar_url, 64),
-    detail: installation ? `#${installation.id}` : "GitHub access required",
+    detail: installation ? `#${installation.id}` : "Choose a GitHub installation",
   };
 }
 
@@ -945,10 +951,12 @@ function ObservabilityTabs({ search }: { readonly search: ObservabilitySearch })
 
 function GitHubIdentityPanel({
   session,
+  selectedInstallation,
   creator,
   onSelectCreator,
 }: {
   readonly session: BrowserNanitesContext | null | undefined;
+  readonly selectedInstallation: SessionInstallationSnapshot | null;
   readonly creator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
@@ -957,7 +965,7 @@ function GitHubIdentityPanel({
   return (
     <Card className="observability-github-panel">
       <GitHubIdentityPersonRow person={actorIdentityPerson(session)} />
-      <GitHubIdentityPersonRow person={installationIdentityPerson(session)} />
+      <GitHubIdentityPersonRow person={installationIdentityPerson(selectedInstallation)} />
       <GitHubIdentityActions
         actorLogin={actorLogin}
         creator={creator}
@@ -1252,10 +1260,16 @@ function FilterSelect({
 function ObservabilityFilters({
   search,
   options,
+  selectedInstallation,
+  installations,
+  onInstallationChange,
   onChange,
 }: {
   readonly search: ObservabilitySearch;
   readonly options: ObservabilityDashboardFilterOptions;
+  readonly selectedInstallation: SessionInstallationSnapshot | null;
+  readonly installations: readonly SessionInstallationSnapshot[];
+  readonly onInstallationChange: (installationId: number) => void;
   readonly onChange: (patch: SearchPatch) => void;
 }) {
   const rangeItems = OBSERVABILITY_SEARCH_RANGES.map((range) => ({
@@ -1265,6 +1279,11 @@ function ObservabilityFilters({
 
   return (
     <section className="observability-filters" aria-label="Observability filters">
+      <InstallationFilterSelect
+        selectedInstallation={selectedInstallation}
+        installations={installations}
+        onChange={onInstallationChange}
+      />
       <div className="observability-filter">
         <span>Range</span>
         <Select
@@ -1558,12 +1577,14 @@ function Dashboard({
   data,
   search,
   session,
+  selectedInstallation,
   onSearchChange,
   onSelectEvent,
 }: {
   readonly data: ObservabilityDashboardData;
   readonly search: ObservabilitySearch;
   readonly session: BrowserNanitesContext | null | undefined;
+  readonly selectedInstallation: SessionInstallationSnapshot | null;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
@@ -1585,6 +1606,7 @@ function Dashboard({
         <>
           <GitHubIdentityPanel
             session={session}
+            selectedInstallation={selectedInstallation}
             creator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1606,6 +1628,7 @@ function Dashboard({
         <>
           <GitHubIdentityPanel
             session={session}
+            selectedInstallation={selectedInstallation}
             creator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1698,7 +1721,18 @@ function ObservabilityHeader({ search }: { readonly search: ObservabilitySearch 
       <div>
         <h1>Observability</h1>
         <nav aria-label="Authenticated app">
-          <Link to="/nanites">Nanites</Link>
+          <Link
+            to="/nanites"
+            search={
+              search.installationId
+                ? {
+                    installationId: search.installationId,
+                  }
+                : undefined
+            }
+          >
+            Nanites
+          </Link>
           <Link to="/observability" activeProps={{ "data-active": true }}>
             Observability
           </Link>
@@ -1719,6 +1753,7 @@ function ObservabilityDashboardState({
   isPending,
   search,
   session,
+  selectedInstallation,
   onSearchChange,
   onSelectEvent,
 }: {
@@ -1726,6 +1761,7 @@ function ObservabilityDashboardState({
   readonly isPending: boolean;
   readonly search: ObservabilitySearch;
   readonly session: BrowserNanitesContext | null | undefined;
+  readonly selectedInstallation: SessionInstallationSnapshot | null;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
@@ -1738,6 +1774,7 @@ function ObservabilityDashboardState({
       data={data}
       search={search}
       session={session}
+      selectedInstallation={selectedInstallation}
       onSearchChange={onSearchChange}
       onSelectEvent={onSelectEvent}
     />
@@ -1782,25 +1819,51 @@ function ObservabilityRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const normalizedSearch = useMemo(() => observabilitySearchSchema.parse(search), [search]);
-  const selectedEventId = normalizedSearch.selectedEvent;
+  const { data: session, isPending: isSessionPending } = useQuery({
+    queryKey: AUTH_SESSION_QUERY_KEY,
+    queryFn: fetchOptionalSession,
+    throwOnError: true,
+  });
+  const shouldLoadInstallations = !isSessionPending && session !== null;
+  const { data: installationsData, isPending: isInstallationsPending } = useQuery({
+    queryKey: VISIBLE_INSTALLATIONS_QUERY_KEY,
+    queryFn: fetchVisibleInstallations,
+    enabled: shouldLoadInstallations,
+    throwOnError: true,
+  });
+  const visibleInstallations = installationsData?.installations ?? EMPTY_VISIBLE_INSTALLATIONS;
+  const installationSelection = resolveBrowserInstallationSelection({
+    session,
+    installations: visibleInstallations,
+    requestedInstallationId: normalizedSearch.installationId,
+  });
+  const selectedInstallation = installationSelection.installation;
+  const shouldCanonicalizeInstallation = installationSelection.canonicalInstallationId !== null;
+  const scopedSearch = useMemo(
+    () =>
+      observabilitySearchSchema.parse({
+        ...normalizedSearch,
+        installationId: selectedInstallation?.id ?? normalizedSearch.installationId,
+      }),
+    [normalizedSearch, selectedInstallation?.id],
+  );
+  const selectedEventId = scopedSearch.selectedEvent;
+
   const { data: dashboard, isPending: isDashboardPending } = useQuery({
-    queryKey: observabilityDashboardQueryKey(normalizedSearch),
-    queryFn: () => fetchObservabilityDashboard(normalizedSearch),
-    refetchInterval: normalizedSearch.live ? liveRefreshIntervalMs : false,
+    queryKey: observabilityDashboardQueryKey(scopedSearch),
+    queryFn: () => fetchObservabilityDashboard(scopedSearch),
+    enabled: selectedInstallation !== null && !shouldCanonicalizeInstallation,
+    refetchInterval: scopedSearch.live ? liveRefreshIntervalMs : false,
     throwOnError: true,
   });
   const { data: selectedEvent, isPending: isSelectedEventPending } = useQuery({
-    queryKey: observabilityEventDetailQueryKey(normalizedSearch, selectedEventId),
+    queryKey: observabilityEventDetailQueryKey(scopedSearch, selectedEventId),
     queryFn: () =>
       selectedEventId
-        ? fetchObservabilityEventDetail(normalizedSearch, selectedEventId)
+        ? fetchObservabilityEventDetail(scopedSearch, selectedEventId)
         : Promise.resolve(null),
-    enabled: Boolean(selectedEventId),
-    throwOnError: true,
-  });
-  const { data: session } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
+    enabled:
+      selectedInstallation !== null && !shouldCanonicalizeInstallation && Boolean(selectedEventId),
     throwOnError: true,
   });
   const setSearch = (patch: SearchPatch) => {
@@ -1814,22 +1877,80 @@ function ObservabilityRoute() {
       replace: true,
     });
   };
+  const selectInstallation = (installationId: number) => {
+    void navigate({
+      search: (previous) =>
+        cleanObservabilitySearch({
+          ...observabilitySearchSchema.parse(previous),
+          installationId,
+          repository: undefined,
+          naniteId: undefined,
+          creator: undefined,
+          outcome: undefined,
+          surface: undefined,
+          search: undefined,
+          selectedEvent: undefined,
+          cursor: undefined,
+        }),
+    });
+  };
+
+  if (isSessionPending || (shouldLoadInstallations && isInstallationsPending)) {
+    return <RoutePendingPage />;
+  }
+
+  if (installationSelection.canonicalInstallationId !== null) {
+    return (
+      <Navigate
+        to="/observability"
+        search={cleanObservabilitySearch({
+          ...normalizedSearch,
+          installationId: installationSelection.canonicalInstallationId,
+        })}
+        replace
+      />
+    );
+  }
+
+  if (!selectedInstallation) {
+    return (
+      <main className="observability-shell">
+        <ObservabilityHeader search={scopedSearch} />
+        <ObservabilityFilters
+          search={scopedSearch}
+          options={emptyFilterOptions}
+          selectedInstallation={null}
+          installations={visibleInstallations}
+          onInstallationChange={selectInstallation}
+          onChange={setSearch}
+        />
+        <ObservabilityInstallationRequiredState
+          installations={visibleInstallations}
+          onSelectInstallation={selectInstallation}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="observability-shell">
-      <ObservabilityHeader search={normalizedSearch} />
+      <ObservabilityHeader search={scopedSearch} />
       <ObservabilityFilters
-        search={normalizedSearch}
+        search={scopedSearch}
         options={dashboard?.filterOptions ?? emptyFilterOptions}
+        selectedInstallation={selectedInstallation}
+        installations={visibleInstallations}
+        onInstallationChange={selectInstallation}
         onChange={setSearch}
       />
-      <ObservabilityTabs search={normalizedSearch} />
-      <ActiveFilterChips search={normalizedSearch} onChange={setSearch} />
+      <ObservabilityTabs search={scopedSearch} />
+      <ActiveFilterChips search={scopedSearch} onChange={setSearch} />
       <ObservabilityDashboardState
         data={dashboard}
         isPending={isDashboardPending}
-        search={normalizedSearch}
+        search={scopedSearch}
         session={session}
+        selectedInstallation={selectedInstallation}
         onSearchChange={setSearch}
         onSelectEvent={(eventId) => setSearch({ selectedEvent: eventId })}
       />

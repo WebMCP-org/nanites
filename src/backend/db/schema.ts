@@ -248,11 +248,11 @@ export const accountPeople = sqliteTable(
 /**
  * Every GitHub App this deployment can authenticate as.
  *
- * App identity is explicit data, never a global: each row owns its worker
- * secret binding names, and every installation-bearing row records which app
- * it belongs to. Registering a new app adds a row and touches nothing else.
- * Exactly one active app is the primary browser/MCP OAuth login app, enforced
- * by a partial unique index.
+ * App identity is explicit data: each row owns its worker secret binding
+ * names, and every installation-bearing row records which app it belongs to.
+ * A deployment may have exactly one active GitHub App. Retired rows can remain
+ * as history, but runtime auth and setup fail closed if more than one active
+ * row is present.
  */
 export const githubApps = sqliteTable(
   "github_apps",
@@ -268,7 +268,6 @@ export const githubApps = sqliteTable(
     webhookSecretBinding: text("webhook_secret_binding").notNull(),
     permissionsJson: text("permissions_json").notNull(),
     eventsJson: text("events_json").notNull(),
-    isPrimary: integer("is_primary", { mode: "boolean" }).notNull().default(false),
     status: text("status", { enum: GITHUB_APP_STATUSES }).notNull().default("active"),
     retiredAt: integer("retired_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -279,9 +278,9 @@ export const githubApps = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (table) => [
-    uniqueIndex("github_apps_primary_unique")
-      .on(table.isPrimary)
-      .where(sql`${table.isPrimary} = 1 AND ${table.status} = 'active'`),
+    uniqueIndex("github_apps_active_unique")
+      .on(table.status)
+      .where(sql`${table.status} = 'active'`),
   ],
 );
 

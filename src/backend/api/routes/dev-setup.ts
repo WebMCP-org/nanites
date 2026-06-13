@@ -258,7 +258,7 @@ function describeAppStatus(app: GitHubAppMetadata, env: Env): string {
     ? `<span class="ok">secrets loaded</span>`
     : `<span class="missing">secrets missing from .dev.vars — paste the block from app creation and restart <code>vp run dev</code></span>`;
 
-  return `<li><a href="${escapeHtml(app.htmlUrl)}">${escapeHtml(app.slug)}</a> (app ${app.appId}${app.isPrimary ? ", primary" : ""}): ${secretsLabel}</li>`;
+  return `<li><a href="${escapeHtml(app.htmlUrl)}">${escapeHtml(app.slug)}</a> (app ${app.appId}): ${secretsLabel}</li>`;
 }
 
 function renderPasteBlockSection(input: {
@@ -346,22 +346,29 @@ export const devLocalSetupRoutes = new Hono<WorkerHonoEnv>()
         : `<p>No GitHub App is registered in the local database yet.</p>`;
 
     const restoreSection =
-      restorableAppIds.length > 0
+      restorableAppIds.length === 1
         ? `<h2>Restore from .dev.vars</h2>
-<p>Secrets for app${restorableAppIds.length === 1 ? "" : "s"} ${restorableAppIds.join(", ")} are
-already loaded but the database has no matching row (typical after
-<code>rm -rf .wrangler</code>).</p>
-<form method="post" action="${DEV_LOCAL_SETUP_RESTORE_PATH}">
-  <button class="primary" type="submit">Restore app row${restorableAppIds.length === 1 ? "" : "s"}</button>
-</form>
-<p>Equivalent: <code>curl -X POST http://localhost:5173${DEV_LOCAL_SETUP_RESTORE_PATH}</code></p>`
-        : "";
+   <p>Secrets for app${restorableAppIds.length === 1 ? "" : "s"} ${restorableAppIds.join(", ")} are
+   already loaded but the database has no matching row (typical after
+   <code>rm -rf .wrangler</code>).</p>
+   <form method="post" action="${DEV_LOCAL_SETUP_RESTORE_PATH}">
+   <button class="primary" type="submit">Restore app row</button>
+   </form>
+   <p>Equivalent: <code>curl -X POST http://localhost:5173${DEV_LOCAL_SETUP_RESTORE_PATH}</code></p>`
+        : restorableAppIds.length > 1
+          ? `<h2>Restore from .dev.vars</h2>
+  <p class="missing">Multiple GitHub App secret blocks are loaded (${restorableAppIds.join(", ")}).
+  Keep exactly one <code>GITHUB_APP_&lt;id&gt;_*</code> block in <code>.dev.vars</code>, restart
+  <code>vp run dev</code>, then restore the app row.</p>`
+          : "";
 
     const authCookieSecretNote = readAuthCookieSecret(context.env)
       ? ""
       : `<p class="missing"><code>AUTH_COOKIE_SECRET</code> is not set — creating an app below includes one in the paste block.</p>`;
 
-    const createSection = `<h2>Create a personal dev GitHub App</h2>
+    const createSection =
+      apps.length === 0 && restorableAppIds.length === 0
+        ? `<h2>Create a personal dev GitHub App</h2>
 <p>GitHub opens a confirmation page pre-filled with Nanites branding and default
 permissions; one click registers the app and returns here. GitHub App manifests
 cannot set a badge, so after creation you can upload the <a href="/assets/nanite-github-app-badge.png">Nanites badge</a>
@@ -369,7 +376,9 @@ in GitHub App settings under Display information.</p>
 <form method="post" action="https://github.com/settings/apps/new?state=${encodeURIComponent(manifestState)}">
   <input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest))}" />
   <button class="primary" type="submit">Create dev GitHub App on GitHub</button>
-</form>`;
+</form>`
+        : `<h2>Create a personal dev GitHub App</h2>
+<p>A deployment app is already present or restorable. Remove the extra local state first if you need a fresh app.</p>`;
 
     return context.html(
       renderDevSetupPage(
@@ -401,6 +410,20 @@ cookie. <a href="${DEV_LOCAL_SETUP_PATH}">Start over</a>.</p>`,
       );
     }
 
+    const db = createDbClient(context.env.DB);
+    await requireGitHubAppsTableReady(db);
+    if ((await listActiveGitHubApps(db)).length > 0) {
+      return context.html(
+        renderDevSetupPage(
+          "nanites local setup",
+          `<h1>Deployment app already exists</h1>
+<p>Local development supports exactly one GitHub App. Use the existing app, or clear local D1 and
+<code>.dev.vars</code> before creating another one.</p>`,
+        ),
+        409,
+      );
+    }
+
     let conversion: GitHubAppManifestConversion;
     try {
       conversion = await convertGitHubAppManifestCode(code);
@@ -420,7 +443,7 @@ cookie. <a href="${DEV_LOCAL_SETUP_PATH}">Start over</a>.</p>`,
     const slug = requireConversionString(conversion, "slug");
     const permissions = readConversionPermissions(conversion);
     const events = readConversionEvents(conversion);
-    await registerGitHubApp(createDbClient(context.env.DB), {
+    await registerGitHubApp(db, {
       appId: conversion.id,
       slug,
       htmlUrl: conversion.html_url,
@@ -465,6 +488,18 @@ cookie. <a href="${DEV_LOCAL_SETUP_PATH}">Start over</a>.</p>`,
           failed: [],
           error:
             "No GITHUB_APP_<id>_PRIVATE_KEY secrets found in env. Create an app at /setup/local first.",
+        },
+        400,
+      );
+    }
+    if (appIds.length > 1) {
+      return context.json(
+        {
+          restored: [],
+          failed: [],
+          error:
+            "Multiple GITHUB_APP_<id>_* secret blocks were found in env. Keep exactly one deployment app block in .dev.vars, remove the others, restart dev, then run /setup/local/restore again.",
+          githubAppIds: appIds,
         },
         400,
       );

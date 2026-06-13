@@ -2,16 +2,9 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
-import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
+import { requireBrowserInstallationScope } from "#/backend/auth/installations.ts";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
-import {
-  requireActiveGithubInstallation,
-  requireGitHubUserToken,
-  requireSession,
-  readSessionInstallationSnapshots,
-} from "#/backend/auth/session.ts";
-import { listInstallationRepositories, listVisibleInstallations } from "#/backend/github/index.ts";
-import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
+import { listInstallationRepositories } from "#/backend/github/index.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
   OBSERVABILITY_RANGES,
@@ -70,37 +63,18 @@ const filterOptionsInput = zValidator(
 
 async function resolveObservabilityScope(
   context: WorkerContext,
-  db: ReturnType<typeof createDbClient>,
+  _db: ReturnType<typeof createDbClient>,
   filters: ObservabilityFilters,
 ): Promise<ObservabilityVisibilityScope> {
-  const session = await requireSession(context.req.raw, context.env);
-  const token = await requireGitHubUserToken(context.req.raw, context.env, {
+  const installationScope = await requireBrowserInstallationScope(context.req.raw, context.env, {
+    githubInstallationId: filters.installationId ?? null,
     responseHeaders: context.res.headers,
   });
-  const requestedInstallationId =
-    filters.installationId ??
-    session.activeGithubInstallationId ??
-    requireActiveGithubInstallation(session).githubInstallationId;
-  const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
-  const visibleInstallations = readSessionInstallationSnapshots(
-    await listVisibleInstallations(token.accessToken),
-    primaryGitHubApp.appId,
-  );
-  await recordVisibleInstallationSnapshots(db, visibleInstallations);
-  const visibleInstallation = visibleInstallations.find(
-    (installation) => installation.id === requestedInstallationId,
-  );
-
-  if (!visibleInstallation) {
-    throw new AppError("installationAccessRevoked", {
-      details: { githubInstallationId: requestedInstallationId },
-    });
-  }
 
   const repositories = await listInstallationRepositories(
-    token.accessToken,
-    requestedInstallationId,
-    { env: context.env, githubAppId: visibleInstallation.githubAppId },
+    installationScope.githubUserToken.accessToken,
+    installationScope.githubInstallationId,
+    { env: context.env, githubAppId: installationScope.githubAppId },
   );
   const visibleRepositoryFullNames = repositories.map((repository) => repository.full_name);
   const visibleRepositoryIds = repositories.map((repository) => repository.id);
@@ -108,7 +82,7 @@ async function resolveObservabilityScope(
   if (filters.repository && !visibleRepositoryFullNames.includes(filters.repository)) {
     throw new AppError("naniteRepositoryScopeForbidden", {
       details: {
-        githubInstallationId: requestedInstallationId,
+        githubInstallationId: installationScope.githubInstallationId,
         repositories: [filters.repository],
       },
       message: `GitHub installation cannot access one or more Nanite repositories: ${filters.repository}`,
@@ -116,7 +90,7 @@ async function resolveObservabilityScope(
   }
 
   return {
-    githubInstallationId: requestedInstallationId,
+    githubInstallationId: installationScope.githubInstallationId,
     visibleRepositoryFullNames,
     visibleRepositoryIds,
     filters,

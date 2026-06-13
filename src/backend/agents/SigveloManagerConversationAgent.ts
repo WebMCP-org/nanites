@@ -4,10 +4,10 @@ import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
+import { GitHubMcpConnector } from "#/backend/nanites/github-mcp-connector.ts";
 import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
-import { callable, getAgentByName } from "agents";
+import { callable, getAgentByName, getCurrentAgent } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
-import type { TurnConfig, TurnContext } from "@cloudflare/think";
 import { AppError } from "#/backend/errors.ts";
 import {
   issueScopedGitHubInstallationToken,
@@ -24,15 +24,9 @@ import { sigveloMcpAuthPropsSchema, type SigveloMcpAuthProps } from "#/backend/m
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_SCOPES } from "#/mcp.ts";
-import { buildNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey, parseNaniteManagerKey } from "#/nanites.ts";
 
 const SIGVELO_MANAGER_CHAT_CLIENT_ID = "sigvelo-github-manager-chat";
-const GITHUB_MCP_SERVER_NAME = "github";
-const GITHUB_MCP_SERVER_ID = "github";
-const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
-// GitHub installation tokens expire after one hour. Refresh ahead of expiry so
-// a turn never starts with credentials about to lapse mid-turn.
-const GITHUB_MCP_TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
 const STALE_MANAGER_SUBMISSION_AGE_MS = 120_000;
 const NANITES_AUTHORING_REPOSITORY = "WebMCP-org/nanites";
 const NANITES_AUTHORING_REPOSITORY_URL = `https://github.com/${NANITES_AUTHORING_REPOSITORY}`;
@@ -56,10 +50,6 @@ const TERMINAL_SUBMISSION_STATUSES = new Set<ThinkSubmissionStatus>([
   "skipped",
   "error",
 ]);
-
-function shouldConnectGitHubMcp(env: Env): boolean {
-  return String(env.MANAGER_CONVERSATION_DISABLE_GITHUB_MCP) !== "true";
-}
 
 type ManagerGitHubMessageAcceptance = {
   accepted: boolean;
@@ -93,17 +83,6 @@ export type ManagerReplyPublication = {
   userMessageId: string;
 };
 
-export type ManagerBrowserSessionInput = {
-  managerName: string;
-  githubAppId: number;
-  githubInstallationId: number;
-  accountLogin: string;
-  actor: {
-    id: number;
-    login: string;
-  };
-};
-
 type DisconnectedManagerConversationState = {
   status: "disconnected";
   repositories: GitHubInstallationRepository[];
@@ -130,14 +109,10 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     repositories: [],
   };
   override maxSteps = 1000;
-  override waitForMcpConnections = { timeout: 10_000 };
   // Never externalize evicted transcript media into the workspace: repos are
   // cloned at the workspace root, so a written /attachments directory would
   // collide with (and git-shadow) a repo's own files. Drop the bytes instead.
   override mediaEviction = { externalizeToWorkspace: false };
-  // In-memory only: lost on hibernation, which forces a refresh on the first
-  // turn after a wake. Never persisted alongside the token itself.
-  private githubMcpTokenExpiresAtMs: number | null = null;
   override workspace = new Workspace({
     sql: this.ctx.storage.sql,
     r2: this.env.WORKSPACE_FILES,
@@ -150,29 +125,6 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       env: this.env,
       sessionAffinity: this.sessionAffinity,
     });
-  }
-
-  private getTurnModel(): LanguageModel {
-    return createSigveloAgentLanguageModel({
-      env: this.env,
-      sessionAffinity: this.sessionAffinity,
-    });
-  }
-
-  override async onStart(): Promise<void> {
-    // The GitHub MCP server authenticates with a static one-hour installation
-    // token that the agents SDK persists (and replays) in transport headers
-    // across hibernation. A restored server is therefore stale by definition:
-    // drop it here and let beforeTurn reconnect with a fresh token.
-    await this.removeGitHubMcpServers();
-  }
-
-  override async beforeTurn(_ctx: TurnContext): Promise<TurnConfig> {
-    await this.ensureFreshGitHubMcpForTurn();
-    return {
-      maxSteps: this.maxSteps,
-      model: this.getTurnModel(),
-    };
   }
 
   override configureSession(session: Session): Session {
@@ -212,6 +164,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
 
   override getTools(): ToolSet {
     const workspaceTools = createWorkspaceTools(this.workspace);
+    const githubMcpConnector = this.createGitHubMcpConnector();
 
     return {
       ...workspaceTools,
@@ -224,18 +177,19 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
         ctx: this.ctx,
         tools: workspaceTools,
         state: createWorkspaceStateBackend(this.workspace),
-        connectors: [new ToolProviderConnector(this.ctx, this.createGitToolProvider())],
+        connectors: [
+          new ToolProviderConnector(this.ctx, this.createGitToolProvider()),
+          ...(githubMcpConnector ? [githubMcpConnector] : []),
+        ],
         loader: this.env.LOADER,
       }),
     };
   }
 
   @callable()
-  async connectBrowserInstallation(
-    input: ManagerBrowserSessionInput,
-  ): Promise<{ connected: true }> {
-    const props = createSigveloToolAuthPropsFromBrowser(input);
-    await this.ensureSigveloToolsConnected(props, requireSelectedGitHubAccount(input.accountLogin));
+  async connectBrowserInstallation(): Promise<{ connected: true }> {
+    const connection = createSigveloToolAuthPropsFromBrowser(this.name);
+    await this.ensureSigveloToolsConnected(connection.props, connection.accountLogin);
     return { connected: true };
   }
 
@@ -267,76 +221,34 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       repositories,
       connectedAt: new Date().toISOString(),
     });
-    if (repositories.length === 0) {
-      return;
-    }
-    if (!shouldConnectGitHubMcp(this.env)) {
-      return;
-    }
-
-    await this.refreshGitHubMcpServer(props.githubAppId, props.githubInstallationId, repositories);
   }
 
-  private async ensureFreshGitHubMcpForTurn(): Promise<void> {
+  /**
+   * Exposes GitHub MCP inside the codemode sandbox as `github.*`, minting a
+   * fresh installation token per turn-setup in createHeaders. Broad access:
+   * the token covers every accessible repo with the installation's granted
+   * permissions, and no X-MCP filter is sent, so the manager sees the full
+   * tool surface. Returns null until an installation is connected.
+   */
+  private createGitHubMcpConnector(): GitHubMcpConnector | null {
     const state = this.state;
     if (state.status !== "connected" || state.repositories.length === 0) {
-      return;
-    }
-    if (!shouldConnectGitHubMcp(this.env)) {
-      return;
+      return null;
     }
 
-    const server = this.getMcpServers().servers[GITHUB_MCP_SERVER_ID];
-    const expiresAtMs = this.githubMcpTokenExpiresAtMs;
-    const tokenIsFresh =
-      expiresAtMs !== null && Date.now() < expiresAtMs - GITHUB_MCP_TOKEN_REFRESH_MARGIN_MS;
-    if (server?.state === "ready" && tokenIsFresh) {
-      return;
-    }
-
-    await this.refreshGitHubMcpServer(
-      state.githubAppId,
-      state.githubInstallationId,
-      state.repositories,
-    );
-  }
-
-  private async refreshGitHubMcpServer(
-    githubAppId: number,
-    githubInstallationId: number,
-    repositories: readonly GitHubInstallationRepository[],
-  ): Promise<void> {
-    await this.removeGitHubMcpServers();
-    const scopedToken = await issueScopedGitHubInstallationToken({
-      env: this.env,
-      githubAppId,
-      installationId: githubInstallationId,
-      repositories: repositories.map((repository) => repository.full_name).sort(),
-    });
-    this.githubMcpTokenExpiresAtMs = Date.parse(scopedToken.expiresAt);
-    await this.addMcpServer(GITHUB_MCP_SERVER_NAME, GITHUB_MCP_SERVER_URL, {
-      id: GITHUB_MCP_SERVER_ID,
-      transport: {
-        type: "streamable-http",
-        headers: {
-          Authorization: `Bearer ${scopedToken.token}`,
-        },
-      },
-      retry: {
-        maxAttempts: 2,
-        baseDelayMs: 500,
-        maxDelayMs: 2_000,
+    const { githubAppId, githubInstallationId } = state;
+    const repositories = state.repositories.map((repository) => repository.full_name).sort();
+    return new GitHubMcpConnector(this.ctx, {
+      createHeaders: async () => {
+        const scopedToken = await issueScopedGitHubInstallationToken({
+          env: this.env,
+          githubAppId,
+          installationId: githubInstallationId,
+          repositories,
+        });
+        return { Authorization: `Bearer ${scopedToken.token}` };
       },
     });
-  }
-
-  private async removeGitHubMcpServers(): Promise<void> {
-    const servers = this.getMcpServers().servers;
-    await Promise.all(
-      Object.entries(servers)
-        .filter(([, server]) => server.name === GITHUB_MCP_SERVER_NAME)
-        .map(([serverId]) => this.removeMcpServer(serverId)),
-    );
   }
 
   private formatInstallationContext(): string {
@@ -344,7 +256,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     if (context.status === "disconnected") {
       return [
         "No GitHub installation has been connected for this manager conversation yet.",
-        "If the human asks about repositories or Nanites, first inspect SigVelo manager state and connected MCP tools before asking for missing names.",
+        "If the human asks about repositories or Nanites, first inspect SigVelo manager state with the manager tools before asking for missing names.",
       ].join("\n");
     }
 
@@ -516,36 +428,70 @@ function createSigveloToolAuthProps(input: HandleManagerChatMessageInput): Sigve
   });
 }
 
-function createSigveloToolAuthPropsFromBrowser(
-  input: ManagerBrowserSessionInput,
-): SigveloMcpAuthProps {
-  requireSelectedGitHubAccount(input.accountLogin);
-  const installationId = input.githubInstallationId;
-  if (!Number.isInteger(installationId) || installationId <= 0) {
+function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
+  accountLogin: string;
+  props: SigveloMcpAuthProps;
+} {
+  const { request } = getCurrentAgent();
+  const headers = request?.headers;
+  const rawGithubAppId = headers?.get("x-nanites-active-github-app-id");
+  const rawInstallationId = headers?.get("x-nanites-active-installation-id");
+  const rawGitHubUserId = headers?.get("x-nanites-github-user-id");
+  const githubLogin = headers?.get("x-nanites-github-login");
+  const accountLogin = headers?.get("x-nanites-installation-account-login") ?? "";
+  const githubAppId = Number(rawGithubAppId);
+  const installationId = Number(rawInstallationId);
+  const githubUserId = Number(rawGitHubUserId);
+
+  if (
+    !Number.isInteger(githubAppId) ||
+    githubAppId <= 0 ||
+    !Number.isInteger(installationId) ||
+    installationId <= 0
+  ) {
     throw new AppError("managerConversationInstallationRequired");
   }
+
+  if (!Number.isInteger(githubUserId) || githubUserId <= 0 || !githubLogin) {
+    throw new AppError("authenticationRequired");
+  }
+
+  const expectedManagerName = buildNaniteManagerKey({
+    githubAppId,
+    githubInstallationId: installationId,
+  });
+  const actorSeparator = ":manager:";
+  const separatorIndex = conversationName.lastIndexOf(actorSeparator);
+  const managerName = separatorIndex > 0 ? conversationName.slice(0, separatorIndex) : "";
+  const rawActorId =
+    separatorIndex > 0 ? conversationName.slice(separatorIndex + actorSeparator.length) : "";
+  const actorId = Number(rawActorId);
+  const managerIdentity = parseNaniteManagerKey(managerName);
   if (
-    input.managerName !==
-    buildNaniteManagerKey({
-      githubAppId: input.githubAppId,
-      githubInstallationId: installationId,
-    })
+    managerName !== expectedManagerName ||
+    managerIdentity?.githubAppId !== githubAppId ||
+    managerIdentity.githubInstallationId !== installationId ||
+    !Number.isInteger(actorId) ||
+    actorId !== githubUserId
   ) {
     throw new AppError("managerConversationInstallationMismatch");
   }
 
   const props = {
     authKind: "mcp",
-    githubUserId: input.actor.id,
-    githubLogin: input.actor.login,
-    githubAppId: input.githubAppId,
+    githubUserId,
+    githubLogin,
+    githubAppId,
     githubInstallationId: installationId,
     clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
     scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
     authorizedAt: new Date().toISOString(),
   };
 
-  return sigveloMcpAuthPropsSchema.parse(props);
+  return {
+    accountLogin: requireSelectedGitHubAccount(accountLogin),
+    props: sigveloMcpAuthPropsSchema.parse(props),
+  };
 }
 
 function requireSelectedGitHubAccount(accountLogin: string): string {
@@ -569,12 +515,12 @@ function buildManagerSystemPrompt(): string {
     "Use the loaded nanites skill as the source of truth for Nanite authoring, trigger, permission, testing, and debugging rules.",
     "Use manager_installation_context as selected GitHub installation grounding. Treat that selected installation/account as the user's current org unless they explicitly ask to switch.",
     "The signed-in human's personal login (githubLogin from sigvelo_whoami) identifies who you are talking to, not where you work. Never search, target, or create Nanites against that personal account or its repositories unless the user explicitly asks; pick repositories from the accessible repository list in manager_installation_context.",
-    "You have broad GitHub MCP access for the selected installation, bounded by the GitHub App installation and accessible repository list.",
+    "You have broad GitHub access for the selected installation, exposed inside execute as github.* and bounded by the GitHub App installation and accessible repository list. Discover github.* methods with codemode.search/codemode.describe.",
     "Use SigVelo manager tools for control-plane work: inspect Nanites, create or update one Nanite at a time, deprovision one Nanite, start manual runs, cancel runs, and inspect Nanite workspaces.",
-    "Use GitHub MCP tools to investigate repositories, repo instructions, branches, commits, pull requests, issues, and workflow/check state before creating or updating Nanites. You may create pull requests only when that is the user's explicit request or the coherent review surface for the manager's work.",
-    "Use built-in workspace tools for repository file review and git work. execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, shell subprocesses, and shell git are unavailable. Use state.* and git.* APIs directly.",
+    "Use github.* tools inside execute to investigate repositories, repo instructions, branches, commits, pull requests, issues, and workflow/check state before creating or updating Nanites. You may create pull requests only when that is the user's explicit request or the coherent review surface for the manager's work.",
+    "Use built-in workspace tools for repository file review and git work. execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, shell subprocesses, and shell git are unavailable. Use state.*, git.*, and github.* APIs directly.",
     "SigVelo manager tools are not exposed as top-level JavaScript functions inside execute. Call explicit SigVelo tools from the Think tool list instead, one Nanite at a time.",
-    "For repository file contents, repo-local instructions, and Nanite authoring references, prefer the durable workspace checkout over GitHub MCP so evidence stays inspectable in the manager workspace.",
+    "For repository file contents, repo-local instructions, and Nanite authoring references, prefer the durable workspace checkout over github.* so evidence stays inspectable in the manager workspace.",
     `Use nanites_authoring_sources to refresh and inspect ${NANITES_AUTHORING_REPOSITORY} in the manager workspace before creating or updating Nanites.`,
     "If the authoring repo refresh fails because of access, network, or a dirty checkout, continue from the best available evidence and mention the limitation briefly.",
     "Resolve phrases like 'my org', 'this org', 'the package repo', or 'the docs repo' against the selected installation account and accessible repository list before asking for names.",

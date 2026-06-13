@@ -9,9 +9,10 @@ import { createDbClient } from "#/backend/db/index.ts";
 import { AppError, describeError } from "#/backend/errors.ts";
 import {
   AUTH_COOKIE_SECRET_BINDING,
+  assertDeploymentGitHubAppRegistrable,
   buildGitHubAppSecretBindings,
   readAuthCookieSecret,
-  readNewestActiveGitHubAppMetadata,
+  readDeploymentGitHubAppMetadata,
   registerGitHubApp,
   resolveGitHubApp,
 } from "#/backend/github/apps.ts";
@@ -777,9 +778,8 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
 
   async refresh(input: RefreshSetupInput = {}): Promise<NanitesSetupState> {
     const db = createDbClient(this.env.DB);
-    // The wizard works with the most recently registered active app.
-    // Registering a new app adds a row; it never edits earlier apps.
-    const metadata = await readNewestActiveGitHubAppMetadata(db);
+    // The wizard works with the singleton deployment GitHub App.
+    const metadata = await readDeploymentGitHubAppMetadata(db);
     const runtimeConfigReadable =
       metadata !== null &&
       (input.runtimeConfigReadable === true ||
@@ -1335,7 +1335,10 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (!cloudflareAllowsGitHubApp(this.state.cloudflare)) {
       return { ok: false, errorKind: "cloudflareReadinessRequired" };
     }
-    if (this.state.githubApp.status !== "ready" && this.state.githubApp.status !== "stalled") {
+    if (this.state.githubApp.status !== "ready") {
+      return { ok: false, errorKind: "invalidSetupState" };
+    }
+    if ((await readDeploymentGitHubAppMetadata(createDbClient(this.env.DB))) !== null) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
     const action = buildGitHubManifestFormAction(input);
@@ -1387,6 +1390,9 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (this.state.cloudflare.status !== "verified" || !accountId || !scriptName) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
+    if ((await readDeploymentGitHubAppMetadata(createDbClient(this.env.DB))) !== null) {
+      return { ok: false, errorKind: "invalidSetupState" };
+    }
 
     this.setState(
       finalizeSetupState({
@@ -1407,6 +1413,11 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         requireManifestString(githubApp, "pem"),
       );
       const secretBindings = buildGitHubAppSecretBindings(githubApp.id);
+      // Reject a conflicting deployment app before writing Worker secrets, so a
+      // late insert-time rejection in registerGitHubApp never orphans this
+      // app's GITHUB_APP_<id>_* bindings on the Worker. registerGitHubApp
+      // re-checks at commit time as the authoritative guard.
+      await assertDeploymentGitHubAppRegistrable(createDbClient(this.env.DB), githubApp.id);
       await this.writeWorkerSecrets({
         accountId,
         scriptName,

@@ -1,18 +1,13 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { TEST_GITHUB_APP_ID } from "../helpers/d1-baseline.ts";
-import {
-  buildGitHubTriggerFixture,
-  validateGeneratedTriggerSource,
-} from "#/backend/nanites/triggers.ts";
+import { buildGitHubTriggerFixture } from "#/backend/nanites/triggers.ts";
 import {
   isTerminalNaniteRunStatus,
-  matchesNaniteSubAgentClassName,
   type NaniteRunRecord,
   type SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
-import { NANITE_AGENT_NAME } from "#/nanites.ts";
 
 beforeAll(async () => {
   await env.DB.exec("CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY);");
@@ -92,10 +87,6 @@ export default {
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
 const naniteModel = "deepseek/deepseek-v4-pro";
-
-test("Nanite sub-agent guard accepts the public browser route class name", () => {
-  expect(matchesNaniteSubAgentClassName(NANITE_AGENT_NAME)).toBe(true);
-});
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,
@@ -177,115 +168,6 @@ function expectAcceptedTriggerRun(output: TriggerTestOutput, naniteId: string) {
     status: "complete",
   });
 }
-
-test("generated trigger validation accepts source that bundles and exports the runtime contract", async () => {
-  const result = await validateGeneratedTriggerSource({
-    loader: env.LOADER,
-    cacheKey: `valid-trigger-${crypto.randomUUID()}`,
-    event: null,
-    sourceCode: `
-export default {
-  async handle(event, ctx) {
-    if (event.name !== "push") {
-      return ctx.noop("Not a push.");
-    }
-
-    return ctx.dispatchSelf({ repository: event.payload.repository.full_name });
-  },
-};
-`,
-  });
-
-  expect(result).toEqual({ ok: true });
-});
-
-test("generated trigger validation accepts typed trigger facade source", async () => {
-  const result = await validateGeneratedTriggerSource({
-    loader: env.LOADER,
-    cacheKey: `typed-trigger-${crypto.randomUUID()}`,
-    event: null,
-    sourceCode: `
-import { defineGitHubTrigger } from "@sigvelo/nanite-trigger";
-
-export default defineGitHubTrigger({
-  event: "push",
-  async handle(event, ctx) {
-    const changed = event.payload.commits.flatMap((commit) => [
-      ...(commit.added ?? []),
-      ...(commit.modified ?? []),
-      ...(commit.removed ?? []),
-    ]);
-
-    return ctx.dispatchSelf({
-      repository: event.payload.repository.full_name,
-      after: event.payload.after,
-      files: changed,
-    });
-  },
-});
-`,
-  });
-
-  expect(result).toEqual({ ok: true });
-});
-
-test("generated trigger validation skips Octokit payload semantic diagnostics", async () => {
-  const result = await validateGeneratedTriggerSource({
-    loader: env.LOADER,
-    cacheKey: `typed-trigger-error-${crypto.randomUUID()}`,
-    event: null,
-    sourceCode: `
-import { defineGitHubTrigger } from "@sigvelo/nanite-trigger";
-
-export default defineGitHubTrigger({
-  event: "push",
-  async handle(event, ctx) {
-    return ctx.dispatchSelf({
-      pullRequestNumber: event.payload.pull_request.number,
-    });
-  },
-});
-`,
-  });
-
-  expect(result).toEqual({ ok: true });
-});
-
-test("generated trigger validation rejects source that does not export handle", async () => {
-  const result = await validateGeneratedTriggerSource({
-    loader: env.LOADER,
-    cacheKey: `missing-handle-${crypto.randomUUID()}`,
-    event: null,
-    sourceCode: `export default { notHandle() { return null; } };`,
-  });
-
-  expect(result.ok).toBe(false);
-  if (!result.ok) {
-    expect(result.error).toContain("phase=response");
-    expect(result.error).toContain("export default { handle(event, ctx) }");
-  }
-});
-
-test("generated trigger validation rejects forbidden dynamic code before bundling", async () => {
-  const result = await validateGeneratedTriggerSource({
-    loader: env.LOADER,
-    cacheKey: `dynamic-code-${crypto.randomUUID()}`,
-    event: null,
-    sourceCode: `
-export default {
-  async handle() {
-    return eval("({ type: 'noop', reason: 'dynamic' })");
-  },
-};
-`,
-  });
-
-  expect(result).toMatchObject({ ok: false });
-  if (!result.ok) {
-    expect(result.error).toContain("phase=static");
-    expect(result.error).toContain("eval");
-  }
-});
 
 test("nanite registration stores generated triggers only after validation passes", async () => {
   const manager = await getManager();

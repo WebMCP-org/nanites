@@ -7,21 +7,14 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { AppError, describeError, requestValidationHook } from "#/backend/errors.ts";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import { createDbClient } from "#/backend/db/index.ts";
+import { listBrowserVisibleInstallationSnapshots } from "#/backend/auth/installations.ts";
 import {
-  clearRevokedSessionSelectionIfNeeded,
   readSessionCookie,
-  readSessionInstallationSnapshots,
-  requireGitHubUserToken,
   type NanitesSession,
   type SessionInstallationSnapshot,
 } from "#/backend/auth/session.ts";
-import {
-  listInstallationRepositories,
-  listVisibleInstallations,
-  type GitHubUserToken,
-} from "#/backend/github/index.ts";
-import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
-import { createDbClient } from "#/backend/db/index.ts";
+import { listInstallationRepositories, type GitHubUserToken } from "#/backend/github/index.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { resolveGrantedMcpScopes } from "#/backend/mcp/index.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
@@ -34,6 +27,7 @@ import {
   MCP_CONSENT_COOKIE_PATH,
 } from "#/mcp.ts";
 import { buildGitHubAppInstallHref } from "#/github.ts";
+import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 
 const consentCookiePayloadSchema = z.object({
   csrfToken: z.string().min(1),
@@ -162,27 +156,15 @@ async function readOptionalBrowserAuthorizeContext({
   }
 
   try {
-    const githubUserToken = await requireGitHubUserToken(request, env, {
+    const visibleInstallations = await listBrowserVisibleInstallationSnapshots(request, env, {
       responseHeaders,
-    });
-    const primaryGitHubApp = await requirePrimaryGitHubApp(createDbClient(env.DB), env);
-    const sessionInstallationSnapshots = readSessionInstallationSnapshots(
-      await listVisibleInstallations(githubUserToken.accessToken),
-      primaryGitHubApp.appId,
-    );
-    await clearRevokedSessionSelectionIfNeeded({
-      req: request,
-      env,
-      session,
-      resHeaders: responseHeaders,
-      sessionInstallationSnapshots,
     });
 
     return {
-      session,
-      actor: session.githubViewer,
-      githubUserToken,
-      sessionInstallationSnapshots,
+      session: visibleInstallations.session,
+      actor: visibleInstallations.session.githubViewer,
+      githubUserToken: visibleInstallations.githubUserToken,
+      sessionInstallationSnapshots: visibleInstallations.installations,
     };
   } catch (error) {
     if (error instanceof AppError && error.kind === "authenticationRequired") {
@@ -405,12 +387,24 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         });
       }
 
+      const deploymentGitHubApp = await requireDeploymentGitHubApp(
+        createDbClient(context.env.DB),
+        context.env,
+      );
+      const buildDeploymentAppInstallHref = (
+        options: Parameters<typeof buildGitHubAppInstallHref>[0],
+      ) =>
+        buildGitHubAppInstallHref({
+          ...options,
+          appSlug: deploymentGitHubApp.slug,
+        });
+
       if (authContext.sessionInstallationSnapshots.length === 0) {
         expireConsentCookie(context);
         return context.json({
           status: "no_installations",
           clientName,
-          installHref: buildGitHubAppInstallHref({ state: authorizeReturnToPath }),
+          installHref: buildDeploymentAppInstallHref({ state: authorizeReturnToPath }),
         });
       }
 
@@ -424,7 +418,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
               { env: context.env, githubAppId: installation.githubAppId },
             )
           ).length,
-          manageAccessHref: buildGitHubAppInstallHref({
+          manageAccessHref: buildDeploymentAppInstallHref({
             state: authorizeReturnToPath,
             suggestedTargetId: installation.account.id,
           }),
@@ -439,7 +433,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         return context.json({
           status: "no_repositories",
           clientName,
-          installHref: buildGitHubAppInstallHref({ state: authorizeReturnToPath }),
+          installHref: buildDeploymentAppInstallHref({ state: authorizeReturnToPath }),
           installations,
         });
       }

@@ -13,6 +13,7 @@ const GITHUB_MANIFEST_CONVERSION_URL =
   "https://api.github.com/app-manifests/test-dev-manifest-code/conversions";
 const STATE_COOKIE_NAME = "nanites_dev_setup_state";
 const CONVERTED_APP_ID = 99999;
+const TEST_GITHUB_APP_PRIVATE_KEY_BINDING = `GITHUB_APP_${TEST_GITHUB_APP_ID}_PRIVATE_KEY`;
 
 beforeEach(async () => {
   await resetGitHubAppTables(env.DB);
@@ -120,7 +121,6 @@ test("restore rebuilds the github_apps row from env secrets via GET /app", async
   await expect(readGitHubAppMetadata(db, TEST_GITHUB_APP_ID)).resolves.toMatchObject({
     slug: "nanites-restored",
     clientId: "restored-client-id",
-    isPrimary: true,
     status: "active",
     permissions: { issues: "write" },
     events: ["issues"],
@@ -156,67 +156,72 @@ test("restore reports rotated or deleted apps instead of registering them", asyn
 });
 
 test("manifest callback registers the app and prints the .dev.vars paste block", async () => {
-  const pageResponse = await nanitesHttpApp.request(`${LOCAL_ORIGIN}/setup/local`, {}, env);
-  const state = readStateCookie(pageResponse);
-  // The OAuth callback registered on the dev app must use localhost, or
-  // sign-in fails only after a real app has been created on GitHub.
-  const pageBody = await pageResponse.text();
-  expect(pageBody).toContain("http://localhost:5173/auth/github/callback");
-  expect(pageBody).toContain("/assets/nanite-github-app-badge.png");
-  const manifest = readManifestFromPage(pageBody);
-  expect(manifest).toMatchObject({
-    name: expect.stringMatching(/^Nanites dev [a-z0-9]{1,4}$/),
-    description: GITHUB_APP_MANIFEST_DESCRIPTION,
-  });
-  expect(manifest).not.toHaveProperty("logo_url");
-  expect(manifest).not.toHaveProperty("avatar_url");
-  expect(manifest).not.toHaveProperty("badge_url");
-  expect(manifest).toMatchObject({
-    hook_attributes: {
-      url: "https://example.com/nanites-local-webhook",
-      active: false,
-    },
-  });
-
-  const stub = withStubbedFetch((request) =>
-    request.url === GITHUB_MANIFEST_CONVERSION_URL && request.method === "POST"
-      ? Response.json(buildManifestConversion(), { status: 201 })
-      : null,
-  );
-  let body: string;
+  const originalPrivateKey = Reflect.get(env, TEST_GITHUB_APP_PRIVATE_KEY_BINDING);
+  Reflect.set(env, TEST_GITHUB_APP_PRIVATE_KEY_BINDING, "");
   try {
-    const response = await nanitesHttpApp.request(
-      `${LOCAL_ORIGIN}/setup/local/github/callback?code=test-dev-manifest-code&state=${state}`,
-      { headers: { cookie: `${STATE_COOKIE_NAME}=${state}` } },
-      env,
+    const pageResponse = await nanitesHttpApp.request(`${LOCAL_ORIGIN}/setup/local`, {}, env);
+    const state = readStateCookie(pageResponse);
+    // The OAuth callback registered on the dev app must use localhost, or
+    // sign-in fails only after a real app has been created on GitHub.
+    const pageBody = await pageResponse.text();
+    expect(pageBody).toContain("http://localhost:5173/auth/github/callback");
+    expect(pageBody).toContain("/assets/nanite-github-app-badge.png");
+    const manifest = readManifestFromPage(pageBody);
+    expect(manifest).toMatchObject({
+      name: expect.stringMatching(/^Nanites dev [a-z0-9]{1,4}$/),
+      description: GITHUB_APP_MANIFEST_DESCRIPTION,
+    });
+    expect(manifest).not.toHaveProperty("logo_url");
+    expect(manifest).not.toHaveProperty("avatar_url");
+    expect(manifest).not.toHaveProperty("badge_url");
+    expect(manifest).toMatchObject({
+      hook_attributes: {
+        url: "https://example.com/nanites-local-webhook",
+        active: false,
+      },
+    });
+
+    const stub = withStubbedFetch((request) =>
+      request.url === GITHUB_MANIFEST_CONVERSION_URL && request.method === "POST"
+        ? Response.json(buildManifestConversion(), { status: 201 })
+        : null,
     );
-    expect(response.status).toBe(200);
-    body = await response.text();
+    let body: string;
+    try {
+      const response = await nanitesHttpApp.request(
+        `${LOCAL_ORIGIN}/setup/local/github/callback?code=test-dev-manifest-code&state=${state}`,
+        { headers: { cookie: `${STATE_COOKIE_NAME}=${state}` } },
+        env,
+      );
+      expect(response.status).toBe(200);
+      body = await response.text();
+    } finally {
+      stub.restore();
+    }
+
+    // The PEM is rendered as one dotenv line with literal \n escapes.
+    expect(body).toContain(`GITHUB_APP_${CONVERTED_APP_ID}_PRIVATE_KEY=`);
+    expect(body).toContain("-----BEGIN RSA PRIVATE KEY-----\\ntest-key-body\\n");
+    expect(body).toContain(`GITHUB_APP_${CONVERTED_APP_ID}_CLIENT_SECRET=`);
+    // GitHub returned no webhook secret, so the route minted one.
+    expect(body).toMatch(
+      new RegExp(`GITHUB_APP_${CONVERTED_APP_ID}_WEBHOOK_SECRET=&quot;[0-9a-f]{64}&quot;`),
+    );
+    expect(body).toContain("https://github.com/apps/nanites-dev-test/installations/new");
+    expect(body).toContain("/assets/nanite-github-app-badge.png");
+    // The trimmed dev permissions drift from the defaults only warns.
+    expect(body).toContain("Missing default permission");
+
+    await expect(
+      readGitHubAppMetadata(createDbClient(env.DB), CONVERTED_APP_ID),
+    ).resolves.toMatchObject({
+      slug: "nanites-dev-test",
+      clientId: "Iv1.devtest",
+      status: "active",
+    });
   } finally {
-    stub.restore();
+    Reflect.set(env, TEST_GITHUB_APP_PRIVATE_KEY_BINDING, originalPrivateKey);
   }
-
-  // The PEM is rendered as one dotenv line with literal \n escapes.
-  expect(body).toContain(`GITHUB_APP_${CONVERTED_APP_ID}_PRIVATE_KEY=`);
-  expect(body).toContain("-----BEGIN RSA PRIVATE KEY-----\\ntest-key-body\\n");
-  expect(body).toContain(`GITHUB_APP_${CONVERTED_APP_ID}_CLIENT_SECRET=`);
-  // GitHub returned no webhook secret, so the route minted one.
-  expect(body).toMatch(
-    new RegExp(`GITHUB_APP_${CONVERTED_APP_ID}_WEBHOOK_SECRET=&quot;[0-9a-f]{64}&quot;`),
-  );
-  expect(body).toContain("https://github.com/apps/nanites-dev-test/installations/new");
-  expect(body).toContain("/assets/nanite-github-app-badge.png");
-  // The trimmed dev permissions drift from the defaults only warns.
-  expect(body).toContain("Missing default permission");
-
-  await expect(
-    readGitHubAppMetadata(createDbClient(env.DB), CONVERTED_APP_ID),
-  ).resolves.toMatchObject({
-    slug: "nanites-dev-test",
-    clientId: "Iv1.devtest",
-    isPrimary: true,
-    status: "active",
-  });
 });
 
 test("manifest callback rejects a state mismatch without contacting GitHub", async () => {

@@ -13,7 +13,7 @@ import {
 import {
   type GitHubAppCredentials,
   requireGitHubApp,
-  requirePrimaryGitHubApp,
+  requireDeploymentGitHubApp,
 } from "#/backend/github/apps.ts";
 import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
 
@@ -40,6 +40,8 @@ export type GitHubUserToken = {
   expiresAt: string | null;
   refreshToken: string | null;
   refreshTokenExpiresAt: string | null;
+  githubAppId: number;
+  githubAppClientId: string;
 };
 type GitHubInstallationTokenPermissions = NonNullable<
   RestEndpointMethodTypes["apps"]["createInstallationAccessToken"]["parameters"]["permissions"]
@@ -425,8 +427,8 @@ export async function exchangeGitHubOAuthCode({
 }): Promise<GitHubUserToken> {
   return observeGitHubOperation({ operation: "oauth.token.exchange" }, async () => {
     try {
-      // Browser/MCP OAuth always rides the primary login app.
-      const config = await requirePrimaryGitHubApp(createDbClient(env.DB), env);
+      // Browser/MCP OAuth always rides the deployment app.
+      const config = await requireDeploymentGitHubApp(createDbClient(env.DB), env);
       const { authentication } = await exchangeWebFlowCode({
         clientType: "github-app",
         clientId: config.clientId,
@@ -441,6 +443,8 @@ export async function exchangeGitHubOAuthCode({
         refreshToken: "refreshToken" in authentication ? authentication.refreshToken : null,
         refreshTokenExpiresAt:
           "refreshTokenExpiresAt" in authentication ? authentication.refreshTokenExpiresAt : null,
+        githubAppId: config.appId,
+        githubAppClientId: config.clientId,
       };
     } catch (error) {
       if (!(error instanceof RequestError)) {

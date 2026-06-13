@@ -66,10 +66,7 @@ import {
   WarningCircleIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
-import type {
-  ManagerBrowserSessionInput,
-  SigveloManagerConversationAgent,
-} from "#/backend/agents/SigveloManagerConversationAgent.ts";
+import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import type { NaniteAgentState, SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 import { MANAGER_CONVERSATION_AGENT_NAME } from "#/nanites.ts";
 
@@ -789,6 +786,22 @@ export function NaniteRuntimeChatLoading({
 
 export type NaniteAgentInstance = ReturnType<typeof useAgent<SigveloNaniteAgent, NaniteAgentState>>;
 
+type ManagerRuntimeChatConnectorProps = {
+  readonly accountLogin: string;
+  readonly actor: {
+    readonly id: number;
+    readonly login: string;
+  };
+  readonly managerName: string;
+  readonly emptyDescription?: string;
+  readonly emptyTitle?: string;
+  readonly errorDescription?: string;
+  readonly loadingDescription?: string;
+  readonly loadingPlaceholder?: string;
+  readonly loadingTitle?: string;
+  readonly placeholder?: string;
+};
+
 export function NaniteRuntimeChatConnector({
   agent,
 }: {
@@ -804,32 +817,19 @@ export function ManagerRuntimeChatConnector({
   emptyDescription = "Ask the installation manager to inspect, create, update, pause, or run Nanites.",
   emptyTitle = "Manager ready",
   errorDescription = "The installation manager conversation could not connect.",
-  githubAppId,
-  githubInstallationId,
   loadingDescription = "The conversation is getting ready. You’ll be able to continue here in a moment.",
   loadingPlaceholder = "Connecting to the manager...",
   loadingTitle = "Preparing the runtime",
   managerName,
   placeholder = "Ask the manager to work on Nanites",
-}: ManagerBrowserSessionInput & {
-  readonly emptyDescription?: string;
-  readonly emptyTitle?: string;
-  readonly errorDescription?: string;
-  readonly loadingDescription?: string;
-  readonly loadingPlaceholder?: string;
-  readonly loadingTitle?: string;
-  readonly placeholder?: string;
-}) {
+}: ManagerRuntimeChatConnectorProps) {
   const conversationAgent = useAgent<SigveloManagerConversationAgent>({
     agent: MANAGER_CONVERSATION_AGENT_NAME,
     name: `${managerName}:manager:${actor.id}`,
   });
   const connectionKey = useMemo(
-    () =>
-      [managerName, githubAppId, githubInstallationId, accountLogin, actor.id, actor.login].join(
-        ":",
-      ),
-    [accountLogin, actor.id, actor.login, githubAppId, githubInstallationId, managerName],
+    () => [managerName, accountLogin, actor.id, actor.login].join(":"),
+    [accountLogin, actor.id, actor.login, managerName],
   );
   const [connectionState, setConnectionState] = useState<
     | {
@@ -848,13 +848,7 @@ export function ManagerRuntimeChatConnector({
   useEffect(() => {
     let canceled = false;
     void conversationAgent.stub
-      .connectBrowserInstallation({
-        managerName,
-        githubAppId,
-        githubInstallationId,
-        accountLogin,
-        actor,
-      })
+      .connectBrowserInstallation()
       .then(() => {
         if (!canceled) {
           setConnectionState({ key: connectionKey, status: "connected" });
@@ -869,15 +863,7 @@ export function ManagerRuntimeChatConnector({
     return () => {
       canceled = true;
     };
-  }, [
-    accountLogin,
-    actor,
-    connectionKey,
-    conversationAgent.stub,
-    githubAppId,
-    githubInstallationId,
-    managerName,
-  ]);
+  }, [accountLogin, actor, connectionKey, conversationAgent.stub]);
 
   if (activeConnectionState?.status === "error") {
     return (

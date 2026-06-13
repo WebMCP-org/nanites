@@ -104,6 +104,12 @@ export const APP_ERRORS = {
     status: 403,
     message: "Nanites setup must create and install a GitHub App before this action can run.",
   },
+  deploymentGitHubAppConflict: {
+    code: "deployment_github_app_conflict",
+    status: 500,
+    message: "This deployment has more than one active GitHub App configured.",
+    publicDetailKeys: ["githubAppIds"],
+  },
   githubAppNotFound: {
     code: "github_app_not_found",
     status: 403,

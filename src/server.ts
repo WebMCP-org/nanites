@@ -28,7 +28,7 @@ import {
 } from "#/backend/agents/SigveloChatIngress.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
 import { createDbClient } from "#/backend/db/index.ts";
-import { resolvePrimaryGitHubApp } from "#/backend/github/apps.ts";
+import { resolveDeploymentGitHubApp } from "#/backend/github/apps.ts";
 import { SigveloManagerConversationAgent as BaseSigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { SigveloNaniteManager as BaseSigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
@@ -249,7 +249,7 @@ const handler = {
     const oauthProviderRoute = getOAuthProviderRequestRoute(new URL(request.url));
     if (
       oauthProviderRoute === MCP_ROUTE &&
-      (await resolvePrimaryGitHubApp(createDbClient(env.DB), env)) === null
+      (await resolveDeploymentGitHubApp(createDbClient(env.DB), env)) === null
     ) {
       return Response.json({ code: "deployment_github_app_setup_required" }, { status: 403 });
     }

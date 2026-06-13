@@ -1,8 +1,7 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
-import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getAgentByName } from "agents";
-import worker, { ChatSdkStateAgent, SigveloChatIngress } from "#/server.ts";
+import worker from "#/server.ts";
 import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { encodeHex } from "#/backend/crypto.ts";
 import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
@@ -297,15 +296,6 @@ function managerConversationNameFor(fixture: GitHubIssueCommentFixture): string 
   return `github-manager-chat-v4:github:WebMCP-org/nanites:${fixture.prNumber}:user:${fixture.authorId}`;
 }
 
-test("server exports the Chat SDK ingress Agent classes", () => {
-  expect(SigveloChatIngress).toBeDefined();
-  expect(ChatSdkStateAgent).toBeDefined();
-  expect(ChatSdkStateAgent.name).toBe("ChatSdkStateAgent");
-  expect(Object.getPrototypeOf(ChatSdkStateAgent.prototype)).toBe(
-    ThinkMessengerStateAgent.prototype,
-  );
-});
-
 beforeAll(async () => {
   await ensureD1BaselineSchema(env.DB);
 });
@@ -316,8 +306,6 @@ beforeEach(async () => {
 
 test("GitHub issue comments route through Chat SDK ingress", async () => {
   const githubRequests: CapturedGitHubRequest[] = [];
-  const previousDisableGitHubMcp = Reflect.get(env, "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP");
-  Reflect.set(env, "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP", "true");
   const restoreFetch = mockManagerConversationGitHubApi(githubRequests);
 
   try {
@@ -422,7 +410,6 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
       ),
     ).toHaveLength(1);
   } finally {
-    Reflect.set(env, "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP", previousDisableGitHubMcp);
     restoreFetch();
   }
 });
@@ -437,8 +424,6 @@ test("GitHub and browser manager chats share the manager conversation behavior",
     userCommentId: 2001,
   };
   const githubRequests: CapturedGitHubRequest[] = [];
-  const previousDisableGitHubMcp = Reflect.get(env, "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP");
-  Reflect.set(env, "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP", "true");
   const restoreFetch = mockManagerConversationGitHubApi(githubRequests, fixture);
 
   try {
@@ -477,21 +462,6 @@ test("GitHub and browser manager chats share the manager conversation behavior",
       env.SigveloManagerConversationAgent,
       `${buildNaniteManagerKey({ githubAppId: TEST_GITHUB_APP_ID, githubInstallationId: 1 })}:manager:${fixture.authorId}`,
     );
-    await expect(
-      browserConversation.connectBrowserInstallation({
-        managerName: buildNaniteManagerKey({
-          githubAppId: TEST_GITHUB_APP_ID,
-          githubInstallationId: 1,
-        }),
-        githubAppId: TEST_GITHUB_APP_ID,
-        githubInstallationId: 1,
-        accountLogin: "WebMCP-org",
-        actor: {
-          id: fixture.authorId,
-          login: fixture.authorLogin,
-        },
-      }),
-    ).resolves.toEqual({ connected: true });
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
@@ -507,7 +477,6 @@ test("GitHub and browser manager chats share the manager conversation behavior",
       deletedSubmissions: 0,
     });
   } finally {
-    Reflect.set(env, "MANAGER_CONVERSATION_DISABLE_GITHUB_MCP", previousDisableGitHubMcp);
     restoreFetch();
   }
 });

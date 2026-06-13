@@ -116,6 +116,8 @@ async function buildCookieHeader(request: Request): Promise<string> {
     expiresAt: null,
     refreshToken: null,
     refreshTokenExpiresAt: null,
+    githubAppId: TEST_GITHUB_APP_ID,
+    githubAppClientId: "generated-client-id",
   });
 
   return [
@@ -280,7 +282,9 @@ test("observability dashboard composes the page after resolving GitHub scope onc
   };
 
   try {
-    const request = new Request("http://localhost:5173/api/observability/dashboard?range=7d");
+    const request = new Request(
+      `http://localhost:5173/api/observability/dashboard?range=7d&installationId=${TEST_INSTALLATION_ID}`,
+    );
     const response = await nanitesHttpApp.request(
       request,
       {

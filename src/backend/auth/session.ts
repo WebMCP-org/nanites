@@ -7,7 +7,7 @@ import type { GitHubUserToken } from "#/backend/github/index.ts";
 import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods";
 import type { GitHubVisibleInstallation } from "#/backend/github/index.ts";
 import { createDbClient } from "#/backend/db/index.ts";
-import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
+import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 import {
   BROWSER_AUTH_COOKIE_NAMES,
   BROWSER_AUTH_COOKIE_PATH,
@@ -155,6 +155,8 @@ export const githubUserTokenSchema: z.ZodType<GitHubUserToken> = z.object({
   expiresAt: isoDateTimeSchema.nullable(),
   refreshToken: z.string().min(1).nullable(),
   refreshTokenExpiresAt: isoDateTimeSchema.nullable(),
+  githubAppId: githubIdSchema,
+  githubAppClientId: z.string().min(1),
 });
 export const githubOAuthStateSchema = z.object({
   state: z.string().min(1),
@@ -505,7 +507,7 @@ async function refreshGitHubUserToken({
   githubUserToken: RefreshableGitHubUserToken;
   env: Env;
 }): Promise<GitHubUserToken> {
-  const githubAppConfig = await requirePrimaryGitHubApp(createDbClient(env.DB), env);
+  const githubAppConfig = await requireDeploymentGitHubApp(createDbClient(env.DB), env);
   const { authentication } = await refreshGitHubOAuthToken({
     clientType: "github-app",
     clientId: githubAppConfig.clientId,
@@ -519,7 +521,19 @@ async function refreshGitHubUserToken({
     refreshToken: "refreshToken" in authentication ? authentication.refreshToken : null,
     refreshTokenExpiresAt:
       "refreshTokenExpiresAt" in authentication ? authentication.refreshTokenExpiresAt : null,
+    githubAppId: githubAppConfig.appId,
+    githubAppClientId: githubAppConfig.clientId,
   });
+}
+
+function isGitHubUserTokenBoundToDeploymentApp(
+  githubUserToken: GitHubUserToken,
+  deploymentApp: { readonly appId: number; readonly clientId: string },
+): boolean {
+  return (
+    githubUserToken.githubAppId === deploymentApp.appId &&
+    githubUserToken.githubAppClientId === deploymentApp.clientId
+  );
 }
 
 export async function requireGitHubUserToken(
@@ -533,6 +547,12 @@ export async function requireGitHubUserToken(
 ): Promise<GitHubUserToken> {
   const githubUserToken = await readGitHubUserTokenCookie(request, env);
   if (!githubUserToken) {
+    throw new AppError("authenticationRequired");
+  }
+
+  const deploymentApp = await requireDeploymentGitHubApp(createDbClient(env.DB), env);
+  if (!isGitHubUserTokenBoundToDeploymentApp(githubUserToken, deploymentApp)) {
+    appendGitHubUserTokenFailureCookies(request, options?.responseHeaders, options);
     throw new AppError("authenticationRequired");
   }
 

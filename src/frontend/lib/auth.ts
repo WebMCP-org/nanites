@@ -25,6 +25,13 @@ export type OptionalBrowserNanitesContext = InferResponseType<
 >;
 export type BrowserNanitesContext = NonNullable<OptionalBrowserNanitesContext>;
 export type SessionInstallationSnapshot = NonNullable<BrowserNanitesContext["activeInstallation"]>;
+export type VisibleInstallationsResponse = {
+  readonly installations: readonly SessionInstallationSnapshot[];
+};
+export type BrowserInstallationSelection = {
+  readonly installation: SessionInstallationSnapshot | null;
+  readonly canonicalInstallationId: number | null;
+};
 export type InstallationAuthErrorDetails = Extract<
   InstallationAuthErrorResponse,
   { code: "active_installation_required" | "installation_access_revoked" }
@@ -38,6 +45,8 @@ export interface BrowserLocationLike {
 
 const AUTH_QUERY_KEY = ["auth"] as const;
 export const AUTH_SESSION_QUERY_KEY = ["auth", "session"] as const;
+export const VISIBLE_INSTALLATIONS_QUERY_KEY = ["auth", "installations", "visible"] as const;
+export const EMPTY_VISIBLE_INSTALLATIONS: readonly SessionInstallationSnapshot[] = [];
 
 export function buildReturnToPath(location: BrowserLocationLike): string {
   const search = typeof location.search === "string" ? location.search : "";
@@ -53,6 +62,47 @@ export async function invalidateAuthQueries(queryClient: QueryClient): Promise<v
 
 export async function fetchOptionalSession(): Promise<OptionalBrowserNanitesContext> {
   return parseResponse(httpClient.api.auth.session.optional.$get());
+}
+
+export async function fetchVisibleInstallations(): Promise<VisibleInstallationsResponse> {
+  const response = await parseResponse(httpClient.api.auth.installations.visible.$get());
+  return { installations: response.installations };
+}
+
+export function resolveBrowserInstallationSelection({
+  session,
+  installations,
+  requestedInstallationId,
+}: {
+  readonly session: BrowserNanitesContext | null | undefined;
+  readonly installations: readonly SessionInstallationSnapshot[];
+  readonly requestedInstallationId: number | null | undefined;
+}): BrowserInstallationSelection {
+  if (!session) {
+    return { installation: null, canonicalInstallationId: null };
+  }
+
+  const requestedId = requestedInstallationId ?? null;
+  const requestedInstallation =
+    requestedId === null
+      ? null
+      : (installations.find((installation) => installation.id === requestedId) ?? null);
+  const defaultInstallationId = session.activeInstallation?.id ?? null;
+  const defaultInstallation =
+    requestedId !== null || defaultInstallationId === null
+      ? null
+      : (installations.find((installation) => installation.id === defaultInstallationId) ?? null);
+  const soleInstallation =
+    requestedId !== null || defaultInstallationId !== null || installations.length !== 1
+      ? null
+      : (installations[0] ?? null);
+  const installation = requestedInstallation ?? defaultInstallation ?? soleInstallation;
+
+  return {
+    installation,
+    canonicalInstallationId:
+      installation && requestedId !== installation.id ? installation.id : null,
+  };
 }
 
 export async function loadSession(
