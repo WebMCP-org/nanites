@@ -1795,83 +1795,30 @@ function useObservabilityDashboardQueries({
   readonly shouldCanonicalizeInstallation: boolean;
 }) {
   const selectedEventId = scopedSearch.selectedEvent;
-  const dataEnabled = shouldFetchObservabilityData({
-    selectedInstallation,
-    shouldCanonicalizeInstallation,
-  });
+  const dataEnabled = selectedInstallation !== null && !shouldCanonicalizeInstallation;
   const { data: dashboard, isPending: isDashboardPending } = useQuery({
     queryKey: observabilityDashboardQueryKey(scopedSearch),
     queryFn: () => fetchObservabilityDashboard(scopedSearch),
     enabled: dataEnabled,
-    refetchInterval: getObservabilityRefreshInterval(scopedSearch),
+    refetchInterval: scopedSearch.live ? liveRefreshIntervalMs : false,
     throwOnError: true,
   });
   const { data: selectedEvent, isPending: selectedEventQueryPending } = useQuery({
     queryKey: observabilityEventDetailQueryKey(scopedSearch, selectedEventId),
-    queryFn: () => fetchSelectedObservabilityEvent(scopedSearch, selectedEventId),
-    enabled: dataEnabled && hasSelectedEvent(selectedEventId),
+    queryFn: () =>
+      selectedEventId
+        ? fetchObservabilityEventDetail(scopedSearch, selectedEventId)
+        : Promise.resolve(null),
+    enabled: dataEnabled && Boolean(selectedEventId),
     throwOnError: true,
   });
 
   return {
     dashboard,
     isDashboardPending,
-    isSelectedEventPending: isSelectedEventPending({
-      queryPending: selectedEventQueryPending,
-      selectedEventId,
-    }),
+    isSelectedEventPending: Boolean(selectedEventId) && selectedEventQueryPending,
     selectedEvent,
   };
-}
-
-function shouldFetchObservabilityData({
-  selectedInstallation,
-  shouldCanonicalizeInstallation,
-}: {
-  readonly selectedInstallation: SessionInstallationSnapshot | null;
-  readonly shouldCanonicalizeInstallation: boolean;
-}): boolean {
-  return selectedInstallation !== null && !shouldCanonicalizeInstallation;
-}
-
-function getObservabilityRefreshInterval(search: ObservabilitySearch): false | number {
-  return search.live ? liveRefreshIntervalMs : false;
-}
-
-function fetchSelectedObservabilityEvent(
-  scopedSearch: ObservabilitySearch,
-  selectedEventId: string | undefined,
-): Promise<ObservabilityEventDetail | null> {
-  return selectedEventId
-    ? fetchObservabilityEventDetail(scopedSearch, selectedEventId)
-    : Promise.resolve(null);
-}
-
-function hasSelectedEvent(selectedEventId: string | undefined): boolean {
-  return Boolean(selectedEventId);
-}
-
-function isSelectedEventPending({
-  queryPending,
-  selectedEventId,
-}: {
-  readonly queryPending: boolean;
-  readonly selectedEventId: string | undefined;
-}): boolean {
-  return hasSelectedEvent(selectedEventId) && queryPending;
-}
-
-function buildScopedObservabilitySearch({
-  normalizedSearch,
-  selectedInstallationId,
-}: {
-  readonly normalizedSearch: ObservabilitySearch;
-  readonly selectedInstallationId: number | undefined;
-}): ObservabilitySearch {
-  return observabilitySearchSchema.parse({
-    ...normalizedSearch,
-    installationId: selectedInstallationId ?? normalizedSearch.installationId,
-  });
 }
 
 function ObservabilityRoute() {
@@ -1884,7 +1831,11 @@ function ObservabilityRoute() {
   const selectedInstallationId = selectedInstallation?.id;
   const shouldCanonicalizeInstallation = installationSelection.canonicalInstallationId !== null;
   const scopedSearch = useMemo(
-    () => buildScopedObservabilitySearch({ normalizedSearch, selectedInstallationId }),
+    () =>
+      observabilitySearchSchema.parse({
+        ...normalizedSearch,
+        installationId: selectedInstallationId ?? normalizedSearch.installationId,
+      }),
     [normalizedSearch, selectedInstallationId],
   );
   const selectedEventId = scopedSearch.selectedEvent;

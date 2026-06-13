@@ -257,26 +257,16 @@ function getNaniteLifecycleOutcome(
   },
 ): NaniteLifecycleOutcome {
   const base = getLifecycleBaseOutcome(toolName);
+  const isActive = part.state === "input-streaming" || part.state === "input-available";
 
   return {
     ...base,
-    tone: getLifecycleTone(base.tone, part.state),
-    statusLabel: getLifecycleStatusLabel(base.statusLabel, part.state),
+    tone: isActive ? "active" : base.tone,
+    statusLabel: isActive ? "Reporting" : base.statusLabel,
     summary: getLifecycleSummary(part),
-    outputUrl: getLifecycleOutputUrl(part),
+    outputUrl: getStringField(part.output, "outputUrl") ?? getStringField(part.input, "outputUrl"),
     requestedScopes: getLifecycleRequestedScopes(part),
   };
-}
-
-function getLifecycleTone(
-  baseTone: Exclude<NaniteLifecycleToolTone, "active">,
-  partState: string,
-): NaniteLifecycleToolTone {
-  return isActiveLifecyclePart(partState) ? "active" : baseTone;
-}
-
-function getLifecycleStatusLabel(baseStatusLabel: string, partState: string): string {
-  return isActiveLifecyclePart(partState) ? "Reporting" : baseStatusLabel;
 }
 
 function getLifecycleSummary(part: {
@@ -292,13 +282,6 @@ function getLifecycleSummary(part: {
   return part.state === "output-available" ? "The Nanite reported this outcome." : null;
 }
 
-function getLifecycleOutputUrl(part: {
-  readonly input?: unknown;
-  readonly output?: unknown;
-}): string | null {
-  return getStringField(part.output, "outputUrl") ?? getStringField(part.input, "outputUrl");
-}
-
 function getLifecycleRequestedScopes(part: {
   readonly input?: unknown;
   readonly output?: unknown;
@@ -307,10 +290,6 @@ function getLifecycleRequestedScopes(part: {
   return outputScopes.length > 0
     ? outputScopes
     : getStringArrayField(part.input, "requestedScopes");
-}
-
-function isActiveLifecyclePart(partState: string): boolean {
-  return partState === "input-streaming" || partState === "input-available";
 }
 
 function NaniteLifecycleIcon({ tone }: { readonly tone: NaniteLifecycleToolTone }) {

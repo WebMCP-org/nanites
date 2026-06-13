@@ -106,21 +106,14 @@ function chooseBrowserInstallation({
   readonly defaultId: number | null;
 }): SessionInstallationSnapshot | null {
   if (requestedId !== null) {
-    return findInstallation(installations, requestedId);
+    return installations.find((installation) => installation.id === requestedId) ?? null;
   }
 
   if (defaultId !== null) {
-    return findInstallation(installations, defaultId);
+    return installations.find((installation) => installation.id === defaultId) ?? null;
   }
 
   return installations.length === 1 ? (installations[0] ?? null) : null;
-}
-
-function findInstallation(
-  installations: readonly SessionInstallationSnapshot[],
-  installationId: number,
-): SessionInstallationSnapshot | null {
-  return installations.find((installation) => installation.id === installationId) ?? null;
 }
 
 export async function loadSession(
