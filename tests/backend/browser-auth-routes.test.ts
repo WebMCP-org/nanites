@@ -2,14 +2,8 @@ import { env } from "cloudflare:test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { authorizeAgentRequest } from "#/backend/auth/index.ts";
 import {
-  buildBrowserSessionExpiration,
-  githubUserTokenSchema,
-  nanitesSessionSchema,
-  sealGitHubUserTokenCookie,
-  sealSessionCookie,
-} from "#/backend/auth/session.ts";
-import {
   TEST_GITHUB_APP_ID,
+  buildTestBrowserAuthCookieHeader,
   ensureD1BaselineSchema,
   resetGitHubAppTables,
   saveTestGitHubApp,
@@ -70,10 +64,8 @@ function mockGitHubViewerAndInstallations(
 }
 
 async function buildAuthenticatedCookieHeader(request: Request): Promise<string> {
-  const expiresAt = buildBrowserSessionExpiration();
-  const session = nanitesSessionSchema.parse({
+  return buildTestBrowserAuthCookieHeader(env, request, {
     githubViewer: { id: 94631653, login: "MiguelsPizza" },
-    activeGithubAppId: TEST_GITHUB_APP_ID,
     activeGithubInstallationId: 122769206,
     sessionInstallationSnapshot: {
       id: 122769206,
@@ -85,23 +77,8 @@ async function buildAuthenticatedCookieHeader(request: Request): Promise<string>
         avatar_url: null,
       },
     },
-    expiresAt,
+    githubUserToken: "stale-github-user-token",
   });
-  const githubUserToken = githubUserTokenSchema.parse({
-    accessToken: "stale-github-user-token",
-    expiresAt: null,
-    refreshToken: null,
-    refreshTokenExpiresAt: null,
-    githubAppId: TEST_GITHUB_APP_ID,
-    githubAppClientId: "generated-client-id",
-  });
-
-  return [
-    await sealSessionCookie(session, request, env),
-    await sealGitHubUserTokenCookie(githubUserToken, request, env),
-  ]
-    .map((cookie) => cookie.split(";", 1)[0])
-    .join("; ");
 }
 
 test("GitHub OAuth callback reroutes install callbacks into setup verification login", async () => {

@@ -89,16 +89,8 @@ import {
   type NaniteDesktopPanel,
 } from "#/frontend/routes/_authenticated/nanites/-layout-controls.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
-import {
-  AUTH_SESSION_QUERY_KEY,
-  EMPTY_VISIBLE_INSTALLATIONS,
-  VISIBLE_INSTALLATIONS_QUERY_KEY,
-  buildReturnToPath,
-  fetchOptionalSession,
-  fetchVisibleInstallations,
-  invalidateAuthQueries,
-  resolveBrowserInstallationSelection,
-} from "#/frontend/lib/auth.ts";
+import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
+import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
 import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/nanites.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import { buildGitHubAppInstallHref, SIGVELO_GITHUB_APP_URL } from "#/github.ts";
@@ -2028,29 +2020,13 @@ function NaniteWorkspaceReview({
 function NanitesRoute() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { data: session, isPending: isSessionPending } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
-    throwOnError: true,
-  });
+  const { session, visibleInstallations, installationSelection, isPending } =
+    useBrowserInstallationSelection(search.installationId);
   const actor = session?.actor ?? null;
   const githubApp = session?.githubApp ?? null;
-  const shouldLoadInstallations = !isSessionPending && session !== null;
-  const { data: installationsData, isPending: isInstallationsPending } = useQuery({
-    queryKey: VISIBLE_INSTALLATIONS_QUERY_KEY,
-    queryFn: fetchVisibleInstallations,
-    enabled: shouldLoadInstallations,
-    throwOnError: true,
-  });
-  const visibleInstallations = installationsData?.installations ?? EMPTY_VISIBLE_INSTALLATIONS;
-  const installationSelection = resolveBrowserInstallationSelection({
-    session,
-    installations: visibleInstallations,
-    requestedInstallationId: search.installationId,
-  });
   const selectedInstallation = actor ? installationSelection.installation : null;
 
-  if (isSessionPending || (shouldLoadInstallations && isInstallationsPending)) {
+  if (isPending) {
     return <RoutePendingPage />;
   }
 

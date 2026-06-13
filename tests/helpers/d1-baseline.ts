@@ -1,6 +1,14 @@
 import baselineMigrationSql from "#/backend/db/migrations/0000_baseline.sql?raw";
 import singletonDeploymentGitHubAppMigrationSql from "#/backend/db/migrations/0001_lovely_jazinda.sql?raw";
 import removeLegacyPrimaryGitHubAppMigrationSql from "#/backend/db/migrations/0002_purple_morlun.sql?raw";
+import {
+  buildBrowserSessionExpiration,
+  githubUserTokenSchema,
+  nanitesSessionSchema,
+  sealGitHubUserTokenCookie,
+  sealSessionCookie,
+  type SessionInstallationSnapshot,
+} from "#/backend/auth/session.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { registerGitHubApp } from "#/backend/github/apps.ts";
 
@@ -91,4 +99,40 @@ export async function saveTestGitHubApp(
     permissions: {},
     events: [],
   });
+}
+
+export async function buildTestBrowserAuthCookieHeader(
+  env: Env,
+  request: Request,
+  input: {
+    readonly githubViewer: { readonly id: number; readonly login: string };
+    readonly activeGithubInstallationId: number | null;
+    readonly sessionInstallationSnapshot?: SessionInstallationSnapshot | null;
+    readonly githubAppId?: number;
+    readonly githubUserToken?: string;
+  },
+): Promise<string> {
+  const githubAppId = input.githubAppId ?? TEST_GITHUB_APP_ID;
+  const session = nanitesSessionSchema.parse({
+    githubViewer: input.githubViewer,
+    activeGithubAppId: githubAppId,
+    activeGithubInstallationId: input.activeGithubInstallationId,
+    sessionInstallationSnapshot: input.sessionInstallationSnapshot ?? null,
+    expiresAt: buildBrowserSessionExpiration(),
+  });
+  const githubUserToken = githubUserTokenSchema.parse({
+    accessToken: input.githubUserToken ?? "test-github-user-token",
+    expiresAt: null,
+    refreshToken: null,
+    refreshTokenExpiresAt: null,
+    githubAppId,
+    githubAppClientId: "generated-client-id",
+  });
+
+  return [
+    await sealSessionCookie(session, request, env),
+    await sealGitHubUserTokenCookie(githubUserToken, request, env),
+  ]
+    .map((cookie) => cookie.split(";", 1)[0])
+    .join("; ");
 }

@@ -192,7 +192,7 @@ function readGitHubInstallationTokenRepositoryName(repositoryFullName: string): 
   return repo ?? repositoryFullName;
 }
 
-export function readGitHubPullRequestReference(
+function readGitHubPullRequestReference(
   outputUrl: string | null | undefined,
 ): GitHubPullRequestReference | null {
   if (!outputUrl) {

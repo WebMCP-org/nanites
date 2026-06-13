@@ -41,9 +41,9 @@ import {
 import { GITHUB_OAUTH_CALLBACK_PATH, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 
-export const DEV_LOCAL_SETUP_PATH = "/setup/local";
+const DEV_LOCAL_SETUP_PATH = "/setup/local";
 const DEV_LOCAL_SETUP_CALLBACK_PATH = `${DEV_LOCAL_SETUP_PATH}/github/callback`;
-export const DEV_LOCAL_SETUP_RESTORE_PATH = `${DEV_LOCAL_SETUP_PATH}/restore`;
+const DEV_LOCAL_SETUP_RESTORE_PATH = `${DEV_LOCAL_SETUP_PATH}/restore`;
 const DEV_LOCAL_PLACEHOLDER_WEBHOOK_URL = "https://example.com/nanites-local-webhook";
 
 const MANIFEST_STATE_COOKIE_NAME = "nanites_dev_setup_state";

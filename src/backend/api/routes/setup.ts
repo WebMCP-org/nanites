@@ -68,7 +68,7 @@ const startGitHubAppBodySchema = z.object({
 });
 
 type GitHubSetupVerificationQuery = z.infer<typeof gitHubSetupVerificationQuerySchema>;
-export type SetupStatusResponse = NanitesSetupState & {
+type SetupStatusResponse = NanitesSetupState & {
   readonly runtimeConfigReadable: boolean;
   readonly showSetup: boolean;
 };

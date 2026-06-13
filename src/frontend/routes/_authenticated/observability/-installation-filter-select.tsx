@@ -1,15 +1,6 @@
 import { useMemo } from "react";
 import type { SessionInstallationSnapshot } from "#/frontend/lib/auth.ts";
-import {
-  Select,
-  SelectList,
-  SelectOption,
-  SelectPopup,
-  SelectPortal,
-  SelectPositioner,
-  SelectTrigger,
-  SelectValue,
-} from "#/frontend/ui/components/Select.tsx";
+import { ObservabilityFilterSelectControl } from "./-filter-select-control.tsx";
 
 const installationFilterEmptyValue = "__observability_installation_unset__";
 
@@ -34,41 +25,20 @@ export function InstallationFilterSelect({
   );
 
   return (
-    <div className="observability-filter">
-      <span>Installation</span>
-      <Select
-        value={
-          selectedInstallation ? String(selectedInstallation.id) : installationFilterEmptyValue
+    <ObservabilityFilterSelectControl
+      label="Installation"
+      value={selectedInstallation ? String(selectedInstallation.id) : installationFilterEmptyValue}
+      items={items}
+      onValueChange={(next) => {
+        if (next === installationFilterEmptyValue) {
+          return;
         }
-        items={items}
-        onValueChange={(next: unknown) => {
-          if (typeof next !== "string" || next === installationFilterEmptyValue) {
-            return;
-          }
 
-          const installationId = Number(next);
-          if (Number.isInteger(installationId) && installationId > 0) {
-            onChange(installationId);
-          }
-        }}
-      >
-        <SelectTrigger size="sm" aria-label="Installation">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectPortal>
-          <SelectPositioner>
-            <SelectPopup>
-              <SelectList>
-                {items.map((item) => (
-                  <SelectOption key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectOption>
-                ))}
-              </SelectList>
-            </SelectPopup>
-          </SelectPositioner>
-        </SelectPortal>
-      </Select>
-    </div>
+        const installationId = Number(next);
+        if (Number.isInteger(installationId) && installationId > 0) {
+          onChange(installationId);
+        }
+      }}
+    />
   );
 }

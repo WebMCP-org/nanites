@@ -31,16 +31,8 @@ import {
   YAxis,
 } from "recharts";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
-import {
-  AUTH_SESSION_QUERY_KEY,
-  EMPTY_VISIBLE_INSTALLATIONS,
-  VISIBLE_INSTALLATIONS_QUERY_KEY,
-  fetchVisibleInstallations,
-  fetchOptionalSession,
-  resolveBrowserInstallationSelection,
-  type BrowserNanitesContext,
-  type SessionInstallationSnapshot,
-} from "#/frontend/lib/auth.ts";
+import type { BrowserNanitesContext, SessionInstallationSnapshot } from "#/frontend/lib/auth.ts";
+import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
 import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
 import { Badge, type BadgeColor } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
@@ -71,6 +63,7 @@ import {
 } from "./-search.ts";
 import { InstallationFilterSelect } from "./-installation-filter-select.tsx";
 import { ObservabilityInstallationRequiredState } from "./-installation-required-state.tsx";
+import { ObservabilityFilterSelectControl } from "./-filter-select-control.tsx";
 import type {
   AuditFeedRow,
   CostPoint,
@@ -1225,35 +1218,12 @@ function FilterSelect({
   );
 
   return (
-    <div className="observability-filter">
-      <span>{label}</span>
-      <Select
-        value={value ?? allFilterValue}
-        items={items}
-        onValueChange={(next: unknown) => {
-          if (typeof next === "string") {
-            onChange(next === allFilterValue ? undefined : next);
-          }
-        }}
-      >
-        <SelectTrigger size="sm" aria-label={label}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectPortal>
-          <SelectPositioner>
-            <SelectPopup>
-              <SelectList>
-                {items.map((item) => (
-                  <SelectOption key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectOption>
-                ))}
-              </SelectList>
-            </SelectPopup>
-          </SelectPositioner>
-        </SelectPortal>
-      </Select>
-    </div>
+    <ObservabilityFilterSelectControl
+      label={label}
+      value={value ?? allFilterValue}
+      items={items}
+      onValueChange={(next) => onChange(next === allFilterValue ? undefined : next)}
+    />
   );
 }
 
@@ -1815,57 +1785,115 @@ function SelectedEventDetail({
   );
 }
 
+function useObservabilityDashboardQueries({
+  scopedSearch,
+  selectedInstallation,
+  shouldCanonicalizeInstallation,
+}: {
+  readonly scopedSearch: ObservabilitySearch;
+  readonly selectedInstallation: SessionInstallationSnapshot | null;
+  readonly shouldCanonicalizeInstallation: boolean;
+}) {
+  const selectedEventId = scopedSearch.selectedEvent;
+  const dataEnabled = shouldFetchObservabilityData({
+    selectedInstallation,
+    shouldCanonicalizeInstallation,
+  });
+  const { data: dashboard, isPending: isDashboardPending } = useQuery({
+    queryKey: observabilityDashboardQueryKey(scopedSearch),
+    queryFn: () => fetchObservabilityDashboard(scopedSearch),
+    enabled: dataEnabled,
+    refetchInterval: getObservabilityRefreshInterval(scopedSearch),
+    throwOnError: true,
+  });
+  const { data: selectedEvent, isPending: selectedEventQueryPending } = useQuery({
+    queryKey: observabilityEventDetailQueryKey(scopedSearch, selectedEventId),
+    queryFn: () => fetchSelectedObservabilityEvent(scopedSearch, selectedEventId),
+    enabled: dataEnabled && hasSelectedEvent(selectedEventId),
+    throwOnError: true,
+  });
+
+  return {
+    dashboard,
+    isDashboardPending,
+    isSelectedEventPending: isSelectedEventPending({
+      queryPending: selectedEventQueryPending,
+      selectedEventId,
+    }),
+    selectedEvent,
+  };
+}
+
+function shouldFetchObservabilityData({
+  selectedInstallation,
+  shouldCanonicalizeInstallation,
+}: {
+  readonly selectedInstallation: SessionInstallationSnapshot | null;
+  readonly shouldCanonicalizeInstallation: boolean;
+}): boolean {
+  return selectedInstallation !== null && !shouldCanonicalizeInstallation;
+}
+
+function getObservabilityRefreshInterval(search: ObservabilitySearch): false | number {
+  return search.live ? liveRefreshIntervalMs : false;
+}
+
+function fetchSelectedObservabilityEvent(
+  scopedSearch: ObservabilitySearch,
+  selectedEventId: string | undefined,
+): Promise<ObservabilityEventDetail | null> {
+  return selectedEventId
+    ? fetchObservabilityEventDetail(scopedSearch, selectedEventId)
+    : Promise.resolve(null);
+}
+
+function hasSelectedEvent(selectedEventId: string | undefined): boolean {
+  return Boolean(selectedEventId);
+}
+
+function isSelectedEventPending({
+  queryPending,
+  selectedEventId,
+}: {
+  readonly queryPending: boolean;
+  readonly selectedEventId: string | undefined;
+}): boolean {
+  return hasSelectedEvent(selectedEventId) && queryPending;
+}
+
+function buildScopedObservabilitySearch({
+  normalizedSearch,
+  selectedInstallationId,
+}: {
+  readonly normalizedSearch: ObservabilitySearch;
+  readonly selectedInstallationId: number | undefined;
+}): ObservabilitySearch {
+  return observabilitySearchSchema.parse({
+    ...normalizedSearch,
+    installationId: selectedInstallationId ?? normalizedSearch.installationId,
+  });
+}
+
 function ObservabilityRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const normalizedSearch = useMemo(() => observabilitySearchSchema.parse(search), [search]);
-  const { data: session, isPending: isSessionPending } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
-    throwOnError: true,
-  });
-  const shouldLoadInstallations = !isSessionPending && session !== null;
-  const { data: installationsData, isPending: isInstallationsPending } = useQuery({
-    queryKey: VISIBLE_INSTALLATIONS_QUERY_KEY,
-    queryFn: fetchVisibleInstallations,
-    enabled: shouldLoadInstallations,
-    throwOnError: true,
-  });
-  const visibleInstallations = installationsData?.installations ?? EMPTY_VISIBLE_INSTALLATIONS;
-  const installationSelection = resolveBrowserInstallationSelection({
-    session,
-    installations: visibleInstallations,
-    requestedInstallationId: normalizedSearch.installationId,
-  });
+  const { session, visibleInstallations, installationSelection, isPending } =
+    useBrowserInstallationSelection(normalizedSearch.installationId);
   const selectedInstallation = installationSelection.installation;
+  const selectedInstallationId = selectedInstallation?.id;
   const shouldCanonicalizeInstallation = installationSelection.canonicalInstallationId !== null;
   const scopedSearch = useMemo(
-    () =>
-      observabilitySearchSchema.parse({
-        ...normalizedSearch,
-        installationId: selectedInstallation?.id ?? normalizedSearch.installationId,
-      }),
-    [normalizedSearch, selectedInstallation?.id],
+    () => buildScopedObservabilitySearch({ normalizedSearch, selectedInstallationId }),
+    [normalizedSearch, selectedInstallationId],
   );
   const selectedEventId = scopedSearch.selectedEvent;
-
-  const { data: dashboard, isPending: isDashboardPending } = useQuery({
-    queryKey: observabilityDashboardQueryKey(scopedSearch),
-    queryFn: () => fetchObservabilityDashboard(scopedSearch),
-    enabled: selectedInstallation !== null && !shouldCanonicalizeInstallation,
-    refetchInterval: scopedSearch.live ? liveRefreshIntervalMs : false,
-    throwOnError: true,
-  });
-  const { data: selectedEvent, isPending: isSelectedEventPending } = useQuery({
-    queryKey: observabilityEventDetailQueryKey(scopedSearch, selectedEventId),
-    queryFn: () =>
-      selectedEventId
-        ? fetchObservabilityEventDetail(scopedSearch, selectedEventId)
-        : Promise.resolve(null),
-    enabled:
-      selectedInstallation !== null && !shouldCanonicalizeInstallation && Boolean(selectedEventId),
-    throwOnError: true,
-  });
+  const { dashboard, isDashboardPending, selectedEvent, isSelectedEventPending } =
+    useObservabilityDashboardQueries({
+      scopedSearch,
+      selectedInstallation,
+      shouldCanonicalizeInstallation,
+    });
   const setSearch = (patch: SearchPatch) => {
     void navigate({
       search: (previous) =>
@@ -1895,7 +1923,7 @@ function ObservabilityRoute() {
     });
   };
 
-  if (isSessionPending || (shouldLoadInstallations && isInstallationsPending)) {
+  if (isPending) {
     return <RoutePendingPage />;
   }
 

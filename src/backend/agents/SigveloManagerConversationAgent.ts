@@ -434,48 +434,16 @@ function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
 } {
   const { request } = getCurrentAgent();
   const headers = request?.headers;
-  const rawGithubAppId = headers?.get("x-nanites-active-github-app-id");
-  const rawInstallationId = headers?.get("x-nanites-active-installation-id");
-  const rawGitHubUserId = headers?.get("x-nanites-github-user-id");
-  const githubLogin = headers?.get("x-nanites-github-login");
+  const githubAppId = readPositiveManagerHeader(headers, "x-nanites-active-github-app-id");
+  const installationId = readPositiveManagerHeader(headers, "x-nanites-active-installation-id");
+  const githubUserId = readPositiveActorHeader(headers, "x-nanites-github-user-id");
+  const githubLogin = readRequiredActorHeader(headers, "x-nanites-github-login");
   const accountLogin = headers?.get("x-nanites-installation-account-login") ?? "";
-  const githubAppId = Number(rawGithubAppId);
-  const installationId = Number(rawInstallationId);
-  const githubUserId = Number(rawGitHubUserId);
-
-  if (
-    !Number.isInteger(githubAppId) ||
-    githubAppId <= 0 ||
-    !Number.isInteger(installationId) ||
-    installationId <= 0
-  ) {
-    throw new AppError("managerConversationInstallationRequired");
-  }
-
-  if (!Number.isInteger(githubUserId) || githubUserId <= 0 || !githubLogin) {
-    throw new AppError("authenticationRequired");
-  }
-
-  const expectedManagerName = buildNaniteManagerKey({
+  requireBrowserConversationTarget(conversationName, {
     githubAppId,
     githubInstallationId: installationId,
+    githubUserId,
   });
-  const actorSeparator = ":manager:";
-  const separatorIndex = conversationName.lastIndexOf(actorSeparator);
-  const managerName = separatorIndex > 0 ? conversationName.slice(0, separatorIndex) : "";
-  const rawActorId =
-    separatorIndex > 0 ? conversationName.slice(separatorIndex + actorSeparator.length) : "";
-  const actorId = Number(rawActorId);
-  const managerIdentity = parseNaniteManagerKey(managerName);
-  if (
-    managerName !== expectedManagerName ||
-    managerIdentity?.githubAppId !== githubAppId ||
-    managerIdentity.githubInstallationId !== installationId ||
-    !Number.isInteger(actorId) ||
-    actorId !== githubUserId
-  ) {
-    throw new AppError("managerConversationInstallationMismatch");
-  }
 
   const props = {
     authKind: "mcp",
@@ -492,6 +460,68 @@ function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
     accountLogin: requireSelectedGitHubAccount(accountLogin),
     props: sigveloMcpAuthPropsSchema.parse(props),
   };
+}
+
+function readPositiveManagerHeader(headers: Headers | undefined, name: string): number {
+  const value = Number(headers?.get(name));
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new AppError("managerConversationInstallationRequired");
+  }
+  return value;
+}
+
+function readPositiveActorHeader(headers: Headers | undefined, name: string): number {
+  const value = Number(headers?.get(name));
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new AppError("authenticationRequired");
+  }
+  return value;
+}
+
+function readRequiredActorHeader(headers: Headers | undefined, name: string): string {
+  const value = headers?.get(name);
+  if (!value) {
+    throw new AppError("authenticationRequired");
+  }
+  return value;
+}
+
+function requireBrowserConversationTarget(
+  conversationName: string,
+  expected: {
+    readonly githubAppId: number;
+    readonly githubInstallationId: number;
+    readonly githubUserId: number;
+  },
+): void {
+  const target = parseBrowserConversationTarget(conversationName);
+  const managerName = buildNaniteManagerKey(expected);
+
+  if (
+    target.managerName !== managerName ||
+    target.identity.githubAppId !== expected.githubAppId ||
+    target.identity.githubInstallationId !== expected.githubInstallationId ||
+    target.actorId !== expected.githubUserId
+  ) {
+    throw new AppError("managerConversationInstallationMismatch");
+  }
+}
+
+function parseBrowserConversationTarget(conversationName: string) {
+  const actorSeparator = ":manager:";
+  const separatorIndex = conversationName.lastIndexOf(actorSeparator);
+  if (separatorIndex <= 0) {
+    throw new AppError("managerConversationInstallationMismatch");
+  }
+
+  const managerName = conversationName.slice(0, separatorIndex);
+  const actorId = Number(conversationName.slice(separatorIndex + actorSeparator.length));
+  const identity = parseNaniteManagerKey(managerName);
+  if (!identity || !Number.isInteger(actorId)) {
+    throw new AppError("managerConversationInstallationMismatch");
+  }
+
+  return { actorId, identity, managerName };
 }
 
 function requireSelectedGitHubAccount(accountLogin: string): string {

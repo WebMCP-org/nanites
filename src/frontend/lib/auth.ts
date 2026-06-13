@@ -83,26 +83,44 @@ export function resolveBrowserInstallationSelection({
   }
 
   const requestedId = requestedInstallationId ?? null;
-  const requestedInstallation =
-    requestedId === null
-      ? null
-      : (installations.find((installation) => installation.id === requestedId) ?? null);
-  const defaultInstallationId = session.activeInstallation?.id ?? null;
-  const defaultInstallation =
-    requestedId !== null || defaultInstallationId === null
-      ? null
-      : (installations.find((installation) => installation.id === defaultInstallationId) ?? null);
-  const soleInstallation =
-    requestedId !== null || defaultInstallationId !== null || installations.length !== 1
-      ? null
-      : (installations[0] ?? null);
-  const installation = requestedInstallation ?? defaultInstallation ?? soleInstallation;
+  const installation = chooseBrowserInstallation({
+    installations,
+    requestedId,
+    defaultId: session.activeInstallation?.id ?? null,
+  });
 
   return {
     installation,
     canonicalInstallationId:
       installation && requestedId !== installation.id ? installation.id : null,
   };
+}
+
+function chooseBrowserInstallation({
+  installations,
+  requestedId,
+  defaultId,
+}: {
+  readonly installations: readonly SessionInstallationSnapshot[];
+  readonly requestedId: number | null;
+  readonly defaultId: number | null;
+}): SessionInstallationSnapshot | null {
+  if (requestedId !== null) {
+    return findInstallation(installations, requestedId);
+  }
+
+  if (defaultId !== null) {
+    return findInstallation(installations, defaultId);
+  }
+
+  return installations.length === 1 ? (installations[0] ?? null) : null;
+}
+
+function findInstallation(
+  installations: readonly SessionInstallationSnapshot[],
+  installationId: number,
+): SessionInstallationSnapshot | null {
+  return installations.find((installation) => installation.id === installationId) ?? null;
 }
 
 export async function loadSession(

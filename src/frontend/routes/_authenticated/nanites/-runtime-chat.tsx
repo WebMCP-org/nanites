@@ -189,7 +189,7 @@ function getErrorText(error: unknown): string {
 type NaniteLifecycleToolName = "complete" | "no_change" | "fail" | "ask_human";
 type NaniteLifecycleToolTone = "success" | "neutral" | "danger" | "warning" | "active";
 
-export type NaniteLifecycleOutcome = {
+type NaniteLifecycleOutcome = {
   readonly title: string;
   readonly statusLabel: string;
   readonly tone: NaniteLifecycleToolTone;
@@ -257,22 +257,60 @@ function getNaniteLifecycleOutcome(
   },
 ): NaniteLifecycleOutcome {
   const base = getLifecycleBaseOutcome(toolName);
-  const output = isRecord(part.output) ? part.output : null;
-  const outputScopes = getStringArrayField(output, "requestedScopes");
-  const inputScopes = getStringArrayField(part.input, "requestedScopes");
-  const active = part.state === "input-streaming" || part.state === "input-available";
 
   return {
     ...base,
-    tone: active ? "active" : base.tone,
-    statusLabel: active ? "Reporting" : base.statusLabel,
-    summary:
-      getStringField(output, "summary") ??
-      getStringField(part.input, "summary") ??
-      (part.state === "output-available" ? "The Nanite reported this outcome." : null),
-    outputUrl: getStringField(output, "outputUrl") ?? getStringField(part.input, "outputUrl"),
-    requestedScopes: outputScopes.length > 0 ? outputScopes : inputScopes,
+    tone: getLifecycleTone(base.tone, part.state),
+    statusLabel: getLifecycleStatusLabel(base.statusLabel, part.state),
+    summary: getLifecycleSummary(part),
+    outputUrl: getLifecycleOutputUrl(part),
+    requestedScopes: getLifecycleRequestedScopes(part),
   };
+}
+
+function getLifecycleTone(
+  baseTone: Exclude<NaniteLifecycleToolTone, "active">,
+  partState: string,
+): NaniteLifecycleToolTone {
+  return isActiveLifecyclePart(partState) ? "active" : baseTone;
+}
+
+function getLifecycleStatusLabel(baseStatusLabel: string, partState: string): string {
+  return isActiveLifecyclePart(partState) ? "Reporting" : baseStatusLabel;
+}
+
+function getLifecycleSummary(part: {
+  readonly input?: unknown;
+  readonly output?: unknown;
+  readonly state: string;
+}): string | null {
+  const summary = getStringField(part.output, "summary") ?? getStringField(part.input, "summary");
+  if (summary) {
+    return summary;
+  }
+
+  return part.state === "output-available" ? "The Nanite reported this outcome." : null;
+}
+
+function getLifecycleOutputUrl(part: {
+  readonly input?: unknown;
+  readonly output?: unknown;
+}): string | null {
+  return getStringField(part.output, "outputUrl") ?? getStringField(part.input, "outputUrl");
+}
+
+function getLifecycleRequestedScopes(part: {
+  readonly input?: unknown;
+  readonly output?: unknown;
+}): readonly string[] {
+  const outputScopes = getStringArrayField(part.output, "requestedScopes");
+  return outputScopes.length > 0
+    ? outputScopes
+    : getStringArrayField(part.input, "requestedScopes");
+}
+
+function isActiveLifecyclePart(partState: string): boolean {
+  return partState === "input-streaming" || partState === "input-available";
 }
 
 function NaniteLifecycleIcon({ tone }: { readonly tone: NaniteLifecycleToolTone }) {
@@ -283,7 +321,7 @@ function NaniteLifecycleIcon({ tone }: { readonly tone: NaniteLifecycleToolTone 
   return <WarningCircleIcon size={18} weight="fill" aria-hidden="true" />;
 }
 
-export function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteLifecycleOutcome }) {
+function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteLifecycleOutcome }) {
   return (
     <section
       className="nanite-lifecycle-tool"
@@ -326,20 +364,30 @@ export function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteL
 
 function getConversationResetKey(messages: readonly UIMessage[], isStreaming: boolean): string {
   const lastMessage = messages[messages.length - 1];
-  const lastPart = lastMessage?.parts[lastMessage.parts.length - 1];
-  const lastPartTextLength =
-    lastPart && "text" in lastPart && typeof lastPart.text === "string" ? lastPart.text.length : 0;
-  const lastPartState =
-    lastPart && "state" in lastPart && typeof lastPart.state === "string" ? lastPart.state : "";
+  const lastPart = lastMessage ? lastMessage.parts[lastMessage.parts.length - 1] : undefined;
 
   return [
     messages.length,
     lastMessage?.id ?? "",
     lastMessage?.parts.length ?? 0,
-    lastPartTextLength,
-    lastPartState,
+    readPartTextLength(lastPart),
+    readPartState(lastPart),
     isStreaming ? "streaming" : "idle",
   ].join(":");
+}
+
+function readPartTextLength(part: unknown): number {
+  if (!isRecord(part)) {
+    return 0;
+  }
+  return typeof part.text === "string" ? part.text.length : 0;
+}
+
+function readPartState(part: unknown): string {
+  if (!isRecord(part)) {
+    return "";
+  }
+  return typeof part.state === "string" ? part.state : "";
 }
 
 class ChatRenderBoundary extends Component<

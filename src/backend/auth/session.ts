@@ -13,7 +13,6 @@ import {
   BROWSER_AUTH_COOKIE_PATH,
   BROWSER_AUTH_COOKIE_SAME_SITE,
 } from "#/auth.ts";
-import type { NaniteManagerIdentity } from "#/nanites.ts";
 
 /**
  * GitHub OAuth state lifetime in seconds.
@@ -627,17 +626,6 @@ export function readSessionInstallationSnapshots(
     const activeInstallation = readSessionInstallationSnapshot(visibleInstallation, githubAppId);
     return activeInstallation ? [activeInstallation] : [];
   });
-}
-
-export function requireActiveGithubInstallation(session: NanitesSession): NaniteManagerIdentity {
-  if (session.activeGithubAppId === null || session.activeGithubInstallationId === null) {
-    throw new AppError("activeInstallationRequired");
-  }
-
-  return {
-    githubAppId: session.activeGithubAppId,
-    githubInstallationId: session.activeGithubInstallationId,
-  };
 }
 
 export async function clearRevokedSessionSelectionIfNeeded(input: RevalidationArgs): Promise<void> {
