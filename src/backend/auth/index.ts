@@ -42,13 +42,7 @@ const authLogger = getLogger(LOGGING.SERVER_CATEGORY)
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
 
-function chooseDefaultActiveInstallation(
-  installations: readonly SessionInstallationSnapshot[],
-): SessionInstallationSnapshot | null {
-  return installations.length === 1 ? (installations[0] ?? null) : null;
-}
-
-function chooseRequestedOrDefaultActiveInstallation(
+function chooseActiveInstallation(
   installations: readonly SessionInstallationSnapshot[],
   requestedInstallationId: number | null,
 ): SessionInstallationSnapshot | null {
@@ -58,7 +52,7 @@ function chooseRequestedOrDefaultActiveInstallation(
     );
   }
 
-  return chooseDefaultActiveInstallation(installations);
+  return installations.length === 1 ? (installations[0] ?? null) : null;
 }
 
 async function recordAccountAuthFunnelEvent(
@@ -198,7 +192,7 @@ export async function completeGitHubOAuthCallback({
     deploymentGitHubApp.appId,
   );
   await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
-  const activeInstallation = chooseDefaultActiveInstallation(sessionInstallationSnapshots);
+  const activeInstallation = chooseActiveInstallation(sessionInstallationSnapshots, null);
   const session = nanitesSessionSchema.parse({
     githubViewer: actor,
     activeGithubAppId: activeInstallation?.githubAppId ?? null,
@@ -296,7 +290,7 @@ export async function mintTestAuthSession({
     deploymentGitHubApp.appId,
   );
   await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
-  const activeInstallationSnapshot = chooseRequestedOrDefaultActiveInstallation(
+  const activeInstallationSnapshot = chooseActiveInstallation(
     sessionInstallationSnapshots,
     params.activeGithubInstallationId,
   );

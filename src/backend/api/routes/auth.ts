@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
@@ -18,7 +18,6 @@ import {
   nanitesSessionSchema,
   readSessionCookie,
   sealSessionCookie,
-  type SessionInstallationSnapshot,
 } from "#/backend/auth/session.ts";
 import { readDeploymentGitHubAppMetadata } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
@@ -38,28 +37,6 @@ const activeInstallationInput = zValidator(
   }),
   requestValidationHook,
 );
-
-async function listCurrentSessionInstallationSnapshots(
-  context: Context<WorkerHonoEnv>,
-): Promise<SessionInstallationSnapshot[]> {
-  return (
-    await listBrowserVisibleInstallationSnapshots(context.req.raw, context.env, {
-      responseHeaders: context.res.headers,
-    })
-  ).installations;
-}
-
-async function readOptionalDeploymentGitHubApp(env: Env) {
-  const app = await readDeploymentGitHubAppMetadata(createDbClient(env.DB));
-  return app
-    ? {
-        appId: app.appId,
-        slug: app.slug,
-        htmlUrl: app.htmlUrl,
-        ownerLogin: app.ownerLogin,
-      }
-    : null;
-}
 
 const testAuthQueryInput = zValidator(
   "query",
@@ -242,20 +219,36 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
 export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
   .get("/session/optional", async (context) => {
     const session = await readSessionCookie(context.req.raw, context.env);
+    const deploymentGitHubApp = session
+      ? await readDeploymentGitHubAppMetadata(createDbClient(context.env.DB))
+      : null;
 
     return context.json(
       session
         ? {
             actor: session.githubViewer,
             activeInstallation: session.sessionInstallationSnapshot ?? null,
-            githubApp: await readOptionalDeploymentGitHubApp(context.env),
+            githubApp: deploymentGitHubApp
+              ? {
+                  appId: deploymentGitHubApp.appId,
+                  slug: deploymentGitHubApp.slug,
+                  htmlUrl: deploymentGitHubApp.htmlUrl,
+                  ownerLogin: deploymentGitHubApp.ownerLogin,
+                }
+              : null,
             expiresAt: session.expiresAt,
           }
         : null,
     );
   })
   .get("/installations/visible", async (context) => {
-    const installations = await listCurrentSessionInstallationSnapshots(context);
+    const { installations } = await listBrowserVisibleInstallationSnapshots(
+      context.req.raw,
+      context.env,
+      {
+        responseHeaders: context.res.headers,
+      },
+    );
     return context.json({ installations });
   })
   .post("/installations/active", activeInstallationInput, async (context) => {

@@ -63,7 +63,6 @@ const filterOptionsInput = zValidator(
 
 async function resolveObservabilityScope(
   context: WorkerContext,
-  _db: ReturnType<typeof createDbClient>,
   filters: ObservabilityFilters,
 ): Promise<ObservabilityVisibilityScope> {
   const installationScope = await requireBrowserInstallationScope(context.req.raw, context.env, {
@@ -106,7 +105,7 @@ async function withObservabilityScope<TResponse>(
   ) => Promise<TResponse>,
 ) {
   const db = createDbClient(context.env.DB);
-  const scope = await resolveObservabilityScope(context, db, filters);
+  const scope = await resolveObservabilityScope(context, filters);
   return context.json(await handler(db, scope));
 }
 

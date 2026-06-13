@@ -61,9 +61,11 @@ import {
   observabilitySearchSchema,
   type ObservabilitySearch,
 } from "./-search.ts";
-import { InstallationFilterSelect } from "./-installation-filter-select.tsx";
+import {
+  ObservabilityInstallationFilterSelect,
+  ObservabilityValueFilterSelect,
+} from "./-filter-select.tsx";
 import { ObservabilityInstallationRequiredState } from "./-installation-required-state.tsx";
-import { ObservabilityFilterSelectControl } from "./-filter-select-control.tsx";
 import type {
   AuditFeedRow,
   CostPoint,
@@ -81,7 +83,6 @@ import type {
   RunTrendPoint,
 } from "#/backend/observability/queries.ts";
 
-const allFilterValue = "__all_observability_values__";
 const dashboardTableRowLimit = 12;
 const repositoryPreviewLimit = 2;
 const liveRefreshIntervalMs = 30_000;
@@ -1196,37 +1197,6 @@ function EventRail({
   );
 }
 
-function FilterSelect({
-  label,
-  value,
-  options,
-  allLabel,
-  onChange,
-}: {
-  readonly label: string;
-  readonly value: string | undefined;
-  readonly options: readonly string[];
-  readonly allLabel: string;
-  readonly onChange: (value: string | undefined) => void;
-}) {
-  const items = useMemo(
-    () => [
-      { label: allLabel, value: allFilterValue },
-      ...options.map((option) => ({ label: option, value: option })),
-    ],
-    [allLabel, options],
-  );
-
-  return (
-    <ObservabilityFilterSelectControl
-      label={label}
-      value={value ?? allFilterValue}
-      items={items}
-      onValueChange={(next) => onChange(next === allFilterValue ? undefined : next)}
-    />
-  );
-}
-
 function ObservabilityFilters({
   search,
   options,
@@ -1249,7 +1219,7 @@ function ObservabilityFilters({
 
   return (
     <section className="observability-filters" aria-label="Observability filters">
-      <InstallationFilterSelect
+      <ObservabilityInstallationFilterSelect
         selectedInstallation={selectedInstallation}
         installations={installations}
         onChange={onInstallationChange}
@@ -1283,35 +1253,35 @@ function ObservabilityFilters({
           </SelectPortal>
         </Select>
       </div>
-      <FilterSelect
+      <ObservabilityValueFilterSelect
         label="Repository"
         value={search.repository}
         options={includeSelectedOption(options.repositories, search.repository)}
         allLabel="All repositories"
         onChange={(repository) => onChange({ repository })}
       />
-      <FilterSelect
+      <ObservabilityValueFilterSelect
         label="Nanite"
         value={search.naniteId}
         options={includeSelectedOption(options.nanites, search.naniteId)}
         allLabel="All Nanites"
         onChange={(naniteId) => onChange({ naniteId })}
       />
-      <FilterSelect
+      <ObservabilityValueFilterSelect
         label="Creator"
         value={search.creator}
         options={includeSelectedOption(options.creators, search.creator)}
         allLabel="All creators"
         onChange={(creator) => onChange({ creator })}
       />
-      <FilterSelect
+      <ObservabilityValueFilterSelect
         label="Outcome"
         value={search.outcome}
         options={includeSelectedOption(options.outcomes, search.outcome)}
         allLabel="All outcomes"
         onChange={(outcome) => onChange({ outcome })}
       />
-      <FilterSelect
+      <ObservabilityValueFilterSelect
         label="Surface"
         value={search.surface}
         options={includeSelectedOption(options.surfaces, search.surface)}
