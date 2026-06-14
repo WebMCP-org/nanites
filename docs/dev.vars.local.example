@@ -8,6 +8,7 @@ NANITES_SHOW_SETUP="false"
 # GitHub App credentials (`GITHUB_APP_<ID>_PRIVATE_KEY`, `GITHUB_APP_<ID>_CLIENT_SECRET`,
 # `GITHUB_APP_<ID>_WEBHOOK_SECRET`) and `AUTH_COOKIE_SECRET` are not typed in by hand:
 # creating a dev GitHub App at /setup/local prints the exact block to append here.
+# A local coding agent may append that generated block, but it should not print the values.
 
 # Required only when using ALLOW_TEST_AUTH=true for local MCP/browser smoke tests.
 GITHUB_TEST_USER_TOKEN=""

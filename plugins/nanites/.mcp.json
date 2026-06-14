@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "sigvelo": {
-      "type": "http",
-      "url": "https://app.sigvelo.com/mcp"
-    }
-  }
-}

@@ -1,6 +1,6 @@
 {
-  // Rolldown's Babel integration resolves this plugin by package name during build.
-  "ignoreDependencies": ["@babel/plugin-proposal-decorators"],
+  // Rolldown and the Agents skills plugin resolve these package-like specifiers at build time.
+  "ignoreDependencies": ["@babel/plugin-proposal-decorators", "agents:skills"],
   "health": {
     // Complexity is a review signal here, not a mandate to extract one-off helpers.
     // Keep large runtime owner files readable in place unless a real domain boundary emerges.

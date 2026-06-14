@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "sigvelo": {
+    "nanites": {
       "type": "http",
-      "url": "https://app.sigvelo.com/mcp"
+      "url": "https://<your-origin>/mcp"
     },
     "cloudflare": {
       "type": "http",

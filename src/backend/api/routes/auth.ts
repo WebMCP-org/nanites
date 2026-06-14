@@ -1,10 +1,9 @@
-import { Hono, type Context } from "hono";
-import { createMiddleware } from "hono/factory";
+import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
-import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
+import { listBrowserVisibleInstallationSnapshots } from "#/backend/auth/installations.ts";
 import {
   completeGitHubOAuthCallback,
   mintTestAuthSession,
@@ -15,20 +14,12 @@ import {
   clearGitHubOAuthStateCookie,
   clearGitHubUserTokenCookie,
   clearSessionCookie,
-  clearRevokedSessionSelectionIfNeeded,
-  appendExpiredAuthCookies,
   buildBrowserSessionExpiration,
   nanitesSessionSchema,
-  readSessionInstallationSnapshots,
   readSessionCookie,
-  requireActiveGithubInstallation,
-  requireGitHubUserToken,
-  requireSession,
   sealSessionCookie,
-  type SessionInstallationSnapshot,
 } from "#/backend/auth/session.ts";
-import { isGitHubAuthenticationFailure, listVisibleInstallations } from "#/backend/github/index.ts";
-import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
+import { readDeploymentGitHubAppMetadata } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
   AUTH_RETURN_TO_PARAM,
@@ -39,26 +30,6 @@ import {
 } from "#/auth.ts";
 import { shouldShowSetup } from "#/backend/setup-policy.ts";
 
-const browserAuthRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {
-  context.set("browserSession", await requireSession(context.req.raw, context.env));
-  context.set(
-    "githubUserToken",
-    await requireGitHubUserToken(context.req.raw, context.env, {
-      responseHeaders: context.res.headers,
-    }),
-  );
-  await next();
-});
-
-export const activeGithubInstallationRequired = createMiddleware<WorkerHonoEnv>(
-  async (context, next) => {
-    const session = await requireSession(context.req.raw, context.env);
-    context.set("browserSession", session);
-    context.set("activeGithubInstallation", requireActiveGithubInstallation(session));
-    await next();
-  },
-);
-
 const activeInstallationInput = zValidator(
   "json",
   z.object({
@@ -66,27 +37,6 @@ const activeInstallationInput = zValidator(
   }),
   requestValidationHook,
 );
-
-async function listCurrentSessionInstallationSnapshots(
-  context: Context<WorkerHonoEnv>,
-): Promise<SessionInstallationSnapshot[]> {
-  const db = createDbClient(context.env.DB);
-  const primaryGitHubApp = await requirePrimaryGitHubApp(db, context.env);
-
-  try {
-    return readSessionInstallationSnapshots(
-      await listVisibleInstallations(context.get("githubUserToken").accessToken),
-      primaryGitHubApp.appId,
-    );
-  } catch (error) {
-    if (isGitHubAuthenticationFailure(error)) {
-      appendExpiredAuthCookies(context.req.raw, context.res.headers);
-      throw new AppError("authenticationRequired", { cause: error });
-    }
-
-    throw error;
-  }
-}
 
 const testAuthQueryInput = zValidator(
   "query",
@@ -269,55 +219,58 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
 export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
   .get("/session/optional", async (context) => {
     const session = await readSessionCookie(context.req.raw, context.env);
+    const deploymentGitHubApp = session
+      ? await readDeploymentGitHubAppMetadata(createDbClient(context.env.DB))
+      : null;
 
     return context.json(
       session
         ? {
             actor: session.githubViewer,
             activeInstallation: session.sessionInstallationSnapshot ?? null,
+            githubApp: deploymentGitHubApp
+              ? {
+                  appId: deploymentGitHubApp.appId,
+                  slug: deploymentGitHubApp.slug,
+                  htmlUrl: deploymentGitHubApp.htmlUrl,
+                  ownerLogin: deploymentGitHubApp.ownerLogin,
+                }
+              : null,
             expiresAt: session.expiresAt,
           }
         : null,
     );
   })
-  .get("/installations/visible", browserAuthRequired, async (context) => {
-    const db = createDbClient(context.env.DB);
-    const installations = await listCurrentSessionInstallationSnapshots(context);
-    await recordVisibleInstallationSnapshots(db, installations);
-    await clearRevokedSessionSelectionIfNeeded({
-      req: context.req.raw,
-      env: context.env,
-      session: context.get("browserSession"),
-      resHeaders: context.res.headers,
-      sessionInstallationSnapshots: installations,
-    });
-
+  .get("/installations/visible", async (context) => {
+    const { installations } = await listBrowserVisibleInstallationSnapshots(
+      context.req.raw,
+      context.env,
+      {
+        responseHeaders: context.res.headers,
+      },
+    );
     return context.json({ installations });
   })
-  .post("/installations/active", activeInstallationInput, browserAuthRequired, async (context) => {
+  .post("/installations/active", activeInstallationInput, async (context) => {
     const { githubInstallationId } = context.req.valid("json");
-    const db = createDbClient(context.env.DB);
-    const installations = await listCurrentSessionInstallationSnapshots(context);
-    await recordVisibleInstallationSnapshots(db, installations);
+    const { session, installations } = await listBrowserVisibleInstallationSnapshots(
+      context.req.raw,
+      context.env,
+      {
+        responseHeaders: context.res.headers,
+      },
+    );
     const activeInstallation =
       installations.find((installation) => installation.id === githubInstallationId) ?? null;
 
     if (!activeInstallation) {
-      await clearRevokedSessionSelectionIfNeeded({
-        req: context.req.raw,
-        env: context.env,
-        session: context.get("browserSession"),
-        resHeaders: context.res.headers,
-        sessionInstallationSnapshots: installations,
-      });
-
       throw new AppError("installationAccessRevoked", {
         details: { githubInstallationId },
       });
     }
 
     const nextSession = nanitesSessionSchema.parse({
-      ...context.get("browserSession"),
+      ...session,
       activeGithubAppId: activeInstallation.githubAppId,
       activeGithubInstallationId: githubInstallationId,
       sessionInstallationSnapshot: activeInstallation,

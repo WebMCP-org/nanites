@@ -8,9 +8,9 @@ import { Chat } from "chat";
 import type { Author, Message, SentMessage, Thread } from "chat";
 import { APP_ERRORS, AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
-import {
+import type {
   SigveloManagerConversationAgent,
-  type ManagerReplyPublication,
+  ManagerReplyPublication,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { GITHUB_WEBHOOK_PATH, GITHUB_WEBHOOK_TARGET_ID_HEADER } from "#/github.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";

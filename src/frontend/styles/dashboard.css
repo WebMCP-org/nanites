@@ -114,8 +114,14 @@
   line-height: 1.5;
 }
 
-.login-screen > .button {
-  min-inline-size: min(100%, 18rem);
+.login-screen__actions {
+  display: grid;
+  gap: 0.75rem;
+  inline-size: min(100%, 18rem);
+}
+
+.login-screen__actions .button {
+  inline-size: 100%;
   justify-content: center;
 }
 

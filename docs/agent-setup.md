@@ -15,18 +15,18 @@ Do not install both for the same client unless you are testing duplicate-load be
 
 The plugin payload lives in `plugins/nanites`:
 
-| File or directory                            | Purpose                                  |
-| -------------------------------------------- | ---------------------------------------- |
-| `plugins/nanites/skills/nanites`             | Canonical Nanites skill and references.  |
-| `plugins/nanites/commands`                   | Command prompts for common Nanite tasks. |
-| `plugins/nanites/assets/examples`            | Example Nanite manifests and fixtures.   |
-| `plugins/nanites/.mcp.json`                  | Production SigVelo MCP config.           |
-| `plugins/nanites/.mcp.example.json`          | Optional operator MCP servers.           |
-| `plugins/nanites/.codex-plugin/plugin.json`  | Codex plugin manifest.                   |
-| `plugins/nanites/.claude-plugin/plugin.json` | Claude Code plugin manifest.             |
+| File or directory                            | Purpose                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------- |
+| `plugins/nanites/skills/nanites`             | Canonical Nanites skill and references.                                |
+| `plugins/nanites/commands`                   | Command prompts for common Nanite tasks.                               |
+| `plugins/nanites/assets/examples`            | Example Nanite manifests and fixtures.                                 |
+| `plugins/nanites/.mcp.example.json`          | Example MCP config for a deployment and optional operator MCP servers. |
+| `plugins/nanites/.codex-plugin/plugin.json`  | Codex plugin manifest.                                                 |
+| `plugins/nanites/.claude-plugin/plugin.json` | Claude Code plugin manifest.                                           |
 
 The Codex and Claude Code marketplaces both point at the same `plugins/nanites` directory. Keep
-skills, examples, commands, and MCP config there instead of copying them into client-specific trees.
+skills, examples, and commands there instead of copying them into client-specific trees. The plugin
+does not bundle an MCP URL; add the target deployment's `/mcp` endpoint separately.
 
 ## Codex Plugin
 
@@ -36,7 +36,7 @@ Add the marketplace:
 codex plugin marketplace add WebMCP-org/nanites
 ```
 
-Then install `nanites` from the `sigvelo` marketplace in the Codex plugin UI.
+Then install `nanites` from the `nanites` marketplace in the Codex plugin UI.
 
 For local testing from a checkout:
 
@@ -53,14 +53,14 @@ Add the marketplace and install the plugin:
 
 ```bash
 claude plugin marketplace add WebMCP-org/nanites
-claude plugin install nanites@sigvelo
+claude plugin install nanites@nanites
 ```
 
 For local testing from a checkout:
 
 ```bash
 claude plugin marketplace add ./
-claude plugin install nanites@sigvelo
+claude plugin install nanites@nanites
 ```
 
 ## Standalone Skill And MCP
@@ -71,10 +71,10 @@ Install only the Nanites skill:
 npx --yes skills add WebMCP-org/nanites --skill nanites --global --copy --agent codex claude-code -y
 ```
 
-Then add the hosted SigVelo MCP server:
+Then add your deployment's Nanites MCP server:
 
 ```bash
-npx --yes add-mcp https://app.sigvelo.com/mcp --name sigvelo --transport http --global --agent codex --agent claude-code --yes
+npx --yes add-mcp https://<your-origin>/mcp --name nanites --transport http --global --agent codex --agent claude-code --yes
 ```
 
 For a local checkout:
@@ -83,7 +83,7 @@ For a local checkout:
 git clone https://github.com/WebMCP-org/nanites.git
 cd nanites
 npx --yes skills add . --skill nanites --global --copy --agent codex claude-code -y
-npx --yes add-mcp https://app.sigvelo.com/mcp --name sigvelo --transport http --global --agent codex --agent claude-code --yes
+npx --yes add-mcp http://localhost:5173/mcp --name nanites --transport http --global --agent codex --agent claude-code --yes
 ```
 
 ## Direct MCP Setup
@@ -91,14 +91,14 @@ npx --yes add-mcp https://app.sigvelo.com/mcp --name sigvelo --transport http --
 Codex:
 
 ```bash
-codex mcp add sigvelo --url https://app.sigvelo.com/mcp
-codex mcp login sigvelo
+codex mcp add nanites --url https://<your-origin>/mcp
+codex mcp login nanites
 ```
 
 Claude Code:
 
 ```bash
-claude mcp add --transport http sigvelo https://app.sigvelo.com/mcp
+claude mcp add --transport http --scope user nanites https://<your-origin>/mcp
 ```
 
 Generic MCP JSON:
@@ -106,9 +106,9 @@ Generic MCP JSON:
 ```json
 {
   "mcpServers": {
-    "sigvelo": {
+    "nanites": {
       "type": "http",
-      "url": "https://app.sigvelo.com/mcp"
+      "url": "https://<your-origin>/mcp"
     }
   }
 }
@@ -122,9 +122,9 @@ http://localhost:5173/mcp
 
 ## Optional Operator MCP Servers
 
-Use `plugins/nanites/.mcp.example.json` when the agent also needs Cloudflare operator access for
-deployment, logs, or observability. The extra Cloudflare servers are for operating Nanites, not for
-ordinary Nanite authoring.
+Use `plugins/nanites/.mcp.example.json` as a template when the agent also needs Cloudflare operator
+access for deployment, logs, or observability. The extra Cloudflare servers are for operating
+Nanites, not for ordinary Nanite authoring.
 
 ## Verify Access
 

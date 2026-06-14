@@ -34,6 +34,9 @@ test-results
 .vite/
 .vite-hooks/_/
 .wrangler/
+/.mcp.json
+/plugins/*/.mcp.json
+!plugins/*/.mcp.example.json
 
 # AI agent worktrees
 .claude/worktrees/

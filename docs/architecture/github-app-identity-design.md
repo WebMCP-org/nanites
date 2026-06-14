@@ -1,221 +1,91 @@
-# GitHub App identity: multi-app-native data model (clean slate)
+# GitHub App Identity: One App Per Deployment
 
-**Date:** 2026-06-11
-**Status:** IMPLEMENTED on branch `alex/multi-github-app` (steps 1–6 of the
-implementation order; step 7, the production cutover, is Alex-gated — see the
-reset plan below). Supersedes v1 of this doc, which designed
-singleton-app-plus-guards with migrations. Decision changed to multi-app-native
-with **no backwards compatibility** — we are pre-production and will wipe prod
-(D1, DO state, secrets) and start fresh.
+**Date:** 2026-06-13
+**Status:** Current implementation direction.
 
-**Implementation deviations from the proposal:**
+Nanites hard-requires exactly one active GitHub App per deployment. GitHub is
+the source of truth for installations and repositories; D1 stores projections
+observed from GitHub plus the single deployment app's non-secret metadata.
 
-- _Visible installations are not a cross-app union._ GitHub user tokens list
-  installations of the app that minted them, and the deployment only holds a
-  user token for the primary login app. Session/MCP snapshots are therefore
-  tagged with the primary app's id (or the wizard app's id during setup
-  verification), not unioned across apps. Cross-app session selection can be
-  added later via per-app app-JWT listings if it is ever needed.
-- _Retire does not delete worker secrets._ The wizard drops its Cloudflare
-  connection after setup, so retiring marks the row `retired` (which makes the
-  credentials unusable) and leaves the orphaned `GITHUB_APP_<ID>_*` secrets for
-  manual `wrangler secret delete`.
-- _The setup wizard tracks the newest active app_ (max `updated_at`, app id as
-  tiebreaker) rather than rendering a full app-list UI. Register/retire/
-  set-primary exist as claim-gated API routes
-  (`/api/setup/github-apps[...]`); a management UI can layer on top later.
-- _DO purge happens by deleting the production Worker, not by class
-  migrations._ Cloudflare validates `deleted_classes` against the currently
-  deployed bindings (API error 10061), so an in-place purge needs two deploys
-  and leaves V-suffixed class names behind as permanent debt. Pre-prod, the
-  clean route is `wrangler delete` (removes all DO storage, the migration
-  history, and the worker's secrets in one step) followed by a fresh deploy.
-  The configs keep plain class names and a single
-  `v1-durable-object-baseline` migration.
-- _App default name_ is `Nanites <first-hostname-label> <suffix>` (GitHub caps
-  names at 34 chars; the suffix keeps re-registrations unique).
-  **Motivation:** the 2026-06-10 incident
-  ([findings](../investigations/github-app-identity-findings.md)) where the
-  setup flow silently replaced the deployment's GitHub App identity, orphaning
-  every installation, MCP grant, and manager DO referencing the original app.
+## Decision
 
-## Why multi-app instead of singleton-plus-guards
+One deployment has one active `github_apps` row. That app mints browser OAuth
+tokens, verifies webhooks, mints installation tokens, owns setup links, and
+names Durable Object managers.
 
-The incident's root cause is that app identity is a **global implicit** —
-one singleton row plus three fixed-name worker secrets — while everything
-downstream (installations, tokens, webhooks, sessions, DOs) depends on it
-without recording it. Two ways to fix that:
+The manager key remains:
 
-1. Keep the singleton and bolt on guards: orphan detection, replace
-   confirmations, reconcile jobs, mismatch banners. All of that machinery
-   exists only to protect the singleton, and the failure is still _possible_,
-   just guarded.
-2. Make app identity explicit data: an `github_apps` table, an `app_id` on
-   every reference, credentials resolved per app. Registering a new app adds
-   a row and touches nothing else. The incident becomes **structurally
-   impossible**, and most of the guard machinery never needs to exist.
-
-With no back-compat constraint, (2) is also _less_ code. We choose (2).
-
-Real multi-app use cases, beyond incident-proofing: app rotation (register
-new, drain, retire old — both live during the transition), Alex's own
-dev-loop (testing the setup flow against prod no longer breaks prod), and a
-future "SaaS app + bring-your-own-app" coexistence story.
-
-What stays singular: **one primary app for browser/MCP OAuth login**. User
-identity is keyed on GitHub user id (app-independent), so which app performs
-the login is an implementation detail; supporting N login clients buys
-nothing and complicates the callback. Exactly one active app is `is_primary`.
-
-## Schema (replaces, does not migrate)
-
-Drop `deployment_github_app_config` entirely.
-
-```
-github_apps
-  app_id                  integer PK      -- GitHub's app id
-  slug                    text not null
-  html_url                text not null
-  owner_login             text
-  owner_type              text
-  client_id               text not null
-  private_key_binding     text not null   -- env var name, e.g. GITHUB_APP_3280686_PRIVATE_KEY
-  client_secret_binding   text not null
-  webhook_secret_binding  text not null
-  permissions_json        text not null
-  events_json             text not null
-  is_primary              integer not null default 0
-  status                  text not null   -- 'active' | 'retired'
-  created_at / retired_at
-
-  partial unique index: is_primary = 1 AND status = 'active'  (exactly one)
+```text
+app:<githubAppId>:installation:<githubInstallationId>
 ```
 
-Per-app secret names are generated by the setup flow (which already writes
-worker secrets via the Cloudflare API): `GITHUB_APP_<APP_ID>_PRIVATE_KEY`,
-`_CLIENT_SECRET`, `_WEBHOOK_SECRET`. The deploy-button template's
-`secrets.required` shrinks to `AUTH_COOKIE_SECRET` — GitHub secrets no longer
-exist until setup registers an app, which is honest: they are setup outputs,
-not deploy inputs.
+The app id stays in D1 facts and manager identity because it is an observed
+fact, not public page state. Browser page state names only the selected
+installation:
 
-Every installation-bearing table gains `github_app_id integer not null`
-(nullable only on `audit_events` / funnel tables where the installation
-itself is nullable):
+```text
+/nanites?installationId=122769206
+/observability?installationId=122769206&range=7d
+```
 
-- `account_installations` — unique becomes `(github_app_id, github_installation_id)`, FK to `github_apps`
-- `account_repositories`, `nanite_run_facts`, `ai_usage_facts`,
-  `nanite_catalog`, `audit_events`, `platform_usage_facts`,
-  `auth_funnel_facts` — attribution columns, no FK needed
+## Invariants
 
-## Runtime changes
+- `resolveDeploymentGitHubApp` / `requireDeploymentGitHubApp` are the only
+  runtime deployment-app resolvers.
+- More than one active `github_apps` row is a deployment configuration error.
+- Registering the same app refreshes its metadata and binding names.
+- Registering a different app fails closed.
+- Browser GitHub user-token cookies are bound to the deployment app by app id
+  and client id.
+- Page pickers change the URL scope. They do not mutate the session default.
+- `/api/auth/installations/active` means "set default installation" for
+  compatibility with older entry points, not page navigation.
 
-**Credential resolution.** Replace `readDeploymentGitHubAppConfig()`
-(`src/backend/github/app-config.ts`) with
-`resolveGitHubApp(env, appId)` → row + secrets via its binding names. Every
-octokit/app-auth/token-mint path (`src/backend/github/index.ts`,
-`git-auth.ts`) takes an explicit `appId`; there is no "the app" global. The
-type system does the enforcement: a function can't mint a token without
-saying which app, and the (appId, installationId) pair comes from a row where
-the pairing is a uniqueness invariant — the 404-deep-in-a-mint failure class
-is gone.
+## Setup
 
-**Webhook ingress** (`src/backend/api/routes/github.ts`). One URL. GitHub
-sends `X-GitHub-Hook-Installation-Target-Type: integration` and
-`X-GitHub-Hook-Installation-Target-ID: <app_id>` on every app delivery.
-Routing: read the header → look up the active `github_apps` row → verify the
-signature with _that app's_ webhook secret → process with appId in scope.
-Unknown target id or failed signature → 401, counted in `auth_funnel_facts`.
-(The header only selects the secret; the HMAC signature remains the gate.)
+The setup wizard creates or restores one deployment app. If a deployment app
+row already exists, setup must not start another GitHub App manifest flow. A
+stalled app means generated Worker secrets are not readable yet or were lost;
+creating another app is not a repair path because it produces orphaned GitHub
+Apps and secret blocks.
 
-**OAuth login.** The primary app's client_id/secret serves
-`/auth/github/login` and the MCP authorize flow. Sessions and `accounts` key
-on GitHub user id, so changing the primary app does not invalidate users.
+Local restore follows the same invariant: `/setup/local/restore` restores
+exactly one app row from `GITHUB_APP_<id>_*` environment blocks and rejects
+multiple blocks with cleanup instructions.
 
-**Sessions and MCP grants.** The active-installation selection
-(`src/backend/auth/session.ts`) and MCP grant props/metadata
-(`src/backend/api/routes/mcp.ts`) store the `{githubAppId,
-githubInstallationId}` pair. `/api/auth/installations/visible` returns the
-union across active apps of the user's visible installations, each tagged
-with its app; `POST /installations/active` validates the pair against
-`account_installations`.
+## Projection
 
-**Manager DO keys.** `buildNaniteManagerKey` (`src/nanites.ts:19`) becomes
-`app:<appId>:installation:<installationId>`. No legacy shim — DO state is
-wiped at cutover.
+D1 mirrors what the deployment app can see through GitHub APIs:
 
-## Setup flow
+- visible installations from `/user/installations`
+- repository snapshots from installation repository listings
+- facts and audit rows emitted by runtime work
 
-The GitHub step becomes an **app list**, not a one-shot identity write:
+Projection rows are cache data. If they disagree with GitHub, refresh from
+GitHub and update D1; do not use D1 as visibility proof.
 
-- **Register app** (manifest flow, unchanged mechanics) — inserts a
-  `github_apps` row, writes its per-app secrets, becomes primary iff it is
-  the first active app. Never touches other rows. App default name improves
-  from `Nanites <random>` to `<deployment-hostname> nanites` for legibility.
-- **Retire app** — explicit action showing what it strands (count of
-  installations/nanites under that app); requires typed slug confirmation;
-  sets `status='retired'`, deletes its worker secrets, emits
-  `audit.deployment.app_retired`. Retired rows keep history; their
-  installations render as archived.
-- **Set primary** — explicit toggle between active apps.
+## Migration And Reset
 
-`NANITES_SHOW_SETUP` stays as a coarse kill-switch, but it no longer needs to
-carry safety weight: re-running setup against a live deployment _adds_ apps,
-it cannot clobber one.
+The one-app database guard is a partial unique index on active GitHub Apps.
+This migration intentionally does not choose a winner if an environment already
+has more than one active app row. This repository is still pre-production, and
+encoding an automatic cleanup policy would preserve a state shape we do not
+want.
 
-## UI
+If an environment has multiple active `github_apps` rows, reset that environment
+before applying this line of development:
 
-"GitHub connection" settings surface, three levels:
+1. Back up anything needed for investigation.
+2. Wipe local `.wrangler` state or the remote pre-prod D1 database.
+3. Re-run migrations.
+4. Restore/register exactly one GitHub App.
+5. Re-authenticate through the deployment app's real GitHub OAuth flow.
 
-1. **Apps** — active apps (slug, owner, primary badge, installation count),
-   register/retire/set-primary actions.
-2. **Installations** — per app, merged live (`GET /app/installations`) +
-   recorded rows. States: healthy (both), unknown (live only → import),
-   stale (recorded only → archive). Selecting one stores the app+installation
-   pair.
-3. **Repositories** — the chosen installation's repo selection, deep-linked
-   to GitHub's installation settings (GitHub is the source of truth; we
-   mirror via `installation_repositories` webhooks).
+## Deferred
 
-Single-app deployments (the common self-host case) see level 1 collapsed to
-a status line; the app dimension only unfolds when there are ≥2 apps.
+These are not part of the one-app deployment model:
 
-## Production reset plan (Alex-gated steps marked ⚠)
-
-1. Implement the refactor on a branch; D1 migrations are written from
-   scratch against the new schema (pre-prod: collapse/replace existing
-   migration history rather than appending ALTERs).
-2. ⚠ Wipe prod D1 (drop all tables, re-run migrations from zero). This MUST
-   include dropping `d1_migrations`: the old history already contains a row
-   for `0000_baseline.sql` (a previous migration collapse used the same
-   name), so without the wipe `wrangler d1 migrations apply` reports "No
-   migrations to apply" and silently leaves the old schema in place.
-3. ⚠ Delete the production Worker
-   (`wrangler delete --config wrangler.production.jsonc`) — this purges all
-   Durable Object storage, the DO migration history, and the worker's
-   secrets (D1/KV/R2 are separate resources and survive). Re-set the base
-   secrets (`AUTH_COOKIE_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `SENTRY_DSN`),
-   then `vp run deploy:prod` deploys fresh with plain DO class names and the
-   single baseline migration. Also clear the OAuth grant KV
-   (`OAUTH_KV`), which holds tokens referencing the old app.
-4. ⚠ GitHub-side cleanup: delete `nanites-cwkawta7yc`; uninstall/delete the
-   dead experiments (`webmcp-org`, `char3-webmcp-org`). Keep or delete the
-   old `sigvelo` app — with a fresh start there is no data pointing at it,
-   so either register a brand-new app via the new flow (simplest) or keep
-   the `sigvelo` slug/branding by re-registering it manually later.
-5. ⚠ Run setup fresh on app.sigvelo.com: register app, install on
-   WebMCP-org, select repos. Then run the deferred watchdog repro
-   (huge-diff nanite + long-poll) as the end-to-end success criterion.
-
-## Implementation order
-
-1. Schema rewrite (`github_apps`, app_id columns, drop singleton).
-2. Credential resolver + thread explicit `appId` through all GitHub auth and
-   token-mint paths.
-3. Webhook target-id routing.
-4. Session/MCP pair binding + visible-installations union.
-5. Setup flow app list (register / retire / primary).
-6. DO key change.
-7. Cutover: wipe + deploy + fresh setup (reset plan above).
-
-Steps 1–2 are the load-bearing ones; 3–6 are mechanical once identities are
-explicit.
+- app-rotation flows
+- bring-your-own-app coexistence
+- cross-app visible-installation unions
+- manager-name migration away from `app:<appId>:installation:<installationId>`

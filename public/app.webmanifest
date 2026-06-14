@@ -1,0 +1,73 @@
+{
+  "id": "/",
+  "name": "Nanites",
+  "short_name": "Nanites",
+  "description": "Small durable agents for GitHub repository maintenance.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "background_color": "#f5f7fa",
+  "theme_color": "#f5f7fa",
+  "categories": ["productivity", "utilities", "business"],
+  "icons": [
+    {
+      "src": "/icons/nanites-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/nanites-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/nanites-icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/nanites-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/nanites-maskable-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Nanites",
+      "short_name": "Nanites",
+      "description": "Open the Nanites roster for the active installation.",
+      "url": "/nanites",
+      "icons": [
+        {
+          "src": "/icons/nanites-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Open Observability",
+      "short_name": "Observability",
+      "description": "Review Nanites run and installation health.",
+      "url": "/observability",
+      "icons": [
+        {
+          "src": "/icons/nanites-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
+import { AgentConnectionPanel } from "#/frontend/routes/-agent-connection.tsx";
 import { httpClient } from "#/frontend/lib/http-client.ts";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
@@ -543,7 +544,10 @@ function SetupPage() {
     stepContent = (
       <>
         <h2 className="setup-step__title">Pick repositories for Nanites to maintain</h2>
-        <p className="setup-step__note">Install the app wherever Nanites can maintain code.</p>
+        <p className="setup-step__note">
+          Install {status.githubApp.slug ?? "the deployment GitHub App"} wherever Nanites can
+          maintain code. GitHub will only show installations visible to the signed-in user.
+        </p>
         <StepStatus errors={stepErrors} />
       </>
     );
@@ -606,8 +610,11 @@ function SetupPage() {
     );
     stepContent = (
       <>
-        <h2 className="setup-step__title">Sign in and create your first maintainer</h2>
-        <p className="setup-step__note">Setup is complete. Nanites is ready to launch.</p>
+        <h2 className="setup-step__title">Connect your agent and launch Nanites</h2>
+        <p className="setup-step__note">
+          Setup is complete. Install the agent-facing pieces, then start Nanites.
+        </p>
+        <AgentConnectionPanel className="setup-agent-connect" />
         <StepStatus errors={[]} />
       </>
     );

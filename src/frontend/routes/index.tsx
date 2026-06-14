@@ -5,6 +5,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { loadSession } from "#/frontend/lib/auth.ts";
 import { httpClient } from "#/frontend/lib/http-client.ts";
 import { parseResponse } from "hono/client";
+import { WrenchIcon } from "@phosphor-icons/react";
 import {
   AUTH_RETURN_TO_PARAM,
   GITHUB_OAUTH_LOGIN_PATH,
@@ -12,6 +13,22 @@ import {
   readRequestedReturnTo,
   resolveAuthReturnTo,
 } from "#/auth.ts";
+
+function isLocalSetupOrigin(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const hostname = window.location.hostname.toLowerCase();
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    hostname.endsWith(".localhost")
+  );
+}
 
 export const Route = createFileRoute("/")({
   loader: async ({ context, location }) => {
@@ -33,7 +50,9 @@ export const Route = createFileRoute("/")({
 function LoginPage() {
   const { setupStatus } = Route.useLoaderData();
   const returnTo = readRequestedReturnTo(new URLSearchParams(window.location.search));
-  const setupHiddenAndUnconfigured = !setupStatus.showSetup && !setupStatus.runtimeConfigReadable;
+  const setupHiddenAndIncomplete = !setupStatus.showSetup && !setupStatus.setupComplete;
+  const localSetupAvailable = setupHiddenAndIncomplete && isLocalSetupOrigin();
+  const loginDisabled = !setupStatus.runtimeConfigReadable;
 
   return (
     <main className="login-screen">
@@ -46,27 +65,37 @@ function LoginPage() {
       <div className="login-screen__copy">
         <h1>Nanites</h1>
         <p>
-          {setupHiddenAndUnconfigured
-            ? "Local setup is hidden. Configure local GitHub App metadata and secrets, or set NANITES_SHOW_SETUP=true."
+          {setupHiddenAndIncomplete
+            ? localSetupAvailable
+              ? "Finish local setup to create or restore the dev GitHub App, then sign in."
+              : "Setup is not complete. Ask an operator to enable setup or configure this deployment."
             : "Small durable agents for GitHub repository maintenance."}
         </p>
       </div>
-      <Button
-        color="primary"
-        size="lg"
-        disabled={setupHiddenAndUnconfigured}
-        onClick={() => {
-          const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
-          loginUrl.searchParams.set(
-            AUTH_RETURN_TO_PARAM,
-            normalizeAuthenticatedReturnToPath(returnTo),
-          );
-          window.location.href = loginUrl.toString();
-        }}
-      >
-        <GithubMotionMark size={18} />
-        <span>Sign in with GitHub</span>
-      </Button>
+      <div className="login-screen__actions">
+        <Button
+          color="primary"
+          size="lg"
+          disabled={loginDisabled}
+          onClick={() => {
+            const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
+            loginUrl.searchParams.set(
+              AUTH_RETURN_TO_PARAM,
+              normalizeAuthenticatedReturnToPath(returnTo),
+            );
+            window.location.href = loginUrl.toString();
+          }}
+        >
+          <GithubMotionMark size={18} />
+          <span>Sign in with GitHub</span>
+        </Button>
+        {localSetupAvailable ? (
+          <a className="button button--outline button--neutral button--lg" href="/setup/local">
+            <WrenchIcon size={18} aria-hidden="true" />
+            <span>Open local setup</span>
+          </a>
+        ) : null}
+      </div>
     </main>
   );
 }

@@ -1,5 +1,6 @@
 import { getLogger } from "@logtape/logtape";
 import { AppError, createAppErrorProblemResponse } from "#/backend/errors.ts";
+import { requireBrowserInstallationScope } from "#/backend/auth/installations.ts";
 import { createDbClient, type DbClient } from "#/backend/db/index.ts";
 import { getWebFlowAuthorizationUrl } from "@octokit/oauth-methods";
 import {
@@ -26,13 +27,13 @@ import {
   fetchGitHubViewer,
   listVisibleInstallations,
 } from "#/backend/github/index.ts";
-import { requirePrimaryGitHubApp } from "#/backend/github/apps.ts";
+import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH, normalizeAuthenticatedReturnToPath } from "#/auth.ts";
 import {
   MANAGER_CONVERSATION_AGENT_NAME,
   NANITE_MANAGER_NAME,
-  buildNaniteManagerKey,
+  parseNaniteManagerKey,
 } from "#/nanites.ts";
 
 const authLogger = getLogger(LOGGING.SERVER_CATEGORY)
@@ -41,13 +42,7 @@ const authLogger = getLogger(LOGGING.SERVER_CATEGORY)
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
 
-function chooseDefaultActiveInstallation(
-  installations: readonly SessionInstallationSnapshot[],
-): SessionInstallationSnapshot | null {
-  return installations.length === 1 ? (installations[0] ?? null) : null;
-}
-
-function chooseRequestedOrDefaultActiveInstallation(
+function chooseActiveInstallation(
   installations: readonly SessionInstallationSnapshot[],
   requestedInstallationId: number | null,
 ): SessionInstallationSnapshot | null {
@@ -57,7 +52,7 @@ function chooseRequestedOrDefaultActiveInstallation(
     );
   }
 
-  return chooseDefaultActiveInstallation(installations);
+  return installations.length === 1 ? (installations[0] ?? null) : null;
 }
 
 async function recordAccountAuthFunnelEvent(
@@ -98,7 +93,7 @@ export async function startGitHubOAuthLogin({
     expiresAt: buildOAuthStateExpiration(),
   });
   const db = createDbClient(env.DB);
-  const githubAppConfig = await requirePrimaryGitHubApp(db, env);
+  const githubAppConfig = await requireDeploymentGitHubApp(db, env);
   const { url: authorizationUrl } = getWebFlowAuthorizationUrl({
     clientType: "github-app",
     clientId: githubAppConfig.clientId,
@@ -188,16 +183,16 @@ export async function completeGitHubOAuthCallback({
   }
   const actor = await fetchGitHubViewer(githubUserToken.accessToken);
   const db = createDbClient(env.DB);
-  // The user token was minted by the primary app, so every installation it
+  // The user token was minted by the deployment app, so every installation it
   // can see belongs to that app.
-  const primaryGitHubApp = await requirePrimaryGitHubApp(db, env);
+  const deploymentGitHubApp = await requireDeploymentGitHubApp(db, env);
   const visibleInstallations = await listVisibleInstallations(githubUserToken.accessToken);
   const sessionInstallationSnapshots = readSessionInstallationSnapshots(
     visibleInstallations,
-    primaryGitHubApp.appId,
+    deploymentGitHubApp.appId,
   );
   await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
-  const activeInstallation = chooseDefaultActiveInstallation(sessionInstallationSnapshots);
+  const activeInstallation = chooseActiveInstallation(sessionInstallationSnapshots, null);
   const session = nanitesSessionSchema.parse({
     githubViewer: actor,
     activeGithubAppId: activeInstallation?.githubAppId ?? null,
@@ -288,14 +283,14 @@ export async function mintTestAuthSession({
 
   const viewer = await fetchGitHubViewer(realGitHubUserToken);
   const db = createDbClient(env.DB);
-  const primaryGitHubApp = await requirePrimaryGitHubApp(db, env);
+  const deploymentGitHubApp = await requireDeploymentGitHubApp(db, env);
   const visibleInstallations = await listVisibleInstallations(realGitHubUserToken);
   const sessionInstallationSnapshots = readSessionInstallationSnapshots(
     visibleInstallations,
-    primaryGitHubApp.appId,
+    deploymentGitHubApp.appId,
   );
   await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
-  const activeInstallationSnapshot = chooseRequestedOrDefaultActiveInstallation(
+  const activeInstallationSnapshot = chooseActiveInstallation(
     sessionInstallationSnapshots,
     params.activeGithubInstallationId,
   );
@@ -311,6 +306,8 @@ export async function mintTestAuthSession({
     expiresAt: githubTokenExpiresAt,
     refreshToken: null,
     refreshTokenExpiresAt: null,
+    githubAppId: deploymentGitHubApp.appId,
+    githubAppClientId: deploymentGitHubApp.clientId,
   });
 
   return {
@@ -338,11 +335,18 @@ const AGENT_AUTH_HEADERS = {
   githubUserId: "x-nanites-github-user-id",
   activeGithubAppId: "x-nanites-active-github-app-id",
   activeInstallationId: "x-nanites-active-installation-id",
+  installationAccountLogin: "x-nanites-installation-account-login",
 } as const;
 
 type AgentRouteTarget = {
   className: string;
   instanceName: string;
+};
+
+type AgentInstallationTarget = {
+  readonly githubAppId: number;
+  readonly githubInstallationId: number;
+  readonly managerName: string;
 };
 
 function toAgentErrorResponse(error: AppError, request?: Request): Response {
@@ -384,7 +388,45 @@ function matchesNaniteAgentClass(className: string, expectedClassName: string): 
   );
 }
 
-function authorizeNaniteAgentScope(request: Request): AppError | null {
+function readManagerConversationTarget(
+  instanceName: string,
+  session: Awaited<ReturnType<typeof requireSession>>,
+): AgentInstallationTarget | AppError {
+  const actorSeparator = ":manager:";
+  const separatorIndex = instanceName.lastIndexOf(actorSeparator);
+  if (separatorIndex <= 0) {
+    return new AppError("agentAuthorizationForbidden", {
+      details: { reason: "Manager conversation instance is not installation-scoped." },
+    });
+  }
+
+  const managerName = instanceName.slice(0, separatorIndex);
+  const rawActorId = instanceName.slice(separatorIndex + actorSeparator.length);
+  const actorId = Number(rawActorId);
+  if (!Number.isInteger(actorId) || actorId !== session.githubViewer.id) {
+    return new AppError("agentAuthorizationForbidden", {
+      details: { reason: "Manager conversation does not belong to the authenticated actor." },
+    });
+  }
+
+  const managerIdentity = parseNaniteManagerKey(managerName);
+  if (!managerIdentity) {
+    return new AppError("agentAuthorizationForbidden", {
+      details: { reason: "Manager conversation is not addressed to a valid manager." },
+    });
+  }
+
+  return {
+    githubAppId: managerIdentity.githubAppId,
+    githubInstallationId: managerIdentity.githubInstallationId,
+    managerName,
+  };
+}
+
+function readNaniteAgentInstallationTarget(
+  request: Request,
+  session: Awaited<ReturnType<typeof requireSession>>,
+): AgentInstallationTarget | AppError | null {
   const routeTarget = getAgentRouteTarget(request);
   if (!routeTarget) {
     return null;
@@ -399,43 +441,22 @@ function authorizeNaniteAgentScope(request: Request): AppError | null {
     return null;
   }
 
-  const activeGithubAppId = request.headers.get(AGENT_AUTH_HEADERS.activeGithubAppId);
-  const activeInstallationId = request.headers.get(AGENT_AUTH_HEADERS.activeInstallationId);
-  if (!activeGithubAppId || !activeInstallationId) {
-    return new AppError("activeInstallationRequired");
+  if (isManagerConversation) {
+    return readManagerConversationTarget(routeTarget.instanceName, session);
   }
 
-  const githubAppId = Number(activeGithubAppId);
-  const installationId = Number(activeInstallationId);
-  if (
-    !Number.isInteger(githubAppId) ||
-    githubAppId <= 0 ||
-    !Number.isInteger(installationId) ||
-    installationId <= 0
-  ) {
-    return new AppError("activeInstallationRequired");
-  }
-
-  const managerName = buildNaniteManagerKey({
-    githubAppId,
-    githubInstallationId: installationId,
-  });
-
-  if (isNaniteManager && routeTarget.instanceName !== managerName) {
+  const managerIdentity = parseNaniteManagerKey(routeTarget.instanceName);
+  if (!managerIdentity) {
     return new AppError("agentAuthorizationForbidden", {
-      details: { reason: "Nanite manager does not belong to the active installation." },
+      details: { reason: "Nanite manager is not installation-scoped." },
     });
   }
 
-  if (isManagerConversation && !routeTarget.instanceName.startsWith(`${managerName}:`)) {
-    return new AppError("agentAuthorizationForbidden", {
-      details: {
-        reason: "Manager conversation does not belong to the active installation.",
-      },
-    });
-  }
-
-  return null;
+  return {
+    githubAppId: managerIdentity.githubAppId,
+    githubInstallationId: managerIdentity.githubInstallationId,
+    managerName: routeTarget.instanceName,
+  };
 }
 
 export async function authorizeAgentRequest(
@@ -450,9 +471,33 @@ export async function authorizeAgentRequest(
     headers.set(AGENT_AUTH_HEADERS.githubLogin, session.githubViewer.login);
     headers.set(AGENT_AUTH_HEADERS.githubUserId, String(session.githubViewer.id));
 
-    if (session.activeGithubAppId === null || session.activeGithubInstallationId === null) {
+    const routeTarget = readNaniteAgentInstallationTarget(request, session);
+    if (routeTarget instanceof AppError) {
+      return toAgentErrorResponse(routeTarget);
+    }
+
+    if (routeTarget) {
+      const scope = await requireBrowserInstallationScope(request, env, {
+        githubInstallationId: routeTarget.githubInstallationId,
+      });
+      if (
+        routeTarget.githubAppId !== scope.githubAppId ||
+        routeTarget.managerName !== scope.managerName
+      ) {
+        return toAgentErrorResponse(
+          new AppError("agentAuthorizationForbidden", {
+            details: { reason: "Agent target does not belong to the deployment GitHub App." },
+          }),
+        );
+      }
+
+      headers.set(AGENT_AUTH_HEADERS.activeGithubAppId, String(scope.githubAppId));
+      headers.set(AGENT_AUTH_HEADERS.activeInstallationId, String(scope.githubInstallationId));
+      headers.set(AGENT_AUTH_HEADERS.installationAccountLogin, scope.account.login);
+    } else if (session.activeGithubAppId === null || session.activeGithubInstallationId === null) {
       headers.delete(AGENT_AUTH_HEADERS.activeGithubAppId);
       headers.delete(AGENT_AUTH_HEADERS.activeInstallationId);
+      headers.delete(AGENT_AUTH_HEADERS.installationAccountLogin);
     } else {
       headers.set(AGENT_AUTH_HEADERS.activeGithubAppId, String(session.activeGithubAppId));
       headers.set(
@@ -461,9 +506,7 @@ export async function authorizeAgentRequest(
       );
     }
 
-    const authorizedRequest = new Request(request, { headers });
-    const authorizationError = authorizeNaniteAgentScope(authorizedRequest);
-    return authorizationError ? toAgentErrorResponse(authorizationError) : authorizedRequest;
+    return new Request(request, { headers });
   } catch (error) {
     if (error instanceof AppError && error.kind === "authenticationRequired") {
       return toAgentErrorResponse(error, request);

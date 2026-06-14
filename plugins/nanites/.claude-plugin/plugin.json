@@ -2,13 +2,12 @@
   "name": "nanites",
   "displayName": "SigVelo Nanites",
   "version": "0.2.0",
-  "description": "Model guidance and MCP configuration for creating, testing, and debugging SigVelo Nanites.",
+  "description": "Model guidance for creating, testing, and debugging self-hosted Nanites.",
   "author": {
     "name": "WebMCP / SigVelo"
   },
-  "homepage": "https://app.sigvelo.com",
+  "homepage": "https://github.com/WebMCP-org/nanites",
   "license": "Apache-2.0",
   "keywords": ["sigvelo", "nanites", "mcp", "github", "octokit", "cloudflare"],
-  "skills": "./skills/",
-  "mcpServers": "./.mcp.json"
+  "skills": "./skills/"
 }

@@ -1,14 +1,12 @@
 /**
  * GitHub App registry for this deployment.
  *
- * App identity is explicit data in the `github_apps` table — there is no
- * deployment-global "the app". Every credential lookup names the app it wants;
- * the only sanctioned singleton is the primary app, which serves browser/MCP
- * OAuth login. Each app's secrets live under per-app worker secret bindings
- * (`GITHUB_APP_<APP_ID>_*`) recorded on its row, so registering or retiring an
- * app can never clobber another app's credentials.
+ * App identity is explicit data in the `github_apps` table, but a deployment
+ * may have exactly one active app. Each app's secrets live under per-app worker
+ * secret bindings (`GITHUB_APP_<APP_ID>_*`) recorded on its row. Retired rows
+ * can remain as history; runtime auth always resolves the singleton active app.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { DbClient } from "#/backend/db/index.ts";
 import { githubApps, type GitHubAppStatus } from "#/backend/db/schema.ts";
@@ -32,7 +30,6 @@ export type GitHubAppMetadata = {
   readonly clientId: string;
   readonly permissions: Record<string, string>;
   readonly events: readonly string[];
-  readonly isPrimary: boolean;
   readonly status: GitHubAppStatus;
   readonly secretBindings: GitHubAppSecretBindings;
   readonly configUpdatedAt: Date;
@@ -95,7 +92,6 @@ function toGitHubAppMetadata(row: GitHubAppRow): GitHubAppMetadata {
     clientId: row.clientId,
     permissions: githubAppPermissionsJsonSchema.parse(JSON.parse(row.permissionsJson)),
     events: githubAppEventsJsonSchema.parse(JSON.parse(row.eventsJson)),
-    isPrimary: row.isPrimary,
     status: row.status,
     secretBindings: {
       privateKeyBinding: row.privateKeyBinding,
@@ -120,8 +116,6 @@ export function readAuthCookieSecret(env: Env): string | null {
   return readConfiguredSecret(env, AUTH_COOKIE_SECRET_BINDING);
 }
 
-// "Newest" means most recently registered or re-registered (updated_at),
-// with app id as a deterministic tiebreaker for same-second registrations.
 export async function listGitHubApps(db: DbClient): Promise<GitHubAppMetadata[]> {
   const rows = await db
     .select()
@@ -139,6 +133,19 @@ export async function listActiveGitHubApps(db: DbClient): Promise<GitHubAppMetad
   return rows.map(toGitHubAppMetadata);
 }
 
+async function readSingletonActiveGitHubAppMetadata(
+  db: DbClient,
+): Promise<GitHubAppMetadata | null> {
+  const apps = await listActiveGitHubApps(db);
+  if (apps.length > 1) {
+    throw new AppError("deploymentGitHubAppConflict", {
+      details: { githubAppIds: apps.map((app) => app.appId) },
+    });
+  }
+
+  return apps[0] ?? null;
+}
+
 export async function readGitHubAppMetadata(
   db: DbClient,
   appId: number,
@@ -148,28 +155,10 @@ export async function readGitHubAppMetadata(
   return row ? toGitHubAppMetadata(row) : null;
 }
 
-export async function readPrimaryGitHubAppMetadata(
+export async function readDeploymentGitHubAppMetadata(
   db: DbClient,
 ): Promise<GitHubAppMetadata | null> {
-  const rows = await db
-    .select()
-    .from(githubApps)
-    .where(and(eq(githubApps.isPrimary, true), eq(githubApps.status, "active")))
-    .limit(1);
-  const row = rows[0];
-  return row ? toGitHubAppMetadata(row) : null;
-}
-
-/**
- * The app the setup wizard is currently working with: the most recently
- * registered active app. Registering another app never edits earlier rows, so
- * "newest active" is stable for the duration of a wizard pass.
- */
-export async function readNewestActiveGitHubAppMetadata(
-  db: DbClient,
-): Promise<GitHubAppMetadata | null> {
-  const apps = await listActiveGitHubApps(db);
-  return apps[0] ?? null;
+  return readSingletonActiveGitHubAppMetadata(db);
 }
 
 function withResolvedSecrets(metadata: GitHubAppMetadata, env: Env): GitHubAppCredentials | null {
@@ -216,11 +205,11 @@ export async function requireGitHubApp(
   return app;
 }
 
-export async function resolvePrimaryGitHubApp(
+export async function resolveDeploymentGitHubApp(
   db: DbClient,
   env: Env,
 ): Promise<GitHubAppCredentials | null> {
-  const metadata = await readPrimaryGitHubAppMetadata(db);
+  const metadata = await readDeploymentGitHubAppMetadata(db);
   if (!metadata || !readAuthCookieSecret(env)) {
     return null;
   }
@@ -228,11 +217,11 @@ export async function resolvePrimaryGitHubApp(
   return withResolvedSecrets(metadata, env);
 }
 
-export async function requirePrimaryGitHubApp(
+export async function requireDeploymentGitHubApp(
   db: DbClient,
   env: Env,
 ): Promise<GitHubAppCredentials> {
-  const app = await resolvePrimaryGitHubApp(db, env);
+  const app = await resolveDeploymentGitHubApp(db, env);
   if (!app) {
     throw new AppError("deploymentGitHubAppSetupRequired");
   }
@@ -252,9 +241,25 @@ export async function requireGitHubAppsTableReady(db: DbClient): Promise<void> {
 }
 
 /**
- * Adds (or refreshes) one app row. Never touches other rows: the incident
- * class where setup replaced the deployment's app identity is unrepresentable.
- * The first active app becomes the primary login app automatically.
+ * Throws `deploymentGitHubAppConflict` if a different app already owns the
+ * single deployment slot. Callers can run this before performing expensive,
+ * hard-to-unwind side effects (e.g. writing Worker secrets) so a conflicting
+ * app is rejected before those side effects happen, not after.
+ */
+export async function assertDeploymentGitHubAppRegistrable(
+  db: DbClient,
+  appId: number,
+): Promise<void> {
+  const existingDeploymentApp = await readDeploymentGitHubAppMetadata(db);
+  if (existingDeploymentApp && existingDeploymentApp.appId !== appId) {
+    throw new AppError("deploymentGitHubAppConflict", {
+      details: { githubAppIds: [existingDeploymentApp.appId, appId] },
+    });
+  }
+}
+
+/**
+ * Adds or refreshes the singleton deployment app row.
  */
 export async function registerGitHubApp(
   db: DbClient,
@@ -262,8 +267,7 @@ export async function registerGitHubApp(
 ): Promise<GitHubAppMetadata> {
   const now = new Date();
   const secretBindings = buildGitHubAppSecretBindings(input.appId);
-  const existingPrimary = await readPrimaryGitHubAppMetadata(db);
-  const isPrimary = existingPrimary === null || existingPrimary.appId === input.appId;
+  await assertDeploymentGitHubAppRegistrable(db, input.appId);
   await db
     .insert(githubApps)
     .values({
@@ -278,7 +282,6 @@ export async function registerGitHubApp(
       webhookSecretBinding: secretBindings.webhookSecretBinding,
       permissionsJson: JSON.stringify(input.permissions),
       eventsJson: JSON.stringify(input.events),
-      isPrimary,
       status: "active",
       retiredAt: null,
       createdAt: now,
@@ -297,7 +300,6 @@ export async function registerGitHubApp(
         webhookSecretBinding: secretBindings.webhookSecretBinding,
         permissionsJson: JSON.stringify(input.permissions),
         eventsJson: JSON.stringify(input.events),
-        isPrimary,
         status: "active",
         retiredAt: null,
         updatedAt: now,
@@ -310,38 +312,4 @@ export async function registerGitHubApp(
   }
 
   return registered;
-}
-
-export async function retireGitHubApp(db: DbClient, appId: number): Promise<void> {
-  const now = new Date();
-  await db
-    .update(githubApps)
-    .set({
-      status: "retired",
-      isPrimary: false,
-      retiredAt: now,
-      updatedAt: now,
-    })
-    .where(eq(githubApps.appId, appId));
-}
-
-export async function setPrimaryGitHubApp(db: DbClient, appId: number): Promise<void> {
-  const target = await readGitHubAppMetadata(db, appId);
-  if (!target || target.status !== "active") {
-    throw new AppError("githubAppNotFound", { details: { githubAppId: appId } });
-  }
-
-  const now = new Date();
-  // Clear-then-set in one batch so the partial unique index never sees two
-  // primaries; D1 batches run atomically.
-  await db.batch([
-    db
-      .update(githubApps)
-      .set({ isPrimary: false, updatedAt: now })
-      .where(and(eq(githubApps.isPrimary, true), eq(githubApps.status, "active"))),
-    db
-      .update(githubApps)
-      .set({ isPrimary: true, updatedAt: now })
-      .where(eq(githubApps.appId, appId)),
-  ]);
 }

@@ -145,7 +145,7 @@ Current implementation in this repo:
 - `tests/helpers/browser-test.ts`
 - `tests/helpers/browser-msw-setup.ts`
 - `tests/helpers/msw-browser-worker.ts`
-- `tests/browser/nanite-runtime-chat.browser.test.tsx`
+- no active browser tests are kept until they mount a real route/app surface
 
 The standard for this lane is: mount a real app surface, keep MSW at the HTTP edge, and assert rendered outcomes.
 

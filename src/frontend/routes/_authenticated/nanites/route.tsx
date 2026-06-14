@@ -11,15 +11,13 @@ import {
   type ReactNode,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, createFileRoute, useLocation } from "@tanstack/react-router";
+import { Link, Navigate, createFileRoute, useLocation } from "@tanstack/react-router";
 import { useAgent } from "agents/react";
 import { DetailedError, parseResponse } from "hono/client";
-import type { InferRequestType } from "hono/client";
 import { z } from "zod";
 import { httpClient } from "#/frontend/lib/http-client.ts";
 import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
-import { Card } from "#/frontend/ui/components/Card.tsx";
 import {
   CodeBlock,
   CodeBlockContainer,
@@ -28,8 +26,6 @@ import {
 } from "#/frontend/ui/components/CodeBlock.tsx";
 import { CheckIcon, CopyIcon } from "#/frontend/ui/components/_internal/icons.tsx";
 import { FileTree, FileTreeFile, FileTreeFolder } from "#/frontend/ui/components/FileTree.tsx";
-import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
-import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { Popover } from "#/frontend/ui/components/Popover.tsx";
 import {
   Tooltip,
@@ -85,18 +81,17 @@ import {
   NaniteRuntimeChatPlaceholder,
   type NaniteAgentInstance,
 } from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
+import { NanitesChooseInstallationState } from "#/frontend/routes/_authenticated/nanites/-choose-installation-state.tsx";
+import { NanitesZeroInstallState } from "#/frontend/routes/_authenticated/nanites/-zero-install-state.tsx";
 import {
   getNextNaniteDesktopPanel,
   NaniteDesktopPanelControls,
   type NaniteDesktopPanel,
 } from "#/frontend/routes/_authenticated/nanites/-layout-controls.tsx";
+import { AgentConnectionPopover } from "#/frontend/routes/-agent-connection.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
-import {
-  AUTH_SESSION_QUERY_KEY,
-  buildReturnToPath,
-  fetchOptionalSession,
-  invalidateAuthQueries,
-} from "#/frontend/lib/auth.ts";
+import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
+import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
 import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/nanites.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import { buildGitHubAppInstallHref, SIGVELO_GITHUB_APP_URL } from "#/github.ts";
@@ -116,14 +111,12 @@ const emptyState: NaniteManagerState = {
   runtimeActivityByNanite: {},
   updatedAt: null,
 };
-const visibleInstallationsQueryKey = ["auth", "installations", "visible"] as const;
-
-type VisibleInstallationsResponse = {
-  installations: SessionInstallationSnapshot[];
+type BrowserDeploymentGitHubApp = {
+  readonly appId: number;
+  readonly slug: string;
+  readonly htmlUrl: string;
+  readonly ownerLogin: string | null;
 };
-type SetActiveInstallationInput = InferRequestType<
-  typeof httpClient.api.auth.installations.active.$post
->["json"];
 type ManagerStateResponse = {
   managerName: string;
   state: NaniteManagerState;
@@ -134,28 +127,6 @@ type JsonResponseLike = {
   readonly statusText: string;
   json(): Promise<unknown>;
 };
-
-async function fetchVisibleInstallations(): Promise<VisibleInstallationsResponse> {
-  const data = await readJsonResponse(httpClient.api.auth.installations.visible.$get());
-  if (!isVisibleInstallationsResponse(data)) {
-    throw new Error("Visible installations response was malformed.");
-  }
-
-  return data;
-}
-
-async function setActiveInstallation(
-  input: SetActiveInstallationInput,
-): Promise<BrowserNanitesContext> {
-  const data = await readJsonResponse(
-    httpClient.api.auth.installations.active.$post({ json: input }),
-  );
-  if (!isBrowserNanitesContext(data)) {
-    throw new Error("Active installation response was malformed.");
-  }
-
-  return data;
-}
 
 async function logoutSession(): Promise<void> {
   await parseResponse(httpClient.api.auth.session.logout.$post());
@@ -252,7 +223,6 @@ type BrowserTriggerTestEvent = TestNaniteTriggerInput["event"];
 
 export const Route = createFileRoute("/_authenticated/nanites")({
   validateSearch: z.object({
-    account: z.string().optional(),
     installationId: z.coerce.number().int().positive().optional(),
     mode: z.enum(["create"]).optional(),
     naniteId: z.string().optional(),
@@ -477,40 +447,16 @@ function withAvatarSize(avatar_url: string | null, size: number): string | undef
 
 function InstallationPicker({
   activeInstallation,
+  githubApp,
+  installations,
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
+  readonly githubApp: BrowserDeploymentGitHubApp | null;
+  readonly installations: readonly SessionInstallationSnapshot[];
 }) {
   const navigate = Route.useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const {
-    data: installationsData,
-    isFetching: isFetchingInstallations,
-    refetch: refetchInstallations,
-  } = useQuery({
-    queryKey: visibleInstallationsQueryKey,
-    queryFn: fetchVisibleInstallations,
-    enabled: false,
-    throwOnError: true,
-  });
-  const changeInstallation = useMutation({
-    mutationFn: setActiveInstallation,
-    onSuccess: async (_data, variables) => {
-      await invalidateAuthQueries(queryClient);
-      const installation = installationsData?.installations.find(
-        (candidate) => candidate.id === variables.githubInstallationId,
-      );
-      await navigate({
-        search: (previous) => ({
-          ...previous,
-          account: installation?.account?.login,
-          installationId: installation?.id,
-          naniteId: undefined,
-        }),
-        replace: true,
-      });
-    },
-  });
   const logout = useMutation({
     mutationFn: logoutSession,
     onSuccess: async () => {
@@ -525,29 +471,23 @@ function InstallationPicker({
     },
   });
 
-  const installations = installationsData?.installations ?? [];
   const otherInstallations = installations.filter(
     (installation) => installation.id !== activeInstallation.id,
   );
   const returnToPath = buildReturnToPath(location);
-  const installHref = buildGitHubAppInstallHref({ state: returnToPath });
+  const installHref = buildGitHubAppInstallHref({ appSlug: githubApp?.slug, state: returnToPath });
   const manageAccessHref = buildGitHubAppInstallHref({
+    appSlug: githubApp?.slug,
     state: returnToPath,
     suggestedTargetId: activeInstallation.account.id,
   });
+  const githubAppHref = githubApp?.htmlUrl ?? SIGVELO_GITHUB_APP_URL;
   const triggerAvatarSrc = withAvatarSize(activeInstallation.account.avatar_url, 40);
   const headerAvatarSrc = withAvatarSize(activeInstallation.account.avatar_url, 64);
 
   return (
     <Popover.Root>
-      <Popover.Trigger
-        className="account-menu__trigger account-menu__trigger--nanites"
-        onClick={() => {
-          if (!isFetchingInstallations) {
-            void refetchInstallations();
-          }
-        }}
-      >
+      <Popover.Trigger className="account-menu__trigger account-menu__trigger--nanites">
         <Avatar.Root className="account-menu__trigger-avatar">
           {triggerAvatarSrc ? <Avatar.Image src={triggerAvatarSrc} alt="" /> : null}
           <Avatar.Fallback>
@@ -575,12 +515,6 @@ function InstallationPicker({
               </div>
             </div>
 
-            {isFetchingInstallations && installations.length === 0 ? (
-              <div className="account-menu__empty">
-                <span className="account-menu__empty-title">Loading accounts</span>
-              </div>
-            ) : null}
-
             {otherInstallations.length > 0 ? (
               <>
                 <div className="account-menu__divider" />
@@ -595,12 +529,19 @@ function InstallationPicker({
                         <button
                           type="button"
                           className="account-menu__account-row"
-                          disabled={changeInstallation.isPending}
-                          onClick={() =>
-                            changeInstallation.mutate({
-                              githubInstallationId: installation.id,
-                            })
-                          }
+                          onClick={() => {
+                            void navigate({
+                              to: "/nanites",
+                              search: (previous) => ({
+                                ...previous,
+                                installationId: installation.id,
+                                mode: undefined,
+                                naniteId: undefined,
+                                runId: undefined,
+                                surface: undefined,
+                              }),
+                            });
+                          }}
                         >
                           <Avatar.Root className="account-menu__row-avatar">
                             {rowAvatarSrc ? <Avatar.Image src={rowAvatarSrc} alt="" /> : null}
@@ -645,7 +586,7 @@ function InstallationPicker({
             </a>
             <a
               className="account-menu__action"
-              href={SIGVELO_GITHUB_APP_URL}
+              href={githubAppHref}
               target="_blank"
               rel="noreferrer"
             >
@@ -1050,42 +991,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isSessionInstallationSnapshot(value: unknown): value is SessionInstallationSnapshot {
-  if (!isRecord(value) || !isRecord(value.account)) {
-    return false;
-  }
-
-  return (
-    typeof value.id === "number" &&
-    typeof value.account.id === "number" &&
-    typeof value.account.login === "string" &&
-    typeof value.account.type === "string" &&
-    (typeof value.account.avatar_url === "string" || value.account.avatar_url === null)
-  );
-}
-
-function isVisibleInstallationsResponse(value: unknown): value is VisibleInstallationsResponse {
-  return (
-    isRecord(value) &&
-    Array.isArray(value.installations) &&
-    value.installations.every(isSessionInstallationSnapshot)
-  );
-}
-
-function isBrowserNanitesContext(value: unknown): value is BrowserNanitesContext {
-  if (!isRecord(value) || !isRecord(value.actor)) {
-    return false;
-  }
-
-  return (
-    typeof value.actor.id === "number" &&
-    typeof value.actor.login === "string" &&
-    (value.activeInstallation === null ||
-      isSessionInstallationSnapshot(value.activeInstallation)) &&
-    typeof value.expiresAt === "string"
-  );
-}
-
 function isNaniteManagerState(value: unknown): value is NaniteManagerState {
   if (!isRecord(value)) {
     return false;
@@ -1120,6 +1025,7 @@ function pickManagerState({
 function NaniteRunInfoPanel({
   activeInstallation,
   deleteError,
+  githubAppSlug,
   isDeleting,
   isTestingTrigger,
   nanite,
@@ -1130,6 +1036,7 @@ function NaniteRunInfoPanel({
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
   readonly deleteError: unknown;
+  readonly githubAppSlug: string | null;
   readonly isDeleting: boolean;
   readonly isTestingTrigger: boolean;
   readonly nanite: ManagedNanite | null;
@@ -1162,6 +1069,7 @@ function NaniteRunInfoPanel({
   const eventSource = nanite ? readNaniteEventSource(nanite) : null;
   const triggerSpec = nanite ? formatEventSourceSpec(eventSource) : "manual";
   const manageAccessHref = buildGitHubAppInstallHref({
+    appSlug: githubAppSlug,
     suggestedTargetId: activeInstallation.account.id,
   });
   const triggerLabel = run ? formatTriggerEvent(run.trigger) : nanite ? triggerSpec : "No trigger";
@@ -2113,71 +2021,57 @@ function NaniteWorkspaceReview({
 function NanitesRoute() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { data: session, isPending: isSessionPending } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
-    throwOnError: true,
-  });
-  const activeInstallation = session?.activeInstallation ?? null;
+  const { session, visibleInstallations, installationSelection, isPending } =
+    useBrowserInstallationSelection(search.installationId);
   const actor = session?.actor ?? null;
-  const shouldLoadInstallations = !isSessionPending && !activeInstallation;
-  const { data: installationsData, isPending: isInstallationsPending } = useQuery({
-    queryKey: visibleInstallationsQueryKey,
-    queryFn: fetchVisibleInstallations,
-    enabled: shouldLoadInstallations,
-    throwOnError: true,
-  });
+  const githubApp = session?.githubApp ?? null;
+  const selectedInstallation = actor ? installationSelection.installation : null;
 
-  if (isSessionPending || (shouldLoadInstallations && isInstallationsPending)) {
+  if (isPending) {
     return <RoutePendingPage />;
   }
 
-  if (!activeInstallation || !actor) {
-    const installations = installationsData?.installations ?? [];
-    if (installations.length > 0) {
-      return <NanitesChooseInstallationState installations={installations} />;
+  if (installationSelection.canonicalInstallationId !== null) {
+    return (
+      <Navigate
+        to="/nanites"
+        search={{ ...search, installationId: installationSelection.canonicalInstallationId }}
+        replace
+      />
+    );
+  }
+
+  if (!selectedInstallation || !actor) {
+    if (visibleInstallations.length > 0) {
+      return (
+        <NanitesChooseInstallationState
+          installations={visibleInstallations}
+          onSelectInstallation={(installationId) => {
+            void navigate({
+              to: "/nanites",
+              search: {
+                installationId,
+              },
+            });
+          }}
+        />
+      );
     }
 
-    return <NanitesZeroInstallState />;
+    return <NanitesZeroInstallState githubApp={githubApp} />;
   }
 
   const managerName = buildNaniteManagerKey({
-    githubAppId: activeInstallation.githubAppId,
-    githubInstallationId: activeInstallation.id,
+    githubAppId: selectedInstallation.githubAppId,
+    githubInstallationId: selectedInstallation.id,
   });
-  const requestedAccount = search.account ?? activeInstallation.account.login;
-  const requestedInstallationId = search.installationId ?? activeInstallation.id;
-  const installationMatches =
-    requestedAccount === activeInstallation.account.login &&
-    requestedInstallationId === activeInstallation.id;
-
-  if (!installationMatches) {
-    return (
-      <main className="nanites-workspace nanites-workspace--empty">
-        <section className="nanites-workspace__empty-state">
-          <div className="nanites-workspace__empty-panel">
-            <NaniteScene
-              className="nanites-workspace__empty-icon"
-              mode="solo"
-              title="Concerned Nanite"
-              variant="concerned"
-            />
-            <h1>Installation mismatch</h1>
-            <p>
-              The URL points at a different GitHub account or installation than the one currently
-              selected in this browser session. Switch accounts or update the URL before opening
-              Nanite runs.
-            </p>
-          </div>
-        </section>
-      </main>
-    );
-  }
 
   return (
     <NanitesRuntimeSurface
       actor={actor}
-      activeInstallation={activeInstallation}
+      activeInstallation={selectedInstallation}
+      githubApp={githubApp}
+      installations={visibleInstallations}
       managerName={managerName}
       selectedMode={search.mode === "create" || search.surface === "manager" ? "create" : null}
       selectedNaniteId={search.naniteId ?? null}
@@ -2186,8 +2080,7 @@ function NanitesRoute() {
         void navigate({
           search: (previous) => ({
             ...previous,
-            account: activeInstallation.account.login,
-            installationId: activeInstallation.id,
+            installationId: selectedInstallation.id,
             mode: "mode" in selection ? selection.mode : undefined,
             naniteId: "naniteId" in selection ? selection.naniteId : undefined,
             runId: undefined,
@@ -2200,131 +2093,11 @@ function NanitesRoute() {
   );
 }
 
-function NanitesZeroInstallState() {
-  const location = useLocation();
-  const installHref = buildGitHubAppInstallHref({ state: buildReturnToPath(location) });
-
-  return (
-    <div className="dashboard">
-      <Card>
-        <div className="dashboard__zero-install">
-          <NaniteScene
-            className="dashboard__setup-nanite"
-            mode="solo"
-            title="Nanite preparing GitHub setup"
-            variant="working"
-          />
-          <h1 className="dashboard__heading">Install the Nanites GitHub App</h1>
-          <p className="dashboard__subtext">
-            You are signed in, but GitHub is not reporting a Nanites installation for any account
-            you can access. Install the app on the user or organization that owns the repositories
-            Nanites should work on.
-          </p>
-          <div className="dashboard__zero-install-actions">
-            <a
-              className="button button--primary button--md"
-              href={installHref}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <GithubMotionMark size={16} />
-              <span>Install GitHub App</span>
-              <ArrowSquareOutIcon size={14} aria-hidden="true" />
-            </a>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function NanitesChooseInstallationState({
-  installations,
-}: {
-  readonly installations: VisibleInstallationsResponse["installations"];
-}) {
-  const navigate = Route.useNavigate();
-  const queryClient = useQueryClient();
-  const changeInstallation = useMutation({
-    mutationFn: setActiveInstallation,
-    onSuccess: async (_data, variables) => {
-      await invalidateAuthQueries(queryClient);
-      const installation = installations.find(
-        (candidate) => candidate.id === variables.githubInstallationId,
-      );
-      await navigate({
-        to: "/nanites",
-        search: installation
-          ? {
-              account: installation.account?.login ?? "unknown",
-              installationId: installation.id,
-            }
-          : {},
-      });
-    },
-  });
-
-  return (
-    <div className="dashboard">
-      <Card>
-        <div className="dashboard__zero-install">
-          <NaniteScene
-            className="dashboard__setup-nanite"
-            mode="solo"
-            title="Nanite choosing an installation"
-            variant="working"
-          />
-          <h1 className="dashboard__heading">Choose where Nanites can work</h1>
-          <p className="dashboard__subtext">
-            GitHub says Nanites is installed on these accounts, but this browser session does not
-            have an active installation selected. Pick the account that owns the repository you want
-            to connect.
-          </p>
-          <ul className="dashboard__installation-list" aria-label="Available GitHub installations">
-            {installations.map((installation) => {
-              const account = installation.account;
-              const accountLogin = account?.login ?? "Unknown account";
-              return (
-                <li key={installation.id}>
-                  <button
-                    type="button"
-                    className="dashboard__installation-option"
-                    disabled={changeInstallation.isPending}
-                    onClick={() =>
-                      changeInstallation.mutate({
-                        githubInstallationId: installation.id,
-                      })
-                    }
-                  >
-                    <Avatar.Root className="dashboard__installation-avatar">
-                      {account?.avatar_url ? (
-                        <Avatar.Image src={account.avatar_url} alt="" />
-                      ) : null}
-                      <Avatar.Fallback>{accountLogin.slice(0, 2).toUpperCase()}</Avatar.Fallback>
-                    </Avatar.Root>
-                    <span className="dashboard__installation-copy">
-                      <span className="dashboard__installation-login">{accountLogin}</span>
-                      <span className="dashboard__installation-type">
-                        {account?.type ?? "Account"}
-                      </span>
-                    </span>
-                    <span className="dashboard__installation-cta">
-                      {changeInstallation.isPending ? "Selecting..." : "Use account"}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
 function NanitesRuntimeSurface({
   activeInstallation,
   actor,
+  githubApp,
+  installations,
   managerName,
   selectedMode,
   selectedNaniteId,
@@ -2333,6 +2106,8 @@ function NanitesRuntimeSurface({
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
   readonly actor: BrowserNanitesContext["actor"];
+  readonly githubApp: BrowserDeploymentGitHubApp | null;
+  readonly installations: readonly SessionInstallationSnapshot[];
   readonly managerName: string;
   readonly selectedMode: "create" | null;
   readonly selectedNaniteId: string | null;
@@ -2482,7 +2257,6 @@ function NanitesRuntimeSurface({
       await navigate({
         search: (previous) => ({
           ...previous,
-          account: activeInstallation.account.login,
           installationId: activeInstallation.id,
           mode: nextItem ? undefined : "create",
           naniteId: nextItem?.id,
@@ -2520,7 +2294,6 @@ function NanitesRuntimeSurface({
       await navigate({
         search: (previous) => ({
           ...previous,
-          account: activeInstallation.account.login,
           installationId: activeInstallation.id,
           mode: undefined,
           naniteId: output.naniteId,
@@ -2587,7 +2360,6 @@ function NanitesRuntimeSurface({
   }, [isCreateMode, naniteItems, setSelection]);
 
   useEffect(() => {
-    const hasAccount = activeInstallation.account.login;
     const hasInstallation = activeInstallation.id;
 
     if (isCreateMode) {
@@ -2595,7 +2367,6 @@ function NanitesRuntimeSurface({
         void navigate({
           search: (previous) => ({
             ...previous,
-            account: hasAccount,
             installationId: hasInstallation,
             mode: "create",
             naniteId: undefined,
@@ -2616,7 +2387,6 @@ function NanitesRuntimeSurface({
     void navigate({
       search: (previous) => ({
         ...previous,
-        account: hasAccount,
         installationId: hasInstallation,
         mode: undefined,
         naniteId: nextNaniteId,
@@ -2626,7 +2396,6 @@ function NanitesRuntimeSurface({
       replace: true,
     });
   }, [
-    activeInstallation.account.login,
     activeInstallation.id,
     fallbackNaniteItem?.id,
     isCreateMode,
@@ -2753,7 +2522,11 @@ function NanitesRuntimeSurface({
       <aside className="nanites-workspace__sidebar app__pane" aria-label="Nanites">
         <div className="nanites-workspace__masthead">
           <div className="app__brand">
-            <InstallationPicker activeInstallation={activeInstallation} />
+            <InstallationPicker
+              activeInstallation={activeInstallation}
+              githubApp={githubApp}
+              installations={installations}
+            />
           </div>
           <div className="nanites-workspace__masthead-actions">
             <Tooltip>
@@ -2878,6 +2651,7 @@ function NanitesRuntimeSurface({
         </div>
 
         <div className="nanites-workspace__create-action">
+          <AgentConnectionPopover />
           <Button
             type="button"
             className="nanites-workspace__create-button"
@@ -2914,8 +2688,6 @@ function NanitesRuntimeSurface({
                   emptyDescription={`Describe how you want Nanites configured for ${activeInstallation.account.login}, including repos, triggers, responsibilities, and stop conditions.`}
                   emptyTitle="Configure Nanites"
                   errorDescription="The Nanite configuration conversation could not connect."
-                  githubAppId={activeInstallation.githubAppId}
-                  githubInstallationId={activeInstallation.id}
                   loadingDescription={`Connecting the configuration agent for ${activeInstallation.account.login}. You’ll be able to describe how you want Nanites configured here in a moment.`}
                   loadingPlaceholder="Connecting to Nanite configuration..."
                   loadingTitle={`Preparing configuration for ${activeInstallation.account.login}`}
@@ -2967,6 +2739,7 @@ function NanitesRuntimeSurface({
             <NaniteRunInfoPanel
               activeInstallation={activeInstallation}
               deleteError={deleteNanite.error}
+              githubAppSlug={githubApp?.slug ?? null}
               isDeleting={deleteNanite.isPending}
               isTestingTrigger={testTrigger.isPending}
               nanite={selectedNanite}

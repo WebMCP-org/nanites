@@ -3,9 +3,9 @@ import { getAgentByName } from "agents";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import {
-  readNewestActiveGitHubAppMetadata,
+  readDeploymentGitHubAppMetadata,
+  resolveDeploymentGitHubApp,
   resolveGitHubApp,
-  resolvePrimaryGitHubApp,
 } from "#/backend/github/apps.ts";
 import {
   TEST_GITHUB_APP_ID,
@@ -161,6 +161,11 @@ async function getSetupAgent(): Promise<SetupAgentTestRpc> {
 
 async function buildAuthenticatedSetupCookieHeader(request: Request): Promise<string> {
   const expiresAt = buildBrowserSessionExpiration();
+  const deploymentApp = await readDeploymentGitHubAppMetadata(createDbClient(env.DB));
+  if (!deploymentApp) {
+    throw new Error("Expected deployment GitHub App metadata before minting setup auth cookies.");
+  }
+
   const session = nanitesSessionSchema.parse({
     githubViewer: { id: 1, login: "alice" },
     activeGithubAppId: null,
@@ -173,6 +178,8 @@ async function buildAuthenticatedSetupCookieHeader(request: Request): Promise<st
     expiresAt: null,
     refreshToken: null,
     refreshTokenExpiresAt: null,
+    githubAppId: deploymentApp.appId,
+    githubAppClientId: deploymentApp.clientId,
   });
   const cookies = [
     await sealSessionCookie(session, request, env),
@@ -601,7 +608,7 @@ test("repository install survives setup Agent state reset through deployment met
   });
 });
 
-test("regenerating the GitHub App returns the repositories step to ready", async () => {
+test("registering a different GitHub App is rejected", async () => {
   await saveGeneratedGitHubAppMetadata({
     appId: 12345,
     slug: "nanites-test",
@@ -617,42 +624,26 @@ test("regenerating the GitHub App returns the repositories step to ready", async
     installState: await readRepositoryInstallState(setupAgent),
   });
 
-  // Registering a second app makes it the wizard app without touching the
-  // first app's row; the previous selection belongs to the old app, so the
-  // repositories step must be redone for the new one.
-  await saveGeneratedGitHubAppMetadata({
-    appId: 67890,
-    slug: "nanites-next",
-    htmlUrl: "https://github.com/apps/nanites-next",
+  await expect(
+    saveGeneratedGitHubAppMetadata({
+      appId: 67890,
+      slug: "nanites-next",
+      htmlUrl: "https://github.com/apps/nanites-next",
+    }),
+  ).rejects.toMatchObject({
+    kind: "deploymentGitHubAppConflict",
   });
-  const nextAppSecretKeys = [
-    "GITHUB_APP_67890_PRIVATE_KEY",
-    "GITHUB_APP_67890_CLIENT_SECRET",
-    "GITHUB_APP_67890_WEBHOOK_SECRET",
-  ] as const;
-  for (const key of nextAppSecretKeys) {
-    Reflect.set(env, key, "generated-secret");
-  }
-
-  try {
-    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
-      setupComplete: false,
-      currentStep: "repositories",
-      githubApp: {
-        status: "complete",
-        slug: "nanites-next",
-        installUrl: expect.stringContaining("state="),
-      },
-      repositories: {
-        status: "ready",
-        githubInstallationId: null,
-      },
-    });
-  } finally {
-    for (const key of nextAppSecretKeys) {
-      Reflect.deleteProperty(env, key);
-    }
-  }
+  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
+    setupComplete: true,
+    githubApp: {
+      status: "complete",
+      slug: "nanites-test",
+    },
+    repositories: {
+      status: "complete",
+      githubInstallationId: 42,
+    },
+  });
 });
 
 test("deployment GitHub App config waits for generated Worker secrets after metadata exists", async () => {
@@ -660,7 +651,7 @@ test("deployment GitHub App config waits for generated Worker secrets after meta
 
   const db = createDbClient(env.DB);
 
-  await expect(readNewestActiveGitHubAppMetadata(db)).resolves.toMatchObject({
+  await expect(readDeploymentGitHubAppMetadata(db)).resolves.toMatchObject({
     slug: "nanites-test",
     clientId: "generated-client-id",
   });
@@ -810,7 +801,7 @@ test("setup Agent checks generated GitHub App secret propagation through the cur
   }
 });
 
-test("deployment GitHub App config becomes retryable when generated secrets do not propagate", async () => {
+test("deployment GitHub App config does not mint a replacement when generated secrets do not propagate", async () => {
   await saveGeneratedGitHubAppMetadata();
   await env.DB.exec(`UPDATE github_apps SET updated_at = 1 WHERE app_id = ${TEST_GITHUB_APP_ID};`);
   const setupAgent = await getSetupAgent();
@@ -832,8 +823,8 @@ test("deployment GitHub App config becomes retryable when generated secrets do n
         claimToken: setupClaim.token,
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      action: "https://github.com/settings/apps/new",
+      ok: false,
+      errorKind: "invalidSetupState",
     });
   } finally {
     applyGeneratedSecretEnv(originalEnv);
@@ -844,7 +835,7 @@ test("deployment GitHub App config waits for generated auth-cookie secret", asyn
   await saveGeneratedGitHubAppMetadata();
 
   await expect(
-    resolvePrimaryGitHubApp(createDbClient(env.DB), envWithoutAuthCookieSecret()),
+    resolveDeploymentGitHubApp(createDbClient(env.DB), envWithoutAuthCookieSecret()),
   ).resolves.toBe(null);
 });
 
@@ -1365,7 +1356,7 @@ test("GitHub manifest callback redirects to the install URL once the deployment 
     );
     expect(location.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]+$/);
 
-    await expect(readNewestActiveGitHubAppMetadata(createDbClient(env.DB))).resolves.toMatchObject({
+    await expect(readDeploymentGitHubAppMetadata(createDbClient(env.DB))).resolves.toMatchObject({
       slug: "nanites-test",
       clientId: "generated-client-id",
     });
@@ -1793,6 +1784,7 @@ test("GitHub setup verification proves the app can mint an installation token", 
 });
 
 test("GitHub setup verification requires the setup claim", async () => {
+  await saveGeneratedGitHubAppMetadata();
   const request = new Request(`${SETUP_ORIGIN}/setup/github/verify?installation_id=42`);
   const cookieHeader = await buildAuthenticatedSetupCookieHeader(request);
   const response = await nanitesHttpApp.request(

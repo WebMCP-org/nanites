@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `github_apps_active_unique` ON `github_apps` (`status`) WHERE "github_apps"."status" = 'active';
