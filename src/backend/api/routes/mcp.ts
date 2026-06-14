@@ -240,15 +240,13 @@ function redirectOAuthError(
 }
 
 export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
-  .use(MCP_AUTHORIZE_ROUTE, secureHeaders({ xFrameOptions: "DENY" }))
-  .use(MCP_AUTHORIZE_CONTEXT_ROUTE, secureHeaders({ xFrameOptions: "DENY" }))
-  .use(MCP_AUTHORIZE_ROUTE, async (context, next) => {
+  .use(MCP_AUTHORIZE_ROUTE, secureHeaders({ xFrameOptions: "DENY" }), (context, next) => {
     context.header("cache-control", "no-store");
-    await next();
+    return next();
   })
-  .use(MCP_AUTHORIZE_CONTEXT_ROUTE, async (context, next) => {
+  .use(MCP_AUTHORIZE_CONTEXT_ROUTE, secureHeaders({ xFrameOptions: "DENY" }), (context, next) => {
     context.header("cache-control", "no-store");
-    await next();
+    return next();
   })
   .get(MCP_AUTHORIZE_ROUTE, (context) => {
     const sourceUrl = new URL(context.req.raw.url);

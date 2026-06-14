@@ -121,10 +121,6 @@ function createOAuthProviderErrorLogProperties(error: OAuthProviderError) {
   };
 }
 
-function logOAuthProviderErrorResponse(error: OAuthProviderError): void {
-  oauthLogger.warn(LOG_EVENTS.OAUTH_ERROR_RESPONSE, createOAuthProviderErrorLogProperties(error));
-}
-
 function getOAuthProviderRequestRoute(url: URL): string | undefined {
   if (url.pathname === MCP_ROUTE || url.pathname.startsWith(`${MCP_ROUTE}/`)) {
     return MCP_ROUTE;
@@ -205,14 +201,10 @@ function logOAuthProviderRequest({
   );
 }
 
-const appHandler = {
-  fetch: nanitesHttpApp.fetch,
-} satisfies ExportedHandler<Env>;
-
 const oauthProvider = new OAuthProvider<Env>({
   apiRoute: MCP_ROUTE,
   apiHandler: nanitesMcpApiHandler,
-  defaultHandler: appHandler,
+  defaultHandler: { fetch: nanitesHttpApp.fetch },
   authorizeEndpoint: MCP_AUTHORIZE_ROUTE,
   tokenEndpoint: MCP_TOKEN_ROUTE,
   clientRegistrationEndpoint: MCP_CLIENT_REGISTRATION_ROUTE,
@@ -222,7 +214,8 @@ const oauthProvider = new OAuthProvider<Env>({
   clientRegistrationTTL: 90 * 24 * 60 * 60,
   allowPlainPKCE: false,
   clientIdMetadataDocumentEnabled: true,
-  onError: logOAuthProviderErrorResponse,
+  onError: (error) =>
+    oauthLogger.warn(LOG_EVENTS.OAUTH_ERROR_RESPONSE, createOAuthProviderErrorLogProperties(error)),
   tokenExchangeCallback: ({ props, requestedScope }) => {
     const accessTokenProps = downscopeMcpAuthPropsForToken({
       props: requireSigveloMcpGrantProps(props),

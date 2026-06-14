@@ -390,10 +390,6 @@ async function sha256Base64Url(value: string): Promise<string> {
   return bytesToBase64Url(new Uint8Array(digest));
 }
 
-function isExpired(expiresAt: string): boolean {
-  return Date.parse(expiresAt) <= Date.now();
-}
-
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -498,33 +494,6 @@ function buildGitHubAppManifest(origin: string, manifestState: string) {
 
 export type GitHubAppManifest = ReturnType<typeof buildGitHubAppManifest>;
 
-function buildGitHubManifestFormAction(input: {
-  readonly ownerType: "user" | "organization";
-  readonly ownerLogin?: string | null;
-}): string | null {
-  if (input.ownerType === "user") {
-    return "https://github.com/settings/apps/new";
-  }
-
-  const ownerLogin = input.ownerLogin?.trim();
-  return ownerLogin
-    ? `https://github.com/organizations/${encodeURIComponent(ownerLogin)}/settings/apps/new`
-    : null;
-}
-
-function githubPermissionRank(permission: string | undefined): number {
-  switch (permission) {
-    case "read":
-      return 1;
-    case "write":
-      return 2;
-    case "admin":
-      return 3;
-    default:
-      return 0;
-  }
-}
-
 function requireManifestString(
   githubApp: GitHubAppManifestConversion,
   field: "client_id" | "client_secret" | "pem" | "slug" | "webhook_secret",
@@ -556,9 +525,10 @@ function readManifestEvents(githubApp: GitHubAppManifestConversion): readonly st
 }
 
 function requireManifestMeetsMinimums(githubApp: GitHubAppManifestConversion): void {
+  const PERMISSION_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };
   const permissions = readManifestPermissions(githubApp);
   for (const [permission, requiredAccess] of Object.entries(DEFAULT_GITHUB_APP_PERMISSIONS)) {
-    if (githubPermissionRank(permissions[permission]) < githubPermissionRank(requiredAccess)) {
+    if ((PERMISSION_RANK[permissions[permission]] ?? 0) < (PERMISSION_RANK[requiredAccess] ?? 0)) {
       throw new AppError("githubAppManifestConversionFailed", {
         details: { githubResponseStatus: null, reason: "missing_required_permission", permission },
       });
@@ -575,18 +545,16 @@ function requireManifestMeetsMinimums(githubApp: GitHubAppManifestConversion): v
   }
 }
 
-function buildInstallationRepairMessage(reason: GitHubInstallationRepairReason): string {
-  switch (reason) {
-    case "installation_deleted":
-      return "GitHub App installation was deleted. Reinstall the app before launching Nanites.";
-    case "installation_suspended":
-      return "GitHub App installation was suspended. Unsuspend or reinstall the app before launching Nanites.";
-    case "installation_repositories_removed":
-      return "GitHub App repository access changed. Verify repository access again before launching Nanites.";
-    case "installation_permissions_changed":
-      return "GitHub App permissions changed. Verify repository access again before launching Nanites.";
-  }
-}
+const INSTALLATION_REPAIR_MESSAGES: Record<GitHubInstallationRepairReason, string> = {
+  installation_deleted:
+    "GitHub App installation was deleted. Reinstall the app before launching Nanites.",
+  installation_suspended:
+    "GitHub App installation was suspended. Unsuspend or reinstall the app before launching Nanites.",
+  installation_repositories_removed:
+    "GitHub App repository access changed. Verify repository access again before launching Nanites.",
+  installation_permissions_changed:
+    "GitHub App permissions changed. Verify repository access again before launching Nanites.",
+};
 
 // ---------------------------------------------------------------------------
 // Cloudflare API response schemas
@@ -660,14 +628,6 @@ function isWorkersPaidSubscription(subscription: CloudflareSubscription): boolea
   );
 }
 
-function describeWorkersSubscription(subscription: CloudflareSubscription): string {
-  return (
-    subscription.rate_plan?.public_name?.trim() ||
-    subscription.rate_plan?.id?.trim() ||
-    "Workers Paid"
-  );
-}
-
 // ---------------------------------------------------------------------------
 // MCP tool result parsing
 // ---------------------------------------------------------------------------
@@ -729,10 +689,6 @@ function deriveCurrentStep(state: NanitesSetupState): SetupStep {
 
 function finalizeSetupState(state: NanitesSetupState): NanitesSetupState {
   return { ...state, currentStep: deriveCurrentStep(state) };
-}
-
-function firstBlockedReadinessDetail(readiness: CloudflareReadiness): string | null {
-  return readiness.items.find((item) => item.required && item.status === "blocked")?.detail ?? null;
 }
 
 class CloudflareSetupOAuthProvider extends DurableObjectOAuthClientProvider {
@@ -1020,7 +976,9 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         accountName: account.name ?? null,
         scriptName: worker.scriptName,
         readiness,
-        error: firstBlockedReadinessDetail(readiness),
+        error:
+          readiness.items.find((item) => item.required && item.status === "blocked")?.detail ??
+          null,
       });
       return;
     }
@@ -1188,7 +1146,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         return {
           ...item,
           status: "ready",
-          detail: `${describeWorkersSubscription(workersPaid)} is active on this account. Cloudflare bills Workers and Dynamic Workers directly to this account.`,
+          detail: `${workersPaid.rate_plan?.public_name?.trim() || workersPaid.rate_plan?.id?.trim() || "Workers Paid"} is active on this account. Cloudflare bills Workers and Dynamic Workers directly to this account.`,
           action: null,
         };
       }
@@ -1341,7 +1299,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if ((await readDeploymentGitHubAppMetadata(createDbClient(this.env.DB))) !== null) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
-    const action = buildGitHubManifestFormAction(input);
+    const action =
+      input.ownerType === "user"
+        ? "https://github.com/settings/apps/new"
+        : input.ownerLogin?.trim()
+          ? `https://github.com/organizations/${encodeURIComponent(input.ownerLogin.trim())}/settings/apps/new`
+          : null;
     if (!action) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
@@ -1380,7 +1343,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (
       !manifestNonce.success ||
       manifestNonce.data.state !== input.state ||
-      isExpired(manifestNonce.data.expiresAt)
+      Date.parse(manifestNonce.data.expiresAt) <= Date.now()
     ) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
@@ -1390,7 +1353,8 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (this.state.cloudflare.status !== "verified" || !accountId || !scriptName) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
-    if ((await readDeploymentGitHubAppMetadata(createDbClient(this.env.DB))) !== null) {
+    const db = createDbClient(this.env.DB);
+    if ((await readDeploymentGitHubAppMetadata(db)) !== null) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
 
@@ -1417,7 +1381,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       // late insert-time rejection in registerGitHubApp never orphans this
       // app's GITHUB_APP_<id>_* bindings on the Worker. registerGitHubApp
       // re-checks at commit time as the authoritative guard.
-      await assertDeploymentGitHubAppRegistrable(createDbClient(this.env.DB), githubApp.id);
+      await assertDeploymentGitHubAppRegistrable(db, githubApp.id);
       await this.writeWorkerSecrets({
         accountId,
         scriptName,
@@ -1434,7 +1398,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       });
 
       const owner = githubApp.owner;
-      await registerGitHubApp(createDbClient(this.env.DB), {
+      await registerGitHubApp(db, {
         appId: githubApp.id,
         slug: appSlug,
         htmlUrl: githubApp.html_url,
@@ -1580,7 +1544,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       ...this.state,
       repositories: {
         ...this.state.repositories,
-        error: buildInstallationRepairMessage(input.reason),
+        error: INSTALLATION_REPAIR_MESSAGES[input.reason],
       },
     });
     return await this.refresh();
@@ -1628,7 +1592,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (!stored.success) {
       return false;
     }
-    if (isExpired(stored.data.expiresAt)) {
+    if (Date.parse(stored.data.expiresAt) <= Date.now()) {
       await this.ctx.storage.delete(SETUP_CLAIM_STORAGE_KEY);
       return false;
     }

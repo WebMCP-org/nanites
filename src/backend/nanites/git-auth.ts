@@ -50,10 +50,6 @@ function isExplicitOptions(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
 }
 
-function hasExplicitAuth(options: Record<string, unknown>): boolean {
-  return "token" in options || "username" in options || "password" in options;
-}
-
 function isLazyGitAuthCommand(command: string): command is LazyGitAuthCommand {
   return lazyGitAuthCommandNames.has(command as LazyGitAuthCommand);
 }
@@ -66,7 +62,7 @@ async function resolveOptionsWithLazyAuth(input: {
     options: Record<string, unknown>;
   }) => Promise<LazyGitAuthCredentials | null>;
 }): Promise<Record<string, unknown>> {
-  if (hasExplicitAuth(input.options)) {
+  if ("token" in input.options || "username" in input.options || "password" in input.options) {
     return input.options;
   }
 
@@ -239,17 +235,6 @@ function shouldInjectGitHubInstallationToken(input: {
   });
 }
 
-function createGitHubInstallationGitCredentials(token: string): {
-  username: string;
-  password: string;
-} {
-  // GitHub App installation tokens authenticate git over HTTPS as x-access-token:<token>.
-  return {
-    username: GITHUB_INSTALLATION_GIT_USERNAME,
-    password: token,
-  };
-}
-
 function isGitHubAuthRejection(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /\b(?:401|403)\b/.test(message) && /unauthori[sz]ed|forbidden/i.test(message);
@@ -288,7 +273,8 @@ export function gitToolsWithGitHubInstallationAuth(
       }
 
       const token = await options.issueToken({ repository });
-      return token ? createGitHubInstallationGitCredentials(token) : null;
+      // GitHub App installation tokens authenticate git over HTTPS as x-access-token:<token>.
+      return token ? { username: GITHUB_INSTALLATION_GIT_USERNAME, password: token } : null;
     },
   });
 }

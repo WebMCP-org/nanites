@@ -382,12 +382,6 @@ function getAgentRouteTarget(request: Request): AgentRouteTarget | null {
   return { className, instanceName };
 }
 
-function matchesNaniteAgentClass(className: string, expectedClassName: string): boolean {
-  return (
-    className === expectedClassName || className.toLowerCase() === expectedClassName.toLowerCase()
-  );
-}
-
 function readManagerConversationTarget(
   instanceName: string,
   session: Awaited<ReturnType<typeof requireSession>>,
@@ -432,11 +426,9 @@ function readNaniteAgentInstallationTarget(
     return null;
   }
 
-  const isNaniteManager = matchesNaniteAgentClass(routeTarget.className, NANITE_MANAGER_NAME);
-  const isManagerConversation = matchesNaniteAgentClass(
-    routeTarget.className,
-    MANAGER_CONVERSATION_AGENT_NAME,
-  );
+  const isNaniteManager = routeTarget.className.toLowerCase() === NANITE_MANAGER_NAME.toLowerCase();
+  const isManagerConversation =
+    routeTarget.className.toLowerCase() === MANAGER_CONVERSATION_AGENT_NAME.toLowerCase();
   if (!isNaniteManager && !isManagerConversation) {
     return null;
   }

@@ -189,17 +189,13 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   @callable()
   async connectBrowserInstallation(): Promise<{ connected: true }> {
     const connection = createSigveloToolAuthPropsFromBrowser(this.name);
-    await this.ensureSigveloToolsConnected(connection.props, connection.accountLogin);
+    await this.ensureGitHubMcpConnected(connection.props, connection.accountLogin);
     return { connected: true };
   }
 
   async connectSigveloTools(input: HandleManagerChatMessageInput): Promise<void> {
     const props = createSigveloToolAuthProps(input);
-    await this.ensureSigveloToolsConnected(props, getRepositoryOwner(input.surface.raw.repository));
-  }
-
-  private async ensureSigveloToolsConnected(props: SigveloMcpAuthProps, accountLogin: string) {
-    await this.ensureGitHubMcpConnected(props, accountLogin);
+    await this.ensureGitHubMcpConnected(props, getRepositoryOwner(input.surface.raw.repository));
   }
 
   private async ensureGitHubMcpConnected(props: SigveloMcpAuthProps, accountLogin: string) {

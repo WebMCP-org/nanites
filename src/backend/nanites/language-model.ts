@@ -44,13 +44,8 @@ interface NaniteRunLanguageModelInput extends SigveloAgentLanguageModelInput {
   gatewayId: string;
 }
 
-function cleanOptionalString(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
 export function resolveNanitesAiGatewayId(env: Env): string {
-  return cleanOptionalString(env.NANITES_AI_GATEWAY_ID) ?? DEFAULT_NANITES_AI_GATEWAY_ID;
+  return env.NANITES_AI_GATEWAY_ID?.trim() || DEFAULT_NANITES_AI_GATEWAY_ID;
 }
 
 function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel | null {
@@ -142,7 +137,7 @@ function createFixtureOpenAIFetch(fixture: NaniteLlmFixture): typeof fetch {
       );
     }
 
-    const hasToolResult = hasToolResultAfterLatestUser(body.messages ?? []);
+    const hasToolResult = countToolResultsAfterLatestUser(body.messages ?? []) > 0;
     const toolCall = fixture === "no_lifecycle" ? null : buildFixtureToolCall(fixture);
     const chunks = hasToolResult
       ? buildTextChunks({
@@ -250,10 +245,6 @@ function buildToolOutputBudgetFixtureChunks(
 function findLatestToolOutputArtifactId(messages: readonly unknown[]): string | null {
   const serialized = JSON.stringify(messages);
   return serialized.match(/toolout_[a-f0-9]{32}/)?.[0] ?? null;
-}
-
-function hasToolResultAfterLatestUser(messages: readonly { role?: string }[]): boolean {
-  return countToolResultsAfterLatestUser(messages) > 0;
 }
 
 function countToolResultsAfterLatestUser(messages: readonly { role?: string }[]): number {

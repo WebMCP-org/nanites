@@ -241,7 +241,6 @@ export type ObservabilityEventDetail =
       };
     };
 
-type AiUsageRow = typeof aiUsageFacts.$inferSelect;
 type AuditRow = typeof auditEvents.$inferSelect;
 type DrizzleExpression = SQL<unknown> | AnySQLiteColumn;
 type TimeWindow = { now: Date; start: Date };
@@ -310,11 +309,6 @@ type RecentEventDbRow = {
   outcome: string | null;
 };
 
-type AiUsageCostColumns = {
-  providerBilledTotalCostUsdMicros: AiUsageRow["providerBilledTotalCostUsdMicros"];
-  estimatedTotalCostUsdMicros: AiUsageRow["estimatedTotalCostUsdMicros"];
-};
-
 type NaniteCreatorDbRow = {
   key: string | null;
   label: string | null;
@@ -380,10 +374,6 @@ function resolveWindow(scope: ObservabilityVisibilityScope): TimeWindow {
   return { now, start: rangeStart(scope.filters.range, now) };
 }
 
-function costMicros(row: AiUsageCostColumns): number {
-  return row.providerBilledTotalCostUsdMicros ?? row.estimatedTotalCostUsdMicros ?? 0;
-}
-
 function whereAll(conditions: readonly (SQL<unknown> | undefined)[]): SQL<unknown> | undefined {
   const active = conditions.filter(
     (condition): condition is SQL<unknown> => condition !== undefined,
@@ -413,10 +403,6 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
 function normalizeSearch(value: string | undefined): string | null {
   const trimmed = value?.trim().toLowerCase();
   return trimmed ? trimmed : null;
-}
-
-function likeValue(search: string): string {
-  return `%${search}%`;
 }
 
 function textEquals(column: DrizzleExpression, value: string): SQL<unknown> {
@@ -515,8 +501,7 @@ function searchCondition(search: string | null, columns: readonly DrizzleExpress
     return undefined;
   }
 
-  const pattern = likeValue(search);
-  return whereAny(columns.map((column) => like(sql`lower(${column})`, pattern)));
+  return whereAny(columns.map((column) => like(sql`lower(${column})`, `%${search}%`)));
 }
 
 function catalogRepositoryJsonContains(repository: string): SQL<unknown> {
@@ -1517,7 +1502,8 @@ export async function getObservabilityEventDetail(
         runKey: row.runKey,
         provider: row.provider ?? "Unreported provider",
         model: row.model,
-        estimatedCostUsdMicros: costMicros(row),
+        estimatedCostUsdMicros:
+          row.providerBilledTotalCostUsdMicros ?? row.estimatedTotalCostUsdMicros ?? 0,
         inputTokens: row.inputTokens ?? 0,
         outputTokens: row.outputTokens ?? 0,
         totalTokens: row.totalTokens ?? 0,

@@ -59,7 +59,7 @@ import type {
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getDispatchIntents, runGeneratedTrigger } from "#/backend/nanites/triggers.ts";
 import { getGitHubWebhookRepositoryFullName, getGitHubWebhookRepositoryId } from "#/github.ts";
-import { parseNaniteManagerKey, type NaniteManagerIdentity } from "#/nanites.ts";
+import { parseNaniteManagerKey } from "#/nanites.ts";
 import {
   buildNaniteAiGatewayMetadata,
   naniteTriggerActor,
@@ -321,10 +321,6 @@ function isLifecycleTerminalStatus(status: NaniteRunStatus): boolean {
   );
 }
 
-function parseManagerIdentity(managerName: string): NaniteManagerIdentity | null {
-  return parseNaniteManagerKey(managerName);
-}
-
 function createUserMessage(text: string): UIMessage {
   return {
     id: crypto.randomUUID(),
@@ -395,11 +391,6 @@ function providerMetadataWithGatewayLog(
       costUsd: log.cost,
     },
   };
-}
-
-function gatewayCostUsdMicros(log: AiGatewayLogDetail | null): number | undefined {
-  const costUsd = log?.cost;
-  return costUsd === undefined ? undefined : Math.round(costUsd * 1_000_000);
 }
 
 function getRunRepository(run: NaniteRunRecord): {
@@ -528,10 +519,6 @@ function inspectTranscript(
       partTypes: message.parts.map((part) => part.type),
     };
   });
-}
-
-function workspaceRootPath(path: string | undefined): string {
-  return path?.trim() || "/";
 }
 
 function resolveCloudflareScheduleWhen(when: NaniteScheduleWhen): Date | string | number {
@@ -1055,7 +1042,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
    * unreliable in production.
    */
   private async recordChatErrorAuditEvent(error: string): Promise<void> {
-    const identity = parseManagerIdentity(this.requireManagerName());
+    const identity = parseNaniteManagerKey(this.requireManagerName());
     if (!identity) {
       return;
     }
@@ -1656,7 +1643,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           info: await this.getWorkspaceInfo(),
         };
       case "list": {
-        const path = workspaceRootPath(input.path);
+        const path = input.path?.trim() || "/";
         return {
           action: "list",
           path,
@@ -1684,7 +1671,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   private async searchWorkspace(
     input: Extract<NaniteWorkspaceExploreInput, { action: "search" }>,
   ): Promise<Extract<NaniteWorkspaceExploreOutput, { action: "search" }>> {
-    const root = workspaceRootPath(input.path);
+    const root = input.path?.trim() || "/";
     const caseInsensitiveQuery = input.query.toLowerCase();
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 500);
     const maxFileBytes = Math.min(Math.max(input.maxFileBytes ?? 200_000, 1_000), 1_000_000);
@@ -1922,7 +1909,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     run: NaniteRunRecord | null,
   ): Promise<Record<string, string> | undefined> {
     try {
-      const identity = parseManagerIdentity(this.requireManagerName());
+      const identity = parseNaniteManagerKey(this.requireManagerName());
       const naniteId = this.state.naniteId;
       if (!identity || !naniteId || !run) {
         return undefined;
@@ -1952,7 +1939,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private async recordStepUsage(ctx: StepContext): Promise<void> {
-    const identity = parseManagerIdentity(this.requireManagerName());
+    const identity = parseNaniteManagerKey(this.requireManagerName());
     const run = await this.readRun(this.state.activeRunId);
     if (!identity || !run) {
       return;
@@ -1988,7 +1975,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       finishReason: ctx.finishReason,
       usage: usageWithGatewayTokens(ctx.usage, aiGatewayLog),
       providerMetadata: providerMetadataWithGatewayLog(ctx.providerMetadata, aiGatewayLog),
-      providerBilledTotalCostUsdMicros: gatewayCostUsdMicros(aiGatewayLog),
+      providerBilledTotalCostUsdMicros:
+        aiGatewayLog?.cost === undefined ? undefined : Math.round(aiGatewayLog.cost * 1_000_000),
       aiGatewayId: run.model.effectiveGatewayId,
       aiGatewayLogId: aiGatewayLog?.id ?? aiGatewayLogId,
       aiGatewayEventId: requestId,
@@ -2046,7 +2034,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return new GitHubMcpConnector(this.ctx, {
       createHeaders: async () => {
-        const identity = parseManagerIdentity(this.requireManagerName());
+        const identity = parseNaniteManagerKey(this.requireManagerName());
         if (!identity) {
           throw new AppError("naniteAgentGithubMcpInstallationRequired");
         }
@@ -2079,7 +2067,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private async issueGitToolToken(): Promise<string | null> {
-    const identity = parseManagerIdentity(this.requireManagerName());
+    const identity = parseNaniteManagerKey(this.requireManagerName());
     const permissions = this.state.manifest?.permissions.github;
     if (!identity || !permissions || permissions.repositories.length === 0) {
       return null;

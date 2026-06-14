@@ -110,16 +110,6 @@ function addSeconds(date: Date, seconds: number): Date {
   return new Date(date.getTime() + seconds * 1_000);
 }
 
-function contentTypeForExtension(
-  extension: PersistNaniteToolOutputArtifactInput["extension"],
-): NaniteToolOutputArtifactMetadata["contentType"] {
-  return extension === "json" ? "application/json" : "text/plain";
-}
-
-function createArtifactId(): string {
-  return `toolout_${crypto.randomUUID().replace(/-/g, "")}`;
-}
-
 function clampInteger(
   input: number | undefined,
   fallback: number,
@@ -181,7 +171,7 @@ export class NaniteToolOutputArtifactStore {
 
   async persist(input: PersistNaniteToolOutputArtifactInput): Promise<{ artifactId: string }> {
     const scope = this.#requireScope();
-    const artifactId = createArtifactId();
+    const artifactId = `toolout_${crypto.randomUUID().replace(/-/g, "")}`;
     const createdAt = new Date();
     const expiresAt = addSeconds(createdAt, this.#ttlSeconds);
     const metadata: NaniteToolOutputArtifactMetadata = {
@@ -192,7 +182,7 @@ export class NaniteToolOutputArtifactStore {
       managerName: scope.managerName,
       toolName: input.toolName,
       toolCallId: input.toolCallId,
-      contentType: contentTypeForExtension(input.extension),
+      contentType: input.extension === "json" ? "application/json" : "text/plain",
       extension: input.extension,
       size: input.content.length,
       createdAt: createdAt.toISOString(),
@@ -265,7 +255,7 @@ export class NaniteToolOutputArtifactStore {
         read: {
           description:
             "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a slice. With pattern, grep-searches one artifact or all current-run artifacts.",
-          execute: async (args) => this.read(parseReadArgs(args)),
+          execute: async (args) => this.read(artifactReadInputSchema.parse(args)),
         },
       },
       types: [
@@ -388,10 +378,6 @@ export class NaniteToolOutputArtifactStore {
   #key(scope: RequiredArtifactScope, artifactId: string): string {
     return `${this.#runPrefix(scope)}/${encodeKeySegment(artifactId)}`;
   }
-}
-
-function parseReadArgs(input: unknown): NaniteToolOutputArtifactReadInput {
-  return artifactReadInputSchema.parse(input);
 }
 
 const naniteToolOutputBudget = {
