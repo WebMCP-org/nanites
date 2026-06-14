@@ -29,9 +29,9 @@ export function NanitesZeroInstallState({
           />
           <h1 className="dashboard__heading">Install the Nanites GitHub App</h1>
           <p className="dashboard__subtext">
-            You are signed in, but GitHub is not reporting a Nanites installation for any account
-            you can access. Install the app on the user or organization that owns the repositories
-            Nanites should work on.
+            You are signed in, but GitHub is not reporting a visible installation for{" "}
+            {githubApp?.slug ?? "this deployment app"}. Install the app on the user or organization
+            that owns the repositories Nanites should work on.
           </p>
           <div className="dashboard__zero-install-actions">
             <a

@@ -56,9 +56,9 @@ Generic MCP JSON:
 ```json
 {
   "mcpServers": {
-    "sigvelo": {
+    "nanites": {
       "type": "http",
-      "url": "https://app.sigvelo.com/mcp"
+      "url": "https://<your-origin>/mcp"
     }
   }
 }
@@ -80,7 +80,7 @@ Claude Code plugin:
 
 ```bash
 claude plugin marketplace add WebMCP-org/nanites
-claude plugin install nanites@sigvelo
+claude plugin install nanites@nanites
 ```
 
 For local checkouts, standalone MCP commands, and Cloudflare operator MCP servers, see

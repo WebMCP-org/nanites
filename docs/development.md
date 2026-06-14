@@ -127,18 +127,42 @@ deployments, `/setup` creates the app. Locally, the dev-only `/setup/local` page
 dev builds and only answering loopback hostnames) does the same job: it runs GitHub's app-manifest
 flow with Nanites' default permissions and registers the resulting app in the local D1 database.
 
-First-time setup (once per developer):
+Agent-assisted first-time setup (once per developer):
 
 1. `cp docs/dev.vars.local.example .dev.vars`
 2. `vp run db:migrate:local && vp run dev`
-3. Open `http://localhost:5173/setup/local` and click **Create dev GitHub App on GitHub** — GitHub
-   shows a pre-filled confirmation page; one click registers a personal dev app and returns here.
-4. Append the printed secret block (`GITHUB_APP_<ID>_*` plus `AUTH_COOKIE_SECRET`) to `.dev.vars`
-   and restart `vp run dev`. The worker cannot write `.dev.vars` itself; this is the only paste.
-5. Optional: upload `public/assets/nanite-github-app-badge.png` as the app badge in GitHub App
+3. If the browser lands on the Nanites login screen before setup is complete, use **Open local
+   setup**. It links to `http://localhost:5173/setup/local`.
+4. Open `http://localhost:5173/setup/local` and click **Create dev GitHub App on GitHub**. A
+   coding agent can open the page and follow the manifest link, but GitHub may still require the
+   human to log in, pass sudo-mode, or confirm account access.
+5. After GitHub redirects back, append the printed secret block (`GITHUB_APP_<ID>_*` plus
+   `AUTH_COOKIE_SECRET`) to `.dev.vars` and restart `vp run dev`. A local coding agent can read the
+   returned page and append this block without exposing the values in chat. The worker cannot write
+   `.dev.vars` itself.
+6. Optional: upload `public/assets/nanite-github-app-badge.png` as the app badge in GitHub App
    settings under **Display information**. GitHub App manifests cannot set badges.
-6. Install the app on at least one repository (the page links to the install URL), then sign in at
-   `http://localhost:5173` and activate the installation.
+7. Install the app on at least one repository. A coding agent can open the install URL, but the
+   human should choose the GitHub account, repository scope, and final install approval.
+8. Sign in at `http://localhost:5173` and activate the installation. The sign-in step uses the
+   generated GitHub App OAuth flow, so browser login or consent prompts remain human checkpoints.
+
+What a coding agent can do locally:
+
+- create `.dev.vars` from the template
+- run migrations and `vp run dev`
+- open `/setup/local` and follow the GitHub App manifest redirect
+- append the generated secret block to `.dev.vars` without printing the values
+- restart the dev server and run `/setup/local/restore`
+- open the GitHub App install URL and return to the Nanites login flow
+
+What still needs a human:
+
+- GitHub login, CAPTCHA, sudo-mode, and account access confirmation
+- choosing the account and repository scope for the GitHub App installation
+- approving the GitHub App installation or org-request flow
+- approving GitHub App OAuth during Nanites sign-in
+- optional badge upload in GitHub App settings
 
 After any `rm -rf .wrangler` (the supported reset for stale local state), the secrets in
 `.dev.vars` survive and the database row is rebuilt without a browser flow:
@@ -156,7 +180,7 @@ covered by the test suite. For live local webhooks, point the app's webhook URL 
 
 The Nanite runtime should prefer Workspace git plus GitHub MCP/Octokit for GitHub API work. Do not assume shell `gh` is authenticated inside a Nanite unless `GH_TOKEN` injection is explicitly added.
 
-## SigVelo MCP
+## Nanites MCP
 
 The app exposes the model control plane at:
 
@@ -198,23 +222,24 @@ Minimal MCP config:
 ```json
 {
   "mcpServers": {
-    "sigvelo": {
+    "nanites": {
       "type": "http",
-      "url": "https://app.sigvelo.com/mcp"
+      "url": "http://localhost:5173/mcp"
     }
   }
 }
 ```
 
-Local browser and MCP smoke tests should use the real local GitHub App OAuth flow. A plain
-`gh auth token` is a GitHub CLI token, not a GitHub App user token, and GitHub rejects it for
-`/user/installations`.
+Local browser and MCP smoke tests should use the real local GitHub App OAuth flow. `gh` is still
+useful for checking the active GitHub account and normal repository API access, but a plain
+`gh auth token` is a GitHub CLI token, not a GitHub App user token. GitHub rejects it for app-user
+authorization surfaces such as `/user/installations`.
 
 ```bash
 vp run dev
 ```
 
-Open `http://localhost:5173/auth/github/login`, complete OAuth for the local/Sigvelo app, and select
+Open `http://localhost:5173/auth/github/login`, complete OAuth for the local Nanites app, and select
 the intended installation in the UI. Then point MCPJam at the local server:
 
 ```bash

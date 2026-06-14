@@ -22,8 +22,8 @@ export function NanitesChooseInstallationState({
           />
           <h1 className="dashboard__heading">Choose where Nanites can work</h1>
           <p className="dashboard__subtext">
-            GitHub says Nanites is installed on these accounts. Pick the account that owns the
-            repository you want to connect.
+            GitHub says this deployment app is installed on these accounts visible to your signed-in
+            user. Pick the account that owns the repository you want to connect.
           </p>
           <ul className="dashboard__installation-list" aria-label="Available GitHub installations">
             {installations.map((installation) => {

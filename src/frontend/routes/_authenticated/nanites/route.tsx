@@ -88,6 +88,7 @@ import {
   NaniteDesktopPanelControls,
   type NaniteDesktopPanel,
 } from "#/frontend/routes/_authenticated/nanites/-layout-controls.tsx";
+import { AgentConnectionPopover } from "#/frontend/routes/-agent-connection.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
 import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
@@ -2650,6 +2651,7 @@ function NanitesRuntimeSurface({
         </div>
 
         <div className="nanites-workspace__create-action">
+          <AgentConnectionPopover />
           <Button
             type="button"
             className="nanites-workspace__create-button"
