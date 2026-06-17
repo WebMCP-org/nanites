@@ -58,7 +58,7 @@ import {
   systemActor,
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
-import { resolveNanitesAiGatewayId } from "#/backend/nanites/language-model.ts";
+import { NANITES_AI_GATEWAY_ID } from "#/backend/nanites/language-model.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -530,16 +530,6 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function createInitialNaniteManagerState(): NaniteManagerState {
-  return {
-    nanites: {},
-    runs: {},
-    runOrder: [],
-    runtimeActivityByNanite: {},
-    updatedAt: null,
-  };
-}
-
 function assertNaniteRunStatusTransition(
   currentStatus: NaniteRunStatus,
   nextStatus: NaniteRunStatus,
@@ -695,10 +685,6 @@ function githubEventSourceMatches(nanite: ManagedNanite, event: EmitterWebhookEv
   return true;
 }
 
-function getTriggerEventName(trigger: NaniteTriggerEvent): string {
-  return trigger.type === "github" ? getGitHubWebhookEventName(trigger.event) : trigger.type;
-}
-
 function clampLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.min(Math.max(value ?? fallback, 1), max);
 }
@@ -753,7 +739,13 @@ function summarizeTriggerRejection(evaluation: NaniteWebhookEvaluation | null): 
 // ---------------------------------------------------------------------------
 
 export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
-  initialState: NaniteManagerState = createInitialNaniteManagerState();
+  initialState: NaniteManagerState = {
+    nanites: {},
+    runs: {},
+    runOrder: [],
+    runtimeActivityByNanite: {},
+    updatedAt: null,
+  };
 
   override async onStart(): Promise<void> {
     await this.schedule(NANITE_MANAGER_MAINTENANCE_CRON, "maintainNanites", undefined, {
@@ -979,7 +971,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       model: {
         runtimePath: "workers_ai_gateway",
         effectiveModelId: nanite.manifest.model,
-        effectiveGatewayId: resolveNanitesAiGatewayId(this.env),
+        effectiveGatewayId: NANITES_AI_GATEWAY_ID,
         manifestVersionId: nanite.latestVersion.versionId,
         resolvedAt: startedAt,
       },
@@ -2008,7 +2000,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       [OTEL_ATTRS.NANITE_RUN_KEY]: values.run?.triggerKey,
       [OTEL_ATTRS.NANITE_RUN_STATUS]: values.run?.status,
       [OTEL_ATTRS.NANITE_TRIGGER_TYPE]: trigger?.type,
-      [OTEL_ATTRS.NANITE_TRIGGER_EVENT]: trigger ? getTriggerEventName(trigger) : undefined,
+      [OTEL_ATTRS.NANITE_TRIGGER_EVENT]: trigger
+        ? trigger.type === "github"
+          ? getGitHubWebhookEventName(trigger.event)
+          : trigger.type
+        : undefined,
     };
   }
 }

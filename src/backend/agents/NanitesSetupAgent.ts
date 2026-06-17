@@ -21,7 +21,11 @@ import {
   type GitHubAppManifestConversion,
 } from "#/backend/github/index.ts";
 import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
-import { resolveNanitesAiGatewayId } from "#/backend/nanites/language-model.ts";
+import {
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+  NANITES_AI_GATEWAY_ID,
+  NANITES_AI_GATEWAY_REQUEST_DEFAULTS,
+} from "#/backend/nanites/language-model.ts";
 import { LOGGING } from "#/backend/logging.ts";
 import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
@@ -41,7 +45,7 @@ const CLOUDFLARE_MCP_SERVER_URL = "https://mcp.cloudflare.com/mcp";
 const CLOUDFLARE_MCP_CALLBACK_PATH = `/agents/${NANITES_SETUP_AGENT_NAME}/${NANITES_SETUP_AGENT_INSTANCE_NAME}/callback`;
 const CLOUDFLARE_MCP_TIMEOUT_MS = 2 * 60 * 1_000;
 export const CLOUDFLARE_SETUP_OAUTH_SCOPE =
-  "offline_access user:read account:read billing:read workers:read workers_scripts:write";
+  "offline_access user:read account:read billing:read workers:read workers_scripts:write aig:read aig:write";
 
 export const GITHUB_APP_MANIFEST_CALLBACK_PATH = "/setup/github/manifest/callback";
 export const GITHUB_APP_INSTALL_CALLBACK_PATH = "/setup/github/installed";
@@ -390,26 +394,6 @@ async function sha256Base64Url(value: string): Promise<string> {
   return bytesToBase64Url(new Uint8Array(digest));
 }
 
-function isExpired(expiresAt: string): boolean {
-  return Date.parse(expiresAt) <= Date.now();
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Worker route resolution
 // ---------------------------------------------------------------------------
@@ -498,33 +482,6 @@ function buildGitHubAppManifest(origin: string, manifestState: string) {
 
 export type GitHubAppManifest = ReturnType<typeof buildGitHubAppManifest>;
 
-function buildGitHubManifestFormAction(input: {
-  readonly ownerType: "user" | "organization";
-  readonly ownerLogin?: string | null;
-}): string | null {
-  if (input.ownerType === "user") {
-    return "https://github.com/settings/apps/new";
-  }
-
-  const ownerLogin = input.ownerLogin?.trim();
-  return ownerLogin
-    ? `https://github.com/organizations/${encodeURIComponent(ownerLogin)}/settings/apps/new`
-    : null;
-}
-
-function githubPermissionRank(permission: string | undefined): number {
-  switch (permission) {
-    case "read":
-      return 1;
-    case "write":
-      return 2;
-    case "admin":
-      return 3;
-    default:
-      return 0;
-  }
-}
-
 function requireManifestString(
   githubApp: GitHubAppManifestConversion,
   field: "client_id" | "client_secret" | "pem" | "slug" | "webhook_secret",
@@ -556,9 +513,10 @@ function readManifestEvents(githubApp: GitHubAppManifestConversion): readonly st
 }
 
 function requireManifestMeetsMinimums(githubApp: GitHubAppManifestConversion): void {
+  const PERMISSION_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };
   const permissions = readManifestPermissions(githubApp);
   for (const [permission, requiredAccess] of Object.entries(DEFAULT_GITHUB_APP_PERMISSIONS)) {
-    if (githubPermissionRank(permissions[permission]) < githubPermissionRank(requiredAccess)) {
+    if ((PERMISSION_RANK[permissions[permission]] ?? 0) < (PERMISSION_RANK[requiredAccess] ?? 0)) {
       throw new AppError("githubAppManifestConversionFailed", {
         details: { githubResponseStatus: null, reason: "missing_required_permission", permission },
       });
@@ -575,18 +533,16 @@ function requireManifestMeetsMinimums(githubApp: GitHubAppManifestConversion): v
   }
 }
 
-function buildInstallationRepairMessage(reason: GitHubInstallationRepairReason): string {
-  switch (reason) {
-    case "installation_deleted":
-      return "GitHub App installation was deleted. Reinstall the app before launching Nanites.";
-    case "installation_suspended":
-      return "GitHub App installation was suspended. Unsuspend or reinstall the app before launching Nanites.";
-    case "installation_repositories_removed":
-      return "GitHub App repository access changed. Verify repository access again before launching Nanites.";
-    case "installation_permissions_changed":
-      return "GitHub App permissions changed. Verify repository access again before launching Nanites.";
-  }
-}
+const INSTALLATION_REPAIR_MESSAGES: Record<GitHubInstallationRepairReason, string> = {
+  installation_deleted:
+    "GitHub App installation was deleted. Reinstall the app before launching Nanites.",
+  installation_suspended:
+    "GitHub App installation was suspended. Unsuspend or reinstall the app before launching Nanites.",
+  installation_repositories_removed:
+    "GitHub App repository access changed. Verify repository access again before launching Nanites.",
+  installation_permissions_changed:
+    "GitHub App permissions changed. Verify repository access again before launching Nanites.",
+};
 
 // ---------------------------------------------------------------------------
 // Cloudflare API response schemas
@@ -625,6 +581,15 @@ const cloudflareSubscriptionSchema = z.object({
 
 type CloudflareSubscription = z.output<typeof cloudflareSubscriptionSchema>;
 
+const cloudflareAiGatewaySetupSchema = z.object({
+  id: z.string().min(1),
+  created: z.boolean(),
+  retry_max_attempts: z.number().nullish(),
+  retry_delay: z.number().nullish(),
+  retry_backoff: z.enum(["constant", "linear", "exponential"]).nullish(),
+  zdr: z.boolean().nullish(),
+});
+
 const WORKERS_PAID_RATE_PLAN_IDS = new Set([
   "workers_paid",
   "partners_workers_ent",
@@ -657,14 +622,6 @@ function isWorkersPaidSubscription(subscription: CloudflareSubscription): boolea
   return (
     subscription.rate_plan?.is_contract === true &&
     (ratePlanId.includes("workers") || publicName.includes("workers"))
-  );
-}
-
-function describeWorkersSubscription(subscription: CloudflareSubscription): string {
-  return (
-    subscription.rate_plan?.public_name?.trim() ||
-    subscription.rate_plan?.id?.trim() ||
-    "Workers Paid"
   );
 }
 
@@ -729,10 +686,6 @@ function deriveCurrentStep(state: NanitesSetupState): SetupStep {
 
 function finalizeSetupState(state: NanitesSetupState): NanitesSetupState {
   return { ...state, currentStep: deriveCurrentStep(state) };
-}
-
-function firstBlockedReadinessDetail(readiness: CloudflareReadiness): string | null {
-  return readiness.items.find((item) => item.required && item.status === "blocked")?.detail ?? null;
 }
 
 class CloudflareSetupOAuthProvider extends DurableObjectOAuthClientProvider {
@@ -1020,7 +973,9 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         accountName: account.name ?? null,
         scriptName: worker.scriptName,
         readiness,
-        error: firstBlockedReadinessDetail(readiness),
+        error:
+          readiness.items.find((item) => item.required && item.status === "blocked")?.detail ??
+          null,
       });
       return;
     }
@@ -1151,7 +1106,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       await this.checkWorkersPaid(accountId),
       await this.checkWorkerLoader(),
       this.checkWorkersAiBinding(),
-      this.checkAiGateway(),
+      await this.checkAiGateway(accountId),
       this.checkBrowserBinding(),
     ];
 
@@ -1188,7 +1143,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         return {
           ...item,
           status: "ready",
-          detail: `${describeWorkersSubscription(workersPaid)} is active on this account. Cloudflare bills Workers and Dynamic Workers directly to this account.`,
+          detail: `${workersPaid.rate_plan?.public_name?.trim() || workersPaid.rate_plan?.id?.trim() || "Workers Paid"} is active on this account. Cloudflare bills Workers and Dynamic Workers directly to this account.`,
           action: null,
         };
       }
@@ -1285,20 +1240,127 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       ...item,
       status: "ready",
       detail:
-        "Workers AI binding `AI` is present. The default Cloudflare-hosted model needs no provider API key.",
+        "Workers AI binding `AI` is present. Model requests can use Workers AI or Unified Billing third-party models without provider API keys.",
       action: null,
     };
   }
 
-  private checkAiGateway(): CloudflareReadinessItem {
-    return {
+  private async checkAiGateway(accountId: string): Promise<CloudflareReadinessItem> {
+    const item = {
       key: "ai-gateway",
       label: "AI Gateway",
-      required: false,
-      status: "ready",
-      detail: `Default model requests use Cloudflare AI Gateway \`${resolveNanitesAiGatewayId(this.env)}\`; provider API keys are only needed for future non-Workers-AI models.`,
-      action: null,
-    };
+      required: true,
+    } as const;
+    const gatewayId = NANITES_AI_GATEWAY_ID;
+    const modelId = DEFAULT_SIGVELO_AGENT_MODEL_ID;
+    const gatewayDefaults = NANITES_AI_GATEWAY_REQUEST_DEFAULTS;
+
+    try {
+      const gateway = cloudflareAiGatewaySetupSchema.parse(
+        await this.executeCloudflareCode({
+          accountId,
+          code: `async () => {
+  const gatewayId = ${JSON.stringify(gatewayId)};
+  const defaults = ${JSON.stringify({
+    retry_max_attempts: gatewayDefaults.maxAttempts,
+    retry_delay: gatewayDefaults.retryDelayMs,
+    retry_backoff: gatewayDefaults.backoff,
+    zdr: gatewayDefaults.zdr,
+  })};
+  const gatewayPath = \`/accounts/\${accountId}/ai-gateway/gateways\`;
+
+  function readBoolean(value, fallback) {
+    return typeof value === "boolean" ? value : fallback;
+  }
+
+  function readNumber(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
+
+  const listParams = new URLSearchParams({ search: gatewayId, per_page: "100" });
+  const listResponse = await cloudflare.request({
+    method: "GET",
+    path: \`\${gatewayPath}?\${listParams.toString()}\`,
+  });
+  if (!listResponse.success) {
+    throw new Error(\`AI Gateway list failed (\${listResponse.status}): \${JSON.stringify(listResponse.errors)}\`);
+  }
+
+  const gateways = Array.isArray(listResponse.result) ? listResponse.result : [];
+  const existing = gateways.find(
+    (candidate) =>
+      candidate &&
+      typeof candidate === "object" &&
+      candidate.id === gatewayId,
+  );
+
+  const gatewayConfig = existing
+    ? {
+        id: gatewayId,
+        cache_invalidate_on_update: readBoolean(existing.cache_invalidate_on_update, true),
+        cache_ttl: readNumber(existing.cache_ttl, 0),
+        collect_logs: readBoolean(existing.collect_logs, true),
+        rate_limiting_interval: readNumber(existing.rate_limiting_interval, 0),
+        rate_limiting_limit: readNumber(existing.rate_limiting_limit, 0),
+        retry_max_attempts: defaults.retry_max_attempts,
+        retry_delay: defaults.retry_delay,
+        retry_backoff: defaults.retry_backoff,
+        zdr: defaults.zdr || readBoolean(existing.zdr, false),
+      }
+    : {
+        id: gatewayId,
+        cache_invalidate_on_update: true,
+        cache_ttl: 0,
+        collect_logs: true,
+        rate_limiting_interval: 0,
+        rate_limiting_limit: 0,
+        retry_max_attempts: defaults.retry_max_attempts,
+        retry_delay: defaults.retry_delay,
+        retry_backoff: defaults.retry_backoff,
+        zdr: defaults.zdr,
+      };
+
+  const response = await cloudflare.request({
+    method: existing ? "PUT" : "POST",
+    path: existing
+      ? \`\${gatewayPath}/\${encodeURIComponent(gatewayId)}\`
+      : gatewayPath,
+    body: gatewayConfig,
+  });
+  if (!response.success) {
+    throw new Error(\`AI Gateway \${existing ? "update" : "create"} failed (\${response.status}): \${JSON.stringify(response.errors)}\`);
+  }
+
+  return {
+    ...response.result,
+    created: !existing,
+  };
+}`,
+        }),
+      );
+      const configuredMaxAttempts = gateway.retry_max_attempts ?? gatewayDefaults.maxAttempts;
+      const configuredRetryDelay = gateway.retry_delay ?? gatewayDefaults.retryDelayMs;
+      const configuredBackoff = gateway.retry_backoff ?? gatewayDefaults.backoff;
+      const zdrDetail =
+        gateway.zdr === true
+          ? "ZDR is enabled on the gateway."
+          : "ZDR is not enabled; set `zdr: true` in NANITES_AI_GATEWAY_REQUEST_DEFAULTS and redeploy to request it.";
+
+      return {
+        ...item,
+        status: "ready",
+        detail: `${gateway.created ? "Created" : "Configured"} Cloudflare AI Gateway \`${gateway.id}\` for default model \`${modelId}\`. Retry policy is ${configuredMaxAttempts} attempts, ${configuredRetryDelay}ms delay, ${configuredBackoff} backoff. ${zdrDetail}`,
+        action: null,
+      };
+    } catch {
+      return {
+        ...item,
+        status: "blocked",
+        detail:
+          "AI Gateway setup failed. Reconnect Cloudflare and grant AI Gateway Read/Write, or create the configured gateway manually before continuing.",
+        action: "reconnect",
+      };
+    }
   }
 
   private checkBrowserBinding(): CloudflareReadinessItem {
@@ -1341,7 +1403,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if ((await readDeploymentGitHubAppMetadata(createDbClient(this.env.DB))) !== null) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
-    const action = buildGitHubManifestFormAction(input);
+    const action =
+      input.ownerType === "user"
+        ? "https://github.com/settings/apps/new"
+        : input.ownerLogin?.trim()
+          ? `https://github.com/organizations/${encodeURIComponent(input.ownerLogin.trim())}/settings/apps/new`
+          : null;
     if (!action) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
@@ -1380,7 +1447,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (
       !manifestNonce.success ||
       manifestNonce.data.state !== input.state ||
-      isExpired(manifestNonce.data.expiresAt)
+      Date.parse(manifestNonce.data.expiresAt) <= Date.now()
     ) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
@@ -1390,7 +1457,8 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (this.state.cloudflare.status !== "verified" || !accountId || !scriptName) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
-    if ((await readDeploymentGitHubAppMetadata(createDbClient(this.env.DB))) !== null) {
+    const db = createDbClient(this.env.DB);
+    if ((await readDeploymentGitHubAppMetadata(db)) !== null) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
 
@@ -1417,7 +1485,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       // late insert-time rejection in registerGitHubApp never orphans this
       // app's GITHUB_APP_<id>_* bindings on the Worker. registerGitHubApp
       // re-checks at commit time as the authoritative guard.
-      await assertDeploymentGitHubAppRegistrable(createDbClient(this.env.DB), githubApp.id);
+      await assertDeploymentGitHubAppRegistrable(db, githubApp.id);
       await this.writeWorkerSecrets({
         accountId,
         scriptName,
@@ -1434,7 +1502,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       });
 
       const owner = githubApp.owner;
-      await registerGitHubApp(createDbClient(this.env.DB), {
+      await registerGitHubApp(db, {
         appId: githubApp.id,
         slug: appSlug,
         htmlUrl: githubApp.html_url,
@@ -1580,7 +1648,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       ...this.state,
       repositories: {
         ...this.state.repositories,
-        error: buildInstallationRepairMessage(input.reason),
+        error: INSTALLATION_REPAIR_MESSAGES[input.reason],
       },
     });
     return await this.refresh();
@@ -1628,7 +1696,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (!stored.success) {
       return false;
     }
-    if (isExpired(stored.data.expiresAt)) {
+    if (Date.parse(stored.data.expiresAt) <= Date.now()) {
       await this.ctx.storage.delete(SETUP_CLAIM_STORAGE_KEY);
       return false;
     }
@@ -1654,16 +1722,16 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     readonly code: string;
     readonly accountId?: string;
   }): Promise<unknown> {
-    const result = await withTimeout(
-      this.mcp.callTool({
+    const result = await this.mcp.callTool(
+      {
         serverId: CLOUDFLARE_MCP_SERVER_ID,
         name: "execute",
         arguments: input.accountId
           ? { code: input.code, account_id: input.accountId }
           : { code: input.code },
-      }),
-      CLOUDFLARE_MCP_TIMEOUT_MS,
-      "Cloudflare MCP execute",
+      },
+      undefined,
+      { timeout: CLOUDFLARE_MCP_TIMEOUT_MS },
     );
 
     if ("isError" in result && result.isError) {

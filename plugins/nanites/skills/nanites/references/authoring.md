@@ -25,10 +25,10 @@ Avoid:
 
 Use the live MCP schema as the final authority. The create schema is strict: unexpected fields are rejected.
 
-Every manifest includes `model` as an explicit Cloudflare model id string. Pick the cheapest reliable
-function-calling text model for the Nanite's job from the current Cloudflare model catalog or
-provider-native AI Gateway surface. Prefer Cloudflare-hosted function-calling models unless a
-provider-native model is known to support Nanites' tool loop. Do not put gateway ids, BYOK aliases,
+Every manifest includes `model` as an explicit Cloudflare AI model catalog id string. Pick the
+cheapest reliable function-calling text model for the Nanite's job from the current Cloudflare model
+catalog. Use `openai/gpt-5.5` as the default strong model when no cheaper proven option is known, and
+keep `@cf/...` Workers AI models as explicit opt-in choices. Do not put gateway ids, BYOK aliases,
 provider API keys, or auth headers in the manifest.
 
 GitHub machine-source Nanite:
@@ -39,7 +39,7 @@ GitHub machine-source Nanite:
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP docs aligned with package changes.",
-    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "model": "openai/gpt-5.5",
     "eventSource": {
       "type": "github",
       "events": ["push"],
@@ -70,7 +70,7 @@ Manual Nanite:
     "id": "repo-health-checker",
     "name": "Repo Health Checker",
     "description": "Answers manual maintenance questions for one repo surface.",
-    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "model": "openai/gpt-5.5",
     "eventSource": {
       "type": "manual"
     },
@@ -97,7 +97,7 @@ Schedule source shape:
     "type": "scheduleEvery",
     "intervalSeconds": 86400
   },
-  "model": "@cf/moonshotai/kimi-k2.7-code",
+  "model": "openai/gpt-5.5",
   "triggerSource": "export default { async handle(event, ctx) { return ctx.dispatchSelf({ reason: 'Daily scheduled check' }); } };"
 }
 ```
@@ -107,7 +107,7 @@ For `eventSource.type: "schedule"`, use `when` with a delayed seconds number, a 
 Authoring checklist:
 
 - identity: stable `id`, `name`, and `description`
-- model: explicit Cloudflare model id string
+- model: explicit Cloudflare AI model catalog id string
 - scope: repositories and owned files, packages, docs, workflows, or product surfaces
 - intake: `eventSource` as the coarse candidate filter
 - behavior: root `triggerSource` for machine-originated sources

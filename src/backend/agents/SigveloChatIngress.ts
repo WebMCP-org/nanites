@@ -1,4 +1,5 @@
 import { createGitHubAdapter } from "@chat-adapter/github";
+import { isRecord } from "#/utils.ts";
 import type { GitHubAdapter, GitHubRawMessage } from "@chat-adapter/github";
 import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getLogger } from "@logtape/logtape";
@@ -115,10 +116,6 @@ function createGitHubConversationLogContext(input: {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function isGitHubRawMessage(raw: unknown): raw is GitHubRawMessage {
   if (!isRecord(raw) || !isRecord(raw.comment) || !isRecord(raw.repository)) {
     return false;
@@ -164,7 +161,10 @@ export class SigveloChatIngress extends Agent<Env> {
       return setupErrorResponse(new AppError("chatIngressNotFound"));
     }
 
-    const githubAppId = readChatIngressTargetAppId(request);
+    const rawTargetId = request.headers.get(GITHUB_WEBHOOK_TARGET_ID_HEADER);
+    const targetIdNum = Number(rawTargetId);
+    const githubAppId =
+      rawTargetId && Number.isInteger(targetIdNum) && targetIdNum > 0 ? targetIdNum : null;
     if (githubAppId === null) {
       return setupErrorResponse(new AppError("chatIngressNotFound"));
     }
@@ -274,7 +274,7 @@ export class SigveloChatIngress extends Agent<Env> {
         githubAppId: managerMessage.githubAppId,
         githubInstallationId: managerMessage.installationId,
       });
-      const conversationName = managerConversationName(thread, message);
+      const conversationName = `github-manager-chat-v4:${thread.id}:user:${message.author.userId}`;
       const conversation = await getAgentByName<Env, SigveloManagerConversationAgent>(
         this.env.SigveloManagerConversationAgent,
         conversationName,
@@ -462,17 +462,4 @@ export class SigveloChatIngress extends Agent<Env> {
       message: `${APP_ERRORS.chatIngressUnavailable.message}: Chat SDK runtime for GitHub App ${githubAppId} was not created.`,
     });
   }
-}
-
-function readChatIngressTargetAppId(request: Request): number | null {
-  const rawTargetId = request.headers.get(GITHUB_WEBHOOK_TARGET_ID_HEADER);
-  const targetId = Number(rawTargetId);
-  return rawTargetId && Number.isInteger(targetId) && targetId > 0 ? targetId : null;
-}
-
-function managerConversationName(
-  thread: GitHubManagerChatThread,
-  message: GitHubManagerChatMessage,
-): string {
-  return `github-manager-chat-v4:${thread.id}:user:${message.author.userId}`;
 }

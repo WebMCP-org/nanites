@@ -92,28 +92,6 @@ function createGitHubOperationLogContext(
   };
 }
 
-function logGitHubOperationSuccess(context: GitHubOperationLogContext, startedAt: number): void {
-  githubLogger.info(
-    LOG_EVENTS.GITHUB_API_REQUEST_SUCCEEDED,
-    createGitHubOperationLogContext(context, Date.now() - startedAt),
-  );
-}
-
-function logGitHubOperationFailure(
-  error: unknown,
-  context: GitHubOperationLogContext,
-  startedAt: number,
-): void {
-  githubLogger.warn(LOG_EVENTS.GITHUB_API_REQUEST_FAILED, {
-    ...createGitHubOperationLogContext(context, Date.now() - startedAt),
-    [OTEL_ATTRS.ERROR_TYPE]: error instanceof Error ? error.name : typeof error,
-    [OTEL_ATTRS.EXCEPTION_MESSAGE]: describeError(error),
-    ...(error instanceof RequestError
-      ? { [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CODE]: error.status }
-      : {}),
-  });
-}
-
 export function isGitHubAuthenticationFailure(error: unknown): boolean {
   return error instanceof RequestError && (error.status === 401 || error.status === 403);
 }
@@ -125,10 +103,20 @@ async function observeGitHubOperation<T>(
   const startedAt = Date.now();
   try {
     const result = await operation();
-    logGitHubOperationSuccess(context, startedAt);
+    githubLogger.info(
+      LOG_EVENTS.GITHUB_API_REQUEST_SUCCEEDED,
+      createGitHubOperationLogContext(context, Date.now() - startedAt),
+    );
     return result;
   } catch (error) {
-    logGitHubOperationFailure(error, context, startedAt);
+    githubLogger.warn(LOG_EVENTS.GITHUB_API_REQUEST_FAILED, {
+      ...createGitHubOperationLogContext(context, Date.now() - startedAt),
+      [OTEL_ATTRS.ERROR_TYPE]: error instanceof Error ? error.name : typeof error,
+      [OTEL_ATTRS.EXCEPTION_MESSAGE]: describeError(error),
+      ...(error instanceof RequestError
+        ? { [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CODE]: error.status }
+        : {}),
+    });
     throw error;
   }
 }
@@ -621,7 +609,8 @@ export async function listReposAccessibleToInstallation(input: {
         }
       }
 
-      await recordPlatformUsageFact(createDbClient(input.env.DB), {
+      const db = createDbClient(input.env.DB);
+      await recordPlatformUsageFact(db, {
         githubInstallationId: input.githubInstallationId,
         category: "github-api",
         eventKey: "app.installation_repositories.list",
@@ -632,7 +621,7 @@ export async function listReposAccessibleToInstallation(input: {
           repositoryCount: repositories.length,
         },
       });
-      await recordInstallationRepositorySnapshots(createDbClient(input.env.DB), {
+      await recordInstallationRepositorySnapshots(db, {
         githubAppId: input.githubAppId,
         githubInstallationId: input.githubInstallationId,
         repositories,

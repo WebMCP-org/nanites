@@ -4,13 +4,23 @@ import type {
   ObservabilityDashboardResponse,
   ObservabilityEventDetail,
 } from "#/backend/observability/queries.ts";
-import { cleanObservabilitySearch, type ObservabilitySearch } from "./-search.ts";
+import type { ObservabilitySearch } from "./-search.ts";
 
-function requestQuery(search: ObservabilitySearch) {
-  const requestQuery = cleanObservabilitySearch(search);
-  delete requestQuery.tab;
-  delete requestQuery.selectedEvent;
-  return requestQuery;
+// Serialize search into the backend query string: drop UI-only params (tab,
+// selectedEvent) and anything empty, and stringify the rest.
+function requestQuery(search: ObservabilitySearch): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(search)
+      .filter(
+        ([key, value]) =>
+          key !== "tab" &&
+          key !== "selectedEvent" &&
+          value !== undefined &&
+          value !== "" &&
+          value !== false,
+      )
+      .map(([key, value]) => [key, String(value)]),
+  );
 }
 
 export const observabilityDashboardQueryKey = (search: ObservabilitySearch) =>

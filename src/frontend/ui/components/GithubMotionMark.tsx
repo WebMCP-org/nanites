@@ -1,4 +1,5 @@
 import { GithubLogoIcon } from "@phosphor-icons/react";
+import { cx } from "./_internal/class-names.js";
 
 export function GithubMotionMark({
   className,
@@ -7,7 +8,7 @@ export function GithubMotionMark({
   readonly className?: string;
   readonly size?: number;
 }) {
-  const classes = ["github-motion-mark", className].filter(Boolean).join(" ");
+  const classes = cx("github-motion-mark", className);
 
   return (
     <span className={classes} aria-hidden="true">

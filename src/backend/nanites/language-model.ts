@@ -2,9 +2,26 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 
-export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/moonshotai/kimi-k2.7-code";
+// Default model and AI Gateway policy. These are not env vars on purpose: self-hosters
+// own this repo, so to change them you edit the constant and redeploy — your Cloudflare
+// account holds the resulting gateway config. The setup flow provisions the gateway below
+// with these values; per-request overrides aren't needed.
+export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "openai/gpt-5.5";
+export const NANITES_AI_GATEWAY_ID = "sigvelo-nanites";
 
-const DEFAULT_NANITES_AI_GATEWAY_ID = "default";
+export type NanitesAiGatewayBackoff = "constant" | "linear" | "exponential";
+
+export const NANITES_AI_GATEWAY_REQUEST_DEFAULTS = {
+  maxAttempts: 5,
+  retryDelayMs: 500,
+  backoff: "exponential",
+  zdr: false,
+} as const satisfies {
+  maxAttempts: number;
+  retryDelayMs: number;
+  backoff: NanitesAiGatewayBackoff;
+  zdr: boolean;
+};
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 
@@ -42,15 +59,6 @@ interface SigveloAgentLanguageModelInput {
 interface NaniteRunLanguageModelInput extends SigveloAgentLanguageModelInput {
   modelId: string;
   gatewayId: string;
-}
-
-function cleanOptionalString(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-export function resolveNanitesAiGatewayId(env: Env): string {
-  return cleanOptionalString(env.NANITES_AI_GATEWAY_ID) ?? DEFAULT_NANITES_AI_GATEWAY_ID;
 }
 
 function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel | null {
@@ -94,7 +102,7 @@ export function createSigveloAgentLanguageModel(
     binding: input.env.AI,
     model: DEFAULT_SIGVELO_AGENT_MODEL_ID,
     sessionAffinity: input.sessionAffinity,
-    gatewayId: resolveNanitesAiGatewayId(input.env),
+    gatewayId: NANITES_AI_GATEWAY_ID,
     gatewayMetadata: input.gatewayMetadata,
   });
 }
@@ -142,7 +150,7 @@ function createFixtureOpenAIFetch(fixture: NaniteLlmFixture): typeof fetch {
       );
     }
 
-    const hasToolResult = hasToolResultAfterLatestUser(body.messages ?? []);
+    const hasToolResult = countToolResultsAfterLatestUser(body.messages ?? []) > 0;
     const toolCall = fixture === "no_lifecycle" ? null : buildFixtureToolCall(fixture);
     const chunks = hasToolResult
       ? buildTextChunks({
@@ -250,10 +258,6 @@ function buildToolOutputBudgetFixtureChunks(
 function findLatestToolOutputArtifactId(messages: readonly unknown[]): string | null {
   const serialized = JSON.stringify(messages);
   return serialized.match(/toolout_[a-f0-9]{32}/)?.[0] ?? null;
-}
-
-function hasToolResultAfterLatestUser(messages: readonly { role?: string }[]): boolean {
-  return countToolResultsAfterLatestUser(messages) > 0;
 }
 
 function countToolResultsAfterLatestUser(messages: readonly { role?: string }[]): number {

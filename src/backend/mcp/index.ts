@@ -5,10 +5,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
-import {
-  type AnySigveloMcpToolDefinition,
-  executeSigveloNaniteTool,
-} from "#/backend/nanites/tools/define-tool.ts";
+import { executeSigveloNaniteTool } from "#/backend/nanites/tools/define-tool.ts";
 import { naniteTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_ROUTE, MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/mcp.ts";
 
@@ -83,13 +80,7 @@ export function downscopeMcpAuthPropsForToken({
   );
 
   return {
-    authKind: props.authKind,
-    githubUserId: props.githubUserId,
-    githubLogin: props.githubLogin,
-    githubAppId: props.githubAppId,
-    githubInstallationId: props.githubInstallationId,
-    clientId: props.clientId,
-    authorizedAt: props.authorizedAt,
+    ...props,
     scopes: [...new Set(tokenScopes)],
   };
 }
@@ -98,13 +89,6 @@ type SigveloMcpToolContext = {
   env: Env;
   getProps(): SigveloMcpAuthProps;
 };
-
-export function createSigveloNanitesMcpServer(): McpServer {
-  return new McpServer(
-    { name: "sigvelo-nanites", version: "0.1.0" },
-    { capabilities: { tools: { listChanged: true } } },
-  );
-}
 
 function formatMcpToolResult(output: object): CallToolResult {
   const structuredContent = JSON.parse(JSON.stringify(output)) as Record<string, unknown>;
@@ -120,59 +104,35 @@ function createMcpProtectedResourceMetadataUrl(request: Request): string {
   return `${url.origin}/.well-known/oauth-protected-resource${url.pathname}`;
 }
 
-function createInvalidMcpTokenResponse(request: Request): Response {
-  const resourceMetadataUrl = createMcpProtectedResourceMetadataUrl(request);
-  const error = new InvalidTokenError(INVALID_MCP_AUTH_PROPS_DESCRIPTION);
-
-  return Response.json(error.toResponseObject(), {
-    status: 401,
-    headers: {
-      "WWW-Authenticate": `Bearer realm="OAuth", resource_metadata="${resourceMetadataUrl}", error="${error.errorCode}", error_description="${error.message}"`,
-    },
-  });
-}
-
-function readMcpRequestId(requestId: unknown): string | undefined {
-  return requestId === null || requestId === undefined ? undefined : String(requestId);
-}
-
-function registerSigveloNaniteTool(
-  server: McpServer,
-  context: SigveloMcpToolContext,
-  definition: AnySigveloMcpToolDefinition,
-): void {
-  server.registerTool(
-    definition.name,
-    {
-      title: definition.title,
-      description: definition.description,
-      inputSchema: definition.inputSchema,
-      outputSchema: definition.outputSchema,
-      annotations: definition.annotations,
-      _meta: definition._meta,
-    },
-    async (toolInput, extra) =>
-      formatMcpToolResult(
-        await executeSigveloNaniteTool({
-          definition,
-          toolInput,
-          invocation: {
-            env: context.env,
-            props: context.getProps(),
-            surface: "mcp",
-            requestId: readMcpRequestId(extra.requestId),
-          },
-        }),
-      ),
-  );
-}
-
 export function registerSigveloNaniteTools(
   server: McpServer,
   context: SigveloMcpToolContext,
 ): void {
   for (const definition of naniteTools) {
-    registerSigveloNaniteTool(server, context, definition);
+    server.registerTool(
+      definition.name,
+      {
+        title: definition.title,
+        description: definition.description,
+        inputSchema: definition.inputSchema,
+        outputSchema: definition.outputSchema,
+        annotations: definition.annotations,
+        _meta: definition._meta,
+      },
+      async (toolInput, extra) =>
+        formatMcpToolResult(
+          await executeSigveloNaniteTool({
+            definition,
+            toolInput,
+            invocation: {
+              env: context.env,
+              props: context.getProps(),
+              surface: "mcp",
+              requestId: extra.requestId == null ? undefined : String(extra.requestId),
+            },
+          }),
+        ),
+    );
   }
 }
 
@@ -180,10 +140,24 @@ export const nanitesMcpApiHandler = {
   async fetch(request: Request, env: Env, executionContext: ExecutionContext): Promise<Response> {
     const props = parseSigveloMcpAuthProps((executionContext as McpExecutionContext).props);
     if (!props) {
-      return createInvalidMcpTokenResponse(request);
+      const resourceMetadataUrl = createMcpProtectedResourceMetadataUrl(request);
+      const error = new InvalidTokenError(INVALID_MCP_AUTH_PROPS_DESCRIPTION);
+      return Response.json(error.toResponseObject(), {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer realm="OAuth", resource_metadata="${resourceMetadataUrl}", error="${error.errorCode}", error_description="${error.message}"`,
+        },
+      });
     }
 
-    const server = createSigveloNanitesMcpServer();
+    // This handler is stateless: a fresh server per request, no session id, and the
+    // transport returns 405 for the GET/DELETE session endpoints. There is therefore no
+    // server→client stream to deliver tools/list_changed on, so advertise listChanged:
+    // false rather than promise notifications that can never arrive.
+    const server = new McpServer(
+      { name: "sigvelo-nanites", version: "0.1.0" },
+      { capabilities: { tools: { listChanged: false } } },
+    );
     registerSigveloNaniteTools(server, {
       env,
       getProps: () => props,

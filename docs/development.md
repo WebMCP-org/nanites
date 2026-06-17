@@ -77,9 +77,11 @@ vp exec wrangler kv namespace create TOOL_OUTPUTS
 ```
 
 `/setup` uses Cloudflare API MCP with Billing Read to confirm the selected account has an active
-Workers paid subscription. The default model is Cloudflare-hosted
-`@cf/moonshotai/kimi-k2.7-code` through Workers AI and AI Gateway `default`; provider API keys are not
-required unless a future deployment chooses non-Workers-AI models.
+Workers paid subscription. It also creates or configures the deployment AI Gateway
+(`sigvelo-nanites`) with the retry/ZDR policy from `NANITES_AI_GATEWAY_REQUEST_DEFAULTS` in
+`src/backend/nanites/language-model.ts` — edit those constants and redeploy to change them. The
+default model is `openai/gpt-5.5` through the Worker `AI` binding and AI Gateway; provider API
+keys are not required for Unified Billing models.
 
 Apply database migrations before relying on an environment:
 

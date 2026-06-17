@@ -10,12 +10,9 @@ import {
   naniteRunFacts,
   type AuditEventOutcome,
   type AuditTargetType,
-  type NaniteEventSourceType,
   type ObservabilityActorKind,
   type ObservabilityActorSource,
   type RunConclusion,
-  type RunPhase,
-  type RunStatus,
   type RunTriggerKind,
 } from "#/backend/db/schema.ts";
 import type { GitHubPullRequestImpact } from "#/backend/github/index.ts";
@@ -137,10 +134,6 @@ type BuildAiUsageFactInsertInput = {
   completedAt: Date;
 };
 
-function stableCatalogId(githubInstallationId: number, naniteId: string): string {
-  return `nanite-catalog:${githubInstallationId}:${naniteId}`;
-}
-
 async function resolveOptionalAccountId(
   db: DbClient,
   input: { accountId?: string | null; githubInstallationId?: number | null },
@@ -230,10 +223,6 @@ function countNaniteTriggerEvents(manifest: NaniteManifest): number {
 
 function countNanitePermissions(manifest: NaniteManifest): number {
   return Object.keys(manifest.permissions.github?.appPermissions ?? {}).length;
-}
-
-function readEventSourceType(manifest: NaniteManifest): NaniteEventSourceType {
-  return manifest.eventSource.type;
 }
 
 function actorGithubUserId(actor: ObservabilityActor | null | undefined): number | null {
@@ -404,14 +393,14 @@ export async function recordNaniteCatalogProjection(
   const createdByGithubLogin =
     existing?.createdByGithubLogin ?? actorGithubLogin(input.actor) ?? null;
   const values: NaniteCatalogInsert = {
-    id: stableCatalogId(input.githubInstallationId, input.nanite.manifest.id),
+    id: `nanite-catalog:${input.githubInstallationId}:${input.nanite.manifest.id}`,
     accountId,
     githubAppId: input.githubAppId,
     githubInstallationId: input.githubInstallationId,
     naniteId: input.nanite.manifest.id,
     name: input.nanite.manifest.name,
     enabled: input.nanite.enabled,
-    eventSourceType: readEventSourceType(input.nanite.manifest),
+    eventSourceType: input.nanite.manifest.eventSource.type,
     latestVersionId: input.nanite.latestVersion.versionId,
     modelId: input.nanite.manifest.model,
     repositoryFullNamesJson: JSON.stringify(repositories),
@@ -542,18 +531,6 @@ function runConclusionForStatus(status: NaniteRunRecord["status"]): RunConclusio
   }
 }
 
-function runPhaseForStatus(status: NaniteRunRecord["status"]): RunPhase {
-  if (status === "running") {
-    return "investigating";
-  }
-
-  return "completed";
-}
-
-function runStatusForFact(status: NaniteRunRecord["status"]): RunStatus {
-  return status;
-}
-
 function readRunRepository(run: NaniteRunRecord): {
   githubRepositoryId: number;
   repositoryFullName: string;
@@ -628,9 +605,9 @@ export async function recordNaniteRunFact(
     billingGithubUserId: billing.githubUserId,
     billingGithubLogin: billing.githubLogin,
     billingAttributionBasis: billing.basis,
-    status: runStatusForFact(input.run.status),
+    status: input.run.status,
     conclusion: runConclusionForStatus(input.run.status),
-    phase: runPhaseForStatus(input.run.status),
+    phase: input.run.status === "running" ? "investigating" : "completed",
     task: readRunTask(input.run),
     summary: input.run.summary,
     outputUrl: input.run.outputUrl,
@@ -708,10 +685,6 @@ export async function recordNaniteRunFact(
   await touchAccountActivity(db, accountId, updatedAt);
 }
 
-function emptyBillingAttribution(): NaniteBillingAttribution {
-  return { githubUserId: null, githubLogin: null, basis: null };
-}
-
 async function resolveAiUsageBilling(
   db: DbClient,
   input: RecordAiUsageFactInput,
@@ -721,7 +694,7 @@ async function resolveAiUsageBilling(
   }
 
   if (!input.naniteId) {
-    return emptyBillingAttribution();
+    return { githubUserId: null, githubLogin: null, basis: null };
   }
 
   return resolveNaniteBillingAttribution(db, {
@@ -729,18 +702,6 @@ async function resolveAiUsageBilling(
     naniteId: input.naniteId,
     actor: input.actor,
   });
-}
-
-function nullable<T>(value: T | null | undefined): T | null {
-  return value ?? null;
-}
-
-function valueOr<T>(value: T | null | undefined, fallback: T): T {
-  return value ?? fallback;
-}
-
-function firstPresent<T>(left: T | null | undefined, right: T | null | undefined): T | null {
-  return left ?? right ?? null;
 }
 
 function buildAiUsageFactInsert(input: BuildAiUsageFactInsertInput): AiUsageFactInsert {
@@ -752,35 +713,32 @@ function buildAiUsageFactInsert(input: BuildAiUsageFactInsertInput): AiUsageFact
     accountId: input.accountId,
     githubAppId: input.input.githubAppId,
     githubInstallationId: input.input.githubInstallationId,
-    githubRepositoryId: nullable(input.input.githubRepositoryId),
-    naniteId: nullable(input.input.naniteId),
-    runKey: nullable(input.input.runKey),
+    githubRepositoryId: input.input.githubRepositoryId ?? null,
+    naniteId: input.input.naniteId ?? null,
+    runKey: input.input.runKey ?? null,
     requestId: input.input.requestId,
-    provider: nullable(input.input.provider),
+    provider: input.input.provider ?? null,
     model: input.input.model,
-    sessionAffinity: nullable(input.input.sessionAffinity),
-    isContinuation: valueOr(input.input.isContinuation, false),
-    stepCount: valueOr(input.input.stepCount, 1),
-    finishReason: nullable(input.input.finishReason),
-    inputTokens: nullable(usage.inputTokens),
-    outputTokens: nullable(usage.outputTokens),
-    totalTokens: nullable(usage.totalTokens),
-    reasoningTokens: firstPresent(usage.outputTokenDetails?.reasoningTokens, usage.reasoningTokens),
-    cachedInputTokens: firstPresent(
-      usage.inputTokenDetails?.cacheReadTokens,
-      usage.cachedInputTokens,
-    ),
-    cacheWriteTokens: nullable(usage.inputTokenDetails?.cacheWriteTokens),
+    sessionAffinity: input.input.sessionAffinity ?? null,
+    isContinuation: input.input.isContinuation ?? false,
+    stepCount: input.input.stepCount ?? 1,
+    finishReason: input.input.finishReason ?? null,
+    inputTokens: usage.inputTokens ?? null,
+    outputTokens: usage.outputTokens ?? null,
+    totalTokens: usage.totalTokens ?? null,
+    reasoningTokens: usage.outputTokenDetails?.reasoningTokens ?? usage.reasoningTokens ?? null,
+    cachedInputTokens: usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? null,
+    cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens ?? null,
     rawUsageJson: stringifyJson(usage.raw),
     providerMetadataJson: stringifyJson(input.input.providerMetadata),
-    providerBilledTotalCostUsdMicros: nullable(input.input.providerBilledTotalCostUsdMicros),
-    aiGatewayId: nullable(input.input.aiGatewayId),
-    aiGatewayLogId: nullable(input.input.aiGatewayLogId),
-    aiGatewayEventId: nullable(input.input.aiGatewayEventId),
-    actorKind: nullable(actor?.kind),
+    providerBilledTotalCostUsdMicros: input.input.providerBilledTotalCostUsdMicros ?? null,
+    aiGatewayId: input.input.aiGatewayId ?? null,
+    aiGatewayLogId: input.input.aiGatewayLogId ?? null,
+    aiGatewayEventId: input.input.aiGatewayEventId ?? null,
+    actorKind: actor?.kind ?? null,
     actorGithubUserId: actorGithubUserId(actor),
     actorGithubLogin: actorGithubLogin(actor),
-    actorSource: nullable(actor?.source),
+    actorSource: actor?.source ?? null,
     billingGithubUserId: input.billing.githubUserId,
     billingGithubLogin: input.billing.githubLogin,
     billingAttributionBasis: input.billing.basis,

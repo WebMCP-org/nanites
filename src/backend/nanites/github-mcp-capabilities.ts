@@ -58,10 +58,6 @@ function grantsAtLeast(
   return minimum === "read" || granted === "write";
 }
 
-function hasWritableGitHubPermission(appPermissions: GitHubAppPermissions): boolean {
-  return Object.values(appPermissions).some((level) => level === "write");
-}
-
 export function deriveNaniteGitHubMcpAccess(input: {
   appPermissions?: GitHubAppPermissions;
 }): NaniteGitHubMcpAccess | null {
@@ -98,7 +94,7 @@ export function deriveNaniteGitHubMcpAccess(input: {
   return {
     tools: uniqueSorted(tools),
     deniedTools: uniqueSorted(defaultDeniedGitHubMcpTools),
-    readonly: !hasWritableGitHubPermission(appPermissions),
+    readonly: !Object.values(appPermissions).some((level) => level === "write"),
     appPermissions,
   };
 }

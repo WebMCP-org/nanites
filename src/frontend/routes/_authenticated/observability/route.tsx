@@ -2,7 +2,7 @@ import "./observability.css";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
+import { Link, Navigate, createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import {
   ActivityIcon,
   ArrowClockwiseIcon,
@@ -57,7 +57,6 @@ import {
 import {
   OBSERVABILITY_SEARCH_RANGES,
   OBSERVABILITY_SEARCH_TABS,
-  cleanObservabilitySearch,
   observabilitySearchSchema,
   type ObservabilitySearch,
 } from "./-search.ts";
@@ -170,6 +169,9 @@ type GitHubIdentityPerson = {
 
 export const Route = createFileRoute("/_authenticated/observability")({
   validateSearch: observabilitySearchSchema,
+  search: {
+    middlewares: [stripSearchParams({ range: defaultRange, tab: "overview", live: false })],
+  },
   component: ObservabilityRoute,
   pendingComponent: RoutePendingPage,
 });
@@ -251,12 +253,7 @@ function tabSearch(
   search: ObservabilitySearch,
   tab: ObservabilitySearch["tab"],
 ): ObservabilitySearch {
-  return observabilitySearchSchema.parse({
-    ...search,
-    tab,
-    cursor: undefined,
-    selectedEvent: undefined,
-  });
+  return { ...search, tab, cursor: undefined, selectedEvent: undefined };
 }
 
 function readKpi(metrics: readonly KpiMetric[], key: string): KpiMetric | null {
@@ -1661,18 +1658,7 @@ function ObservabilityHeader({ search }: { readonly search: ObservabilitySearch 
       <div>
         <h1>Observability</h1>
         <nav aria-label="Authenticated app">
-          <Link
-            to="/nanites"
-            search={
-              search.installationId
-                ? {
-                    installationId: search.installationId,
-                  }
-                : undefined
-            }
-          >
-            Nanites
-          </Link>
+          <Link to="/nanites">Nanites</Link>
           <Link to="/observability" activeProps={{ "data-active": true }}>
             Observability
           </Link>
@@ -1794,19 +1780,14 @@ function useObservabilityDashboardQueries({
 function ObservabilityRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const normalizedSearch = useMemo(() => observabilitySearchSchema.parse(search), [search]);
   const { session, visibleInstallations, installationSelection, isPending } =
-    useBrowserInstallationSelection(normalizedSearch.installationId);
+    useBrowserInstallationSelection(search.installationId);
   const selectedInstallation = installationSelection.installation;
   const selectedInstallationId = selectedInstallation?.id;
   const shouldCanonicalizeInstallation = installationSelection.canonicalInstallationId !== null;
   const scopedSearch = useMemo(
-    () =>
-      observabilitySearchSchema.parse({
-        ...normalizedSearch,
-        installationId: selectedInstallationId ?? normalizedSearch.installationId,
-      }),
-    [normalizedSearch, selectedInstallationId],
+    () => ({ ...search, installationId: selectedInstallationId ?? search.installationId }),
+    [search, selectedInstallationId],
   );
   const selectedEventId = scopedSearch.selectedEvent;
   const { dashboard, isDashboardPending, selectedEvent, isSelectedEventPending } =
@@ -1817,30 +1798,24 @@ function ObservabilityRoute() {
     });
   const setSearch = (patch: SearchPatch) => {
     void navigate({
-      search: (previous) =>
-        cleanObservabilitySearch({
-          ...observabilitySearchSchema.parse(previous),
-          ...patch,
-          cursor: undefined,
-        }),
+      search: (previous) => ({ ...previous, ...patch, cursor: undefined }),
       replace: true,
     });
   };
   const selectInstallation = (installationId: number) => {
     void navigate({
-      search: (previous) =>
-        cleanObservabilitySearch({
-          ...observabilitySearchSchema.parse(previous),
-          installationId,
-          repository: undefined,
-          naniteId: undefined,
-          creator: undefined,
-          outcome: undefined,
-          surface: undefined,
-          search: undefined,
-          selectedEvent: undefined,
-          cursor: undefined,
-        }),
+      search: (previous) => ({
+        ...previous,
+        installationId,
+        repository: undefined,
+        naniteId: undefined,
+        creator: undefined,
+        outcome: undefined,
+        surface: undefined,
+        search: undefined,
+        selectedEvent: undefined,
+        cursor: undefined,
+      }),
     });
   };
 
@@ -1852,10 +1827,7 @@ function ObservabilityRoute() {
     return (
       <Navigate
         to="/observability"
-        search={cleanObservabilitySearch({
-          ...normalizedSearch,
-          installationId: installationSelection.canonicalInstallationId,
-        })}
+        search={{ ...search, installationId: installationSelection.canonicalInstallationId }}
         replace
       />
     );

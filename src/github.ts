@@ -1,4 +1,5 @@
 import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webhooks";
+import { isRecord } from "#/utils.ts";
 
 const DEFAULT_GITHUB_APP_SLUG = "sigvelo";
 export const SIGVELO_GITHUB_APP_URL = `https://github.com/apps/${DEFAULT_GITHUB_APP_SLUG}`;
@@ -67,10 +68,6 @@ export type GitHubWebhookEventSnapshot = {
 };
 
 type GitHubWebhookEventLike = EmitterWebhookEvent | GitHubWebhookEventSnapshot;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 /**
  * Reads `payload.installation.id` from any Octokit webhook event.

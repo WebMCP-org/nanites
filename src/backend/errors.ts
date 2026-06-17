@@ -718,10 +718,6 @@ export function createAppErrorProblemResponse(
   );
 }
 
-function getRequestPath(context: ErrorHandlerContext): string {
-  return new URL(context.req.url).pathname;
-}
-
 function readMcpAuthorizationErrorMessage(error: AppError): string {
   const reason = error.details?.reason;
   return typeof reason === "string" && reason.length > 0
@@ -842,7 +838,7 @@ function handleGitHubOAuthCallbackError(
 }
 
 function handleAppErrorResponse(error: AppError, context: ErrorHandlerContext): Response {
-  const requestPath = getRequestPath(context);
+  const requestPath = new URL(context.req.url).pathname;
 
   if (error.kind === "authenticationRequired") {
     expireBrowserSessionCookies(context);

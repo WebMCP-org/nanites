@@ -219,9 +219,10 @@ Follow the setup checklist:
 5. Start Nanites.
 
 When Cloudflare asks for MCP permissions, the intended setup scope is the account that owns the
-Worker plus Billing Read and Workers Scripts Write. Billing Read is used only to confirm the account
-has an active Workers paid subscription before Nanites creates a GitHub App. Workers Scripts Write is
-used only to store generated setup secrets on the Worker.
+Worker plus Billing Read, Workers Scripts Write, and AI Gateway Read/Write. Billing Read is used only
+to confirm the account has an active Workers paid subscription before Nanites creates a GitHub App.
+Workers Scripts Write is used only to store generated setup secrets on the Worker. AI Gateway
+Read/Write is used to create or configure the deployment gateway.
 
 The Cloudflare step also checks the runtime pieces Nanites cannot safely fake:
 
@@ -229,9 +230,11 @@ The Cloudflare step also checks the runtime pieces Nanites cannot safely fake:
   directly.
 - Worker Loader can run a tiny setup smoke Worker. This proves generated trigger handlers can run as
   Dynamic Workers.
-- Workers AI is bound as `AI`, and the default Cloudflare-hosted Kimi K2.6 model id is configured.
-- The default model route uses Cloudflare AI Gateway `default`. Kimi K2.6 is Cloudflare-hosted
-  Workers AI, so the default setup does not need a Moonshot, OpenAI, or other provider API key.
+- Workers AI is bound as `AI`, and the default model id is configured.
+- The default model route uses the configured Cloudflare AI Gateway, default `sigvelo-nanites`, with
+  `openai/gpt-5.5`. Setup creates or configures that gateway with the deployment retry/ZDR settings.
+  Unified Billing models and `@cf/...` Workers AI models both run through the binding without
+  provider API keys in Nanites.
 - Browser Run is shown as informational because it supports later preview verification, but it is
   not a first-launch blocker.
 

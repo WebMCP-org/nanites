@@ -31,6 +31,7 @@ const routerPlugin = tanstackRouter({
   generatedRouteTree: "./src/frontend/routeTree.gen.ts",
   quoteStyle: "double",
   semicolons: true,
+  autoCodeSplitting: true,
 }) as PluginOption;
 
 if (hasSentryBuildConfig && !canUploadSentrySourceMaps) {

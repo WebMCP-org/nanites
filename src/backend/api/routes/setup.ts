@@ -29,7 +29,6 @@ import {
   readDeploymentGitHubAppMetadata,
   requireGitHubAppsTableReady,
   resolveGitHubApp,
-  type GitHubAppMetadata,
 } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
@@ -72,16 +71,6 @@ type SetupStatusResponse = NanitesSetupState & {
   readonly runtimeConfigReadable: boolean;
   readonly showSetup: boolean;
 };
-
-function toGitHubAppListEntry(app: GitHubAppMetadata) {
-  return {
-    appId: app.appId,
-    slug: app.slug,
-    htmlUrl: app.htmlUrl,
-    ownerLogin: app.ownerLogin,
-    status: app.status,
-  };
-}
 
 const setupVisibleRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {
   if (!shouldShowSetup(context.env)) {
@@ -449,5 +438,13 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
   .get("/api/setup/github-apps", setupVisibleRequired, async (context) => {
     requireSetupClaimToken(context.req.raw);
     const apps = await listGitHubApps(createDbClient(context.env.DB));
-    return context.json({ apps: apps.map(toGitHubAppListEntry) });
+    return context.json({
+      apps: apps.map((app) => ({
+        appId: app.appId,
+        slug: app.slug,
+        htmlUrl: app.htmlUrl,
+        ownerLogin: app.ownerLogin,
+        status: app.status,
+      })),
+    });
   });

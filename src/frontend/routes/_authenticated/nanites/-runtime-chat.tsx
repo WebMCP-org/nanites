@@ -1,4 +1,5 @@
 import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { isRecord } from "#/utils.ts";
 import { getToolName, isToolUIPart } from "ai";
 import type { UIMessage } from "ai";
 import { useAgent } from "agents/react";
@@ -95,10 +96,6 @@ const MIN_BASE64_LENGTH = 128;
 const STREAMDOWN_LINK_SAFETY = {
   enabled: false,
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function isSuspiciousBase64String(value: string): boolean {
   const trimmed = value.trim();

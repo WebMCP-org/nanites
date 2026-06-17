@@ -111,10 +111,6 @@ async function resolveAuthorizedNaniteToolRuntime(input: {
 
 const naniteToolLogger = getLogger(LOGGING.NANITES_CATEGORY);
 
-function getErrorType(error: unknown): string {
-  return error instanceof Error ? error.name : typeof error;
-}
-
 function redactInternalToolOutput(output: object): object {
   if (!("managerName" in output)) {
     return output;
@@ -127,15 +123,6 @@ function redactInternalToolOutput(output: object): object {
     }
   }
   return publicOutput;
-}
-
-function readOptionalToolCallId(input: unknown): string | undefined {
-  return typeof input === "object" &&
-    input !== null &&
-    "toolCallId" in input &&
-    typeof input.toolCallId === "string"
-    ? input.toolCallId
-    : undefined;
 }
 
 function createToolTelemetryContext(input: {
@@ -205,7 +192,7 @@ export async function executeSigveloNaniteTool(input: {
         invocation,
         runtime,
       }),
-      [OTEL_ATTRS.ERROR_TYPE]: getErrorType(error),
+      [OTEL_ATTRS.ERROR_TYPE]: error instanceof Error ? error.name : typeof error,
       [OTEL_ATTRS.EXCEPTION_MESSAGE]: describeError(error),
       [OTEL_ATTRS.REQUEST_DURATION_MS]: Math.round(performance.now() - startedAt),
     });
@@ -236,7 +223,7 @@ export function createSigveloThinkTool(
           env: input.env,
           props,
           surface: "manager_chat",
-          requestId: readOptionalToolCallId(executeOptions),
+          requestId: executeOptions.toolCallId,
         },
       });
     },

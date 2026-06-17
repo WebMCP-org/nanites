@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
+import { cx } from "./_internal/class-names.js";
 
 export interface TooltipPopupProps extends Omit<BaseTooltip.Popup.Props, "className"> {
   className?: string;
@@ -40,7 +41,7 @@ export function TooltipPositioner({
   ref,
   ...props
 }: TooltipPositionerProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["tooltip__positioner", className].filter(Boolean).join(" ");
+  const classes = cx("tooltip__positioner", className);
   return <BaseTooltip.Positioner ref={ref} className={classes} {...props} />;
 }
 
@@ -49,6 +50,6 @@ export function TooltipPopup({
   ref,
   ...props
 }: TooltipPopupProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["tooltip__popup", className].filter(Boolean).join(" ");
+  const classes = cx("tooltip__popup", className);
   return <BaseTooltip.Popup ref={ref} className={classes} {...props} />;
 }

@@ -413,6 +413,97 @@ function buildCloudflareBlockedSetupState(detail: string): NanitesSetupState {
   };
 }
 
+type CloudflareMcpExecuteArgs = {
+  readonly code: string;
+  readonly account_id?: string;
+};
+
+type CloudflareApiRequestRecord = {
+  readonly method: string;
+  readonly path: string;
+  readonly body?: unknown;
+  readonly contentType?: string;
+};
+
+function readCloudflareMcpExecuteArgs(params: unknown): CloudflareMcpExecuteArgs {
+  if (
+    typeof params === "object" &&
+    params !== null &&
+    "name" in params &&
+    params.name === "execute" &&
+    "arguments" in params &&
+    typeof params.arguments === "object" &&
+    params.arguments !== null &&
+    "code" in params.arguments &&
+    typeof params.arguments.code === "string"
+  ) {
+    return params.arguments as CloudflareMcpExecuteArgs;
+  }
+
+  throw new Error("Expected Cloudflare MCP execute tool call.");
+}
+
+async function runCloudflareMcpExecute(
+  input: CloudflareMcpExecuteArgs,
+  requests: CloudflareApiRequestRecord[],
+): Promise<unknown> {
+  const cloudflare = {
+    request: async (request: CloudflareApiRequestRecord) => {
+      requests.push(request);
+      const result = readFakeCloudflareApiResult(request);
+      return {
+        success: true,
+        status: 200,
+        errors: [],
+        result,
+      };
+    },
+  };
+  const run = new Function("cloudflare", "accountId", `return (${input.code})();`) as (
+    cloudflare: unknown,
+    accountId: string | undefined,
+  ) => Promise<unknown>;
+
+  return await run(cloudflare, input.account_id);
+}
+
+function readFakeCloudflareApiResult(request: CloudflareApiRequestRecord): unknown {
+  if (request.method === "GET" && request.path === "/memberships") {
+    return [{ account: { id: "test-account", name: "Test Account" } }];
+  }
+  if (request.method === "GET" && request.path === "/accounts/test-account/workers/subdomain") {
+    return { subdomain: "example" };
+  }
+  if (
+    request.method === "GET" &&
+    request.path === "/accounts/test-account/workers/scripts/sigvelo-agent-tests/subdomain"
+  ) {
+    return { enabled: true };
+  }
+  if (request.method === "GET" && request.path === "/accounts/test-account/subscriptions") {
+    return [
+      {
+        state: "active",
+        rate_plan: {
+          id: "workers_paid",
+          public_name: "Workers Paid",
+        },
+      },
+    ];
+  }
+  if (
+    request.method === "GET" &&
+    request.path.startsWith("/accounts/test-account/ai-gateway/gateways?")
+  ) {
+    return [];
+  }
+  if (request.method === "POST" && request.path === "/accounts/test-account/ai-gateway/gateways") {
+    return request.body;
+  }
+
+  throw new Error(`Unexpected fake Cloudflare API request: ${request.method} ${request.path}`);
+}
+
 /**
  * Serves a minimal Streamable HTTP MCP server for the Cloudflare API endpoint
  * plus the GitHub manifest conversion endpoint, so the setup Agent can run its
@@ -464,6 +555,75 @@ function buildFakeCloudflareMcpFetch(originalFetch: typeof fetch): typeof fetch 
       case "tools/call":
         return respond({
           content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
+        });
+      case "prompts/list":
+        return respond({ prompts: [] });
+      case "resources/list":
+        return respond({ resources: [] });
+      case "resources/templates/list":
+        return respond({ resourceTemplates: [] });
+      default:
+        return respond({});
+    }
+  };
+}
+
+function buildCloudflareVerificationMcpFetch(
+  originalFetch: typeof fetch,
+  cloudflareRequests: CloudflareApiRequestRecord[],
+): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    if (request.url !== CLOUDFLARE_MCP_SERVER_URL) {
+      return originalFetch(input, init);
+    }
+    if (request.method === "GET") {
+      return new Response("SSE not supported", { status: 405 });
+    }
+    if (request.method === "DELETE") {
+      return new Response(null, { status: 200 });
+    }
+
+    const message = (await request.json()) as {
+      id?: number | string;
+      method?: string;
+      params?: unknown;
+    };
+    if (message.id === undefined) {
+      return new Response(null, { status: 202 });
+    }
+    const respond = (result: unknown) => Response.json({ jsonrpc: "2.0", id: message.id, result });
+
+    switch (message.method) {
+      case "initialize":
+        return respond({
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: {}, prompts: {}, resources: {} },
+          serverInfo: { name: "fake-cloudflare-mcp", version: "1.0.0" },
+        });
+      case "tools/list":
+        return respond({
+          tools: [
+            {
+              name: "execute",
+              description: "Execute code against the Cloudflare API.",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+        });
+      case "tools/call":
+        return respond({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                await runCloudflareMcpExecute(
+                  readCloudflareMcpExecuteArgs(message.params),
+                  cloudflareRequests,
+                ),
+              ),
+            },
+          ],
         });
       case "prompts/list":
         return respond({ prompts: [] });
@@ -921,8 +1081,72 @@ test("Cloudflare setup OAuth uses the stable setup Agent callback route", async 
     expect(registrationBodies[0]).toMatchObject({
       redirect_uris: [expectedCallbackUrl],
     });
+    expect(CLOUDFLARE_SETUP_OAUTH_SCOPE.split(" ")).toEqual(
+      expect.arrayContaining(["aig:read", "aig:write"]),
+    );
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("Cloudflare setup provisions the configured AI Gateway", async () => {
+  const setupAgent = await getSetupAgent();
+  const cloudflareRequests: CloudflareApiRequestRecord[] = [];
+  const originalFetch = globalThis.fetch;
+  const originalAiBinding = Reflect.get(env, "AI");
+  Reflect.set(env, "AI", {
+    models: async () => [],
+    run: async () => ({}),
+  });
+  globalThis.fetch = buildCloudflareVerificationMcpFetch(originalFetch, cloudflareRequests);
+
+  try {
+    const result = await setupAgent.connectCloudflare({ origin: SETUP_ORIGIN });
+
+    expect(result.authorizationUrl).toBeNull();
+    expect(result.claim).toMatchObject({ token: expect.any(String) });
+    expect(result.state).toMatchObject({
+      currentStep: "github-app",
+      cloudflare: {
+        status: "verified",
+        accountId: "test-account",
+        readiness: {
+          status: "ready",
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              key: "ai-gateway",
+              label: "AI Gateway",
+              required: true,
+              status: "ready",
+              detail: expect.stringContaining("Created Cloudflare AI Gateway `sigvelo-nanites`"),
+            }),
+          ]),
+        },
+      },
+      githubApp: {
+        status: "ready",
+      },
+    });
+
+    const gatewayCreateRequest = cloudflareRequests.find(
+      (request) =>
+        request.method === "POST" && request.path === "/accounts/test-account/ai-gateway/gateways",
+    );
+    expect(gatewayCreateRequest?.body).toMatchObject({
+      id: "sigvelo-nanites",
+      cache_invalidate_on_update: true,
+      cache_ttl: 0,
+      collect_logs: true,
+      rate_limiting_interval: 0,
+      rate_limiting_limit: 0,
+      retry_max_attempts: 5,
+      retry_delay: 500,
+      retry_backoff: "exponential",
+      zdr: false,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    Reflect.set(env, "AI", originalAiBinding);
   }
 });
 

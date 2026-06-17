@@ -487,18 +487,6 @@ function readInstallationAccountLogin(account: GitHubVisibleInstallationAccount)
   return null;
 }
 
-function readInstallationAccountType(account: GitHubVisibleInstallationAccount): string {
-  if ("type" in account && typeof account.type === "string" && account.type.length > 0) {
-    return account.type;
-  }
-
-  if ("slug" in account) {
-    return "Enterprise";
-  }
-
-  return "Account";
-}
-
 async function refreshGitHubUserToken({
   githubUserToken,
   env,
@@ -608,7 +596,14 @@ function readSessionInstallationSnapshot(
     account: {
       id: visibleInstallation.account.id,
       login: accountLogin,
-      type: readInstallationAccountType(visibleInstallation.account),
+      type:
+        "type" in visibleInstallation.account &&
+        typeof visibleInstallation.account.type === "string" &&
+        visibleInstallation.account.type.length > 0
+          ? visibleInstallation.account.type
+          : "slug" in visibleInstallation.account
+            ? "Enterprise"
+            : "Account",
       avatar_url: visibleInstallation.account.avatar_url ?? null,
     },
   });

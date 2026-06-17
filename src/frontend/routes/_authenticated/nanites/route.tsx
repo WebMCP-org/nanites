@@ -1,4 +1,5 @@
 import "./nanites.css";
+import { isRecord } from "#/utils.ts";
 import {
   Suspense,
   useCallback,
@@ -88,7 +89,7 @@ import {
   NaniteDesktopPanelControls,
   type NaniteDesktopPanel,
 } from "#/frontend/routes/_authenticated/nanites/-layout-controls.tsx";
-import { AgentConnectionPopover } from "#/frontend/routes/-agent-connection.tsx";
+import { AgentConnectionPopover } from "#/frontend/ui/components/AgentConnection.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
 import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
@@ -985,10 +986,6 @@ function groupNanitesByRepository(items: readonly NaniteListItem[]): NaniteRepos
         return rightTime.localeCompare(leftTime);
       }),
     }));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function isNaniteManagerState(value: unknown): value is NaniteManagerState {

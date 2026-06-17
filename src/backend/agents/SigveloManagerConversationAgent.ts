@@ -1,5 +1,10 @@
 import { Think, Workspace, skills } from "@cloudflare/think";
-import type { Session, ThinkSubmissionInspection, ThinkSubmissionStatus } from "@cloudflare/think";
+import type {
+  Session,
+  ThinkSubmissionInspection,
+  ThinkSubmissionStatus,
+  TurnConfig,
+} from "@cloudflare/think";
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
@@ -127,6 +132,13 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     });
   }
 
+  // AI Gateway owns upstream-provider retries (NANITES_AI_GATEWAY_REQUEST_DEFAULTS); cap the AI
+  // SDK's own retry so the two layers don't compound. 1 still covers a transient
+  // worker→gateway transport blip.
+  override beforeTurn(): TurnConfig {
+    return { maxRetries: 1 };
+  }
+
   override configureSession(session: Session): Session {
     return session
       .withContext("manager_installation_context", {
@@ -189,17 +201,13 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   @callable()
   async connectBrowserInstallation(): Promise<{ connected: true }> {
     const connection = createSigveloToolAuthPropsFromBrowser(this.name);
-    await this.ensureSigveloToolsConnected(connection.props, connection.accountLogin);
+    await this.ensureGitHubMcpConnected(connection.props, connection.accountLogin);
     return { connected: true };
   }
 
   async connectSigveloTools(input: HandleManagerChatMessageInput): Promise<void> {
     const props = createSigveloToolAuthProps(input);
-    await this.ensureSigveloToolsConnected(props, getRepositoryOwner(input.surface.raw.repository));
-  }
-
-  private async ensureSigveloToolsConnected(props: SigveloMcpAuthProps, accountLogin: string) {
-    await this.ensureGitHubMcpConnected(props, accountLogin);
+    await this.ensureGitHubMcpConnected(props, getRepositoryOwner(input.surface.raw.repository));
   }
 
   private async ensureGitHubMcpConnected(props: SigveloMcpAuthProps, accountLogin: string) {
