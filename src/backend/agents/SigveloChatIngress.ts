@@ -1,4 +1,5 @@
 import { createGitHubAdapter } from "@chat-adapter/github";
+import { isRecord } from "#/utils.ts";
 import type { GitHubAdapter, GitHubRawMessage } from "@chat-adapter/github";
 import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getLogger } from "@logtape/logtape";
@@ -113,10 +114,6 @@ function createGitHubConversationLogContext(input: {
     ...(input.threadId ? { [OTEL_ATTRS.GITHUB_THREAD_ID]: input.threadId } : {}),
     ...(input.userMessageId ? { [OTEL_ATTRS.USER_MESSAGE_ID]: input.userMessageId } : {}),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function isGitHubRawMessage(raw: unknown): raw is GitHubRawMessage {

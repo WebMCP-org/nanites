@@ -33,11 +33,3 @@ export const observabilitySearchSchema = z.object({
 });
 
 export type ObservabilitySearch = z.infer<typeof observabilitySearchSchema>;
-
-export function cleanObservabilitySearch(search: ObservabilitySearch): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(search)
-      .filter(([, value]) => value !== undefined && value !== "" && value !== false)
-      .map(([key, value]) => [key, String(value)]),
-  );
-}

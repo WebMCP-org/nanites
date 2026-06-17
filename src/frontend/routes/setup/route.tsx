@@ -13,7 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
-import { AgentConnectionPanel } from "#/frontend/routes/-agent-connection.tsx";
+import { AgentConnectionPanel } from "#/frontend/ui/components/AgentConnection.tsx";
 import { httpClient } from "#/frontend/lib/http-client.ts";
 import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";

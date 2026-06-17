@@ -7,6 +7,7 @@ import {
 } from "@logtape/logtape";
 import { redactByField } from "@logtape/redaction";
 import { subscribe, type ChannelEventMap, type ObservabilityEvent } from "agents/observability";
+import { isRecord } from "#/utils.ts";
 
 /**
  * Logger categories and runtime values for the agent app and its DB package so
@@ -260,10 +261,6 @@ export function getApiRequestLogEvent(status: number): string {
     return LOG_EVENTS.API_REQUEST_FAILED;
   }
   return LOG_EVENTS.API_REQUEST_COMPLETED;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isLogPropertyValue(value: unknown): value is LogPropertyValue {

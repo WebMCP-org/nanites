@@ -1,4 +1,5 @@
 import { createWorker } from "@cloudflare/worker-bundler";
+import { isRecord } from "#/utils.ts";
 // import { InMemoryFileSystem, installDependencies } from "@cloudflare/worker-bundler";
 // import { createTypescriptLanguageService } from "@cloudflare/worker-bundler/typescript";
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
@@ -496,10 +497,6 @@ export default {
   },
 };
 `;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function toDispatchInputValue(value: unknown): TriggerDispatchInputValue {
   if (

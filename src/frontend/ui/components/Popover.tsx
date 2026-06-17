@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
+import { cx } from "./_internal/class-names.js";
 
 /**
  * Props for the Popover.Root component.
@@ -134,7 +135,7 @@ function PopoverTrigger({
   ref,
   ...props
 }: PopoverTriggerProps & { ref?: React.Ref<HTMLButtonElement> }) {
-  const classes = ["popover__trigger", className].filter(Boolean).join(" ");
+  const classes = cx("popover__trigger", className);
   return <BasePopover.Trigger ref={ref} className={classes} {...props} />;
 }
 
@@ -153,7 +154,7 @@ function PopoverBackdrop({
   ref,
   ...props
 }: PopoverBackdropProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["popover__backdrop", className].filter(Boolean).join(" ");
+  const classes = cx("popover__backdrop", className);
   return <BasePopover.Backdrop ref={ref} className={classes} {...props} />;
 }
 
@@ -173,7 +174,7 @@ function PopoverPositioner({
   ref,
   ...props
 }: PopoverPositionerProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["popover__positioner", className].filter(Boolean).join(" ");
+  const classes = cx("popover__positioner", className);
   return <BasePopover.Positioner ref={ref} className={classes} {...props} />;
 }
 
@@ -185,7 +186,7 @@ function PopoverPopup({
   ref,
   ...props
 }: PopoverPopupProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["popover__popup", className].filter(Boolean).join(" ");
+  const classes = cx("popover__popup", className);
   return <BasePopover.Popup ref={ref} className={classes} {...props} />;
 }
 
@@ -197,7 +198,7 @@ function PopoverArrow({
   ref,
   ...props
 }: PopoverArrowProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["popover__arrow", className].filter(Boolean).join(" ");
+  const classes = cx("popover__arrow", className);
   return <BasePopover.Arrow ref={ref} className={classes} {...props} />;
 }
 
@@ -210,7 +211,7 @@ function PopoverTitle({
   ref,
   ...props
 }: PopoverTitleProps & { ref?: React.Ref<HTMLHeadingElement> }) {
-  const classes = ["popover__title", className].filter(Boolean).join(" ");
+  const classes = cx("popover__title", className);
   return <BasePopover.Title ref={ref} className={classes} {...props} />;
 }
 
@@ -223,7 +224,7 @@ function PopoverDescription({
   ref,
   ...props
 }: PopoverDescriptionProps & { ref?: React.Ref<HTMLParagraphElement> }) {
-  const classes = ["popover__description", className].filter(Boolean).join(" ");
+  const classes = cx("popover__description", className);
   return <BasePopover.Description ref={ref} className={classes} {...props} />;
 }
 
@@ -235,7 +236,7 @@ function PopoverClose({
   ref,
   ...props
 }: PopoverCloseProps & { ref?: React.Ref<HTMLButtonElement> }) {
-  const classes = ["popover__close", className].filter(Boolean).join(" ");
+  const classes = cx("popover__close", className);
   return <BasePopover.Close ref={ref} className={classes} {...props} />;
 }
 

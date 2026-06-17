@@ -248,7 +248,11 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
     context.header("cache-control", "no-store");
     return next();
   })
-  .get(MCP_AUTHORIZE_ROUTE, (context) => {
+  .get(MCP_AUTHORIZE_ROUTE, mcpOAuthProviderRequired, mcpAuthRequestRequired, (context) => {
+    // parseAuthRequest (via mcpAuthRequestRequired) validates client_id and redirect_uri
+    // against the registered client before we redirect anywhere. An unregistered
+    // redirect_uri throws invalidMcpAuthorizationRequest and renders the error page,
+    // rather than bouncing the consent SPA to an attacker-supplied callback.
     const sourceUrl = new URL(context.req.raw.url);
     const uiUrl = new URL(MCP_AUTHORIZE_UI_ROUTE, context.req.raw.url);
     uiUrl.search = sourceUrl.search;

@@ -3,7 +3,7 @@
     "id": "docs-syncer-react-webmcp",
     "name": "React WebMCP Docs Syncer",
     "description": "Keeps React WebMCP documentation aligned when the package changes.",
-    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "model": "openai/gpt-5.5",
     "eventSource": {
       "type": "github",
       "events": ["push"],

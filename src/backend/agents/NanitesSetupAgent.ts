@@ -21,7 +21,11 @@ import {
   type GitHubAppManifestConversion,
 } from "#/backend/github/index.ts";
 import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
-import { resolveNanitesAiGatewayId } from "#/backend/nanites/language-model.ts";
+import {
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+  NANITES_AI_GATEWAY_ID,
+  NANITES_AI_GATEWAY_REQUEST_DEFAULTS,
+} from "#/backend/nanites/language-model.ts";
 import { LOGGING } from "#/backend/logging.ts";
 import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
 import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
@@ -41,7 +45,7 @@ const CLOUDFLARE_MCP_SERVER_URL = "https://mcp.cloudflare.com/mcp";
 const CLOUDFLARE_MCP_CALLBACK_PATH = `/agents/${NANITES_SETUP_AGENT_NAME}/${NANITES_SETUP_AGENT_INSTANCE_NAME}/callback`;
 const CLOUDFLARE_MCP_TIMEOUT_MS = 2 * 60 * 1_000;
 export const CLOUDFLARE_SETUP_OAUTH_SCOPE =
-  "offline_access user:read account:read billing:read workers:read workers_scripts:write";
+  "offline_access user:read account:read billing:read workers:read workers_scripts:write aig:read aig:write";
 
 export const GITHUB_APP_MANIFEST_CALLBACK_PATH = "/setup/github/manifest/callback";
 export const GITHUB_APP_INSTALL_CALLBACK_PATH = "/setup/github/installed";
@@ -390,22 +394,6 @@ async function sha256Base64Url(value: string): Promise<string> {
   return bytesToBase64Url(new Uint8Array(digest));
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Worker route resolution
 // ---------------------------------------------------------------------------
@@ -592,6 +580,15 @@ const cloudflareSubscriptionSchema = z.object({
 });
 
 type CloudflareSubscription = z.output<typeof cloudflareSubscriptionSchema>;
+
+const cloudflareAiGatewaySetupSchema = z.object({
+  id: z.string().min(1),
+  created: z.boolean(),
+  retry_max_attempts: z.number().nullish(),
+  retry_delay: z.number().nullish(),
+  retry_backoff: z.enum(["constant", "linear", "exponential"]).nullish(),
+  zdr: z.boolean().nullish(),
+});
 
 const WORKERS_PAID_RATE_PLAN_IDS = new Set([
   "workers_paid",
@@ -1109,7 +1106,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       await this.checkWorkersPaid(accountId),
       await this.checkWorkerLoader(),
       this.checkWorkersAiBinding(),
-      this.checkAiGateway(),
+      await this.checkAiGateway(accountId),
       this.checkBrowserBinding(),
     ];
 
@@ -1243,20 +1240,127 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       ...item,
       status: "ready",
       detail:
-        "Workers AI binding `AI` is present. The default Cloudflare-hosted model needs no provider API key.",
+        "Workers AI binding `AI` is present. Model requests can use Workers AI or Unified Billing third-party models without provider API keys.",
       action: null,
     };
   }
 
-  private checkAiGateway(): CloudflareReadinessItem {
-    return {
+  private async checkAiGateway(accountId: string): Promise<CloudflareReadinessItem> {
+    const item = {
       key: "ai-gateway",
       label: "AI Gateway",
-      required: false,
-      status: "ready",
-      detail: `Default model requests use Cloudflare AI Gateway \`${resolveNanitesAiGatewayId(this.env)}\`; provider API keys are only needed for future non-Workers-AI models.`,
-      action: null,
-    };
+      required: true,
+    } as const;
+    const gatewayId = NANITES_AI_GATEWAY_ID;
+    const modelId = DEFAULT_SIGVELO_AGENT_MODEL_ID;
+    const gatewayDefaults = NANITES_AI_GATEWAY_REQUEST_DEFAULTS;
+
+    try {
+      const gateway = cloudflareAiGatewaySetupSchema.parse(
+        await this.executeCloudflareCode({
+          accountId,
+          code: `async () => {
+  const gatewayId = ${JSON.stringify(gatewayId)};
+  const defaults = ${JSON.stringify({
+    retry_max_attempts: gatewayDefaults.maxAttempts,
+    retry_delay: gatewayDefaults.retryDelayMs,
+    retry_backoff: gatewayDefaults.backoff,
+    zdr: gatewayDefaults.zdr,
+  })};
+  const gatewayPath = \`/accounts/\${accountId}/ai-gateway/gateways\`;
+
+  function readBoolean(value, fallback) {
+    return typeof value === "boolean" ? value : fallback;
+  }
+
+  function readNumber(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
+
+  const listParams = new URLSearchParams({ search: gatewayId, per_page: "100" });
+  const listResponse = await cloudflare.request({
+    method: "GET",
+    path: \`\${gatewayPath}?\${listParams.toString()}\`,
+  });
+  if (!listResponse.success) {
+    throw new Error(\`AI Gateway list failed (\${listResponse.status}): \${JSON.stringify(listResponse.errors)}\`);
+  }
+
+  const gateways = Array.isArray(listResponse.result) ? listResponse.result : [];
+  const existing = gateways.find(
+    (candidate) =>
+      candidate &&
+      typeof candidate === "object" &&
+      candidate.id === gatewayId,
+  );
+
+  const gatewayConfig = existing
+    ? {
+        id: gatewayId,
+        cache_invalidate_on_update: readBoolean(existing.cache_invalidate_on_update, true),
+        cache_ttl: readNumber(existing.cache_ttl, 0),
+        collect_logs: readBoolean(existing.collect_logs, true),
+        rate_limiting_interval: readNumber(existing.rate_limiting_interval, 0),
+        rate_limiting_limit: readNumber(existing.rate_limiting_limit, 0),
+        retry_max_attempts: defaults.retry_max_attempts,
+        retry_delay: defaults.retry_delay,
+        retry_backoff: defaults.retry_backoff,
+        zdr: defaults.zdr || readBoolean(existing.zdr, false),
+      }
+    : {
+        id: gatewayId,
+        cache_invalidate_on_update: true,
+        cache_ttl: 0,
+        collect_logs: true,
+        rate_limiting_interval: 0,
+        rate_limiting_limit: 0,
+        retry_max_attempts: defaults.retry_max_attempts,
+        retry_delay: defaults.retry_delay,
+        retry_backoff: defaults.retry_backoff,
+        zdr: defaults.zdr,
+      };
+
+  const response = await cloudflare.request({
+    method: existing ? "PUT" : "POST",
+    path: existing
+      ? \`\${gatewayPath}/\${encodeURIComponent(gatewayId)}\`
+      : gatewayPath,
+    body: gatewayConfig,
+  });
+  if (!response.success) {
+    throw new Error(\`AI Gateway \${existing ? "update" : "create"} failed (\${response.status}): \${JSON.stringify(response.errors)}\`);
+  }
+
+  return {
+    ...response.result,
+    created: !existing,
+  };
+}`,
+        }),
+      );
+      const configuredMaxAttempts = gateway.retry_max_attempts ?? gatewayDefaults.maxAttempts;
+      const configuredRetryDelay = gateway.retry_delay ?? gatewayDefaults.retryDelayMs;
+      const configuredBackoff = gateway.retry_backoff ?? gatewayDefaults.backoff;
+      const zdrDetail =
+        gateway.zdr === true
+          ? "ZDR is enabled on the gateway."
+          : "ZDR is not enabled; set `zdr: true` in NANITES_AI_GATEWAY_REQUEST_DEFAULTS and redeploy to request it.";
+
+      return {
+        ...item,
+        status: "ready",
+        detail: `${gateway.created ? "Created" : "Configured"} Cloudflare AI Gateway \`${gateway.id}\` for default model \`${modelId}\`. Retry policy is ${configuredMaxAttempts} attempts, ${configuredRetryDelay}ms delay, ${configuredBackoff} backoff. ${zdrDetail}`,
+        action: null,
+      };
+    } catch {
+      return {
+        ...item,
+        status: "blocked",
+        detail:
+          "AI Gateway setup failed. Reconnect Cloudflare and grant AI Gateway Read/Write, or create the configured gateway manually before continuing.",
+        action: "reconnect",
+      };
+    }
   }
 
   private checkBrowserBinding(): CloudflareReadinessItem {
@@ -1618,16 +1722,16 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     readonly code: string;
     readonly accountId?: string;
   }): Promise<unknown> {
-    const result = await withTimeout(
-      this.mcp.callTool({
+    const result = await this.mcp.callTool(
+      {
         serverId: CLOUDFLARE_MCP_SERVER_ID,
         name: "execute",
         arguments: input.accountId
           ? { code: input.code, account_id: input.accountId }
           : { code: input.code },
-      }),
-      CLOUDFLARE_MCP_TIMEOUT_MS,
-      "Cloudflare MCP execute",
+      },
+      undefined,
+      { timeout: CLOUDFLARE_MCP_TIMEOUT_MS },
     );
 
     if ("isError" in result && result.isError) {

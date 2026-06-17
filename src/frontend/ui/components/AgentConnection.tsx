@@ -10,6 +10,7 @@ import {
   CodeBlockTitle,
 } from "#/frontend/ui/components/CodeBlock.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
+import { cx } from "#/frontend/ui/components/_internal/class-names.js";
 import { Popover } from "#/frontend/ui/components/Popover.tsx";
 import { buildAgentConnectionCommands } from "#/frontend/lib/agent-connection-commands.ts";
 import type { AgentConnectionTarget } from "#/frontend/lib/agent-connection-commands.ts";
@@ -42,7 +43,7 @@ export function AgentConnectionPanel({
   const selected = commands.find((command) => command.target === target) ?? commands[0];
 
   return (
-    <section className={["agent-connect", className].filter(Boolean).join(" ")}>
+    <section className={cx("agent-connect", className)}>
       <div className="agent-connect__header">
         <div className="agent-connect__icon" aria-hidden="true">
           <PlugsConnectedIcon size={18} weight="bold" />

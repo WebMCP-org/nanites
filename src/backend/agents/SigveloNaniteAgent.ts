@@ -37,7 +37,7 @@ import {
 import {
   createNaniteRunLanguageModel,
   createSigveloAgentLanguageModel,
-  resolveNanitesAiGatewayId,
+  NANITES_AI_GATEWAY_ID,
 } from "#/backend/nanites/language-model.ts";
 import type {
   AskHumanInput,
@@ -940,6 +940,10 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       sendReasoning: true,
       tools: this.wrapTurnToolsForOutputBudget(ctx.tools),
       stopWhen: naniteLifecycleTools.map((toolName) => hasToolCall(toolName)),
+      // AI Gateway owns upstream-provider retries (NANITES_AI_GATEWAY_REQUEST_DEFAULTS); cap the
+      // AI SDK's own retry so the two layers don't compound into ~10 attempts. 1 still covers a
+      // transient worker→gateway transport blip.
+      maxRetries: 1,
     };
   }
 
@@ -1901,7 +1905,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(run),
       modelId,
-      gatewayId: runModel?.effectiveGatewayId ?? resolveNanitesAiGatewayId(this.env),
+      gatewayId: runModel?.effectiveGatewayId ?? NANITES_AI_GATEWAY_ID,
     });
   }
 

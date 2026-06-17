@@ -29,6 +29,7 @@ export const router = createRouter({
   context: {
     queryClient,
   },
+  defaultPreload: "intent",
   defaultPendingComponent: RoutePendingPage,
   defaultErrorComponent: RouteErrorBoundary,
   defaultNotFoundComponent: RouteNotFoundPage,

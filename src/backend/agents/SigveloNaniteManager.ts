@@ -58,7 +58,7 @@ import {
   systemActor,
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
-import { resolveNanitesAiGatewayId } from "#/backend/nanites/language-model.ts";
+import { NANITES_AI_GATEWAY_ID } from "#/backend/nanites/language-model.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -971,7 +971,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       model: {
         runtimePath: "workers_ai_gateway",
         effectiveModelId: nanite.manifest.model,
-        effectiveGatewayId: resolveNanitesAiGatewayId(this.env),
+        effectiveGatewayId: NANITES_AI_GATEWAY_ID,
         manifestVersionId: nanite.latestVersion.versionId,
         resolvedAt: startedAt,
       },

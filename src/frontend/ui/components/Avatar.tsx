@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Avatar as BaseAvatar } from "@base-ui/react/avatar";
+import { cx } from "./_internal/class-names.js";
 
 /**
  * Props for the Avatar.Root component.
@@ -52,7 +53,7 @@ function AvatarRoot({
   ref,
   ...props
 }: AvatarRootProps & { ref?: React.Ref<HTMLSpanElement> }) {
-  const classes = ["avatar", className].filter(Boolean).join(" ");
+  const classes = cx("avatar", className);
   return <BaseAvatar.Root ref={ref} className={classes} {...props} />;
 }
 
@@ -64,7 +65,7 @@ function AvatarImage({
   ref,
   ...props
 }: AvatarImageProps & { ref?: React.Ref<HTMLImageElement> }) {
-  const classes = ["avatar__image", className].filter(Boolean).join(" ");
+  const classes = cx("avatar__image", className);
   return <BaseAvatar.Image ref={ref} className={classes} {...props} />;
 }
 
@@ -77,7 +78,7 @@ function AvatarFallback({
   ref,
   ...props
 }: AvatarFallbackProps & { ref?: React.Ref<HTMLSpanElement> }) {
-  const classes = ["avatar__fallback", className].filter(Boolean).join(" ");
+  const classes = cx("avatar__fallback", className);
   return <BaseAvatar.Fallback ref={ref} className={classes} {...props} />;
 }
 

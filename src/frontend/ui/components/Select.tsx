@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Select as BaseSelect } from "@base-ui/react/select";
+import { cx } from "./_internal/class-names.js";
 
 // Context to track value -> label mappings
 type SelectLabelsContextType = {
@@ -16,7 +17,7 @@ interface SelectProps extends React.ComponentPropsWithRef<typeof BaseSelect.Root
    * a portal (not mounted until opened) so SelectValue can display the correct
    * label on initial render.
    */
-  items?: Array<{ label: React.ReactNode; value: unknown }>;
+  items?: ReadonlyArray<{ readonly label: React.ReactNode; readonly value: unknown }>;
 }
 
 interface SelectTriggerProps extends Omit<BaseSelect.Trigger.Props, "className"> {
@@ -174,7 +175,7 @@ export function SelectPositioner({
   ref,
   ...props
 }: SelectPositionerProps & { className?: string } & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["select__positioner", className].filter(Boolean).join(" ");
+  const classes = cx("select__positioner", className);
   return <BaseSelect.Positioner ref={ref} className={classes} {...props} />;
 }
 
@@ -183,7 +184,7 @@ export function SelectPopup({
   ref,
   ...props
 }: SelectPopupProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["select__popup", className].filter(Boolean).join(" ");
+  const classes = cx("select__popup", className);
   return <BaseSelect.Popup ref={ref} className={classes} {...props} />;
 }
 
@@ -192,7 +193,7 @@ export function SelectList({
   ref,
   ...props
 }: SelectListProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["select__list", className].filter(Boolean).join(" ");
+  const classes = cx("select__list", className);
   return <BaseSelect.List ref={ref} className={classes} {...props} />;
 }
 
@@ -218,7 +219,7 @@ export function SelectOption({
     }
   }, [value]);
 
-  const classes = ["select__option", className].filter(Boolean).join(" ");
+  const classes = cx("select__option", className);
   return (
     <BaseSelect.Item ref={ref} className={classes} value={value} {...props}>
       {children}

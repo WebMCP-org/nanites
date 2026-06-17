@@ -1,5 +1,10 @@
 import { Think, Workspace, skills } from "@cloudflare/think";
-import type { Session, ThinkSubmissionInspection, ThinkSubmissionStatus } from "@cloudflare/think";
+import type {
+  Session,
+  ThinkSubmissionInspection,
+  ThinkSubmissionStatus,
+  TurnConfig,
+} from "@cloudflare/think";
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
 import { createWorkspaceStateBackend } from "@cloudflare/shell";
@@ -125,6 +130,13 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       env: this.env,
       sessionAffinity: this.sessionAffinity,
     });
+  }
+
+  // AI Gateway owns upstream-provider retries (NANITES_AI_GATEWAY_REQUEST_DEFAULTS); cap the AI
+  // SDK's own retry so the two layers don't compound. 1 still covers a transient
+  // worker→gateway transport blip.
+  override beforeTurn(): TurnConfig {
+    return { maxRetries: 1 };
   }
 
   override configureSession(session: Session): Session {

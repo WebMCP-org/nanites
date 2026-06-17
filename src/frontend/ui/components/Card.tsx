@@ -1,4 +1,5 @@
 import * as React from "react";
+import { cx } from "./_internal/class-names.js";
 
 /**
  * Props for the Card component.
@@ -33,7 +34,7 @@ export function Card({
   ref,
   ...props
 }: CardProps & { ref?: React.Ref<HTMLDivElement> }) {
-  const classes = ["card", hover && "card--hover", className].filter(Boolean).join(" ");
+  const classes = cx("card", hover && "card--hover", className);
 
   return (
     <div ref={ref} className={classes} {...props}>

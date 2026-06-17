@@ -150,9 +150,13 @@ export const nanitesMcpApiHandler = {
       });
     }
 
+    // This handler is stateless: a fresh server per request, no session id, and the
+    // transport returns 405 for the GET/DELETE session endpoints. There is therefore no
+    // server→client stream to deliver tools/list_changed on, so advertise listChanged:
+    // false rather than promise notifications that can never arrive.
     const server = new McpServer(
       { name: "sigvelo-nanites", version: "0.1.0" },
-      { capabilities: { tools: { listChanged: true } } },
+      { capabilities: { tools: { listChanged: false } } },
     );
     registerSigveloNaniteTools(server, {
       env,

@@ -15,7 +15,7 @@ include an explicit model id in create payloads.
 Current Nanite manifests contain:
 
 - identity: `id`, `name`, `description`
-- model: explicit Cloudflare model id string
+- model: explicit Cloudflare AI model catalog id string
 - intake: `eventSource`
 - authority: `permissions`
 - generated behavior: root `triggerSource` for machine sources
@@ -34,7 +34,7 @@ Example:
 
 ```json
 {
-  "model": "@cf/moonshotai/kimi-k2.7-code"
+  "model": "openai/gpt-5.5"
 }
 ```
 
@@ -43,9 +43,9 @@ provider credential in the manifest. If a model is not valid or runnable, regist
 should fail normally.
 
 The manager authoring prompt should tell agents to inspect the current Cloudflare model catalog and
-provider-native AI Gateway surfaces, then pick the cheapest reliable function-calling text model for
-the Nanite's job. Prefer Cloudflare-hosted function-calling models unless a provider-native model is
-known to support the tool loop required by Nanite runtimes.
+pick the cheapest reliable function-calling text model for the Nanite's job. Prefer a third-party
+Unified Billing model when Workers AI capacity is the problem; keep `@cf/...` Workers AI models as
+explicit opt-in choices rather than the only supported path.
 
 ## Validation
 
@@ -68,6 +68,8 @@ All model execution goes through the customer-owned Cloudflare deployment:
 
 - Cloudflare-hosted Workers AI models run through the Worker `AI` binding.
 - Third-party model ids also run through the Worker `AI` binding with the deployment AI Gateway id.
+- Setup creates or configures the deployment AI Gateway before launch, using the same environment
+  retry and ZDR settings that runtime requests send per call.
 - Cloudflare owns provider authentication, unified billing, BYOK storage, rate limits, and budget
   controls at the account/gateway layer.
 
@@ -101,8 +103,8 @@ Nanites only stores the selected model id and immutable run snapshot metadata.
 
 ## References
 
-- [Cloudflare Workers AI model: Kimi K2.7 Code](https://developers.cloudflare.com/workers-ai/models/kimi-k2.7-code/) -
-  Cloudflare-hosted `@cf/moonshotai/kimi-k2.7-code` model with multi-turn tool calling.
+- [Cloudflare AI model catalog](https://developers.cloudflare.com/ai/models/) -
+  catalog of Workers AI `@cf/...` ids and third-party Unified Billing ids such as `openai/gpt-5.5`.
 - [Cloudflare AI Gateway Workers Bindings](https://developers.cloudflare.com/ai-gateway/integrations/worker-binding-methods/) -
   `env.AI.run()` accepts Workers AI `@cf/...` ids and third-party `{author}/{model}` ids
   through the deployment AI Gateway.

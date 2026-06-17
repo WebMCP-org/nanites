@@ -48,7 +48,6 @@
     "SENTRY_TRACES_SAMPLE_RATE": "0.1",
     "NANITES_LLM_BASE_URL": "",
     "NANITES_LLM_FIXTURE": "",
-    "NANITES_AI_GATEWAY_ID": "",
   },
   // GitHub App secrets are setup outputs, not deploy inputs: the setup flow
   // writes per-app bindings (GITHUB_APP_<APP_ID>_*) via the Cloudflare API
