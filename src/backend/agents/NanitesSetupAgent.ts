@@ -1240,7 +1240,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       ...item,
       status: "ready",
       detail:
-        "Workers AI binding `AI` is present. Model requests can use Workers AI or Unified Billing third-party models without provider API keys.",
+        "Workers AI binding `AI` is present. The default model uses a Cloudflare-hosted Workers AI model; explicit third-party model ids may require account-level AI Gateway provider setup outside Nanites.",
       action: null,
     };
   }

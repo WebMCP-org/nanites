@@ -14,9 +14,11 @@ import {
   clearGitHubOAuthStateCookie,
   clearGitHubUserTokenCookie,
   clearSessionCookie,
+  appendExpiredAuthCookies,
   buildBrowserSessionExpiration,
   nanitesSessionSchema,
   readSessionCookie,
+  requireGitHubUserToken,
   sealSessionCookie,
 } from "#/backend/auth/session.ts";
 import { readDeploymentGitHubAppMetadata } from "#/backend/github/apps.ts";
@@ -219,27 +221,46 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
 export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
   .get("/session/optional", async (context) => {
     const session = await readSessionCookie(context.req.raw, context.env);
-    const deploymentGitHubApp = session
-      ? await readDeploymentGitHubAppMetadata(createDbClient(context.env.DB))
-      : null;
+    if (!session) {
+      return context.json(null);
+    }
 
-    return context.json(
-      session
-        ? {
-            actor: session.githubViewer,
-            activeInstallation: session.sessionInstallationSnapshot ?? null,
-            githubApp: deploymentGitHubApp
-              ? {
-                  appId: deploymentGitHubApp.appId,
-                  slug: deploymentGitHubApp.slug,
-                  htmlUrl: deploymentGitHubApp.htmlUrl,
-                  ownerLogin: deploymentGitHubApp.ownerLogin,
-                }
-              : null,
-            expiresAt: session.expiresAt,
-          }
-        : null,
+    const deploymentGitHubApp = await readDeploymentGitHubAppMetadata(
+      createDbClient(context.env.DB),
     );
+    if (!deploymentGitHubApp) {
+      appendExpiredAuthCookies(context.req.raw, context.res.headers);
+      return context.json(null);
+    }
+
+    try {
+      await requireGitHubUserToken(context.req.raw, context.env, {
+        responseHeaders: context.res.headers,
+      });
+    } catch (error) {
+      if (
+        error instanceof AppError &&
+        (error.kind === "authenticationRequired" ||
+          error.kind === "deploymentGitHubAppSetupRequired")
+      ) {
+        appendExpiredAuthCookies(context.req.raw, context.res.headers);
+        return context.json(null);
+      }
+
+      throw error;
+    }
+
+    return context.json({
+      actor: session.githubViewer,
+      activeInstallation: session.sessionInstallationSnapshot ?? null,
+      githubApp: {
+        appId: deploymentGitHubApp.appId,
+        slug: deploymentGitHubApp.slug,
+        htmlUrl: deploymentGitHubApp.htmlUrl,
+        ownerLogin: deploymentGitHubApp.ownerLogin,
+      },
+      expiresAt: session.expiresAt,
+    });
   })
   .get("/installations/visible", async (context) => {
     const { installations } = await listBrowserVisibleInstallationSnapshots(

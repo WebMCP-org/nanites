@@ -34,7 +34,7 @@ Example:
 
 ```json
 {
-  "model": "openai/gpt-5.5"
+  "model": "@cf/zai-org/glm-4.7-flash"
 }
 ```
 
@@ -43,9 +43,9 @@ provider credential in the manifest. If a model is not valid or runnable, regist
 should fail normally.
 
 The manager authoring prompt should tell agents to inspect the current Cloudflare model catalog and
-pick the cheapest reliable function-calling text model for the Nanite's job. Prefer a third-party
-Unified Billing model when Workers AI capacity is the problem; keep `@cf/...` Workers AI models as
-explicit opt-in choices rather than the only supported path.
+pick the cheapest reliable function-calling text model for the Nanite's job. Prefer
+Cloudflare-hosted `@cf/...` models for zero-config defaults. Use third-party provider ids only when
+the operator has confirmed the Cloudflare account and AI Gateway can authenticate that provider.
 
 ## Validation
 
@@ -67,7 +67,8 @@ Nanite manifests, or D1.
 All model execution goes through the customer-owned Cloudflare deployment:
 
 - Cloudflare-hosted Workers AI models run through the Worker `AI` binding.
-- Third-party model ids also run through the Worker `AI` binding with the deployment AI Gateway id.
+- Third-party model ids also run through the Worker `AI` binding with the deployment AI Gateway id
+  when the Cloudflare account has the needed provider authentication.
 - Setup creates or configures the deployment AI Gateway before launch, using the same environment
   retry and ZDR settings that runtime requests send per call.
 - Cloudflare owns provider authentication, unified billing, BYOK storage, rate limits, and budget
@@ -104,7 +105,7 @@ Nanites only stores the selected model id and immutable run snapshot metadata.
 ## References
 
 - [Cloudflare AI model catalog](https://developers.cloudflare.com/ai/models/) -
-  catalog of Workers AI `@cf/...` ids and third-party Unified Billing ids such as `openai/gpt-5.5`.
+  catalog of Workers AI `@cf/...` ids and third-party provider ids.
 - [Cloudflare AI Gateway Workers Bindings](https://developers.cloudflare.com/ai-gateway/integrations/worker-binding-methods/) -
   `env.AI.run()` accepts Workers AI `@cf/...` ids and third-party `{author}/{model}` ids
   through the deployment AI Gateway.

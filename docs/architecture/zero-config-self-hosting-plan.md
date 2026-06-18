@@ -107,9 +107,10 @@ short-lived setup state stored in the setup Agent's SQLite-backed Durable Object
 Cloudflare ownership is proven, setup should generate the deployment's long-lived auth/session
 secret and store it alongside the generated GitHub App credentials.
 
-Use Cloudflare-owned model execution. Nanites should run Cloudflare-hosted and provider-native model
+Use Cloudflare-owned model execution. Nanites should default to Cloudflare-hosted Workers AI model
 ids through the Worker `AI` binding and deployment AI Gateway, not through Nanites-collected
-provider API keys.
+provider API keys. Third-party provider ids should be explicit operator choices because they can
+depend on account-level AI Gateway provider authentication.
 
 ## Evidence Matrix
 

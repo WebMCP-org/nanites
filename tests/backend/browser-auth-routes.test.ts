@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { authorizeAgentRequest } from "#/backend/auth/index.ts";
 import {
@@ -10,6 +10,7 @@ import {
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 import { MANAGER_CONVERSATION_AGENT_NAME, buildNaniteManagerKey } from "#/nanites.ts";
+import worker from "#/server.ts";
 
 const GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token";
 
@@ -63,6 +64,42 @@ function mockGitHubViewerAndInstallations(
   ]);
 }
 
+function mockBrowserManagerConversationGitHubApi(): () => void {
+  return mockGitHubApi([
+    {
+      path: "/user",
+      response: () => Response.json({ id: 94631653, login: "MiguelsPizza" }),
+    },
+    {
+      path: /^\/user\/installations\?/,
+      response: () =>
+        Response.json({
+          total_count: 1,
+          installations: [buildVisibleInstallation(122769206, "WebMCP-org")],
+        }),
+    },
+    {
+      method: "POST",
+      path: "/app/installations/122769206/access_tokens",
+      response: () =>
+        Response.json({
+          token: "test-installation-token",
+          expires_at: "2026-06-10T20:00:00Z",
+          permissions: {},
+        }),
+    },
+    {
+      path: /^\/installation\/repositories\?(?:page=1&per_page=100|per_page=100&page=1)$/,
+      response: () =>
+        Response.json({
+          total_count: 0,
+          repository_selection: "selected",
+          repositories: [],
+        }),
+    },
+  ]);
+}
+
 async function buildAuthenticatedCookieHeader(request: Request): Promise<string> {
   return buildTestBrowserAuthCookieHeader(env, request, {
     githubViewer: { id: 94631653, login: "MiguelsPizza" },
@@ -79,6 +116,94 @@ async function buildAuthenticatedCookieHeader(request: Request): Promise<string>
     },
     githubUserToken: "stale-github-user-token",
   });
+}
+
+async function expectOptionalSessionToClearAuthCookies(
+  request: Request,
+  cookieHeader: string,
+): Promise<void> {
+  const response = await nanitesHttpApp.request(
+    request,
+    {
+      headers: { Cookie: cookieHeader },
+    },
+    env,
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toBeNull();
+  const setCookie = response.headers.get("Set-Cookie") ?? "";
+  expect(setCookie).toContain("nanites_session=");
+  expect(setCookie).toContain("nanites_github_user_token=");
+}
+
+async function expectAgentAuthProblemResponse(
+  request: Request,
+  expected: Record<string, unknown>,
+  status = 403,
+): Promise<void> {
+  const authorized = await authorizeAgentRequest(request, env);
+
+  expect(authorized).toBeInstanceOf(Response);
+  expect((authorized as Response).status).toBe(status);
+  await expect((authorized as Response).json()).resolves.toMatchObject(expected);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function webSocketMessageText(data: unknown): string {
+  if (typeof data === "string") {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return new TextDecoder().decode(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new TextDecoder().decode(data);
+  }
+  return String(data);
+}
+
+function readWebSocketJson(socket: WebSocket): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.removeEventListener("message", onMessage);
+      socket.removeEventListener("error", onError);
+      socket.removeEventListener("close", onClose);
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for websocket message."));
+    }, 5_000);
+    const onMessage = (event: MessageEvent) => {
+      cleanup();
+      resolve(JSON.parse(webSocketMessageText(event.data)));
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Websocket errored before the expected message arrived."));
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error("Websocket closed before the expected message arrived."));
+    };
+
+    socket.addEventListener("message", onMessage);
+    socket.addEventListener("error", onError);
+    socket.addEventListener("close", onClose);
+  });
+}
+
+async function readRpcResponse(socket: WebSocket, id: string): Promise<Record<string, unknown>> {
+  for (;;) {
+    const message = await readWebSocketJson(socket);
+    if (isRecord(message) && message.type === "rpc" && message.id === id) {
+      return message;
+    }
+  }
 }
 
 test("GitHub OAuth callback reroutes install callbacks into setup verification login", async () => {
@@ -267,6 +392,35 @@ test("visible installations clears stale auth cookies when GitHub rejects the us
   }
 });
 
+test("optional session clears stale auth cookies when deployment app metadata is gone", async () => {
+  const request = new Request("http://localhost:5173/api/auth/session/optional");
+  const cookieHeader = await buildAuthenticatedCookieHeader(request);
+  await resetGitHubAppTables(env.DB);
+
+  await expectOptionalSessionToClearAuthCookies(request, cookieHeader);
+});
+
+test("optional session clears stale auth cookies minted by another deployment app", async () => {
+  const request = new Request("http://localhost:5173/api/auth/session/optional");
+  const cookieHeader = await buildTestBrowserAuthCookieHeader(env, request, {
+    githubViewer: { id: 94631653, login: "MiguelsPizza" },
+    activeGithubInstallationId: 122769206,
+    sessionInstallationSnapshot: {
+      id: 122769206,
+      githubAppId: 999,
+      account: {
+        id: 122769206,
+        login: "WebMCP-org",
+        type: "Organization",
+        avatar_url: null,
+      },
+    },
+    githubAppId: 999,
+  });
+
+  await expectOptionalSessionToClearAuthCookies(request, cookieHeader);
+});
+
 test("manager conversation agent auth derives trusted browser installation headers", async () => {
   const managerName = buildNaniteManagerKey({
     githubAppId: TEST_GITHUB_APP_ID,
@@ -307,6 +461,36 @@ test("manager conversation agent auth derives trusted browser installation heade
   }
 });
 
+test("manager conversation agent auth returns a problem response when installation access is revoked", async () => {
+  const managerName = buildNaniteManagerKey({
+    githubAppId: TEST_GITHUB_APP_ID,
+    githubInstallationId: 999,
+  });
+  const request = new Request(
+    `http://localhost:5173/agents/${MANAGER_CONVERSATION_AGENT_NAME}/${managerName}:manager:94631653`,
+    {
+      headers: {
+        Cookie: await buildAuthenticatedCookieHeader(
+          new Request("http://localhost:5173/api/auth/installations/visible"),
+        ),
+      },
+    },
+  );
+  const restore = mockGitHubViewerAndInstallations({
+    total_count: 1,
+    installations: [buildVisibleInstallation(122769206, "WebMCP-org")],
+  });
+
+  try {
+    await expectAgentAuthProblemResponse(request, {
+      code: "installation_access_revoked",
+      githubInstallationId: 999,
+    });
+  } finally {
+    restore();
+  }
+});
+
 test("manager conversation agent auth rejects another actor suffix", async () => {
   const managerName = buildNaniteManagerKey({
     githubAppId: TEST_GITHUB_APP_ID,
@@ -323,13 +507,61 @@ test("manager conversation agent auth rejects another actor suffix", async () =>
     },
   );
 
-  const authorized = await authorizeAgentRequest(request, env);
-
-  expect(authorized).toBeInstanceOf(Response);
-  expect((authorized as Response).status).toBe(403);
-  await expect((authorized as Response).json()).resolves.toMatchObject({
+  await expectAgentAuthProblemResponse(request, {
     code: "agent_authorization_forbidden",
   });
+});
+
+test("manager conversation websocket RPC uses browser auth captured at connect time", async () => {
+  const managerName = buildNaniteManagerKey({
+    githubAppId: TEST_GITHUB_APP_ID,
+    githubInstallationId: 122769206,
+  });
+  const restore = mockBrowserManagerConversationGitHubApi();
+  const ctx = createExecutionContext();
+
+  try {
+    const response = await worker.fetch(
+      new Request(
+        `http://localhost:5173/agents/${MANAGER_CONVERSATION_AGENT_NAME}/${managerName}:manager:94631653`,
+        {
+          headers: {
+            Cookie: await buildAuthenticatedCookieHeader(
+              new Request("http://localhost:5173/api/auth/installations/visible"),
+            ),
+            Upgrade: "websocket",
+          },
+        },
+      ),
+      env,
+      ctx,
+    );
+    const socket = response.webSocket;
+
+    expect(response.status).toBe(101);
+    expect(socket).toBeDefined();
+
+    socket?.accept();
+    socket?.send(
+      JSON.stringify({
+        args: [],
+        id: "connect-browser-installation",
+        method: "connectBrowserInstallation",
+        type: "rpc",
+      }),
+    );
+
+    await expect(readRpcResponse(socket!, "connect-browser-installation")).resolves.toMatchObject({
+      done: true,
+      result: { connected: true },
+      success: true,
+      type: "rpc",
+    });
+    socket?.close(1000, "test complete");
+    await waitOnExecutionContext(ctx);
+  } finally {
+    restore();
+  }
 });
 
 test("test auth token failures bubble through the root error handler", async () => {

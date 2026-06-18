@@ -12,6 +12,7 @@ import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector
 import { GitHubMcpConnector } from "#/backend/nanites/github-mcp-connector.ts";
 import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
 import { callable, getAgentByName, getCurrentAgent } from "agents";
+import type { Connection, ConnectionContext } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
 import { AppError } from "#/backend/errors.ts";
 import {
@@ -108,6 +109,18 @@ type ManagerConversationState =
   | DisconnectedManagerConversationState
   | ConnectedManagerConversationState;
 
+type BrowserInstallationConnectionAuth = {
+  readonly accountLogin: string;
+  readonly githubAppId: number;
+  readonly githubInstallationId: number;
+  readonly githubLogin: string;
+  readonly githubUserId: number;
+};
+
+type ManagerConversationConnectionState = {
+  readonly browserInstallationAuth?: BrowserInstallationConnectionAuth;
+};
+
 export class SigveloManagerConversationAgent extends Think<Env, ManagerConversationState> {
   initialState: ManagerConversationState = {
     status: "disconnected",
@@ -199,6 +212,17 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
         loader: this.env.LOADER,
       }),
     };
+  }
+
+  override async onConnect(
+    connection: Connection<ManagerConversationConnectionState>,
+    context: ConnectionContext,
+  ): Promise<void> {
+    const browserInstallationAuth = readBrowserInstallationAuthFromHeaders(context.request.headers);
+    connection.setState((state) => ({
+      ...(state ?? {}),
+      browserInstallationAuth,
+    }));
   }
 
   @callable()
@@ -444,24 +468,19 @@ function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
   accountLogin: string;
   props: SigveloMcpAuthProps;
 } {
-  const headers = requireCurrentAgentHeaders();
-  const githubAppId = readPositiveManagerHeader(headers, "x-nanites-active-github-app-id");
-  const installationId = readPositiveManagerHeader(headers, "x-nanites-active-installation-id");
-  const githubUserId = readPositiveActorHeader(headers, "x-nanites-github-user-id");
-  const githubLogin = readRequiredActorHeader(headers, "x-nanites-github-login");
-  const accountLogin = headers.get("x-nanites-installation-account-login") ?? "";
+  const auth = requireBrowserInstallationConnectionAuth();
   requireBrowserConversationTarget(conversationName, {
-    githubAppId,
-    githubInstallationId: installationId,
-    githubUserId,
+    githubAppId: auth.githubAppId,
+    githubInstallationId: auth.githubInstallationId,
+    githubUserId: auth.githubUserId,
   });
 
   const props = {
     authKind: "mcp",
-    githubUserId,
-    githubLogin,
-    githubAppId,
-    githubInstallationId: installationId,
+    githubUserId: auth.githubUserId,
+    githubLogin: auth.githubLogin,
+    githubAppId: auth.githubAppId,
+    githubInstallationId: auth.githubInstallationId,
     clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
     scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
     visibleRepositories: [],
@@ -469,18 +488,32 @@ function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
   } satisfies SigveloMcpAuthProps;
 
   return {
-    accountLogin: requireSelectedGitHubAccount(accountLogin),
+    accountLogin: requireSelectedGitHubAccount(auth.accountLogin),
     props,
   };
 }
 
-function requireCurrentAgentHeaders(): Headers {
-  const { request } = getCurrentAgent();
-  if (!request) {
+function readBrowserInstallationAuthFromHeaders(
+  headers: Headers,
+): BrowserInstallationConnectionAuth {
+  return {
+    githubAppId: readPositiveManagerHeader(headers, "x-nanites-active-github-app-id"),
+    githubInstallationId: readPositiveManagerHeader(headers, "x-nanites-active-installation-id"),
+    githubUserId: readPositiveActorHeader(headers, "x-nanites-github-user-id"),
+    githubLogin: readRequiredActorHeader(headers, "x-nanites-github-login"),
+    accountLogin: headers.get("x-nanites-installation-account-login") ?? "",
+  };
+}
+
+function requireBrowserInstallationConnectionAuth(): BrowserInstallationConnectionAuth {
+  const { connection } = getCurrentAgent();
+  const state = connection?.state as ManagerConversationConnectionState | null | undefined;
+  const auth = state?.browserInstallationAuth;
+  if (!auth) {
     throw new AppError("authenticationRequired");
   }
 
-  return request.headers;
+  return auth;
 }
 
 function readPositiveManagerHeader(headers: Headers, name: string): number {

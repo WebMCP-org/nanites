@@ -500,7 +500,7 @@ export async function authorizeAgentRequest(
 
     return new Request(request, { headers });
   } catch (error) {
-    if (error instanceof AppError && error.kind === "authenticationRequired") {
+    if (error instanceof AppError) {
       return toAgentErrorResponse(error, request);
     }
 

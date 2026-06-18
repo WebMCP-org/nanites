@@ -6,7 +6,7 @@ import { createWorkersAI } from "workers-ai-provider";
 // own this repo, so to change them you edit the constant and redeploy — your Cloudflare
 // account holds the resulting gateway config. The setup flow provisions the gateway below
 // with these values; per-request overrides aren't needed.
-export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "openai/gpt-5.5";
+export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 export const NANITES_AI_GATEWAY_ID = "sigvelo-nanites";
 
 export type NanitesAiGatewayBackoff = "constant" | "linear" | "exponential";

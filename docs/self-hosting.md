@@ -223,9 +223,9 @@ The Cloudflare step also checks the runtime pieces Nanites cannot safely fake:
   Dynamic Workers.
 - Workers AI is bound as `AI`, and the default model id is configured.
 - The default model route uses the configured Cloudflare AI Gateway, default `sigvelo-nanites`, with
-  `openai/gpt-5.5`. Setup creates or configures that gateway with the deployment retry/ZDR settings.
-  Unified Billing models and `@cf/...` Workers AI models both run through the binding without
-  provider API keys in Nanites.
+  `@cf/zai-org/glm-4.7-flash`. Setup creates or configures that gateway with the deployment
+  retry/ZDR settings. The zero-config path uses a Cloudflare-hosted Workers AI model; explicit
+  third-party model ids may require account-level AI Gateway provider setup outside Nanites.
 - Browser Run is shown as informational because it supports later preview verification, but it is
   not a first-launch blocker.
 
