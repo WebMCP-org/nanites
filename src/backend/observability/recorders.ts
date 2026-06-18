@@ -22,6 +22,7 @@ import type {
   NaniteRunRecord,
   NaniteTriggerEvent,
 } from "#/backend/agents/SigveloNaniteManager.ts";
+import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/github-mcp-capabilities.ts";
 import {
   getGitHubWebhookInstallationId,
   getGitHubWebhookEventName,
@@ -206,17 +207,6 @@ function stringifyJson(value: unknown): string | null {
   return JSON.stringify(value);
 }
 
-function collectNaniteRepositories(manifest: NaniteManifest): string[] {
-  const repositories = new Set(manifest.permissions.github?.repositories ?? []);
-  if (manifest.eventSource.type === "github") {
-    for (const repository of manifest.eventSource.repositories ?? []) {
-      repositories.add(repository);
-    }
-  }
-
-  return [...repositories].sort();
-}
-
 function countNaniteTriggerEvents(manifest: NaniteManifest): number {
   return manifest.eventSource.type === "github" ? (manifest.eventSource.events?.length ?? 0) : 1;
 }
@@ -233,21 +223,6 @@ function actorGithubLogin(actor: ObservabilityActor | null | undefined): string 
   return actor?.githubLogin ?? null;
 }
 
-export function githubUserActor(input: {
-  source: Extract<ObservabilityActorSource, "browser" | "mcp" | "manager_chat">;
-  githubUserId: number;
-  githubLogin: string;
-}): ObservabilityActor {
-  return {
-    kind: "github_user",
-    source: input.source,
-    githubUserId: input.githubUserId,
-    githubLogin: input.githubLogin,
-    actorId: `github:${input.githubUserId}`,
-    actorLogin: input.githubLogin,
-  };
-}
-
 export function systemActor(source: ObservabilityActorSource): ObservabilityActor {
   return {
     kind: "system",
@@ -257,9 +232,7 @@ export function systemActor(source: ObservabilityActorSource): ObservabilityActo
   };
 }
 
-export function triggerActor(
-  triggerType: "github_webhook" | "schedule" | "agent",
-): ObservabilityActor {
+function triggerActor(triggerType: "github_webhook" | "schedule" | "agent"): ObservabilityActor {
   return {
     kind: triggerType,
     source:
@@ -381,7 +354,7 @@ export async function recordNaniteCatalogProjection(
   input: RecordNaniteCatalogProjectionInput,
 ): Promise<void> {
   const accountId = await resolveOptionalAccountId(db, input);
-  const repositories = collectNaniteRepositories(input.nanite.manifest);
+  const repositories = resolveNaniteManifestRepositoryFullNames(input.nanite.manifest);
   const existing = await db.query.naniteCatalog.findFirst({
     where: and(
       eq(naniteCatalog.githubInstallationId, input.githubInstallationId),
@@ -563,6 +536,43 @@ function readRunTask(run: NaniteRunRecord): string {
   return getGitHubWebhookEventName(run.trigger.event);
 }
 
+function readRunTriggerPullRequestNumber(run: NaniteRunRecord): number | null {
+  return run.trigger.type === "github"
+    ? getGitHubWebhookPullRequestNumber(run.trigger.event)
+    : null;
+}
+
+function readRunPhase(run: NaniteRunRecord): "investigating" | "completed" {
+  return run.status === "running" ? "investigating" : "completed";
+}
+
+function readRunSummary(run: NaniteRunRecord): string | null {
+  return run.status === "running" ? null : run.summary;
+}
+
+function readRunOutputUrl(run: NaniteRunRecord): string | null {
+  return run.status === "complete" ? run.outputUrl : null;
+}
+
+function readRunImplicitFailureReason(run: NaniteRunRecord): string | null {
+  switch (run.status) {
+    case "fail":
+      return run.failure.type === "unreported" ? run.failure.dispatchError : null;
+    case "canceled":
+      return run.cancellation.type === "unreported" ? run.cancellation.dispatchError : null;
+    case "complete":
+    case "running":
+    case "waiting_for_human":
+      return null;
+  }
+}
+
+function readRunCompletedAt(run: NaniteRunRecord): Date | null {
+  return run.status === "running" || run.status === "waiting_for_human"
+    ? null
+    : new Date(run.completedAt);
+}
+
 export async function recordNaniteRunFact(
   db: DbClient,
   input: RecordNaniteRunFactInput,
@@ -592,10 +602,7 @@ export async function recordNaniteRunFact(
     naniteId: input.run.naniteId,
     variant: "workspace",
     triggerKind: triggerKindForRun(input.run),
-    triggerPullRequestNumber:
-      input.run.trigger.type === "github"
-        ? getGitHubWebhookPullRequestNumber(input.run.trigger.event)
-        : null,
+    triggerPullRequestNumber: readRunTriggerPullRequestNumber(input.run),
     triggeredByGithubUserId: actorGithubUserId(input.actor),
     triggeredByGithubLogin: actorGithubLogin(input.actor),
     actorKind: input.actor?.kind ?? null,
@@ -607,10 +614,10 @@ export async function recordNaniteRunFact(
     billingAttributionBasis: billing.basis,
     status: input.run.status,
     conclusion: runConclusionForStatus(input.run.status),
-    phase: input.run.status === "running" ? "investigating" : "completed",
+    phase: readRunPhase(input.run),
     task: readRunTask(input.run),
-    summary: input.run.status === "running" ? null : input.run.summary,
-    outputUrl: input.run.status === "complete" ? input.run.outputUrl : null,
+    summary: readRunSummary(input.run),
+    outputUrl: readRunOutputUrl(input.run),
     outputPullRequestNumber: input.outputPullRequest?.pullRequestNumber ?? null,
     outputPullRequestMerged: input.outputPullRequest?.merged ?? null,
     outputPullRequestMergedAt: input.outputPullRequest?.mergedAt
@@ -625,17 +632,9 @@ export async function recordNaniteRunFact(
     modelManifestVersionId: input.run.model.manifestVersionId,
     modelResolvedAt: new Date(input.run.model.resolvedAt),
     configSource: "default",
-    implicitFailureReason:
-      input.run.status === "fail" && input.run.failure.type === "unreported"
-        ? input.run.failure.dispatchError
-        : input.run.status === "canceled" && input.run.cancellation.type === "unreported"
-          ? input.run.cancellation.dispatchError
-          : null,
+    implicitFailureReason: readRunImplicitFailureReason(input.run),
     startedAt: new Date(input.run.startedAt),
-    completedAt:
-      input.run.status === "running" || input.run.status === "waiting_for_human"
-        ? null
-        : new Date(input.run.completedAt),
+    completedAt: readRunCompletedAt(input.run),
     lastUpdatedAt: updatedAt,
     createdAt: new Date(input.run.startedAt),
     updatedAt,

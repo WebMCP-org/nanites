@@ -1,7 +1,7 @@
 import { emitterEventNames } from "@octokit/webhooks";
 import { z } from "zod";
 import type { ManagedNanite } from "#/backend/agents/SigveloNaniteManager.ts";
-import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/github-mcp-capabilities.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,

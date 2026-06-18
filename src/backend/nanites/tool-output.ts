@@ -225,6 +225,7 @@ export class NaniteToolOutputArtifactStore {
     this.#ttlSeconds = options.ttlSeconds ?? naniteToolOutputArtifactTtlSeconds;
   }
 
+  // fallow-ignore-next-line unused-class-member
   async persist(input: PersistNaniteToolOutputArtifactInput): Promise<{ artifactId: string }> {
     const scope = this.#requireScope();
     const artifactId = `toolout_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -300,12 +301,6 @@ export class NaniteToolOutputArtifactStore {
     return this.#read(
       normalizeArtifactReadInput(naniteToolOutputArtifactReadInputSchema.parse(input)),
     );
-  }
-
-  async readParsedToolInput(
-    input: NaniteToolOutputArtifactReadToolInput,
-  ): Promise<NaniteToolOutputArtifactReadResult> {
-    return this.#read(normalizeArtifactReadInput(input));
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -620,7 +615,7 @@ function augmentInputSchema(inputSchema: unknown): unknown {
   return inputSchema.safeExtend(sigveloToolInputControlSchema.def.shape);
 }
 
-export async function applyNaniteToolOutputBudget(
+async function applyNaniteToolOutputBudget(
   output: unknown,
   input: {
     toolName: string;

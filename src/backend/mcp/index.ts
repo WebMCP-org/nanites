@@ -89,10 +89,7 @@ function createMcpProtectedResourceMetadataUrl(request: Request): string {
   return `${url.origin}/.well-known/oauth-protected-resource${url.pathname}`;
 }
 
-export function registerSigveloNaniteTools(
-  server: McpServer,
-  context: SigveloMcpToolContext,
-): void {
+function registerSigveloNaniteTools(server: McpServer, context: SigveloMcpToolContext): void {
   for (const definition of naniteTools) {
     server.registerTool(
       definition.name,

@@ -1,7 +1,8 @@
 import { APP_ERRORS, AppError } from "#/backend/errors.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import type { SigveloMcpVisibleRepository } from "#/backend/mcp/auth-props.ts";
-import type { NaniteManagerState, NaniteManifest } from "#/backend/agents/SigveloNaniteManager.ts";
+import type { NaniteManagerState } from "#/backend/agents/SigveloNaniteManager.ts";
+import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/github-mcp-capabilities.ts";
 import type {
   AnySigveloMcpToolDefinition,
   NaniteToolRuntime,
@@ -49,17 +50,6 @@ export type SigveloNaniteToolAuthorization<TInput = unknown> = {
   requiredScope: SigveloMcpScope;
   repositoryPolicy: RepositoryPolicy<TInput>;
 };
-
-export function resolveNaniteManifestRepositoryFullNames(manifest: NaniteManifest): string[] {
-  const repositories = new Set(manifest.permissions.github?.repositories ?? []);
-  if (manifest.eventSource.type === "github") {
-    for (const repository of manifest.eventSource.repositories ?? []) {
-      repositories.add(repository);
-    }
-  }
-
-  return [...repositories].sort();
-}
 
 export function resolveReferencedNaniteRepositoryFullNames(
   selection: ReferencedNaniteRepositorySelection,

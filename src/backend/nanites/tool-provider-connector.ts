@@ -17,6 +17,7 @@ export class ToolProviderConnector extends CodemodeConnector {
     this.#provider = provider;
   }
 
+  // fallow-ignore-next-line unused-class-member
   name(): string {
     return this.#provider.name ?? "codemode";
   }

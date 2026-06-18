@@ -59,6 +59,7 @@ import {
   type ObservabilityActor,
 } from "#/backend/observability/recorders.ts";
 import { NANITES_AI_GATEWAY_ID } from "#/backend/nanites/language-model.ts";
+import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/github-mcp-capabilities.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_MANUAL_RUN_TIMEOUT_MS = 60_000;
@@ -75,6 +76,74 @@ const STALE_RUNNING_AFTER_MS = 24 * 60 * 60 * 1000;
 const TERMINAL_SUBMISSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const TERMINAL_RUN_POLL_INTERVAL_MS = 500;
 const naniteManagerLogger = getLogger(LOGGING.NANITES_CATEGORY);
+
+// ---------------------------------------------------------------------------
+// Manifest
+// ---------------------------------------------------------------------------
+
+export type NaniteScheduleWhen = string | number;
+
+export type NaniteScheduledEventSourceSpec =
+  | {
+      type: "schedule";
+      when: NaniteScheduleWhen;
+    }
+  | {
+      type: "scheduleEvery";
+      intervalSeconds: number;
+    };
+
+export type NaniteEventSourceSpec =
+  | {
+      type: "manual";
+    }
+  | NaniteScheduledEventSourceSpec
+  | {
+      type: "github";
+      events?: EmitterWebhookEventName[];
+      repositories?: string[];
+      actions?: string[];
+      branches?: string[];
+    };
+
+type NanitePermissionSpec = {
+  github?: {
+    repositories: string[];
+    appPermissions: GitHubAppPermissions;
+  };
+};
+
+type NaniteManifestBase = {
+  id: string;
+  name: string;
+  description: string;
+  model: string;
+  permissions: NanitePermissionSpec;
+};
+
+export type NaniteManifest =
+  | (NaniteManifestBase & {
+      eventSource: Extract<NaniteEventSourceSpec, { type: "manual" }>;
+      triggerSource?: never;
+    })
+  | (NaniteManifestBase & {
+      eventSource: Exclude<NaniteEventSourceSpec, { type: "manual" }>;
+      triggerSource: string;
+    });
+
+export type NaniteSourceVersion = {
+  versionId: string;
+  manifestHash: string;
+  registeredAt: string;
+};
+
+export type ManagedNanite = {
+  manifest: NaniteManifest;
+  latestVersion: NaniteSourceVersion;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 
 // ---------------------------------------------------------------------------
 // Run lifecycle
@@ -127,74 +196,6 @@ export type NaniteRuntimeActivity = {
   toolName: string | null;
   lastActivityAt: string | null;
   error: string | null;
-};
-
-// ---------------------------------------------------------------------------
-// Manifest
-// ---------------------------------------------------------------------------
-
-export type NaniteScheduleWhen = string | number;
-
-export type NaniteScheduledEventSourceSpec =
-  | {
-      type: "schedule";
-      when: NaniteScheduleWhen;
-    }
-  | {
-      type: "scheduleEvery";
-      intervalSeconds: number;
-    };
-
-export type NaniteEventSourceSpec =
-  | {
-      type: "manual";
-    }
-  | NaniteScheduledEventSourceSpec
-  | {
-      type: "github";
-      events?: EmitterWebhookEventName[];
-      repositories?: string[];
-      actions?: string[];
-      branches?: string[];
-    };
-
-export type NanitePermissionSpec = {
-  github?: {
-    repositories: string[];
-    appPermissions: GitHubAppPermissions;
-  };
-};
-
-type NaniteManifestBase = {
-  id: string;
-  name: string;
-  description: string;
-  model: string;
-  permissions: NanitePermissionSpec;
-};
-
-export type NaniteManifest =
-  | (NaniteManifestBase & {
-      eventSource: Extract<NaniteEventSourceSpec, { type: "manual" }>;
-      triggerSource?: never;
-    })
-  | (NaniteManifestBase & {
-      eventSource: Exclude<NaniteEventSourceSpec, { type: "manual" }>;
-      triggerSource: string;
-    });
-
-export type NaniteSourceVersion = {
-  versionId: string;
-  manifestHash: string;
-  registeredAt: string;
-};
-
-export type ManagedNanite = {
-  manifest: NaniteManifest;
-  latestVersion: NaniteSourceVersion;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -550,7 +551,7 @@ export async function dispatchGitHubWebhookToNaniteManager({
   return managerRpc.handleGitHubWebhook({ event });
 }
 
-export function matchesNaniteSubAgentClassName(className: string): boolean {
+function matchesNaniteSubAgentClassName(className: string): boolean {
   return className === SigveloNaniteAgent.name || className === NANITE_AGENT_NAME;
 }
 
@@ -620,17 +621,6 @@ function normalizeNaniteManifest(manifest: NaniteManifest): NaniteManifest {
   }
 
   return { ...manifest, model: modelId };
-}
-
-function collectManifestRepositories(manifest: NaniteManifest): string[] {
-  const repositories = new Set(manifest.permissions.github?.repositories ?? []);
-  if (manifest.eventSource.type === "github") {
-    for (const repository of manifest.eventSource.repositories ?? []) {
-      repositories.add(repository);
-    }
-  }
-
-  return [...repositories].sort();
 }
 
 function isScheduledEventSource(
@@ -1957,7 +1947,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     identity: NaniteManagerIdentity,
     manifest: NaniteManifest,
   ): Promise<void> {
-    const requested = collectManifestRepositories(manifest);
+    const requested = resolveNaniteManifestRepositoryFullNames(manifest);
     if (requested.length === 0) {
       return;
     }

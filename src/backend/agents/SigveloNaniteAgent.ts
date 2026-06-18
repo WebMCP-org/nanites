@@ -815,7 +815,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         description:
           "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a bounded slice. With pattern, grep-searches one artifact or all current-run artifacts.",
         inputSchema: naniteToolOutputArtifactReadInputSchema,
-        execute: async (input) => artifactStore.readParsedToolInput(input),
+        execute: async (input) => artifactStore.readToolInput(input),
       }),
       complete: tool({
         description:

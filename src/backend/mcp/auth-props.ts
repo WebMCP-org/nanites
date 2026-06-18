@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
 
-export const sigveloMcpVisibleRepositoryPermissionsSchema = z
+const sigveloMcpVisibleRepositoryPermissionsSchema = z
   .object({
     admin: z.boolean().optional(),
     maintain: z.boolean().optional(),
