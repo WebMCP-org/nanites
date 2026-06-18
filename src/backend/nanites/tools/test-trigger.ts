@@ -11,6 +11,8 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const testNaniteTriggerToolInputSchema = z.object({
   naniteId: nonEmptyStringSchema,
@@ -30,6 +32,14 @@ export const testNaniteTriggerTool = defineSigveloMcpTool({
     "Builds a realistic fixture event, runs generated trigger code, dispatches accepted runs, and optionally waits for a terminal Nanite outcome.",
   inputSchema: testNaniteTriggerToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite trigger test result."),
+  authorization: {
+    requiredScope: MCP_SCOPES.write,
+    repositoryPolicy: {
+      type: "runtime",
+      access: "write",
+      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+    },
+  },
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -37,7 +47,6 @@ export const testNaniteTriggerTool = defineSigveloMcpTool({
     openWorldHint: true,
   },
   async execute(input, { context, manager }) {
-    //@ts-ignore Super Deep types
     return manager.testNaniteTrigger({
       naniteId: input.naniteId,
       event: input.event,

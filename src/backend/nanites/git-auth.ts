@@ -1,5 +1,5 @@
 import type { ToolProvider } from "@cloudflare/codemode";
-import { gitTools } from "@cloudflare/shell/git";
+import { gitTools, type Git } from "@cloudflare/shell/git";
 
 const lazyGitAuthCommandNames = new Set(["clone", "fetch", "pull", "push"] as const);
 
@@ -23,115 +23,116 @@ type LazyGitAuthCredentials =
 
 type ExecutableGitTool = {
   description?: string;
-  execute: (...args: unknown[]) => Promise<unknown>;
+  execute: (args?: unknown) => Promise<unknown>;
 };
 
-function isTruthyForceOption(value: unknown): boolean {
-  return value === true || value === "true" || value === 1;
-}
+type ExecutableGitToolSet = {
+  readonly [name: string]: ExecutableGitTool;
+};
 
-function assertSafeGitCommandOptions(command: string, options: Record<string, unknown>): void {
-  if (command !== "push") {
-    return;
-  }
-
-  if (
-    isTruthyForceOption(options.force) ||
-    isTruthyForceOption(options.forceWithLease) ||
-    isTruthyForceOption(options.force_with_lease)
-  ) {
-    throw new Error(
-      "Force pushes are not allowed. Fetch and rebase or merge the remote branch, then push normally. If remote history truly must be rewritten, use ask_human — a human has to do it.",
-    );
-  }
-}
-
-function isExplicitOptions(input: unknown): input is Record<string, unknown> {
-  return typeof input === "object" && input !== null && !Array.isArray(input);
-}
+type GitCloneToolOptions = Parameters<Git["clone"]>[0];
+type GitFetchToolOptions = NonNullable<Parameters<Git["fetch"]>[0]>;
+type GitPullToolOptions = NonNullable<Parameters<Git["pull"]>[0]>;
+type GitPushToolOptions = NonNullable<Parameters<Git["push"]>[0]>;
+type GitAuthFields = Pick<GitCloneToolOptions, "token" | "username" | "password">;
+type LazyGitToolOptions =
+  | GitCloneToolOptions
+  | GitFetchToolOptions
+  | GitPullToolOptions
+  | GitPushToolOptions;
 
 function isLazyGitAuthCommand(command: string): command is LazyGitAuthCommand {
   return lazyGitAuthCommandNames.has(command as LazyGitAuthCommand);
 }
 
-async function resolveOptionsWithLazyAuth(input: {
-  command: LazyGitAuthCommand;
-  options: Record<string, unknown>;
-  resolveAuth: (input: {
-    command: LazyGitAuthCommand;
-    options: Record<string, unknown>;
-  }) => Promise<LazyGitAuthCredentials | null>;
-}): Promise<Record<string, unknown>> {
-  if ("token" in input.options || "username" in input.options || "password" in input.options) {
-    return input.options;
-  }
+function hasGitCredentials(options: GitAuthFields): boolean {
+  return Boolean(options.token || options.username || options.password);
+}
 
-  const auth = await input.resolveAuth({
-    command: input.command,
-    options: input.options,
-  });
-  return auth ? { ...input.options, ...auth } : input.options;
+function readGitDirectory(options: { readonly dir?: string }): string {
+  return options.dir ?? "/";
+}
+
+function readGitRemote(options: { readonly remote?: string }): string {
+  return options.remote ?? "origin";
+}
+
+function readGitToolOptions(command: LazyGitAuthCommand, rawOptions: unknown): LazyGitToolOptions {
+  switch (command) {
+    case "clone":
+      return (rawOptions ?? {}) as GitCloneToolOptions;
+    case "fetch":
+      return (rawOptions ?? {}) as GitFetchToolOptions;
+    case "pull":
+      return (rawOptions ?? {}) as GitPullToolOptions;
+    case "push":
+      return (rawOptions ?? {}) as GitPushToolOptions;
+  }
 }
 
 type LazyGitAuthWrapOptions = {
   resolveAuth: (input: {
     command: LazyGitAuthCommand;
-    options: Record<string, unknown>;
+    repository: string;
   }) => Promise<LazyGitAuthCredentials | null>;
+  resolveRepository(input: {
+    command: LazyGitAuthCommand;
+    options: LazyGitToolOptions;
+  }): Promise<string | null>;
   isAuthRejection: (error: unknown) => boolean;
 };
 
 async function executeWithLazyAuth(input: {
   command: LazyGitAuthCommand;
   gitTool: ExecutableGitTool;
-  commandOptions: Record<string, unknown>;
-  restArgs: unknown[];
+  toolOptions: LazyGitToolOptions;
   options: LazyGitAuthWrapOptions;
 }): Promise<unknown> {
-  const optionsWithAuth = await resolveOptionsWithLazyAuth({
-    command: input.command,
-    options: input.commandOptions,
-    resolveAuth: input.options.resolveAuth,
-  });
+  const repository = hasGitCredentials(input.toolOptions)
+    ? null
+    : await input.options.resolveRepository({
+        command: input.command,
+        options: input.toolOptions,
+      });
+  const auth = repository
+    ? await input.options.resolveAuth({ command: input.command, repository })
+    : null;
+  const toolOptions = auth ? { ...input.toolOptions, ...auth } : input.toolOptions;
 
   try {
-    return await input.gitTool.execute(optionsWithAuth, ...input.restArgs);
+    return await input.gitTool.execute(toolOptions);
   } catch (error) {
     if (
+      auth &&
       lazyGitAuthRetryWithoutAuthCommandNames.has(input.command) &&
-      optionsWithAuth !== input.commandOptions &&
       input.options.isAuthRejection(error)
     ) {
-      return input.gitTool.execute(input.commandOptions, ...input.restArgs);
+      return input.gitTool.execute(input.toolOptions);
     }
     throw error;
   }
 }
 
-export function wrapGitToolProviderWithLazyAuth(
+function wrapGitToolProviderWithLazyAuth(
   provider: ToolProvider,
   options: LazyGitAuthWrapOptions,
 ): ToolProvider {
-  const tools = provider.tools as Record<string, ExecutableGitTool>;
+  const tools = provider.tools as ExecutableGitToolSet;
 
-  const wrappedTools: Record<string, ExecutableGitTool> = Object.fromEntries(
+  const wrappedTools: ExecutableGitToolSet = Object.fromEntries(
     Object.entries(tools).map(([command, gitTool]) => [
       command,
       {
         ...gitTool,
-        execute: async (...args: unknown[]) => {
+        execute: async (rawOptions?: unknown) => {
           if (!isLazyGitAuthCommand(command)) {
-            return gitTool.execute(...args);
+            return gitTool.execute(rawOptions);
           }
 
-          const [firstArg, ...restArgs] = args;
-          const explicitOptions = isExplicitOptions(firstArg) ? firstArg : {};
-          assertSafeGitCommandOptions(command, explicitOptions);
           return executeWithLazyAuth({
             command,
             gitTool,
-            commandOptions: explicitOptions,
-            restArgs,
+            toolOptions: readGitToolOptions(command, rawOptions),
             options,
           });
         },
@@ -141,19 +142,8 @@ export function wrapGitToolProviderWithLazyAuth(
 
   return {
     ...provider,
-    types: removeForceFromPushTypes(provider.types),
     tools: wrappedTools,
   };
-}
-
-/**
- * The upstream git type block advertises `force?: boolean` on push, but the
- * wrapper rejects it. Keep the model-facing types honest.
- */
-function removeForceFromPushTypes(types: string | undefined): string | undefined {
-  return types?.replace(/^(\s*push\(.*)$/m, (pushLine) =>
-    pushLine.replace(" force?: boolean;", ""),
-  );
 }
 
 const gitHubHttpsRepoPattern =
@@ -162,8 +152,8 @@ const gitHubSshRepoPattern =
   /^(?:git@github\.com:|ssh:\/\/git@github\.com\/)(?<owner>[^/\s]+)\/(?<repo>[^/\s]+?)(?:\.git)?\/?$/i;
 const GITHUB_INSTALLATION_GIT_USERNAME = "x-access-token";
 
-function parseGitHubRepositoryFromGitUrl(url: unknown): string | null {
-  if (typeof url !== "string") {
+function parseGitHubRepositoryFromGitUrl(url: string | null | undefined): string | null {
+  if (!url) {
     return null;
   }
 
@@ -176,15 +166,14 @@ function parseGitHubRepositoryFromGitUrl(url: unknown): string | null {
 
 function parseGitHubRepositoryFromGitConfig(input: {
   config: string | null;
-  remote?: unknown;
+  remote: string;
 }): string | null {
   if (!input.config) {
     return null;
   }
 
-  const remote = typeof input.remote === "string" && input.remote.trim() ? input.remote : "origin";
   const sectionPattern = new RegExp(
-    `^\\s*\\[remote\\s+["']${remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']\\]\\s*$`,
+    `^\\s*\\[remote\\s+["']${input.remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']\\]\\s*$`,
     "i",
   );
   let inRemoteSection = false;
@@ -220,21 +209,6 @@ function isAllowedGitHubRepository(input: {
   return allowedRepositories.has(input.repository.toLowerCase());
 }
 
-function shouldInjectGitHubInstallationToken(input: {
-  options: Record<string, unknown>;
-  repository: string | null;
-  repositories: readonly string[];
-}): boolean {
-  if ("token" in input.options || "username" in input.options || "password" in input.options) {
-    return false;
-  }
-
-  return isAllowedGitHubRepository({
-    repository: input.repository,
-    repositories: input.repositories,
-  });
-}
-
 function isGitHubAuthRejection(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /\b(?:401|403)\b/.test(message) && /unauthori[sz]ed|forbidden/i.test(message);
@@ -251,24 +225,10 @@ export function gitToolsWithGitHubInstallationAuth(
 ): ToolProvider {
   return wrapGitToolProviderWithLazyAuth(gitTools(workspace), {
     isAuthRejection: isGitHubAuthRejection,
-    resolveAuth: async ({ command, options: gitOptions }) => {
-      const repository = await resolveGitCommandRepository({
-        workspace,
-        command,
-        options: gitOptions,
-      });
-      if (!repository) {
-        return null;
-      }
-
+    resolveRepository: (input) => resolveGitCommandRepository({ workspace, ...input }),
+    resolveAuth: async ({ repository }) => {
       const repositories = await options.getAllowedRepositories();
-      if (
-        !shouldInjectGitHubInstallationToken({
-          options: gitOptions,
-          repository,
-          repositories,
-        })
-      ) {
+      if (!isAllowedGitHubRepository({ repository, repositories })) {
         return null;
       }
 
@@ -285,18 +245,18 @@ async function resolveGitCommandRepository({
   options,
 }: {
   workspace: Parameters<typeof gitTools>[0];
-  command: string;
-  options: Record<string, unknown>;
+  command: LazyGitAuthCommand;
+  options: LazyGitToolOptions;
 }): Promise<string | null> {
   if (command === "clone") {
-    return parseGitHubRepositoryFromGitUrl(options.url);
+    return parseGitHubRepositoryFromGitUrl((options as GitCloneToolOptions).url);
   }
 
-  const dir = typeof options.dir === "string" && options.dir.trim() ? options.dir.trim() : "/";
-  const configPath = `${dir.replace(/\/+$/, "") || ""}/.git/config`;
+  const gitOptions = options as GitFetchToolOptions | GitPullToolOptions | GitPushToolOptions;
+  const configPath = `${readGitDirectory(gitOptions).replace(/\/+$/, "") || ""}/.git/config`;
   const config = await workspace.readFile(configPath);
   return parseGitHubRepositoryFromGitConfig({
     config,
-    remote: options.remote,
+    remote: readGitRemote(gitOptions),
   });
 }

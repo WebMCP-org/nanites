@@ -6,6 +6,8 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const resetDebugToolInputSchema = z
   .object({
@@ -20,6 +22,14 @@ export const resetDebugTool = defineSigveloMcpTool({
   description: "Clears child-owned Think messages and durable submissions for one Nanite.",
   inputSchema: resetDebugToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite debug reset result."),
+  authorization: {
+    requiredScope: MCP_SCOPES.write,
+    repositoryPolicy: {
+      type: "runtime",
+      access: "write",
+      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+    },
+  },
   annotations: {
     readOnlyHint: false,
     destructiveHint: true,

@@ -34,6 +34,22 @@ const defaultDeniedGitHubMcpTools = [
 type GitHubAppPermissionName = "actions" | "issues" | "pull_requests";
 type GitHubAppPermissionLevel = "read" | "write";
 
+type NaniteRepositoryManifest = {
+  permissions: {
+    github?: {
+      repositories?: readonly string[];
+    };
+  };
+  eventSource:
+    | {
+        type: "github";
+        repositories?: readonly string[];
+      }
+    | {
+        type: string;
+      };
+};
+
 export type NaniteGitHubMcpAccess = {
   tools: string[];
   deniedTools: string[];
@@ -43,6 +59,19 @@ export type NaniteGitHubMcpAccess = {
 
 function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set([...values].map((value) => value.trim()).filter(Boolean))].sort();
+}
+
+export function resolveNaniteManifestRepositoryFullNames(
+  manifest: NaniteRepositoryManifest,
+): string[] {
+  const repositories = new Set(manifest.permissions.github?.repositories ?? []);
+  if (manifest.eventSource.type === "github") {
+    for (const repository of manifest.eventSource.repositories ?? []) {
+      repositories.add(repository);
+    }
+  }
+
+  return uniqueSorted(repositories);
 }
 
 function grantsAtLeast(

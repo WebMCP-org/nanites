@@ -15,6 +15,7 @@ import {
   type SessionInstallationSnapshot,
 } from "#/backend/auth/session.ts";
 import { listInstallationRepositories, type GitHubUserToken } from "#/backend/github/index.ts";
+import { createSigveloMcpVisibleRepositorySnapshot } from "#/backend/mcp/auth-props.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { resolveGrantedMcpScopes } from "#/backend/mcp/index.ts";
 import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
@@ -148,7 +149,7 @@ async function readOptionalBrowserAuthorizeContext({
 }: {
   request: Request;
   env: Env;
-  responseHeaders?: Headers | undefined;
+  responseHeaders: Headers;
 }): Promise<BrowserAuthorizeContext | null> {
   const session = await readSessionCookie(request, env);
   if (!session) {
@@ -310,15 +311,15 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         throw new AppError("mcpSelectedInstallationUnavailable");
       }
 
-      if (
-        (
-          await listInstallationRepositories(
-            authContext.githubUserToken.accessToken,
-            activeInstallation.id,
-            { env: context.env, githubAppId: activeInstallation.githubAppId },
-          )
-        ).length === 0
-      ) {
+      const visibleRepositories = (
+        await listInstallationRepositories(
+          authContext.githubUserToken.accessToken,
+          activeInstallation.id,
+          { env: context.env, githubAppId: activeInstallation.githubAppId },
+        )
+      ).map(createSigveloMcpVisibleRepositorySnapshot);
+
+      if (visibleRepositories.length === 0) {
         return redirectOAuthError(
           context,
           authRequest,
@@ -350,6 +351,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           githubInstallationId: activeInstallation.id,
           clientId: authRequest.clientId,
           scopes: grantedScopes,
+          visibleRepositories,
           authorizedAt,
         },
       });

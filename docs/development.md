@@ -107,7 +107,7 @@ when intentionally testing the setup flow.
 Optional Sentry:
 
 ```bash
-vp exec wrangler secret put SENTRY_DSN --config wrangler.production.jsonc
+vp exec wrangler secret put SENTRY_DSN --config wrangler.jsonc
 ```
 
 Setting the `SENTRY_DSN` secret enables both worker-side Sentry and browser-side Sentry — the
@@ -313,7 +313,7 @@ vp test
 Deploy:
 
 ```bash
-vp run deploy:prod
+vp run deploy
 ```
 
 ## Testing

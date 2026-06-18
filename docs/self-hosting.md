@@ -111,7 +111,9 @@ The intended public entrypoint is:
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/WebMCP-org/nanites)
 ```
 
-Until the deploy-button smoke test is complete, local operators can still deploy with Wrangler:
+The one-click deploy is the golden path. It creates the Worker from the public template, then the
+runtime setup UI finishes account verification, GitHub App creation, repository installation, and
+generated secret writes. Local operators can run the same deploy wrapper with Wrangler:
 
 ```bash
 vp check
@@ -146,14 +148,13 @@ Wrangler v3.109.0 and newer may generate a follow-up PR after a build if the con
 does not match the repository config. Accept the same value in both places instead of letting the
 dashboard and repo drift.
 
-For the maintained SigVelo production Worker (`nanites-app-production` on `app.sigvelo.com`), use
-these Workers Builds settings:
+Use these Workers Builds settings:
 
 | Setting                              | Value                          |
 | ------------------------------------ | ------------------------------ |
 | Production branch                    | `main`                         |
 | Build command                        | leave blank                    |
-| Deploy command                       | `pnpm run deploy:prod`         |
+| Deploy command                       | `pnpm run deploy`              |
 | Non-production branch deploy command | `pnpm run deploy:preview`      |
 | Root directory                       | `/` or blank for the repo root |
 | Build cache                          | enabled                        |
@@ -162,16 +163,12 @@ these Workers Builds settings:
 
 Do not use raw `npx wrangler versions upload` for non-production branches. Nanites needs the package
 script because it builds first, then uploads `dist/nanites_app_production/index.js` with
-`dist/client` assets and `wrangler.production.jsonc`.
+`dist/client` assets and the public `wrangler.jsonc` template.
 
 If Cloudflare warns that the selected build token is missing `ai_search_write`, that warning is not
 required for the current Nanites runtime. Nanites uses the Workers AI binding named `AI`, not
 Cloudflare AI Search. The token still needs enough access for Workers Builds, Worker uploads, routes,
 KV/R2 resources, and D1 migrations.
-
-For a fresh self-hosted install, prefer the Deploy to Cloudflare button or `pnpm run deploy`. Do not
-use `pnpm run deploy:prod` unless you also own the explicit route and resource ids in
-`wrangler.production.jsonc`.
 
 V1 assumes one Nanites deployment per Cloudflare account. This is intentionally not an idempotent
 multi-install installer for one account. The default resource names are
@@ -195,12 +192,6 @@ This checks the public self-host template before the Wrangler dry run: the Deplo
 path must stay prompt-free, the generated secrets must stay out of deploy-time examples, and the
 default Wrangler config must keep the D1, R2, KV, Durable Object, Browser, Workers AI, and Worker
 Loader bindings that `/setup` depends on.
-
-The maintained SigVelo production deployment still uses the explicit production config:
-
-```bash
-vp run deploy:prod
-```
 
 ## 2. Open setup
 

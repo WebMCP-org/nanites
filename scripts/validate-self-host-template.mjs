@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,16 +81,16 @@ function validateWranglerConfig() {
   expect(hasBinding(config.kv_namespaces, "TOOL_OUTPUTS"), "TOOL_OUTPUTS KV binding is required.");
   expect(
     config.durable_objects?.bindings?.some(
-      (entry) => entry?.name === "NanitesSetupAgent" && entry?.class_name === "NanitesSetupAgentV2",
+      (entry) => entry?.name === "NanitesSetupAgent" && entry?.class_name === "NanitesSetupAgent",
     ),
     "NanitesSetupAgent Durable Object binding is required.",
   );
   expect(
     config.migrations?.some(
       (migration) =>
-        migration?.tag === "v2-durable-object-baseline" &&
+        migration?.tag === "v1-durable-object-baseline" &&
         Array.isArray(migration.new_sqlite_classes) &&
-        migration.new_sqlite_classes.includes("NanitesSetupAgentV2"),
+        migration.new_sqlite_classes.includes("NanitesSetupAgent"),
     ),
     "NanitesSetupAgent Durable Object migration is required.",
   );

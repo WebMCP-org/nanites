@@ -1,16 +1,19 @@
 import { z } from "zod";
 import type { NaniteWorkspaceExploreOutput } from "#/backend/agents/SigveloNaniteAgent.ts";
+import type { ExploreNaniteWorkspaceInput } from "#/backend/agents/SigveloNaniteManager.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 // MCP tool registration only advertises top-level object schemas; a top-level
 // discriminated union is published as an empty input schema, so clients never see
 // the parameters. Advertise this flat object and enforce the per-action rules below.
-const exploreWorkspaceToolInputSchema = z
+const exploreWorkspaceFlatToolInputSchema = z
   .object({
     action: z
       .enum(["info", "list", "read", "search"])
@@ -46,32 +49,49 @@ const exploreWorkspaceToolInputSchema = z
   })
   .describe("Explore a Nanite's child-owned Think workspace.");
 
-const exploreWorkspaceActionSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("info"),
-    naniteId: nonEmptyStringSchema,
-  }),
-  z.object({
-    action: z.literal("list"),
-    naniteId: nonEmptyStringSchema,
-    path: nonEmptyStringSchema.default("/"),
-    limit: z.number().int().min(1).max(1_000).default(200),
-  }),
-  z.object({
-    action: z.literal("read"),
-    naniteId: nonEmptyStringSchema,
-    path: nonEmptyStringSchema,
-    maxBytes: z.number().int().min(1_000).max(1_000_000).default(100_000),
-  }),
-  z.object({
-    action: z.literal("search"),
-    naniteId: nonEmptyStringSchema,
-    path: nonEmptyStringSchema.default("/"),
-    query: nonEmptyStringSchema,
-    limit: z.number().int().min(1).max(500).default(50),
-    maxFileBytes: z.number().int().min(1_000).max(1_000_000).default(200_000),
-  }),
-]);
+const exploreWorkspaceToolInputSchema = exploreWorkspaceFlatToolInputSchema.refine(
+  (input) =>
+    (input.action !== "read" || input.path !== undefined) &&
+    (input.action !== "search" || input.query !== undefined),
+  {
+    message: 'The "read" action requires path and the "search" action requires query.',
+  },
+);
+
+function toExploreWorkspaceInput(
+  input: z.output<typeof exploreWorkspaceToolInputSchema>,
+): ExploreNaniteWorkspaceInput {
+  switch (input.action) {
+    case "info":
+      return {
+        action: "info",
+        naniteId: input.naniteId,
+      };
+    case "list":
+      return {
+        action: "list",
+        naniteId: input.naniteId,
+        path: input.path ?? "/",
+        limit: input.limit ?? 200,
+      };
+    case "read":
+      return {
+        action: "read",
+        naniteId: input.naniteId,
+        path: input.path!,
+        maxBytes: input.maxBytes ?? 100_000,
+      };
+    case "search":
+      return {
+        action: "search",
+        naniteId: input.naniteId,
+        path: input.path ?? "/",
+        query: input.query!,
+        limit: input.limit ?? 50,
+        maxFileBytes: input.maxFileBytes ?? 200_000,
+      };
+  }
+}
 
 export const exploreWorkspaceTool = defineSigveloMcpTool({
   name: "sigvelo_explore_nanite_workspace",
@@ -80,6 +100,14 @@ export const exploreWorkspaceTool = defineSigveloMcpTool({
     "Reads child-owned Think workspace information, directory listings, file content, or text search results for one Nanite.",
   inputSchema: exploreWorkspaceToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite workspace exploration result."),
+  authorization: {
+    requiredScope: MCP_SCOPES.read,
+    repositoryPolicy: {
+      type: "runtime",
+      access: "read",
+      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+    },
+  },
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -87,7 +115,7 @@ export const exploreWorkspaceTool = defineSigveloMcpTool({
     openWorldHint: true,
   },
   async execute(input, { manager }) {
-    return manager.exploreNaniteWorkspace(exploreWorkspaceActionSchema.parse(input));
+    return manager.exploreNaniteWorkspace(toExploreWorkspaceInput(input));
   },
 } satisfies SigveloMcpToolDefinition<
   typeof exploreWorkspaceToolInputSchema,

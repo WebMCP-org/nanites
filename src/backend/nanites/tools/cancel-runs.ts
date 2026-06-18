@@ -6,6 +6,8 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const cancelRunsToolInputSchema = z
   .object({
@@ -23,6 +25,16 @@ export const cancelRunsTool = defineSigveloMcpTool({
   description: "Cancels pending or running Nanite runs through the manager cancellation path.",
   inputSchema: cancelRunsToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite run cancellation result."),
+  authorization: {
+    requiredScope: MCP_SCOPES.write,
+    repositoryPolicy: {
+      type: "runtime",
+      access: "write",
+      resolve: resolveReferencedNaniteRepositoryFullNames({
+        type: "all_nanites_when_unscoped",
+      }),
+    },
+  },
   annotations: {
     readOnlyHint: false,
     destructiveHint: true,
@@ -30,7 +42,6 @@ export const cancelRunsTool = defineSigveloMcpTool({
     openWorldHint: false,
   },
   async execute(input, { context, manager }) {
-    //@ts-ignore Super Deep types
     return manager.cancelRuns({
       runIds: input.runIds,
       naniteId: input.naniteId,

@@ -25,7 +25,7 @@ import {
   type SigveloChatIngress,
 } from "#/backend/agents/SigveloChatIngress.ts";
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
-import { sigveloMcpAuthPropsSchema, type SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
+import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_SCOPES } from "#/mcp.ts";
@@ -177,14 +177,17 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   override getTools(): ToolSet {
     const workspaceTools = createWorkspaceTools(this.workspace);
     const githubMcpConnector = this.createGitHubMcpConnector();
+    const sigveloTools =
+      this.state.status === "connected"
+        ? createSigveloThinkTools({
+            env: this.env,
+            auth: this.state.sigveloToolAuthProps,
+          })
+        : {};
 
     return {
       ...workspaceTools,
-      ...createSigveloThinkTools({
-        env: this.env,
-        getProps: () =>
-          this.state.status === "connected" ? this.state.sigveloToolAuthProps : null,
-      }),
+      ...sigveloTools,
       execute: createExecuteTool({
         ctx: this.ctx,
         tools: workspaceTools,
@@ -297,7 +300,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
 
   async answerGitHubMessage(
     input: HandleManagerChatMessageInput,
-    publication?: ManagerReplyPublication,
+    publication: ManagerReplyPublication,
   ): Promise<ManagerGitHubMessageAcceptance> {
     await this.connectSigveloTools(input);
     await this.cancelStaleManagerSubmissions();
@@ -424,7 +427,7 @@ function createSigveloToolAuthProps(input: HandleManagerChatMessageInput): Sigve
     throw new AppError("managerConversationInstallationRequired");
   }
 
-  return sigveloMcpAuthPropsSchema.parse({
+  return {
     authKind: "mcp",
     githubUserId: Number(input.author.userId),
     githubLogin: input.author.userName,
@@ -432,21 +435,21 @@ function createSigveloToolAuthProps(input: HandleManagerChatMessageInput): Sigve
     githubInstallationId: installationId,
     clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
     scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
+    visibleRepositories: [],
     authorizedAt: new Date().toISOString(),
-  });
+  } satisfies SigveloMcpAuthProps;
 }
 
 function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
   accountLogin: string;
   props: SigveloMcpAuthProps;
 } {
-  const { request } = getCurrentAgent();
-  const headers = request?.headers;
+  const headers = requireCurrentAgentHeaders();
   const githubAppId = readPositiveManagerHeader(headers, "x-nanites-active-github-app-id");
   const installationId = readPositiveManagerHeader(headers, "x-nanites-active-installation-id");
   const githubUserId = readPositiveActorHeader(headers, "x-nanites-github-user-id");
   const githubLogin = readRequiredActorHeader(headers, "x-nanites-github-login");
-  const accountLogin = headers?.get("x-nanites-installation-account-login") ?? "";
+  const accountLogin = headers.get("x-nanites-installation-account-login") ?? "";
   requireBrowserConversationTarget(conversationName, {
     githubAppId,
     githubInstallationId: installationId,
@@ -461,33 +464,43 @@ function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
     githubInstallationId: installationId,
     clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
     scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
+    visibleRepositories: [],
     authorizedAt: new Date().toISOString(),
-  };
+  } satisfies SigveloMcpAuthProps;
 
   return {
     accountLogin: requireSelectedGitHubAccount(accountLogin),
-    props: sigveloMcpAuthPropsSchema.parse(props),
+    props,
   };
 }
 
-function readPositiveManagerHeader(headers: Headers | undefined, name: string): number {
-  const value = Number(headers?.get(name));
+function requireCurrentAgentHeaders(): Headers {
+  const { request } = getCurrentAgent();
+  if (!request) {
+    throw new AppError("authenticationRequired");
+  }
+
+  return request.headers;
+}
+
+function readPositiveManagerHeader(headers: Headers, name: string): number {
+  const value = Number(headers.get(name));
   if (!Number.isInteger(value) || value <= 0) {
     throw new AppError("managerConversationInstallationRequired");
   }
   return value;
 }
 
-function readPositiveActorHeader(headers: Headers | undefined, name: string): number {
-  const value = Number(headers?.get(name));
+function readPositiveActorHeader(headers: Headers, name: string): number {
+  const value = Number(headers.get(name));
   if (!Number.isInteger(value) || value <= 0) {
     throw new AppError("authenticationRequired");
   }
   return value;
 }
 
-function readRequiredActorHeader(headers: Headers | undefined, name: string): string {
-  const value = headers?.get(name);
+function readRequiredActorHeader(headers: Headers, name: string): string {
+  const value = headers.get(name);
   if (!value) {
     throw new AppError("authenticationRequired");
   }

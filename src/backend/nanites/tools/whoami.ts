@@ -2,13 +2,13 @@ import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
 import { findInstallationAccount } from "#/backend/db/facts.ts";
 import { GITHUB_ACCOUNT_TYPES } from "#/backend/db/schema.ts";
-import { describeError } from "#/backend/errors.ts";
 import { readGitHubAppMetadata } from "#/backend/github/apps.ts";
-import { listReposAccessibleToInstallation } from "#/backend/github/index.ts";
+import { sigveloMcpVisibleRepositorySchema } from "#/backend/mcp/auth-props.ts";
 import {
   defineSigveloMcpTool,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const whoamiToolInputSchema = z.object({});
 const whoamiToolOutputSchema = z.object({
@@ -32,14 +32,14 @@ const whoamiToolOutputSchema = z.object({
     ),
   installationRepositories: z
     .array(z.string().min(1))
-    .nullable()
     .describe(
-      "Full names of every repository this installation can access — the complete repository scope for GitHub and Nanite work. Null when the live lookup failed; see installationRepositoriesError.",
+      "Full names of repositories visible to the authorizing GitHub user for this installation. This is the MCP tool session's repository scope.",
     ),
-  installationRepositoriesError: z
-    .string()
-    .nullable()
-    .describe("Why the repository lookup failed, when installationRepositories is null."),
+  visibleRepositories: z
+    .array(sigveloMcpVisibleRepositorySchema)
+    .describe(
+      "GitHub repository objects visible to the authorizing GitHub user for this installation, preserving GitHub permission fields such as pull, push, and admin.",
+    ),
   githubApp: z
     .object({
       appId: z.number().int().positive(),
@@ -60,9 +60,13 @@ export const whoamiTool = defineSigveloMcpTool({
   name: "sigvelo_whoami",
   title: "Inspect SigVelo authorization",
   description:
-    "Returns the signed-in GitHub user plus the full authorization picture of this tool session: the GitHub App installation, the account it targets, every repository it can access, the app's GitHub permissions and webhook events, and the granted MCP scopes. installationAccount and installationRepositories are the working scope for repositories and Nanites; githubLogin only identifies the human.",
+    "Returns the signed-in GitHub user plus the full authorization picture of this tool session: the GitHub App installation, the account it targets, repositories visible to this GitHub user, the app's GitHub permissions and webhook events, and the granted MCP scopes. installationAccount and visibleRepositories are the working scope for repositories and Nanites; githubLogin only identifies the human.",
   inputSchema: whoamiToolInputSchema,
   outputSchema: whoamiToolOutputSchema,
+  authorization: {
+    requiredScope: MCP_SCOPES.read,
+    repositoryPolicy: { type: "none" },
+  },
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -71,21 +75,13 @@ export const whoamiTool = defineSigveloMcpTool({
   },
   async execute(_input, { auth, env }) {
     const db = createDbClient(env.DB);
-    const [account, appMetadata, repositoriesResult] = await Promise.all([
+    const [account, appMetadata] = await Promise.all([
       findInstallationAccount(db, auth.githubInstallationId),
       readGitHubAppMetadata(db, auth.githubAppId),
-      listReposAccessibleToInstallation({
-        env,
-        githubAppId: auth.githubAppId,
-        githubInstallationId: auth.githubInstallationId,
-      }).then(
-        (repositories) => ({
-          repositories: repositories.map((repository) => repository.full_name).sort(),
-          error: null,
-        }),
-        (error: unknown) => ({ repositories: null, error: describeError(error) }),
-      ),
     ]);
+    const visibleRepositories = [...auth.visibleRepositories].sort((left, right) =>
+      left.full_name.localeCompare(right.full_name),
+    );
 
     return {
       authKind: auth.authKind,
@@ -98,8 +94,8 @@ export const whoamiTool = defineSigveloMcpTool({
             type: account.githubAccountType,
           }
         : null,
-      installationRepositories: repositoriesResult.repositories,
-      installationRepositoriesError: repositoriesResult.error,
+      installationRepositories: visibleRepositories.map((repository) => repository.full_name),
+      visibleRepositories,
       githubApp: appMetadata
         ? {
             appId: appMetadata.appId,
