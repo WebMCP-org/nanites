@@ -1,5 +1,6 @@
 import { Think, Workspace, defaultContextOverflowClassifier } from "@cloudflare/think";
 import type {
+  ChatRecoveryConfig,
   Session,
   StepContext,
   ThinkSubmissionInspection,
@@ -245,6 +246,18 @@ const naniteWatchdogIdleMs = naniteWatchdogDelaySeconds * 1000;
 const naniteWatchdogStabilityTimeoutMs = 1_000;
 const naniteInterruptedSubmissionError = "Submission was interrupted after messages were applied.";
 const naniteInterruptedSubmissionMaxRetries = 1;
+const naniteChatRecoveryMaxAttempts = 10;
+const naniteChatRecoveryNoProgressTimeoutMs = 10 * 60 * 1000;
+const naniteChatRecoveryTerminalMessage =
+  "This Nanite run was interrupted and could not recover automatically. SigVelo will mark the run failed if no lifecycle outcome was already recorded.";
+const naniteChatRecovery = {
+  maxAttempts: naniteChatRecoveryMaxAttempts,
+  noProgressTimeoutMs: naniteChatRecoveryNoProgressTimeoutMs,
+  terminalMessage: naniteChatRecoveryTerminalMessage,
+} satisfies ChatRecoveryConfig;
+// Nanite tools can legitimately run for minutes without streaming chunks; keep
+// the stream-stall watchdog off globally and let run/submission recovery decide.
+const naniteChatStreamStallTimeoutMs = 0;
 const naniteDebugPartMaxLength = 12_000;
 const naniteToolOutputBudgetExcludedTools = new Set([
   "complete",
@@ -710,7 +723,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   initialState: NaniteAgentState = createInitialNaniteAgentState();
   extensionLoader = this.env.LOADER;
   override maxSteps = naniteMaxSteps;
-  override chatRecovery = { noProgressTimeoutMs: 10 * 60 * 1000 };
+  override chatRecovery = naniteChatRecovery;
+  override chatStreamStallTimeoutMs = naniteChatStreamStallTimeoutMs;
   override classifyChatError = defaultContextOverflowClassifier;
   override contextOverflow = { reactive: true, maxRetries: 2 };
   // Never externalize evicted transcript media into the workspace: repos are
