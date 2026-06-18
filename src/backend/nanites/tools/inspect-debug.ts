@@ -11,6 +11,8 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const naniteRunStatusSchema = z.enum(naniteRunStatuses);
 const naniteActivitySchema = z.enum(naniteRuntimeActivityStates);
@@ -61,6 +63,16 @@ export const inspectDebugTool = defineSigveloMcpTool({
     "Inspects manager-owned Nanite state and, when requested, delegates to the child Think sub-agent for transcript and submission inspection.",
   inputSchema: inspectDebugToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite debug inspection output."),
+  authorization: {
+    requiredScope: MCP_SCOPES.read,
+    repositoryPolicy: {
+      type: "runtime",
+      access: "read",
+      resolve: resolveReferencedNaniteRepositoryFullNames({
+        type: "all_nanites_when_unscoped",
+      }),
+    },
+  },
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -68,7 +80,6 @@ export const inspectDebugTool = defineSigveloMcpTool({
     openWorldHint: true,
   },
   async execute(input, { manager }) {
-    // @ts-ignore Cloudflare's concrete DO stub type can recursively expand the full manager RPC graph here.
     return manager.inspectNaniteDebug(input);
   },
 } satisfies SigveloMcpToolDefinition<typeof inspectDebugToolInputSchema, InspectNaniteDebugOutput>);

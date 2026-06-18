@@ -225,7 +225,6 @@ export type HumanRequest = {
   summary: string;
   requestedScopes: string[];
   createdAt: string;
-  resolvedAt: string | null;
 };
 
 export type NaniteAgentFeedback = {
@@ -242,22 +241,54 @@ export type NaniteRunModelSnapshot = {
   resolvedAt: string;
 };
 
-export type NaniteRunRecord = {
+type NaniteRunRecordBase = {
   runId: string;
   naniteId: string;
   model: NaniteRunModelSnapshot;
   triggerKey: string;
   trigger: NaniteTriggerEvent;
-  status: NaniteRunStatus;
-  summary: string | null;
-  outputUrl: string | null;
-  agentFeedback: NaniteAgentFeedback | null;
-  humanRequest: HumanRequest | null;
   startedAt: string;
-  dispatchError: string | null;
   updatedAt: string;
-  completedAt: string | null;
 };
+
+type NaniteTerminalRunRecord = {
+  summary: string;
+  completedAt: string;
+} & (
+  | { status: "complete"; outputUrl: string | null; agentFeedback: NaniteAgentFeedback | null }
+  | { status: "no_change"; outputUrl: null; agentFeedback: NaniteAgentFeedback | null }
+  | {
+      status: "fail";
+      outputUrl: null;
+      agentFeedback: NaniteAgentFeedback | null;
+      failure: { type: "lifecycle" } | { type: "unreported"; dispatchError: string };
+    }
+  | {
+      status: "canceled";
+      cancellation:
+        | { type: "manager"; reason: string }
+        | { type: "unreported"; dispatchError: string };
+    }
+);
+
+export type NaniteRunRecord = NaniteRunRecordBase &
+  (
+    | { status: "running" }
+    | { status: "waiting_for_human"; summary: string; humanRequest: HumanRequest }
+    | NaniteTerminalRunRecord
+  );
+
+function replaceRunRecordBase(run: NaniteRunRecord, updatedAt: string): NaniteRunRecordBase {
+  return {
+    runId: run.runId,
+    naniteId: run.naniteId,
+    model: run.model,
+    triggerKey: run.triggerKey,
+    trigger: run.trigger,
+    startedAt: run.startedAt,
+    updatedAt,
+  };
+}
 
 export type NaniteManagerState = {
   nanites: Record<string, ManagedNanite>;
@@ -420,7 +451,7 @@ export type CancelNaniteRunsInput = {
 };
 
 export type CancelNaniteRunsOutput = {
-  canceledRuns: NaniteRunRecord[];
+  canceledRuns: Array<Extract<NaniteRunRecord, { status: "canceled" }>>;
   skippedRuns: Array<{
     runId: string;
     reason: string;
@@ -455,7 +486,7 @@ export type NaniteManagerMaintenanceOutput = {
   checkedAt: string;
   staleRunningCutoffIso: string;
   terminalSubmissionCutoffIso: string;
-  canceledRuns: NaniteRunRecord[];
+  canceledRuns: Array<Extract<NaniteRunRecord, { status: "canceled" }>>;
   skippedRuns: CancelNaniteRunsOutput["skippedRuns"];
   deletedOrphanedSubAgentNames: string[];
   maintainedNaniteAgents: Array<NaniteAgentMaintenanceOutput & { naniteId: string }>;
@@ -466,16 +497,17 @@ export type NaniteManagerMaintenanceOutput = {
 
 export type CompleteNaniteRunInput = {
   runId: string;
-  status: CompletableNaniteRunStatus;
   summary: string;
-  outputUrl?: string | null;
-  agentFeedback?: NaniteAgentFeedback | null;
-};
+  agentFeedback: NaniteAgentFeedback | null;
+} & (
+  | { status: "complete"; outputUrl: string | null }
+  | { status: "no_change" | "fail"; outputUrl: null }
+);
 
 export type AskHumanInput = {
   runId: string;
   summary: string;
-  requestedScopes?: string[];
+  requestedScopes: string[];
 };
 
 export type RecordUnreportedRunCompletionInput = {
@@ -978,14 +1010,8 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       triggerKey,
       trigger: input.trigger,
       status: "running",
-      summary: null,
-      outputUrl: null,
-      agentFeedback: null,
-      humanRequest: null,
       startedAt,
-      dispatchError: null,
       updatedAt: startedAt,
-      completedAt: null,
     };
 
     const runOrder = [runId, ...this.state.runOrder].slice(0, MAX_RUNS_IN_STATE);
@@ -1101,24 +1127,54 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     };
   }
 
-  async completeRun(input: CompleteNaniteRunInput): Promise<NaniteRunRecord> {
+  async completeRun(
+    input: CompleteNaniteRunInput,
+  ): Promise<Extract<NaniteRunRecord, { status: CompletableNaniteRunStatus }>> {
     const current = this.requireRun(input.runId);
-    if (isTerminalNaniteRunStatus(current.status)) {
+    if (
+      current.status === "complete" ||
+      current.status === "no_change" ||
+      current.status === "fail"
+    ) {
       assertNaniteRunStatusTransition(current.status, input.status);
       return current;
     }
 
     assertNaniteRunStatusTransition(current.status, input.status);
     const completedAt = nowIso();
-    const run = this.setRun(input.runId, (previous) => ({
-      ...previous,
-      status: input.status,
-      summary: input.summary,
-      outputUrl: input.outputUrl ?? previous.outputUrl,
-      agentFeedback: input.agentFeedback ?? previous.agentFeedback,
-      updatedAt: completedAt,
-      completedAt,
-    }));
+    const run = this.setRun(input.runId, (previous) => {
+      const base = replaceRunRecordBase(previous, completedAt);
+      if (input.status === "complete") {
+        return {
+          ...base,
+          status: "complete",
+          summary: input.summary,
+          outputUrl: input.outputUrl,
+          agentFeedback: input.agentFeedback,
+          completedAt,
+        };
+      }
+      if (input.status === "no_change") {
+        return {
+          ...base,
+          status: "no_change",
+          summary: input.summary,
+          outputUrl: null,
+          agentFeedback: input.agentFeedback,
+          completedAt,
+        };
+      }
+
+      return {
+        ...base,
+        status: "fail",
+        summary: input.summary,
+        outputUrl: null,
+        agentFeedback: input.agentFeedback,
+        failure: { type: "lifecycle" },
+        completedAt,
+      };
+    });
     this.setActivity(run.naniteId, {
       state: "idle",
       runId: run.runId,
@@ -1142,27 +1198,29 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     return run;
   }
 
-  async askHuman(input: AskHumanInput): Promise<NaniteRunRecord> {
+  async askHuman(
+    input: AskHumanInput,
+  ): Promise<Extract<NaniteRunRecord, { status: "waiting_for_human" }>> {
     const current = this.requireRun(input.runId);
-    if (current.status === "waiting_for_human" && current.humanRequest?.resolvedAt === null) {
+    if (current.status === "waiting_for_human") {
       return current;
     }
 
     assertNaniteRunStatusTransition(current.status, "waiting_for_human");
     const createdAt = nowIso();
-    const run = this.setRun(input.runId, (previous) => ({
-      ...previous,
-      status: "waiting_for_human",
-      summary: input.summary,
-      humanRequest: {
-        id: crypto.randomUUID(),
+    const run = this.setRun(input.runId, (previous) => {
+      return {
+        ...replaceRunRecordBase(previous, createdAt),
+        status: "waiting_for_human",
         summary: input.summary,
-        requestedScopes: input.requestedScopes ?? [],
-        createdAt,
-        resolvedAt: null,
-      },
-      updatedAt: createdAt,
-    }));
+        humanRequest: {
+          id: crypto.randomUUID(),
+          summary: input.summary,
+          requestedScopes: input.requestedScopes,
+          createdAt,
+        },
+      };
+    });
     this.setActivity(run.naniteId, {
       state: "waiting_for_human",
       runId: run.runId,
@@ -1181,7 +1239,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
    */
   async recordUnreportedRunCompletion(
     input: RecordUnreportedRunCompletionInput,
-  ): Promise<NaniteRunRecord> {
+  ): Promise<Extract<NaniteRunRecord, { status: TerminalNaniteRunStatus | "waiting_for_human" }>> {
     const current = this.requireRun(input.runId);
     if (isTerminalNaniteRunStatus(current.status) || current.status === "waiting_for_human") {
       return current;
@@ -1189,16 +1247,31 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     const observedAt = nowIso();
     const status: TerminalNaniteRunStatus = input.status === "aborted" ? "canceled" : "fail";
-    const run = this.setRun(input.runId, (previous) => ({
-      ...previous,
-      status,
-      summary:
-        input.error ??
-        `The Think submission ended with status ${input.status} before the Nanite reported a lifecycle outcome.`,
-      dispatchError: input.error ?? null,
-      updatedAt: observedAt,
-      completedAt: observedAt,
-    }));
+    const summary =
+      input.error ??
+      `The Think submission ended with status ${input.status} before the Nanite reported a lifecycle outcome.`;
+    const run = this.setRun(input.runId, (previous) => {
+      const base = replaceRunRecordBase(previous, observedAt);
+      if (status === "canceled") {
+        return {
+          ...base,
+          status: "canceled",
+          summary,
+          cancellation: { type: "unreported", dispatchError: summary },
+          completedAt: observedAt,
+        };
+      }
+
+      return {
+        ...base,
+        status: "fail",
+        summary,
+        outputUrl: null,
+        agentFeedback: null,
+        failure: { type: "unreported", dispatchError: summary },
+        completedAt: observedAt,
+      };
+    });
     this.setActivity(run.naniteId, {
       state: input.status === "error" ? "error" : "idle",
       runId: run.runId,
@@ -1275,7 +1348,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
           );
         });
     const limit = clampLimit(input.limit, 25, MAX_RUNS_IN_STATE);
-    const canceledRuns: NaniteRunRecord[] = [];
+    const canceledRuns: Array<Extract<NaniteRunRecord, { status: "canceled" }>> = [];
     const skippedRuns: CancelNaniteRunsOutput["skippedRuns"] = [];
 
     for (const runId of candidateRunIds.slice(0, limit)) {
@@ -1301,13 +1374,15 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       await agent.cancelRunFromManager({ runId, reason: input.reason });
 
       const canceledAt = nowIso();
-      const canceled = this.setRun(runId, (previous) => ({
-        ...previous,
-        status: "canceled",
-        summary: input.reason,
-        updatedAt: canceledAt,
-        completedAt: canceledAt,
-      }));
+      const canceled = this.setRun(runId, (previous) => {
+        return {
+          ...replaceRunRecordBase(previous, canceledAt),
+          status: "canceled",
+          summary: input.reason,
+          cancellation: { type: "manager", reason: input.reason },
+          completedAt: canceledAt,
+        };
+      });
       canceledRuns.push(canceled);
 
       if (this.state.runtimeActivityByNanite[run.naniteId]?.runId === runId) {
@@ -1472,7 +1547,9 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       evaluation?.dispatches
         .filter((dispatch) => dispatch.created)
         .map((dispatch) => dispatch.run) ?? [];
-    const dispatchedRuns = createdRuns.filter((run) => run.dispatchError === null);
+    const dispatchedRuns = createdRuns.filter(
+      (run) => run.status !== "fail" && run.status !== "canceled",
+    );
 
     const outcome = await this.resolveRunOutcomes({
       runs: createdRuns,
@@ -1496,7 +1573,14 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         triggerRejectionReason,
       },
       runs,
-      agentFeedback: runs.find((run) => run.agentFeedback)?.agentFeedback ?? null,
+      agentFeedback:
+        runs
+          .map((run) =>
+            run.status === "complete" || run.status === "no_change" || run.status === "fail"
+              ? run.agentFeedback
+              : null,
+          )
+          .find((feedback) => feedback !== null) ?? null,
       error:
         createdRuns.length === 0
           ? (triggerRejectionReason ??
@@ -1736,10 +1820,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     return run;
   }
 
-  private setRun(
-    runId: string,
-    update: (run: NaniteRunRecord) => NaniteRunRecord,
-  ): NaniteRunRecord {
+  private setRun<T extends NaniteRunRecord>(runId: string, update: (run: NaniteRunRecord) => T): T {
     const run = update(this.requireRun(runId));
     this.setState({
       ...this.state,
@@ -1814,7 +1895,9 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     terminalOutcomeReached: boolean;
   }> {
     if (!input.waitForTerminalOutcome) {
-      const ok = input.runs.length > 0 && input.runs.every((run) => run.dispatchError === null);
+      const ok =
+        input.runs.length > 0 &&
+        input.runs.every((run) => run.status !== "fail" && run.status !== "canceled");
       return { ok, error: null, runs: input.runs, terminalOutcomeReached: false };
     }
 
@@ -1833,10 +1916,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
       };
     }
 
-    const successful = runs.every(
-      (run) =>
-        (run.status === "complete" || run.status === "no_change") && run.dispatchError === null,
-    );
+    const successful = runs.every((run) => run.status === "complete" || run.status === "no_change");
     return {
       ok: successful,
       error: successful
@@ -1927,7 +2007,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   }
 
   private async recordRunFailureAudit(input: {
-    run: NaniteRunRecord;
+    run: Extract<NaniteRunRecord, { status: "fail" }>;
     reasonCode: string;
   }): Promise<void> {
     await this.recordObservabilityFact("run.failed.audit", async (db, identity) => {
@@ -1944,7 +2024,8 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         reasonCode: input.reasonCode,
         metadata: {
           summary: input.run.summary,
-          dispatchError: input.run.dispatchError,
+          dispatchError:
+            input.run.failure.type === "unreported" ? input.run.failure.dispatchError : null,
           triggerType: input.run.trigger.type,
         },
       });
@@ -1957,13 +2038,14 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   }): Promise<void> {
     await this.recordObservabilityFact("nanite.run_fact", async (db, identity) => {
       let outputPullRequest: GitHubPullRequestImpact | null = null;
-      if (input.run.outputUrl) {
+      const outputUrl = input.run.status === "complete" ? input.run.outputUrl : null;
+      if (outputUrl) {
         try {
           outputPullRequest = await fetchGitHubPullRequestImpact({
             env: this.env,
             githubAppId: identity.githubAppId,
             installationId: identity.githubInstallationId,
-            outputUrl: input.run.outputUrl,
+            outputUrl,
           });
         } catch (error) {
           naniteManagerLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {

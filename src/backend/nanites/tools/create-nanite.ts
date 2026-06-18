@@ -1,12 +1,14 @@
 import { emitterEventNames } from "@octokit/webhooks";
 import { z } from "zod";
 import type { ManagedNanite } from "#/backend/agents/SigveloNaniteManager.ts";
+import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const naniteManualEventSourceSpecSchema = z.object({
   type: z.literal("manual"),
@@ -97,6 +99,14 @@ export const createNaniteTool = defineSigveloMcpTool({
   description: "Registers a stable Nanite spec with the authorized installation-scoped manager.",
   inputSchema: createNaniteToolInputSchema,
   outputSchema: createObjectOutputSchema("Registered SigVelo Nanite record."),
+  authorization: {
+    requiredScope: MCP_SCOPES.write,
+    repositoryPolicy: {
+      type: "input",
+      access: "write",
+      resolve: (input) => resolveNaniteManifestRepositoryFullNames(input.manifest),
+    },
+  },
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,

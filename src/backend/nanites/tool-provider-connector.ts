@@ -1,12 +1,14 @@
 import { CodemodeConnector } from "@cloudflare/codemode";
 import type { ConnectorTools, ToolProvider } from "@cloudflare/codemode";
 
-/**
- * Adapts a plain ToolProvider ({ name, tools, types }) to the class-based
- * CodemodeConnector surface that @cloudflare/think 0.9 execute tools consume.
- * Supports simple tool records (description + execute) — the shape of the
- * SigVelo git and artifact providers.
- */
+type SimpleProviderTools = Record<
+  string,
+  {
+    description?: string;
+    execute: (args?: unknown) => Promise<unknown>;
+  }
+>;
+
 export class ToolProviderConnector extends CodemodeConnector {
   readonly #provider: ToolProvider;
 
@@ -20,15 +22,17 @@ export class ToolProviderConnector extends CodemodeConnector {
   }
 
   protected tools(): ConnectorTools {
-    return this.#provider.tools as ConnectorTools;
+    return Object.fromEntries(
+      Object.entries(this.#provider.tools as SimpleProviderTools).map(([name, providerTool]) => [
+        name,
+        {
+          description: providerTool.description,
+          execute: (args) => providerTool.execute(args),
+        },
+      ]),
+    );
   }
 
-  /**
-   * codemode renders codemode.search/describe output from each tool's JSON
-   * inputSchema plus this instructions string. SigVelo's providers carry no
-   * inputSchemas — their hand-written `types` block is the only signature
-   * documentation the model can get, so surface it here.
-   */
   protected override instructions(): string | undefined {
     return this.#provider.types;
   }

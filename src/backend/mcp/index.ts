@@ -2,9 +2,9 @@ import { createMcpHandler } from "agents/mcp";
 import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
+import { sigveloMcpVisibleRepositorySchema } from "#/backend/mcp/auth-props.ts";
 import { executeSigveloNaniteTool } from "#/backend/nanites/tools/define-tool.ts";
 import { naniteTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_ROUTE, MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/mcp.ts";
@@ -25,26 +25,11 @@ export const sigveloMcpAuthPropsSchema = z.object({
   githubInstallationId: z.number().int().positive(),
   clientId: z.string().min(1),
   scopes: z.array(z.enum(SUPPORTED_MCP_SCOPES)),
+  visibleRepositories: z.array(sigveloMcpVisibleRepositorySchema),
   authorizedAt: z.string().datetime({ offset: true }),
 });
 
 export type SigveloMcpAuthProps = z.infer<typeof sigveloMcpAuthPropsSchema>;
-
-export function parseSigveloMcpAuthProps(props: unknown): SigveloMcpAuthProps | null {
-  const parsed = sigveloMcpAuthPropsSchema.safeParse(props);
-  return parsed.success ? parsed.data : null;
-}
-
-export function requireSigveloMcpGrantProps(props: unknown): SigveloMcpAuthProps {
-  const parsed = parseSigveloMcpAuthProps(props);
-  if (!parsed) {
-    throw new OAuthError("invalid_grant", {
-      description: INVALID_MCP_AUTH_PROPS_DESCRIPTION,
-    });
-  }
-
-  return parsed;
-}
 
 export function resolveGrantedMcpScopes(requestedScopes: readonly string[]): SigveloMcpScope[] {
   const unsupportedScopes = requestedScopes.filter(
@@ -87,7 +72,7 @@ export function downscopeMcpAuthPropsForToken({
 
 type SigveloMcpToolContext = {
   env: Env;
-  getProps(): SigveloMcpAuthProps;
+  auth: SigveloMcpAuthProps;
 };
 
 function formatMcpToolResult(output: object): CallToolResult {
@@ -126,7 +111,7 @@ export function registerSigveloNaniteTools(
             toolInput,
             invocation: {
               env: context.env,
-              props: context.getProps(),
+              props: context.auth,
               surface: "mcp",
               requestId: extra.requestId == null ? undefined : String(extra.requestId),
             },
@@ -138,8 +123,10 @@ export function registerSigveloNaniteTools(
 
 export const nanitesMcpApiHandler = {
   async fetch(request: Request, env: Env, executionContext: ExecutionContext): Promise<Response> {
-    const props = parseSigveloMcpAuthProps((executionContext as McpExecutionContext).props);
-    if (!props) {
+    const parsedProps = sigveloMcpAuthPropsSchema.safeParse(
+      (executionContext as McpExecutionContext).props,
+    );
+    if (!parsedProps.success) {
       const resourceMetadataUrl = createMcpProtectedResourceMetadataUrl(request);
       const error = new InvalidTokenError(INVALID_MCP_AUTH_PROPS_DESCRIPTION);
       return Response.json(error.toResponseObject(), {
@@ -149,6 +136,7 @@ export const nanitesMcpApiHandler = {
         },
       });
     }
+    const auth = parsedProps.data;
 
     // This handler is stateless: a fresh server per request, no session id, and the
     // transport returns 405 for the GET/DELETE session endpoints. There is therefore no
@@ -160,10 +148,10 @@ export const nanitesMcpApiHandler = {
     );
     registerSigveloNaniteTools(server, {
       env,
-      getProps: () => props,
+      auth,
     });
 
-    return createMcpHandler(server, { route: MCP_ROUTE, authContext: { props } })(
+    return createMcpHandler(server, { route: MCP_ROUTE, authContext: { props: auth } })(
       request,
       env,
       executionContext,

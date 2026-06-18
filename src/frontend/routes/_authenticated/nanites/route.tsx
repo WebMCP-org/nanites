@@ -385,8 +385,9 @@ function getRunActivityLabel(
     return "ready";
   }
 
+  const completedAt = isTerminalRunStatus(run.status) ? run.completedAt : null;
   return formatRelativeDate(
-    activity?.lastActivityAt ?? run.completedAt ?? run.updatedAt ?? run.startedAt,
+    activity?.lastActivityAt ?? completedAt ?? run.updatedAt ?? run.startedAt,
   );
 }
 
@@ -614,26 +615,8 @@ function InstallationPicker({
   );
 }
 
-function isNaniteEventSource(value: unknown): value is NaniteEventSource {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    value.type === "manual" ||
-    value.type === "schedule" ||
-    value.type === "scheduleEvery" ||
-    value.type === "github"
-  );
-}
-
-function readNaniteEventSource(nanite: ManagedNanite): NaniteEventSource | null {
-  const eventSource: unknown = nanite.manifest.eventSource;
-  return isNaniteEventSource(eventSource) ? eventSource : null;
-}
-
-function getEventSourceRepositories(eventSource: NaniteEventSource | null | undefined): string[] {
-  if (!eventSource || eventSource.type !== "github") {
+function getEventSourceRepositories(eventSource: NaniteEventSource): string[] {
+  if (eventSource.type !== "github") {
     return [];
   }
 
@@ -665,11 +648,7 @@ function formatScheduledEventSource(
   }
 }
 
-function formatEventSourceSpec(eventSource: NaniteEventSource | null | undefined): string {
-  if (!eventSource) {
-    return "manual";
-  }
-
+function formatEventSourceSpec(eventSource: NaniteEventSource): string {
   switch (eventSource.type) {
     case "manual":
       return "manual";
@@ -682,8 +661,8 @@ function formatEventSourceSpec(eventSource: NaniteEventSource | null | undefined
 }
 
 function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTestEvent | null {
-  const eventSource = readNaniteEventSource(nanite);
-  if (!eventSource || eventSource.type !== "github") {
+  const eventSource = nanite.manifest.eventSource;
+  if (eventSource.type !== "github") {
     return null;
   }
 
@@ -943,7 +922,7 @@ function getNaniteRepositories(nanite: ManagedNanite, runs: readonly NaniteRunRe
   for (const repository of nanite.manifest.permissions.github?.repositories ?? []) {
     repositories.add(repository);
   }
-  for (const repository of getEventSourceRepositories(readNaniteEventSource(nanite))) {
+  for (const repository of getEventSourceRepositories(nanite.manifest.eventSource)) {
     repositories.add(repository);
   }
   for (const run of runs) {
@@ -1063,13 +1042,16 @@ function NaniteRunInfoPanel({
     .filter(([, permission]) => permission !== undefined && permission !== null)
     .map(([permission, access]) => `${permission}: ${String(access)}`);
   const scopedRepositories = nanite?.manifest.permissions.github?.repositories ?? [];
-  const eventSource = nanite ? readNaniteEventSource(nanite) : null;
-  const triggerSpec = nanite ? formatEventSourceSpec(eventSource) : "manual";
+  const eventSource = nanite?.manifest.eventSource ?? null;
+  const triggerSpec = eventSource ? formatEventSourceSpec(eventSource) : "manual";
   const manageAccessHref = buildGitHubAppInstallHref({
     appSlug: githubAppSlug,
     suggestedTargetId: activeInstallation.account.id,
   });
   const triggerLabel = run ? formatTriggerEvent(run.trigger) : nanite ? triggerSpec : "No trigger";
+  const runSummary = run && run.status !== "running" ? run.summary : null;
+  const runHumanRequest = run?.status === "waiting_for_human" ? run.humanRequest : null;
+  const runOutputUrl = run?.status === "complete" ? run.outputUrl : null;
   const scopeRows: InfoRow[] = [
     {
       key: "repos",
@@ -1134,18 +1116,18 @@ function NaniteRunInfoPanel({
             value: triggerLabel,
           }
         : null,
-    run?.summary
+    runSummary
       ? {
           key: "summary",
           label: "Summary",
-          value: run.summary,
+          value: runSummary,
         }
       : null,
-    run?.humanRequest
+    runHumanRequest
       ? {
           key: "waiting",
           label: "Waiting",
-          value: run.humanRequest.summary,
+          value: runHumanRequest.summary,
         }
       : null,
   ].filter((row) => row !== null);
@@ -1268,11 +1250,11 @@ function NaniteRunInfoPanel({
                   <dd title={row.value}>{row.value}</dd>
                 </div>
               ))}
-              {run?.outputUrl ? (
+              {runOutputUrl ? (
                 <div>
                   <dt>Output</dt>
                   <dd>
-                    <a href={run.outputUrl} target="_blank" rel="noreferrer">
+                    <a href={runOutputUrl} target="_blank" rel="noreferrer">
                       Open
                       <ArrowSquareOutIcon size={12} aria-hidden="true" />
                     </a>

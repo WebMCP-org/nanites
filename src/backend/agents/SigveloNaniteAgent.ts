@@ -32,6 +32,7 @@ import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.t
 import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabilities.ts";
 import {
   NaniteToolOutputArtifactStore,
+  naniteToolOutputArtifactReadInputSchema,
   wrapToolSetForNaniteOutputBudget,
 } from "#/backend/nanites/tool-output.ts";
 import {
@@ -40,7 +41,6 @@ import {
   NANITES_AI_GATEWAY_ID,
 } from "#/backend/nanites/language-model.ts";
 import type {
-  AskHumanInput,
   CompleteNaniteRunInput,
   ManagedNanite,
   NaniteAgentFeedback,
@@ -53,7 +53,6 @@ import type {
   NaniteScheduleWhen,
   NaniteTriggerEvent,
   RecordNaniteRuntimeActivityInput,
-  RecordUnreportedRunCompletionInput,
   SigveloNaniteManager,
   StartNaniteRunInput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
@@ -150,20 +149,20 @@ export type NaniteWorkspaceExploreInput =
     }
   | {
       action: "list";
-      path?: string;
-      limit?: number;
+      path: string;
+      limit: number;
     }
   | {
       action: "read";
       path: string;
-      maxBytes?: number;
+      maxBytes: number;
     }
   | {
       action: "search";
-      path?: string;
+      path: string;
       query: string;
-      limit?: number;
-      maxFileBytes?: number;
+      limit: number;
+      maxFileBytes: number;
     };
 
 export type NaniteWorkspaceExploreOutput =
@@ -601,7 +600,6 @@ function getTriggerTestInstruction(trigger: NaniteTriggerEvent): string | null {
 const naniteGitSafetyInstructions = [
   "Before committing or pushing, verify the current branch, upstream branch, remote default branch, and latest remote head for the branch you plan to update.",
   "If a push is rejected, fetch the remote branch and reconcile with rebase or merge before pushing again. Do not assume GitHub or the git tool is stale.",
-  "Never force push. If a branch history rewrite appears necessary, stop and use ask_human with the exact branch, remote head, local head, and why a normal fetch/rebase/push path is not enough.",
 ] as const;
 
 function buildRunPrompt(input: StartNaniteAgentInput): string {
@@ -702,11 +700,9 @@ type ParentManagerRpc = {
   getSnapshot: SigveloNaniteManager["getSnapshot"];
   startRun: (input: StartNaniteRunInput) => Promise<NaniteRunRecord>;
   dispatchRun: SigveloNaniteManager["dispatchRun"];
-  completeRun: (input: CompleteNaniteRunInput) => Promise<NaniteRunRecord>;
-  askHuman: (input: AskHumanInput) => Promise<NaniteRunRecord>;
-  recordUnreportedRunCompletion: (
-    input: RecordUnreportedRunCompletionInput,
-  ) => Promise<NaniteRunRecord>;
+  completeRun: SigveloNaniteManager["completeRun"];
+  askHuman: SigveloNaniteManager["askHuman"];
+  recordUnreportedRunCompletion: SigveloNaniteManager["recordUnreportedRunCompletion"];
   recordRuntimeActivity: (input: RecordNaniteRuntimeActivityInput) => Promise<unknown>;
 };
 
@@ -804,18 +800,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       artifact_read: tool({
         description:
           "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a bounded slice. With pattern, grep-searches one artifact or all current-run artifacts.",
-        inputSchema: z.object({
-          artifactId: z.string().min(1).optional(),
-          offset: z.number().int().min(0).optional(),
-          maxChars: z.number().int().min(1).max(100_000).optional(),
-          pattern: z.string().min(1).optional(),
-          regex: z.boolean().optional(),
-          caseSensitive: z.boolean().optional(),
-          contextLines: z.number().int().min(0).max(10).optional(),
-          matchLimit: z.number().int().min(1).max(500).optional(),
-          listLimit: z.number().int().min(1).max(100).optional(),
-        }),
-        execute: async (input) => artifactStore.read(input),
+        inputSchema: naniteToolOutputArtifactReadInputSchema,
+        execute: async (input) => artifactStore.readParsedToolInput(input),
       }),
       complete: tool({
         description:
@@ -881,7 +867,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
             accepted: true,
             status: run.status,
             summary: run.summary,
-            requestedScopes: run.humanRequest?.requestedScopes ?? requestedScopes,
+            requestedScopes: run.humanRequest.requestedScopes,
           };
         },
       }),
@@ -1646,24 +1632,21 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           action: "info",
           info: await this.getWorkspaceInfo(),
         };
-      case "list": {
-        const path = input.path?.trim() || "/";
+      case "list":
         return {
           action: "list",
-          path,
-          entries: await this.workspace.readDir(path, {
-            limit: Math.min(Math.max(input.limit ?? 200, 1), 1_000),
+          path: input.path,
+          entries: await this.workspace.readDir(input.path, {
+            limit: input.limit,
           }),
         };
-      }
       case "read": {
         const content = await this.workspace.readFile(input.path);
-        const maxBytes = Math.min(Math.max(input.maxBytes ?? 100_000, 1_000), 1_000_000);
-        const truncated = content !== null && content.length > maxBytes;
+        const truncated = content !== null && content.length > input.maxBytes;
         return {
           action: "read",
           path: input.path,
-          content: truncated ? content.slice(0, maxBytes) : content,
+          content: truncated ? content.slice(0, input.maxBytes) : content,
           truncated,
         };
       }
@@ -1675,14 +1658,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   private async searchWorkspace(
     input: Extract<NaniteWorkspaceExploreInput, { action: "search" }>,
   ): Promise<Extract<NaniteWorkspaceExploreOutput, { action: "search" }>> {
-    const root = input.path?.trim() || "/";
     const caseInsensitiveQuery = input.query.toLowerCase();
-    const limit = Math.min(Math.max(input.limit ?? 50, 1), 500);
-    const maxFileBytes = Math.min(Math.max(input.maxFileBytes ?? 200_000, 1_000), 1_000_000);
     const matches: Array<{ path: string; line: number; text: string }> = [];
-    const directories = [root];
+    const directories = [input.path];
 
-    while (directories.length > 0 && matches.length < limit) {
+    while (directories.length > 0 && matches.length < input.limit) {
       const directory = directories.shift() ?? "/";
       for (const entry of await this.workspace.readDir(directory, { limit: 1_000 })) {
         if (entry.type === "directory") {
@@ -1690,7 +1670,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           continue;
         }
 
-        if (entry.type !== "file" || entry.size > maxFileBytes) {
+        if (entry.type !== "file" || entry.size > input.maxFileBytes) {
           continue;
         }
 
@@ -1708,17 +1688,17 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
             line: index + 1,
             text: trimText(line, 1_000),
           });
-          return matches.length >= limit;
+          return matches.length >= input.limit;
         });
       }
     }
 
     return {
       action: "search",
-      path: root,
+      path: input.path,
       query: input.query,
       matches,
-      truncated: directories.length > 0 || matches.length >= limit,
+      truncated: directories.length > 0 || matches.length >= input.limit,
     };
   }
 
@@ -1841,7 +1821,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }): Promise<{
     accepted: true;
     status: NaniteRunStatus;
-    summary: string | null;
+    summary: string;
     outputUrl: string | null;
   }> {
     const run = await this.parentManager().completeRun({

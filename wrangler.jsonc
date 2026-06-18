@@ -4,9 +4,9 @@
  * account-specific resource ids, routes, or required secrets — the setup flow
  * provisions those after first deploy.
  *
- * Sigvelo's own production deployment lives in wrangler.production.jsonc.
- * Non-production testing uses Cloudflare preview URLs / Workers Builds branch
- * previews; local dev overrides vars via .dev.vars.
+ * Production and self-hosted deploys share this public template; hosted-only
+ * details such as domains and secrets are managed by Cloudflare and /setup.
+ * Local dev overrides vars via .dev.vars.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",

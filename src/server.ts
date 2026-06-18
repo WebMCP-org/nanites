@@ -1,6 +1,10 @@
 // Wrangler entrypoint ("main" in wrangler.jsonc).
 import * as Sentry from "@sentry/cloudflare";
-import { OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
+import {
+  OAuthError,
+  OAuthProvider,
+  type OAuthProviderOptions,
+} from "@cloudflare/workers-oauth-provider";
 import { HostBridgeLoopback } from "@cloudflare/think/extensions";
 import { getLogger } from "@logtape/logtape";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
@@ -12,7 +16,11 @@ import {
   MCP_TOKEN_ROUTE,
   SUPPORTED_MCP_SCOPES,
 } from "#/mcp.ts";
-import { downscopeMcpAuthPropsForToken, requireSigveloMcpGrantProps } from "#/backend/mcp/index.ts";
+import {
+  downscopeMcpAuthPropsForToken,
+  INVALID_MCP_AUTH_PROPS_DESCRIPTION,
+  sigveloMcpAuthPropsSchema,
+} from "#/backend/mcp/index.ts";
 import {
   configureAgentLogging,
   createWorkerRequestId,
@@ -217,8 +225,15 @@ const oauthProvider = new OAuthProvider<Env>({
   onError: (error) =>
     oauthLogger.warn(LOG_EVENTS.OAUTH_ERROR_RESPONSE, createOAuthProviderErrorLogProperties(error)),
   tokenExchangeCallback: ({ props, requestedScope }) => {
+    const parsedProps = sigveloMcpAuthPropsSchema.safeParse(props);
+    if (!parsedProps.success) {
+      throw new OAuthError("invalid_grant", {
+        description: INVALID_MCP_AUTH_PROPS_DESCRIPTION,
+      });
+    }
+
     const accessTokenProps = downscopeMcpAuthPropsForToken({
-      props: requireSigveloMcpGrantProps(props),
+      props: parsedProps.data,
       requestedScopes: requestedScope,
     });
     if (accessTokenProps.scopes.length === 0) {

@@ -289,7 +289,8 @@ tools in inventory.
 **For write tasks:** tasks do not directly mutate files. They return structured patch
 descriptions (file path, old content, new content, or a diff). The aggregate phase applies
 patches serially in the WorkflowRun's own writable Workspace. This keeps git auth and
-force-push safety centralized, consistent with the existing `git-auth.ts` pattern.
+repository-scoped installation tokens centralized, consistent with the existing `git-auth.ts`
+pattern.
 
 **Open question:** Does `@cloudflare/think` Workspace support read-only mounting from an
 existing R2 prefix? If not, the fallback for v1 is: each task clones its own Workspace

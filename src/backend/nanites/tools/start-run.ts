@@ -9,6 +9,8 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const startNaniteRunToolInputSchema = z.object({
   naniteId: nonEmptyStringSchema,
@@ -25,6 +27,14 @@ export const startNaniteRunTool = defineSigveloMcpTool({
     "Starts a direct manual run for one registered Nanite and dispatches it through the real Nanite manager path.",
   inputSchema: startNaniteRunToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite manual run start result."),
+  authorization: {
+    requiredScope: MCP_SCOPES.write,
+    repositoryPolicy: {
+      type: "runtime",
+      access: "write",
+      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+    },
+  },
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -32,7 +42,6 @@ export const startNaniteRunTool = defineSigveloMcpTool({
     openWorldHint: true,
   },
   async execute(input, { context, manager }) {
-    //@ts-ignore Super Deep types
     return manager.startNaniteManualRun({
       naniteId: input.naniteId,
       message: input.message,

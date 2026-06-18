@@ -609,8 +609,8 @@ export async function recordNaniteRunFact(
     conclusion: runConclusionForStatus(input.run.status),
     phase: input.run.status === "running" ? "investigating" : "completed",
     task: readRunTask(input.run),
-    summary: input.run.summary,
-    outputUrl: input.run.outputUrl,
+    summary: input.run.status === "running" ? null : input.run.summary,
+    outputUrl: input.run.status === "complete" ? input.run.outputUrl : null,
     outputPullRequestNumber: input.outputPullRequest?.pullRequestNumber ?? null,
     outputPullRequestMerged: input.outputPullRequest?.merged ?? null,
     outputPullRequestMergedAt: input.outputPullRequest?.mergedAt
@@ -625,9 +625,17 @@ export async function recordNaniteRunFact(
     modelManifestVersionId: input.run.model.manifestVersionId,
     modelResolvedAt: new Date(input.run.model.resolvedAt),
     configSource: "default",
-    implicitFailureReason: input.run.dispatchError,
+    implicitFailureReason:
+      input.run.status === "fail" && input.run.failure.type === "unreported"
+        ? input.run.failure.dispatchError
+        : input.run.status === "canceled" && input.run.cancellation.type === "unreported"
+          ? input.run.cancellation.dispatchError
+          : null,
     startedAt: new Date(input.run.startedAt),
-    completedAt: input.run.completedAt ? new Date(input.run.completedAt) : null,
+    completedAt:
+      input.run.status === "running" || input.run.status === "waiting_for_human"
+        ? null
+        : new Date(input.run.completedAt),
     lastUpdatedAt: updatedAt,
     createdAt: new Date(input.run.startedAt),
     updatedAt,

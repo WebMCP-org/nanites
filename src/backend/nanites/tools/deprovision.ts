@@ -6,6 +6,8 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
+import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
+import { MCP_SCOPES } from "#/mcp.ts";
 
 const deprovisionToolInputSchema = z
   .object({
@@ -22,6 +24,14 @@ export const deprovisionTool = defineSigveloMcpTool({
     "Permanently removes one registered Nanite, deletes its child agent, clears runtime activity, and removes its run history.",
   inputSchema: deprovisionToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite deprovisioning result."),
+  authorization: {
+    requiredScope: MCP_SCOPES.write,
+    repositoryPolicy: {
+      type: "runtime",
+      access: "write",
+      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+    },
+  },
   annotations: {
     readOnlyHint: false,
     destructiveHint: true,

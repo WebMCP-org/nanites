@@ -4,7 +4,7 @@ import { APP_ERRORS, AppError } from "#/backend/errors.ts";
 
 const naniteToolOutputArtifactTtlSeconds = 7 * 24 * 60 * 60;
 
-const artifactReadInputSchema = z.preprocess(
+export const naniteToolOutputArtifactReadInputSchema = z.preprocess(
   (input) => (input === null ? undefined : input),
   z
     .object({
@@ -43,7 +43,36 @@ type PersistNaniteToolOutputArtifactInput = {
   extension: "json" | "txt";
 };
 
-type NaniteToolOutputArtifactReadInput = z.infer<typeof artifactReadInputSchema>;
+type NaniteToolOutputArtifactReadToolInput = z.output<
+  typeof naniteToolOutputArtifactReadInputSchema
+>;
+
+type NaniteToolOutputArtifactReadCommand =
+  | {
+      action: "list";
+      listLimit: number;
+    }
+  | {
+      action: "read";
+      artifactId: string;
+      offset: number;
+      maxChars: number;
+    }
+  | {
+      action: "grep";
+      artifactId: string | null;
+      pattern: string;
+      regex: boolean;
+      caseSensitive: boolean;
+      contextLines: number;
+      matchLimit: number;
+      listLimit: number;
+    };
+
+type NaniteToolOutputArtifactGrepCommand = Extract<
+  NaniteToolOutputArtifactReadCommand,
+  { action: "grep" }
+>;
 
 type NaniteToolOutputArtifactReadSliceResult = {
   action: "read";
@@ -122,6 +151,37 @@ function clampInteger(
   return Math.min(Math.max(Math.trunc(input), min), max);
 }
 
+function normalizeArtifactReadInput(
+  input: NaniteToolOutputArtifactReadToolInput,
+): NaniteToolOutputArtifactReadCommand {
+  if (input.pattern) {
+    return {
+      action: "grep",
+      artifactId: input.artifactId ?? null,
+      pattern: input.pattern,
+      regex: input.regex ?? false,
+      caseSensitive: input.caseSensitive ?? false,
+      contextLines: clampInteger(input.contextLines, 0, 0, 10),
+      matchLimit: clampInteger(input.matchLimit, 50, 1, 500),
+      listLimit: clampInteger(input.listLimit, 25, 1, 100),
+    };
+  }
+
+  if (input.artifactId) {
+    return {
+      action: "read",
+      artifactId: input.artifactId,
+      offset: clampInteger(input.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+      maxChars: clampInteger(input.maxChars, 24_000, 1, 100_000),
+    };
+  }
+
+  return {
+    action: "list",
+    listLimit: clampInteger(input.listLimit, 25, 1, 100),
+  };
+}
+
 function truncateMatchText(text: string): string {
   const maxChars = 2_000;
   if (text.length <= maxChars) {
@@ -130,19 +190,15 @@ function truncateMatchText(text: string): string {
   return `${text.slice(0, 1_000)}\n[SigVelo artifact_read truncated ${text.length - maxChars} characters from this matching line.]\n${text.slice(-1_000)}`;
 }
 
-function includesPattern(
-  line: string,
-  pattern: string,
-  input: NaniteToolOutputArtifactReadInput,
-): boolean {
+function includesPattern(line: string, input: NaniteToolOutputArtifactGrepCommand): boolean {
   if (input.regex) {
     const flags = input.caseSensitive ? "" : "i";
-    return new RegExp(pattern, flags).test(line);
+    return new RegExp(input.pattern, flags).test(line);
   }
   if (input.caseSensitive) {
-    return line.includes(pattern);
+    return line.includes(input.pattern);
   }
-  return line.toLowerCase().includes(pattern.toLowerCase());
+  return line.toLowerCase().includes(input.pattern.toLowerCase());
 }
 
 function lineContext(lines: string[], start: number, end: number, lineNumberOffset: number) {
@@ -213,49 +269,54 @@ export class NaniteToolOutputArtifactStore {
     return metadata;
   }
 
-  async list(limit: number): Promise<NaniteToolOutputArtifactMetadata[]> {
+  async #list(limit: number): Promise<NaniteToolOutputArtifactMetadata[]> {
     const scope = this.#requireScope();
     const result = await this.#kv.list<NaniteToolOutputArtifactMetadata>({
       prefix: this.#runPrefix(scope),
-      limit: Math.min(Math.max(limit, 1), 100),
+      limit,
     });
     return result.keys
       .flatMap((key) => (key.metadata ? [key.metadata] : []))
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
-  async read(
-    input: NaniteToolOutputArtifactReadInput = {},
+  async #read(
+    input: NaniteToolOutputArtifactReadCommand,
   ): Promise<NaniteToolOutputArtifactReadResult> {
-    if (input.pattern) {
-      return this.#grep(input);
+    switch (input.action) {
+      case "list":
+        return {
+          action: "list",
+          artifacts: await this.#list(input.listLimit),
+        };
+      case "read":
+        return this.#readSlice(input);
+      case "grep":
+        return this.#grep(input);
     }
+  }
 
-    if (!input.artifactId) {
-      return {
-        action: "list",
-        artifacts: await this.list(input.listLimit ?? 25),
-      };
-    }
+  async readToolInput(input: unknown): Promise<NaniteToolOutputArtifactReadResult> {
+    return this.#read(
+      normalizeArtifactReadInput(naniteToolOutputArtifactReadInputSchema.parse(input)),
+    );
+  }
 
-    return this.#readSlice(input.artifactId, input);
+  async readParsedToolInput(
+    input: NaniteToolOutputArtifactReadToolInput,
+  ): Promise<NaniteToolOutputArtifactReadResult> {
+    return this.#read(normalizeArtifactReadInput(input));
   }
 
   // fallow-ignore-next-line unused-class-member
-  provider(): {
-    name: "artifact";
-    tools: {
-      read: { description: string; execute: (args: unknown) => Promise<unknown> };
-    };
-    types: string;
-  } {
+  provider() {
     return {
       name: "artifact",
       tools: {
         read: {
           description:
             "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a slice. With pattern, grep-searches one artifact or all current-run artifacts.",
-          execute: async (args) => this.read(artifactReadInputSchema.parse(args)),
+          execute: async (args) => this.readToolInput(args),
         },
       },
       types: [
@@ -267,19 +328,17 @@ export class NaniteToolOutputArtifactStore {
   }
 
   async #readSlice(
-    artifactId: string,
-    options: NaniteToolOutputArtifactReadInput = {},
+    input: Extract<NaniteToolOutputArtifactReadCommand, { action: "read" }>,
   ): Promise<NaniteToolOutputArtifactReadSliceResult> {
-    const artifact = await this.#loadArtifact(artifactId);
+    const artifact = await this.#loadArtifact(input.artifactId);
 
-    const offset = Math.min(Math.max(options.offset ?? 0, 0), artifact.value.length);
-    const maxChars = clampInteger(options.maxChars, 24_000, 1, 100_000);
-    const content = artifact.value.slice(offset, offset + maxChars);
+    const offset = Math.min(input.offset, artifact.value.length);
+    const content = artifact.value.slice(offset, offset + input.maxChars);
     return {
       action: "read",
       artifact: artifact.metadata,
       offset,
-      maxChars,
+      maxChars: input.maxChars,
       content,
       returnedChars: content.length,
       totalChars: artifact.value.length,
@@ -288,24 +347,17 @@ export class NaniteToolOutputArtifactStore {
   }
 
   async #grep(
-    input: NaniteToolOutputArtifactReadInput,
+    input: NaniteToolOutputArtifactGrepCommand,
   ): Promise<NaniteToolOutputArtifactGrepResult> {
-    const pattern = input.pattern;
-    if (!pattern) {
-      throw new AppError("toolOutputPatternRequired");
-    }
-
     const artifacts = input.artifactId
       ? [await this.info(input.artifactId)]
-      : await this.list(input.listLimit ?? 25);
-    const matchLimit = clampInteger(input.matchLimit, 50, 1, 500);
-    const contextLines = clampInteger(input.contextLines, 0, 0, 10);
+      : await this.#list(input.listLimit);
     const matches: NaniteToolOutputArtifactGrepResult["matches"] = [];
     const toResult = (truncated: boolean): NaniteToolOutputArtifactGrepResult => ({
       action: "grep",
-      pattern,
-      regex: input.regex ?? false,
-      caseSensitive: input.caseSensitive ?? false,
+      pattern: input.pattern,
+      regex: input.regex,
+      caseSensitive: input.caseSensitive,
       matches,
       truncated,
     });
@@ -314,12 +366,12 @@ export class NaniteToolOutputArtifactStore {
       const stored = await this.#loadArtifact(artifact.artifactId);
       const lines = stored.value.split(/\r?\n/);
       for (const [index, line] of lines.entries()) {
-        if (!includesPattern(line, pattern, input)) {
+        if (!includesPattern(line, input)) {
           continue;
         }
 
-        const beforeStart = Math.max(index - contextLines, 0);
-        const afterEnd = Math.min(index + contextLines + 1, lines.length);
+        const beforeStart = Math.max(index - input.contextLines, 0);
+        const afterEnd = Math.min(index + input.contextLines + 1, lines.length);
         matches.push({
           artifact,
           line: index + 1,
@@ -328,7 +380,7 @@ export class NaniteToolOutputArtifactStore {
           after: lineContext(lines, index + 1, afterEnd, index + 2),
         });
 
-        if (matches.length >= matchLimit) {
+        if (matches.length >= input.matchLimit) {
           return toResult(true);
         }
       }
@@ -403,20 +455,12 @@ type PersistToolOutputArtifactInput = {
   extension: "json" | "txt";
 };
 
-type PersistedToolOutputArtifact = {
-  artifactId: string;
-};
-
-type PersistToolOutputArtifact = (
-  input: PersistToolOutputArtifactInput,
-) => Promise<PersistedToolOutputArtifact>;
-
 type NaniteToolOutputBudgetOptions = {
   defaultMaxResponseChars?: number;
   minResponseChars?: number;
   hardMaxResponseChars?: number;
   excludedToolNames?: Iterable<string>;
-  persistArtifact: PersistToolOutputArtifact;
+  persistArtifact: (input: PersistToolOutputArtifactInput) => Promise<{ artifactId: string }>;
   onTruncated?: (event: {
     toolName: string;
     toolCallId: string;
