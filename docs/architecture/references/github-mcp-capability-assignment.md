@@ -1,14 +1,13 @@
-# GitHub MCP tool inventory assignment
+# GitHub MCP capability assignment
 
-Nanites should get GitHub API capability through scoped installation tokens plus an explicit MCP
-tool inventory derived for that Nanite. The model that creates a Nanite declares repositories and
-GitHub App permission grants; SigVelo derives the MCP inventory from those grants and runtime
-policy.
+Nanites should get GitHub API capability through scoped installation tokens plus coarse MCP
+toolsets. The model that creates a Nanite declares repositories and GitHub App permission grants;
+SigVelo downscopes the token to those grants and uses GitHub MCP headers only for product policy.
 
 This keeps the runtime shape simple:
 
 ```text
-Nanite identity -> scoped GitHub installation token -> constrained GitHub MCP tools -> Think work loop
+Nanite identity -> scoped GitHub installation token -> constrained GitHub MCP toolsets -> Think work loop
 ```
 
 It should not become:
@@ -36,47 +35,48 @@ Classic PATs are user-created `ghp_` tokens. They are useful to the official Git
 because it can inspect their OAuth scopes and hide tools the token cannot use. They are not available
 from our installation boundary, and they would be a worse automation primitive for Nanites.
 
-Fine-grained PATs and GitHub App installation tokens do not expose OAuth scopes in the same way.
-The official GitHub MCP server will not automatically hide tools for those tokens. GitHub will still
-reject unauthorized API calls, but the model may see tools it cannot successfully use unless SigVelo
-filters the MCP inventory first.
+Fine-grained PATs and GitHub App installation tokens do not expose OAuth scopes in the same way. The
+official GitHub MCP server will not automatically hide tools for those tokens. GitHub will still
+reject unauthorized API calls, so the scoped installation token is the primary enforcement boundary.
 
 ## Official GitHub MCP behavior
 
 The official GitHub MCP server supports the controls we need:
 
 - `Authorization: Bearer <token>` for PATs or GitHub App tokens
-- `X-MCP-Tools` for an explicit tool allowlist
 - `X-MCP-Toolsets` for toolset-level enablement
 - `X-MCP-Exclude-Tools` for hard exclusions
 - `X-MCP-Readonly` for read-only mode
 
-For Nanites, prefer `X-MCP-Tools` over broad toolsets. Toolsets are convenient for humans, but
-Nanites are vertical. A docs-sync Nanite usually needs PR and status tools derived from its token
-grants, not every issue, project, notification, gist, and repository mutation surface.
+For Nanites, prefer coarse `X-MCP-Toolsets` plus a hard `X-MCP-Exclude-Tools` denylist. Exact
+`X-MCP-Tools` allowlists duplicate upstream tool names and break when GitHub consolidates tools.
 
 Cloudflare Think can connect to MCP servers through the Agents SDK. Think automatically merges MCP
 tools into each turn, and `waitForMcpConnections` can make the inference loop wait for MCP discovery
 before the model starts. That means GitHub MCP capability can be attached to the Nanite sub-agent
 without adding another SigVelo-specific tool registry.
 
-## Permission-Derived Inventory
+## Permission-Derived Toolsets
 
-Do not ask the authoring model to choose a named tier or a specific MCP tool list. Derive the
-inventory from `permissions.github.appPermissions`.
+Do not ask the authoring model to choose a named tier or a specific MCP tool list. Derive toolsets
+from `permissions.github.appPermissions`.
 
 Default mapping:
 
-| GitHub App permission    | Derived GitHub MCP tools                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------ |
-| `pull_requests: "read"`  | `list_pull_requests`, `search_pull_requests`, `pull_request_read`                          |
-| `pull_requests: "write"` | read tools plus `create_pull_request`, `update_pull_request`, `update_pull_request_branch` |
-| `actions: "read"`        | `actions_list`, `actions_get`                                                              |
-| `issues: "write"`        | `add_issue_comment`                                                                        |
+| GitHub App permission    | Derived GitHub MCP toolsets |
+| ------------------------ | --------------------------- |
+| any GitHub MCP access    | `context`                   |
+| `pull_requests: "read"`  | `pull_requests`             |
+| `pull_requests: "write"` | `pull_requests`, `issues`   |
+| `actions: "read"`        | `actions`                   |
+| `issues: "write"`        | `issues`                    |
 
 Always include `get_me` when any GitHub MCP inventory is attached. Do not attach GitHub MCP for a
 Nanite whose permissions only support workspace git, such as `contents: "write"` with no PR, status,
 or comment permissions.
+
+For issue creation, prefer the default `issue_write` tool with `method: "create"` over the
+`issues_granular` feature flag's `create_issue` tool.
 
 ## Tools to avoid by default
 
@@ -88,7 +88,7 @@ pull_request_review_write
 add_comment_to_pending_review
 add_reply_to_pull_request_comment
 actions_run_trigger
-issue_write
+sub_issue_write
 create_repository
 fork_repository
 create_or_update_file
@@ -110,7 +110,8 @@ The Nanite system prompt should make the division explicit:
 ```text
 Use Workspace git tools for repository changes and branch pushes.
 Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata,
-reading PR details, and reading check or workflow status.
+reading PR details, reading check or workflow status, commenting on issues, and filing scoped
+follow-up issues.
 Do not use GitHub MCP file-write tools.
 Do not merge pull requests unless this Nanite was explicitly granted merge authority.
 For stacked PRs:

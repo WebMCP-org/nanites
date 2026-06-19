@@ -1,6 +1,11 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import { TEST_GITHUB_APP_ID } from "../helpers/d1-baseline.ts";
+import {
+  TEST_GITHUB_APP_ID,
+  ensureD1BaselineSchema,
+  saveTestGitHubApp,
+} from "../helpers/d1-baseline.ts";
+import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 import { buildGitHubTriggerFixture } from "#/backend/nanites/triggers.ts";
 import {
   isTerminalNaniteRunStatus,
@@ -10,7 +15,7 @@ import {
 import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
 
 beforeAll(async () => {
-  await env.DB.exec("CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY);");
+  await ensureD1BaselineSchema(env.DB);
 });
 
 function getManager() {
@@ -20,8 +25,9 @@ function getManager() {
   );
 }
 
-async function getInstallationManager() {
-  const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
+async function getInstallationManager(
+  githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1,
+) {
   return getAgentByName(
     env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
     `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
@@ -84,6 +90,22 @@ export default {
 };
 `;
 
+const issueTriageTriggerSource = `
+export default {
+  async handle(event, ctx) {
+    if (event.name !== "issues") return ctx.noop("Not an issues event.");
+    if (!["opened", "reopened"].includes(event.payload.action)) {
+      return ctx.noop(\`Ignored issue action: \${event.payload.action}\`);
+    }
+
+    return ctx.dispatchSelf({
+      reason: "Issue needs triage",
+      issueNumber: event.payload.issue.number,
+    });
+  },
+};
+`;
+
 type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
 const naniteModel = "deepseek/deepseek-v4-pro";
@@ -111,28 +133,24 @@ async function registerPackageDocsSyncer(
   });
 }
 
-function npmPackagesRepositoryOverride() {
-  return {
-    full_name: "WebMCP-org/npm-packages",
-    name: "npm-packages",
-    owner: { login: "WebMCP-org" },
-  };
-}
+const npmPackagesRepositoryOverride = {
+  full_name: "WebMCP-org/npm-packages",
+  name: "npm-packages",
+  owner: { login: "WebMCP-org" },
+};
 
-function packageDocsChangedCommit() {
-  return {
-    id: "test000000000001",
-    added: [],
-    modified: ["packages/react-webmcp/README.md"],
-    removed: [],
-  };
-}
+const packageDocsChangedCommit = {
+  id: "test000000000001",
+  added: [],
+  modified: ["packages/react-webmcp/README.md"],
+  removed: [],
+};
 
 function testPackageDocsTrigger(
   manager: InstallationManager,
   input: {
     naniteId: string;
-    commits?: ReturnType<typeof packageDocsChangedCommit>[];
+    commits?: Array<typeof packageDocsChangedCommit>;
   },
 ) {
   return manager.testNaniteTrigger({
@@ -142,7 +160,7 @@ function testPackageDocsTrigger(
     event: {
       fixture: "push",
       overrides: {
-        repository: npmPackagesRepositoryOverride(),
+        repository: npmPackagesRepositoryOverride,
         ref: "refs/heads/main",
         ...(input.commits ? { commits: input.commits } : {}),
       },
@@ -238,7 +256,7 @@ test("trigger tests dispatch when fixture overrides satisfy generated filters", 
 
   const output = await testPackageDocsTrigger(manager, {
     naniteId: "package-docs-syncer",
-    commits: [packageDocsChangedCommit()],
+    commits: [packageDocsChangedCommit],
   });
 
   expectAcceptedTriggerRun(output, "package-docs-syncer");
@@ -268,7 +286,7 @@ test("trigger tests apply fixture repository overrides before generated filters 
           },
         },
         ref: "refs/heads/main",
-        commits: [packageDocsChangedCommit()],
+        commits: [packageDocsChangedCommit],
       },
     },
     waitForTerminalOutcome: true,
@@ -278,6 +296,281 @@ test("trigger tests apply fixture repository overrides before generated filters 
   expect(output.ok).toBe(true);
   expect(getGitHubWebhookRepositoryFullName(output.event)).toBe("WebMCP-org/npm-packages");
   expectAcceptedTriggerRun(output, "package-docs-syncer-repository-overrides");
+});
+
+test("trigger tests dispatch issue fixtures through generated filters", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "issue-triage-nanite";
+
+  await manager.registerNanite({
+    manifest: {
+      id: naniteId,
+      name: "Issue triage Nanite",
+      description: "Triages new and reopened issues.",
+      model: naniteModel,
+      eventSource: {
+        type: "github",
+        events: ["issues.opened", "issues.reopened"],
+        actions: ["opened", "reopened"],
+      },
+      triggerSource: issueTriageTriggerSource,
+      permissions: {},
+    },
+  });
+
+  const output = await manager.testNaniteTrigger({
+    naniteId,
+    actorId: "github:1",
+    requestId: crypto.randomUUID(),
+    event: {
+      fixture: "issues.opened",
+    },
+    waitForTerminalOutcome: true,
+    timeoutMs: 10_000,
+  });
+
+  expectAcceptedTriggerRun(output, naniteId);
+  expect(output.event.name).toBe("issues");
+  expect(output.event.payload.action).toBe("opened");
+});
+
+test("issues write Nanites can file issues and comment through GitHub MCP inside execute", async () => {
+  const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
+  const manager = await getInstallationManager(githubInstallationId);
+  const naniteId = "issue-github-mcp-actions";
+  const originalFixture = env.NANITES_LLM_FIXTURE;
+  const restoreGitHubApi = mockGitHubApi([
+    {
+      method: "POST",
+      path: `/app/installations/${githubInstallationId}/access_tokens`,
+      response: () =>
+        Response.json({
+          token: "test-installation-token",
+          expires_at: "2026-06-10T20:00:00Z",
+          permissions: { issues: "write" },
+        }),
+    },
+    {
+      path: /^\/installation\/repositories(?:\?(?:page=1&per_page=100|per_page=100&page=1))?$/,
+      response: () =>
+        Response.json({
+          total_count: 1,
+          repository_selection: "selected",
+          repositories: [
+            {
+              id: 1255393047,
+              full_name: "WebMCP-org/nanites",
+              name: "nanites",
+              private: true,
+              permissions: { push: true, pull: true },
+              owner: { login: "WebMCP-org" },
+            },
+          ],
+        }),
+    },
+  ]);
+  const githubApiFetch = globalThis.fetch;
+  const fakeGitHub = {
+    headers: null as Record<
+      "tools" | "toolsets" | "excludedTools" | "readonly",
+      string | null
+    > | null,
+    toolCalls: [] as Array<{ name: string; arguments: unknown }>,
+  };
+
+  globalThis.fetch = async (requestInput: RequestInfo | URL, init?: RequestInit) => {
+    const request =
+      requestInput instanceof Request ? requestInput : new Request(requestInput, init);
+    const url = new URL(request.url);
+
+    if (url.origin !== "https://api.githubcopilot.com" || url.pathname !== "/mcp/") {
+      return githubApiFetch(requestInput, init);
+    }
+
+    if (request.method === "GET") {
+      return new Response("SSE not supported", { status: 405 });
+    }
+    if (request.method === "DELETE") {
+      return new Response(null, { status: 200 });
+    }
+
+    const message = (await request.json()) as {
+      id?: number | string;
+      method?: string;
+      params?: { protocolVersion?: string; name?: string; arguments?: unknown };
+    };
+    if (message.id === undefined) {
+      return new Response(null, { status: 202 });
+    }
+
+    const respond = (result: unknown) => Response.json({ jsonrpc: "2.0", id: message.id, result });
+    switch (message.method) {
+      case "initialize":
+        return respond({
+          protocolVersion: message.params?.protocolVersion ?? "2025-03-26",
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: { name: "fake-github-mcp", version: "1.0.0" },
+        });
+      case "tools/list":
+        fakeGitHub.headers = {
+          tools: request.headers.get("X-MCP-Tools"),
+          toolsets: request.headers.get("X-MCP-Toolsets"),
+          excludedTools: request.headers.get("X-MCP-Exclude-Tools"),
+          readonly: request.headers.get("X-MCP-Readonly"),
+        };
+        return respond({
+          tools: ["get_me", "add_issue_comment", "issue_write"].map((name) => ({
+            name,
+            inputSchema: { type: "object", properties: {} },
+          })),
+        });
+      case "tools/call": {
+        const name = String(message.params?.name ?? "");
+        fakeGitHub.toolCalls.push({
+          name,
+          arguments: message.params?.arguments ?? null,
+        });
+        return respond({
+          content: [{ type: "text", text: JSON.stringify({ ok: true, name }) }],
+        });
+      }
+      default:
+        return respond({});
+    }
+  };
+
+  try {
+    await saveTestGitHubApp(env.DB);
+    env.NANITES_LLM_FIXTURE = "github_mcp_issue_actions";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Issue GitHub MCP actions",
+        description: "Verifies issue filing and comment tools execute in Nanite runtime code.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {
+          github: {
+            repositories: ["WebMCP-org/nanites"],
+            appPermissions: {
+              issues: "write",
+            },
+          },
+        },
+      },
+    });
+
+    const run = await manager.startRun({
+      naniteId,
+      trigger: {
+        type: "manual",
+        requestId: crypto.randomUUID(),
+        actorId: "github:1",
+        message: "Create a scoped follow-up issue and comment on an issue through GitHub MCP.",
+      },
+    });
+    await manager.dispatchRun({ runId: run.runId });
+
+    const terminalRun = await waitForTerminalRun(manager, run.runId);
+    expect(terminalRun.status).toBe("no_change");
+    expect(terminalRun.agentFeedback).toMatchObject({
+      severity: "info",
+      suggestions: ["issue_write_called=true", "add_issue_comment_called=true"],
+    });
+
+    expect(fakeGitHub.toolCalls).toMatchObject([
+      {
+        name: "issue_write",
+        arguments: {
+          method: "create",
+          owner: "WebMCP-org",
+          repo: "nanites",
+          title: "Nanite fixture follow-up",
+        },
+      },
+      {
+        name: "add_issue_comment",
+        arguments: {
+          owner: "WebMCP-org",
+          repo: "nanites",
+          issue_number: 130,
+        },
+      },
+    ]);
+    const observedHeaders = fakeGitHub.headers;
+    expect(observedHeaders).toMatchObject({
+      tools: null,
+      readonly: null,
+    });
+    expect(observedHeaders?.toolsets?.split(",").sort()).toEqual(["context", "issues"]);
+    expect(observedHeaders?.excludedTools?.split(",")).not.toContain("issue_write");
+  } finally {
+    env.NANITES_LLM_FIXTURE = originalFixture;
+    globalThis.fetch = githubApiFetch;
+    restoreGitHubApi();
+  }
+});
+
+test("terminal run activity ignores late Think submission activity reports", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "terminal-activity-race";
+
+  await manager.registerNanite({
+    manifest: {
+      id: naniteId,
+      name: "Terminal activity race",
+      description: "Exercises terminal runtime activity projection.",
+      model: naniteModel,
+      eventSource: {
+        type: "manual",
+      },
+      permissions: {},
+    },
+  });
+
+  const run = await manager.startRun({
+    naniteId,
+    trigger: {
+      type: "manual",
+      requestId: crypto.randomUUID(),
+      actorId: "github:1",
+      message: "Check whether anything changed.",
+    },
+  });
+  const terminalRun = await manager.completeRun({
+    runId: run.runId,
+    status: "no_change",
+    summary: "Nothing changed.",
+    outputUrl: null,
+    agentFeedback: null,
+  });
+
+  const lateThinking = await manager.recordRuntimeActivity({
+    naniteId,
+    runId: run.runId,
+    state: "thinking",
+  });
+  expect(lateThinking).toMatchObject({
+    state: "idle",
+    runId: run.runId,
+    toolName: null,
+    lastActivityAt: terminalRun.completedAt,
+    error: null,
+  });
+
+  const latePromptSchemaError = await manager.recordRuntimeActivity({
+    naniteId,
+    runId: run.runId,
+    state: "error",
+    error: "Invalid prompt: The messages do not match the ModelMessage[] schema.",
+  });
+  expect(latePromptSchemaError).toEqual(lateThinking);
+
+  const snapshot = await manager.getSnapshot();
+  expect(snapshot.runs[run.runId]?.status).toBe("no_change");
+  expect(snapshot.runtimeActivityByNanite[naniteId]).toEqual(lateThinking);
 });
 
 async function waitForTerminalRun(
@@ -310,10 +603,10 @@ test("webhook dispatch dedupes runs by trigger idempotency key", async () => {
     deliveryId: "delivery-dedupe-1",
     installationId: 555,
     overrides: {
-      repository: npmPackagesRepositoryOverride(),
+      repository: npmPackagesRepositoryOverride,
       ref: "refs/heads/main",
       after: "test000000000002",
-      commits: [packageDocsChangedCommit()],
+      commits: [packageDocsChangedCommit],
     },
   });
 

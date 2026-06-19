@@ -12,7 +12,7 @@ Current owners:
   chat and Chat SDK ingress.
 - `tools/` owns the public Nanites manager tools with one file per public tool and shared
   definition/telemetry mechanics in `tools/define-tool.ts`.
-- `github-mcp-capabilities.ts` owns permission-derived GitHub MCP tool inventory.
+- `github-mcp-capabilities.ts` owns permission-derived GitHub MCP toolsets and denylist policy.
 - `language-model.ts` owns the Workers AI language-model adapter used by Nanite runtimes.
 - `triggers.ts` owns generated inbound trigger execution through Worker Loader and the small GitHub
   event fixture library used by trigger acceptance tests.
@@ -33,10 +33,11 @@ reviewable, and `complete.outputUrl` points at the best review entrypoint.
 GitHub MCP access should be Nanite-scoped. The Installation Manager may use broad GitHub MCP
 access for the selected installation while it investigates and delegates, but each Nanite runtime
 gets a separate token for only the Nanite's repositories and derived token permissions. The manager
-then exposes only the GitHub MCP tools derived from that Nanite's GitHub App permissions. Do not use
-classic PAT assumptions here; GitHub installations cannot mint them, and the official GitHub MCP
-server does not automatically scope-filter installation tokens. Prefer Workspace git tools for code
-changes and GitHub MCP for PR/search/status operations.
+then exposes coarse GitHub MCP toolsets derived from that Nanite's GitHub App permissions, with a
+hard denylist for product-disallowed tools. Do not use classic PAT assumptions here; GitHub
+installations cannot mint them, and the official GitHub MCP server does not automatically
+scope-filter installation tokens. Prefer Workspace git tools for code changes and GitHub MCP for
+PR/search/status plus issue comment and issue filing operations.
 
 Do not add a shared Nanites contracts package by default. The browser already gets typed RPC through
 the Agents SDK when it talks to the manager agent. Validate untrusted boundaries such as MCP

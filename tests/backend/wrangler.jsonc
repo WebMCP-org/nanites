@@ -67,6 +67,10 @@
         "name": "SigveloNaniteManager",
       },
       {
+        "class_name": "CodemodeRuntime",
+        "name": "CodemodeRuntime",
+      },
+      {
         "class_name": "NanitesSetupAgent",
         "name": "NanitesSetupAgent",
       },
@@ -79,6 +83,7 @@
         "SigveloManagerConversationAgent",
         "SigveloNaniteManager",
         "SigveloNaniteAgent",
+        "CodemodeRuntime",
         "NanitesSetupAgent",
       ],
       "tag": "v1",

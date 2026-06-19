@@ -759,35 +759,46 @@ type DeepPartial<T> = T extends readonly (infer TItem)[]
     ? { [K in keyof T]?: DeepPartial<T[K]> }
     : T;
 
-export type GitHubPullRequestFixtureId =
-  | "pull_request.opened"
-  | "pull_request.synchronize"
-  | "pull_request.reopened"
-  | "pull_request.closed";
-export type GitHubPushFixtureId = "push";
-export type GitHubTriggerFixtureId = GitHubPullRequestFixtureId | GitHubPushFixtureId;
-
-const githubPullRequestFixtureIds = [
+export const githubPullRequestFixtureIds = [
   "pull_request.opened",
   "pull_request.synchronize",
   "pull_request.reopened",
   "pull_request.closed",
-] as const satisfies readonly GitHubPullRequestFixtureId[];
-const githubPushFixtureIds = ["push"] as const satisfies readonly GitHubPushFixtureId[];
-export const githubTriggerFixtureIds = [
-  ...githubPullRequestFixtureIds,
-  ...githubPushFixtureIds,
-] as const satisfies readonly GitHubTriggerFixtureId[];
-
+] as const;
+export const githubIssuesFixtureIds = [
+  "issues.opened",
+  "issues.edited",
+  "issues.reopened",
+  "issues.closed",
+] as const;
+export type GitHubPullRequestFixtureId = (typeof githubPullRequestFixtureIds)[number];
+export type GitHubIssuesFixtureId = (typeof githubIssuesFixtureIds)[number];
 export type GitHubPullRequestFixtureOverrides = DeepPartial<
   EmitterWebhookEvent<GitHubPullRequestFixtureId>["payload"]
+>;
+export type GitHubIssuesFixtureOverrides = DeepPartial<
+  EmitterWebhookEvent<GitHubIssuesFixtureId>["payload"]
 >;
 
 export type GitHubPushFixtureOverrides = DeepPartial<EmitterWebhookEvent<"push">["payload"]>;
 
-export type GitHubTriggerFixtureOverrides =
-  | GitHubPullRequestFixtureOverrides
-  | GitHubPushFixtureOverrides;
+export type GitHubTriggerFixtureInput =
+  | {
+      fixture: GitHubPullRequestFixtureId;
+      overrides?: GitHubPullRequestFixtureOverrides;
+    }
+  | {
+      fixture: GitHubIssuesFixtureId;
+      overrides?: GitHubIssuesFixtureOverrides;
+    }
+  | {
+      fixture: "push";
+      overrides?: GitHubPushFixtureOverrides;
+    };
+
+type GitHubTriggerFixtureRepositoryOverride = NonNullable<
+  GitHubTriggerFixtureInput["overrides"]
+>["repository"];
 
 const DEFAULT_REPOSITORY_FULL_NAME = "WebMCP-org/nanites";
 const DEFAULT_REPOSITORY_ID = 101;
@@ -798,56 +809,33 @@ const DEFAULT_PULL_REQUEST_NUMBER = 21;
 const DEFAULT_TRIGGER_BRANCH = "sigvelo-trigger-test";
 const EMPTY_SHA = "0000000000000000000000000000000000000000";
 
-function valueOr<T>(value: T | null | undefined, fallback: T): T {
-  return value ?? fallback;
-}
+const githubFixtureActions = {
+  "pull_request.opened": "opened",
+  "pull_request.synchronize": "synchronize",
+  "pull_request.reopened": "reopened",
+  "pull_request.closed": "closed",
+  "issues.opened": "opened",
+  "issues.edited": "edited",
+  "issues.reopened": "reopened",
+  "issues.closed": "closed",
+} as const satisfies Record<GitHubPullRequestFixtureId | GitHubIssuesFixtureId, string>;
 
 function randomTestSha(): string {
   return `test${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 }
 
-function buildFixtureRepository(
-  repository?:
-    | GitHubPullRequestFixtureOverrides["repository"]
-    | GitHubPushFixtureOverrides["repository"],
-) {
-  const full_name = valueOr(repository?.full_name, DEFAULT_REPOSITORY_FULL_NAME);
+function buildFixtureRepository(repository?: GitHubTriggerFixtureRepositoryOverride) {
+  const full_name = repository?.full_name ?? DEFAULT_REPOSITORY_FULL_NAME;
   return {
-    id: valueOr(repository?.id, DEFAULT_REPOSITORY_ID),
-    name: valueOr(repository?.name, DEFAULT_REPOSITORY_NAME),
+    id: repository?.id ?? DEFAULT_REPOSITORY_ID,
+    name: repository?.name ?? DEFAULT_REPOSITORY_NAME,
     full_name,
-    default_branch: valueOr(repository?.default_branch, DEFAULT_BRANCH),
-    private: valueOr(repository?.private, true),
+    default_branch: repository?.default_branch ?? DEFAULT_BRANCH,
+    private: repository?.private ?? true,
     owner: {
-      login: valueOr(repository?.owner?.login, DEFAULT_REPOSITORY_OWNER),
+      login: repository?.owner?.login ?? DEFAULT_REPOSITORY_OWNER,
     },
   };
-}
-
-function buildFixtureInstallation(
-  installation:
-    | GitHubPullRequestFixtureOverrides["installation"]
-    | GitHubPushFixtureOverrides["installation"],
-  installationId: number,
-) {
-  return {
-    id: valueOr(installation?.id, installationId),
-  };
-}
-
-function actionFromFixture(
-  fixture: GitHubPullRequestFixtureId,
-): EmitterWebhookEvent<GitHubPullRequestFixtureId>["payload"]["action"] {
-  switch (fixture) {
-    case "pull_request.opened":
-      return "opened";
-    case "pull_request.synchronize":
-      return "synchronize";
-    case "pull_request.reopened":
-      return "reopened";
-    case "pull_request.closed":
-      return "closed";
-  }
 }
 
 function buildGitHubPullRequestFixture(input: {
@@ -861,23 +849,23 @@ function buildGitHubPullRequestFixture(input: {
   const pullRequestHead = pullRequest.head ?? {};
   const pullRequestBase = pullRequest.base ?? {};
   const repository = buildFixtureRepository(overrides.repository);
-  const pullRequestNumber = valueOr(pullRequest.number, DEFAULT_PULL_REQUEST_NUMBER);
+  const pullRequestNumber = pullRequest.number ?? DEFAULT_PULL_REQUEST_NUMBER;
 
   const payload = {
-    action: valueOr(overrides.action, actionFromFixture(input.fixture)),
+    action: overrides.action ?? githubFixtureActions[input.fixture],
     repository,
-    installation: buildFixtureInstallation(overrides.installation, input.installationId),
+    installation: { id: overrides.installation?.id ?? input.installationId },
     pull_request: {
       number: pullRequestNumber,
       html_url:
         pullRequest.html_url ??
         `https://github.com/${repository.full_name}/pull/${pullRequestNumber}`,
       head: {
-        sha: valueOr(pullRequestHead.sha, randomTestSha()),
-        ref: valueOr(pullRequestHead.ref, DEFAULT_TRIGGER_BRANCH),
+        sha: pullRequestHead.sha ?? randomTestSha(),
+        ref: pullRequestHead.ref ?? DEFAULT_TRIGGER_BRANCH,
       },
       base: {
-        ref: valueOr(pullRequestBase.ref, DEFAULT_BRANCH),
+        ref: pullRequestBase.ref ?? DEFAULT_BRANCH,
       },
     },
   } satisfies GitHubPullRequestFixtureOverrides;
@@ -889,28 +877,64 @@ function buildGitHubPullRequestFixture(input: {
   } as EmitterWebhookEvent<GitHubPullRequestFixtureId>;
 }
 
+function buildGitHubIssuesFixture(input: {
+  fixture: GitHubIssuesFixtureId;
+  deliveryId: string;
+  installationId: number;
+  overrides?: GitHubIssuesFixtureOverrides;
+}): EmitterWebhookEvent<GitHubIssuesFixtureId> {
+  const overrides = input.overrides ?? {};
+  const issue = overrides.issue ?? {};
+  const repository = buildFixtureRepository(overrides.repository);
+  const issueNumber = issue.number ?? 84;
+
+  const payload = {
+    action: overrides.action ?? githubFixtureActions[input.fixture],
+    repository,
+    installation: { id: overrides.installation?.id ?? input.installationId },
+    issue: {
+      number: issueNumber,
+      html_url:
+        issue.html_url ?? `https://github.com/${repository.full_name}/issues/${issueNumber}`,
+      title: issue.title ?? "Fixture issue",
+      body: issue.body ?? "Issue fixture body.",
+      state: issue.state ?? (input.fixture === "issues.closed" ? "closed" : "open"),
+      labels: issue.labels ?? [],
+      user: {
+        login: issue.user?.login ?? "fixture-author",
+      },
+    },
+  } satisfies GitHubIssuesFixtureOverrides;
+
+  return {
+    id: input.deliveryId,
+    name: "issues",
+    payload,
+  } as EmitterWebhookEvent<GitHubIssuesFixtureId>;
+}
+
 function buildGitHubPushFixture(input: {
   deliveryId: string;
   installationId: number;
   overrides?: GitHubPushFixtureOverrides;
 }): EmitterWebhookEvent<"push"> {
   const overrides = input.overrides ?? {};
-  const after = valueOr(overrides.after, randomTestSha());
+  const after = overrides.after ?? randomTestSha();
 
   const payload = {
-    ref: valueOr(overrides.ref, `refs/heads/${DEFAULT_BRANCH}`),
+    ref: overrides.ref ?? `refs/heads/${DEFAULT_BRANCH}`,
     before: EMPTY_SHA,
     after,
     repository: buildFixtureRepository(overrides.repository),
-    installation: buildFixtureInstallation(overrides.installation, input.installationId),
-    commits: valueOr(overrides.commits, [
+    installation: { id: overrides.installation?.id ?? input.installationId },
+    commits: overrides.commits ?? [
       {
         id: after,
         added: [],
         modified: ["README.md"],
         removed: [],
       },
-    ]),
+    ],
   } satisfies GitHubPushFixtureOverrides;
 
   return {
@@ -920,22 +944,24 @@ function buildGitHubPushFixture(input: {
   } as EmitterWebhookEvent<"push">;
 }
 
-export function buildGitHubTriggerFixture(input: {
-  fixture: GitHubTriggerFixtureId;
-  deliveryId: string;
-  installationId: number;
-  overrides?: GitHubTriggerFixtureOverrides;
-}): EmitterWebhookEvent {
-  return input.fixture === "push"
-    ? buildGitHubPushFixture({
-        deliveryId: input.deliveryId,
-        installationId: input.installationId,
-        overrides: input.overrides as GitHubPushFixtureOverrides | undefined,
-      })
-    : buildGitHubPullRequestFixture({
-        fixture: input.fixture,
-        deliveryId: input.deliveryId,
-        installationId: input.installationId,
-        overrides: input.overrides as GitHubPullRequestFixtureOverrides | undefined,
-      });
+export function buildGitHubTriggerFixture(
+  input: GitHubTriggerFixtureInput & {
+    deliveryId: string;
+    installationId: number;
+  },
+): EmitterWebhookEvent {
+  switch (input.fixture) {
+    case "push":
+      return buildGitHubPushFixture(input);
+    case "issues.opened":
+    case "issues.edited":
+    case "issues.reopened":
+    case "issues.closed":
+      return buildGitHubIssuesFixture(input);
+    case "pull_request.opened":
+    case "pull_request.synchronize":
+    case "pull_request.reopened":
+    case "pull_request.closed":
+      return buildGitHubPullRequestFixture(input);
+  }
 }

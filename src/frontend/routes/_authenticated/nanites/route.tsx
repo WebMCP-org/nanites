@@ -66,9 +66,13 @@ import type {
   NaniteRunRecord,
   NaniteRunStatus,
   SigveloNaniteManager,
-  TestNaniteTriggerInput,
   TestNaniteTriggerOutput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
+import type {
+  GitHubIssuesFixtureId,
+  GitHubPullRequestFixtureId,
+  GitHubTriggerFixtureInput,
+} from "#/backend/nanites/triggers.ts";
 import type {
   NaniteAgentState,
   NaniteWorkspaceInfo,
@@ -220,7 +224,6 @@ type NaniteRepositoryGroup = {
 type NaniteEventSource = NaniteManifest["eventSource"];
 type NanitesSelection = { readonly naniteId: string } | { readonly mode: "create" };
 type NaniteMobileView = "nanites" | "chat" | "files" | "summary";
-type BrowserTriggerTestEvent = TestNaniteTriggerInput["event"];
 
 export const Route = createFileRoute("/_authenticated/nanites")({
   validateSearch: z.object({
@@ -660,13 +663,14 @@ function formatEventSourceSpec(eventSource: NaniteEventSource): string {
   }
 }
 
-function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTestEvent | null {
+function buildBrowserTriggerTestEvent(nanite: ManagedNanite): GitHubTriggerFixtureInput | null {
   const eventSource = nanite.manifest.eventSource;
   if (eventSource.type !== "github") {
     return null;
   }
 
   const events = eventSource.events ?? [];
+  const actions = eventSource.actions ?? [];
   const repository =
     eventSource.repositories?.[0] ?? nanite.manifest.permissions.github?.repositories[0];
   if (!repository) {
@@ -674,45 +678,59 @@ function buildBrowserTriggerTestEvent(nanite: ManagedNanite): BrowserTriggerTest
   }
 
   const [owner = repository, name = repository] = repository.split("/", 2);
+  const repositoryOverride = {
+    full_name: repository,
+    name,
+    owner: { login: owner },
+  };
   if (events.length === 0 || events.includes("push")) {
     const branch = eventSource.branches?.[0] ?? "main";
     return {
       fixture: "push",
       overrides: {
         ref: `refs/heads/${branch}`,
-        repository: {
-          full_name: repository,
-          name,
-          owner: { login: owner },
-        },
+        repository: repositoryOverride,
       },
     };
   }
 
-  const pullRequestEvents = events.filter((event) => event.startsWith("pull_request"));
-  if (pullRequestEvents.length === 0) {
+  if (events.some((event) => event.startsWith("pull_request"))) {
+    let fixture: GitHubPullRequestFixtureId = "pull_request.opened";
+    if (events.includes("pull_request.synchronize") || actions.includes("synchronize")) {
+      fixture = "pull_request.synchronize";
+    } else if (events.includes("pull_request.reopened") || actions.includes("reopened")) {
+      fixture = "pull_request.reopened";
+    } else if (events.includes("pull_request.closed") || actions.includes("closed")) {
+      fixture = "pull_request.closed";
+    }
+
+    return {
+      fixture,
+      overrides: {
+        repository: repositoryOverride,
+      },
+    };
+  }
+
+  if (!events.some((event) => event.startsWith("issues"))) {
     return null;
   }
 
-  let fixture: BrowserTriggerTestEvent["fixture"] = "pull_request.opened";
-  if (events.includes("pull_request.synchronize") || eventSource.actions?.includes("synchronize")) {
-    fixture = "pull_request.synchronize";
-  } else if (
-    events.includes("pull_request.reopened") ||
-    eventSource.actions?.includes("reopened")
-  ) {
-    fixture = "pull_request.reopened";
-  } else if (events.includes("pull_request.closed") || eventSource.actions?.includes("closed")) {
-    fixture = "pull_request.closed";
+  let fixture: GitHubIssuesFixtureId = "issues.opened";
+  if (events.includes("issues.reopened") || actions.includes("reopened")) {
+    fixture = "issues.reopened";
+  } else if (events.includes("issues.edited") || actions.includes("edited")) {
+    fixture = "issues.edited";
+  } else if (events.includes("issues.closed") || actions.includes("closed")) {
+    fixture = "issues.closed";
   }
 
   return {
     fixture,
     overrides: {
-      repository: {
-        full_name: repository,
-        name,
-        owner: { login: owner },
+      repository: repositoryOverride,
+      issue: {
+        title: `${nanite.manifest.name} trigger fixture`,
       },
     },
   };

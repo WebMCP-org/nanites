@@ -1240,7 +1240,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       ...item,
       status: "ready",
       detail:
-        "Workers AI binding `AI` is present. The default model uses a Cloudflare-hosted Workers AI model; explicit third-party model ids may require account-level AI Gateway provider setup outside Nanites.",
+        "Workers AI binding `AI` is present. The default model is a third-party model id routed through the AI Gateway and billed via AI Gateway Unified Billing, so ensure your account has credits loaded (no provider API key required).",
       action: null,
     };
   }
@@ -1297,6 +1297,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   const gatewayConfig = existing
     ? {
         id: gatewayId,
+        authentication: true,
         cache_invalidate_on_update: readBoolean(existing.cache_invalidate_on_update, true),
         cache_ttl: readNumber(existing.cache_ttl, 0),
         collect_logs: readBoolean(existing.collect_logs, true),
@@ -1309,6 +1310,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       }
     : {
         id: gatewayId,
+        authentication: true,
         cache_invalidate_on_update: true,
         cache_ttl: 0,
         collect_logs: true,

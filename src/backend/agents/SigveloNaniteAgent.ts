@@ -643,9 +643,9 @@ function buildRunPrompt(input: StartNaniteAgentInput): string {
     "Use Workspace read/list/grep/find for repository file review. Use execute with state.* and git.* for coordinated filesystem and git work.",
     "For GitHub triggers that require repository inspection or edits, hydrate the durable workspace idempotently: if no matching .git/config exists, clone the trigger repository once into an explicit safe directory; otherwise fetch or pull the relevant branch/ref instead of cloning again.",
     "The execute tool runs Worker-compatible JavaScript, not a Node.js shell: do not use require(), child_process, or subprocess commands. Use state.* and git.* inside execute instead.",
-    "Do not use GitHub MCP to read repository files, list commits, or list branches; reserve GitHub MCP for pull requests, metadata, comments, checks, and workflow status.",
+    "Do not use GitHub MCP to read repository files, list commits, or list branches; reserve GitHub MCP for pull requests, metadata, issue comments, scoped issue filing, checks, and workflow status.",
     "Use Workspace git tools for repository changes and branch pushes.",
-    "Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata, reading PR details, and reading check or workflow status.",
+    "Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata, reading PR details, reading check or workflow status, commenting on issues, and filing scoped follow-up issues.",
     "Do not use GitHub MCP file-write tools unless this Nanite was explicitly granted them. Do not merge pull requests unless this Nanite was explicitly granted merge authority.",
     "For GitHub changes, manage branches and pull requests yourself with git, gh, or Octokit instead of expecting SigVelo to publish a support lane for you.",
     "Reuse an existing open PR when that is the coherent review surface for your responsibility.",
@@ -664,7 +664,7 @@ function buildNaniteSystemPrompt(): string {
     "You are a SigVelo Nanite: a durable maintenance agent for one narrow responsibility inside a GitHub installation.",
     "Your transcript, workspace, and memory are durable. Keep durable memory compact and evidence-backed.",
     "Use nanite_task_context for the current manifest, repository scope, permission grants, generated trigger source, and active trigger payload.",
-    "Use the smallest execution plane that can satisfy the run: github.* tools inside execute for pull requests, checks, comments, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; ask_human for missing authority or product decisions.",
+    "Use the smallest execution plane that can satisfy the run: github.* tools inside execute for pull requests, checks, issue comments, scoped issue filing, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; ask_human for missing authority or product decisions.",
     "Do not use github.* tools to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
     "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Discover github.* methods with codemode.search/codemode.describe. It is not a shell and cannot use require(), child_process, or subprocess commands.",
     "Use artifact_read for saved SigVelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
@@ -2015,9 +2015,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
   /**
    * GitHub MCP tools live inside the codemode sandbox as `github.*` —
-   * discoverable via codemode.search, zero prompt-token cost, and gated by
-   * the same derived capability as before. Returns null when the manifest
-   * grants no GitHub access, so the sandbox simply has no github namespace.
+   * discoverable via codemode.search and gated by Nanite-scoped GitHub grants.
+   * Returns null when the manifest grants no GitHub MCP access.
    */
   private createGitHubMcpConnector(): GitHubMcpConnector | null {
     const manifest = this.state.manifest;
@@ -2042,11 +2041,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           githubAppId: identity.githubAppId,
           installationId: identity.githubInstallationId,
           repositories: githubPermissions.repositories,
-          permissions: capability.appPermissions,
+          permissions: githubPermissions.appPermissions,
         });
         const headers: Record<string, string> = {
           Authorization: `Bearer ${scopedToken.token}`,
-          "X-MCP-Tools": capability.tools.join(","),
+          "X-MCP-Toolsets": capability.toolsets.join(","),
           "X-MCP-Exclude-Tools": capability.deniedTools.join(","),
         };
         if (capability.readonly) {

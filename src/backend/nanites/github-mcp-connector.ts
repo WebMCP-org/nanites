@@ -22,12 +22,13 @@ export type GitHubMcpConnectorOptions = {
 /**
  * Exposes the GitHub MCP server inside the codemode sandbox as `github.*`.
  * Tool scope is enforced twice: the scoped installation token limits API
- * authority, and the X-MCP-Tools / X-MCP-Exclude-Tools headers make the
- * server advertise only the tools derived from the Nanite's granted app
- * permissions.
+ * authority, and X-MCP headers select coarse toolsets while excluding
+ * product-disallowed tools.
  */
 export class GitHubMcpConnector extends McpConnector {
   readonly #options: GitHubMcpConnectorOptions;
+  /** Client opened in createConnection, closed in disposeExecution. */
+  #client: Client | null = null;
 
   constructor(ctx: DurableObjectState, options: GitHubMcpConnectorOptions) {
     super(ctx, {});
@@ -54,6 +55,7 @@ export class GitHubMcpConnector extends McpConnector {
         { requestInit: { headers } },
       );
       await client.connect(transport);
+      this.#client = client;
       return {
         name: "github",
         client,
@@ -65,5 +67,20 @@ export class GitHubMcpConnector extends McpConnector {
         { cause: error },
       );
     }
+  }
+
+  // A fresh client is opened per turn (createConnection), so close it once the
+  // execution is terminal — client.close() tears down the streamable-HTTP
+  // transport too, otherwise each turn leaks an open SSE connection to GitHub
+  // MCP. Best-effort and idempotent per the hook contract; never fires on an
+  // approval-pause, so the connection survives a resume.
+  override async disposeExecution(
+    executionId: string,
+    status: Parameters<McpConnector["disposeExecution"]>[1],
+  ): Promise<void> {
+    await super.disposeExecution(executionId, status);
+    const client = this.#client;
+    this.#client = null;
+    await client?.close().catch(() => {});
   }
 }
