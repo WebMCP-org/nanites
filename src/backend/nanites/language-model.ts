@@ -68,12 +68,112 @@ function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel |
     testFixture === "no_change" ||
     testFixture === "ask_human" ||
     testFixture === "no_lifecycle" ||
+    testFixture === "github_mcp_issue_actions" ||
     testFixture === "tool_output_budget"
   ) {
+    const fixtureFetch: typeof fetch = async (_url, init) => {
+      const requestBody = typeof init?.body === "string" ? init.body : "{}";
+      const body = JSON.parse(requestBody) as {
+        messages?: Array<{ role?: string }>;
+        model?: string;
+      };
+      const model = body.model ?? "gpt-4o-mini";
+      const messages = body.messages ?? [];
+      let chunks: OpenAIChatChunk[];
+
+      if (testFixture === "github_mcp_issue_actions") {
+        const serialized = JSON.stringify(messages);
+        if (countToolResultsAfterLatestUser(messages) === 0) {
+          chunks = buildToolCallChunks({
+            content: "I will call the scoped GitHub MCP issue tools through execute.",
+            finishReason: "tool_calls",
+            model,
+            toolCall: {
+              id: "call_github_mcp_issue_actions",
+              name: "execute",
+              arguments: JSON.stringify({
+                code: `async () => {
+  await github.issue_write({
+    method: "create",
+    owner: "WebMCP-org",
+    repo: "nanites",
+    title: "Nanite fixture follow-up",
+    body: "Created by the fixture-backed GitHub MCP issue action test."
+  });
+  await github.add_issue_comment({
+    owner: "WebMCP-org",
+    repo: "nanites",
+    issue_number: 130,
+    body: "Fixture-backed Nanite issue comment."
+  });
+}`,
+              }),
+            },
+          });
+        } else {
+          const sawCreatedIssue = serialized.includes("Nanite fixture follow-up");
+          const sawIssueComment = serialized.includes("Fixture-backed Nanite issue comment");
+          const calledBoth = sawCreatedIssue && sawIssueComment;
+          chunks = buildToolCallChunks({
+            content: "I called the scoped GitHub MCP issue tools and can finish.",
+            finishReason: "tool_calls",
+            model,
+            toolCall: {
+              id: "call_github_mcp_issue_actions_no_change",
+              name: "no_change",
+              arguments: JSON.stringify({
+                summary: "Called scoped GitHub MCP issue tools.",
+                agentFeedback: {
+                  severity: calledBoth ? "info" : "error",
+                  message: calledBoth
+                    ? "GitHub MCP issue actions executed."
+                    : "GitHub MCP issue action missed.",
+                  suggestions: [
+                    `issue_write_called=${String(sawCreatedIssue)}`,
+                    `add_issue_comment_called=${String(sawIssueComment)}`,
+                  ],
+                },
+              }),
+            },
+          });
+        }
+      } else if (testFixture === "tool_output_budget") {
+        chunks = buildToolOutputBudgetFixtureChunks(messages, model);
+      } else {
+        const hasToolResult = countToolResultsAfterLatestUser(messages) > 0;
+        const toolCall = testFixture === "no_lifecycle" ? null : buildFixtureToolCall(testFixture);
+        chunks = hasToolResult
+          ? buildTextChunks({
+              content:
+                "The host accepted my lifecycle tool call and linked the transcript to the run.",
+              finishReason: "stop",
+              model,
+            })
+          : toolCall === null
+            ? buildTextChunks({
+                content: "I inspected the trigger but did not call a lifecycle tool.",
+                finishReason: "stop",
+                model,
+              })
+            : buildToolCallChunks({
+                content: "I accepted the trigger and can finish through the host lifecycle tool.",
+                finishReason: "tool_calls",
+                model,
+                toolCall,
+              });
+      }
+
+      return new Response(toEventStream(chunks), {
+        headers: {
+          "content-type": "text/event-stream",
+        },
+      });
+    };
+
     return createOpenAI({
       apiKey: "mock",
       baseURL: "https://sigvelo.test/aimock-compatible/v1",
-      fetch: createFixtureOpenAIFetch(testFixture),
+      fetch: fixtureFetch,
       name: "aimock-compatible",
     }).chat("gpt-4o-mini");
   }
@@ -129,55 +229,8 @@ type NaniteLlmFixture =
   | "no_change"
   | "ask_human"
   | "no_lifecycle"
+  | "github_mcp_issue_actions"
   | "tool_output_budget";
-
-function createFixtureOpenAIFetch(fixture: NaniteLlmFixture): typeof fetch {
-  return async (_url, init) => {
-    const requestBody = typeof init?.body === "string" ? init.body : "{}";
-    const body = JSON.parse(requestBody) as {
-      messages?: Array<{ role?: string }>;
-      model?: string;
-    };
-    const model = body.model ?? "gpt-4o-mini";
-    if (fixture === "tool_output_budget") {
-      return new Response(
-        toEventStream(buildToolOutputBudgetFixtureChunks(body.messages ?? [], model)),
-        {
-          headers: {
-            "content-type": "text/event-stream",
-          },
-        },
-      );
-    }
-
-    const hasToolResult = countToolResultsAfterLatestUser(body.messages ?? []) > 0;
-    const toolCall = fixture === "no_lifecycle" ? null : buildFixtureToolCall(fixture);
-    const chunks = hasToolResult
-      ? buildTextChunks({
-          content: "The host accepted my lifecycle tool call and linked the transcript to the run.",
-          finishReason: "stop",
-          model,
-        })
-      : toolCall === null
-        ? buildTextChunks({
-            content: "I inspected the trigger but did not call a lifecycle tool.",
-            finishReason: "stop",
-            model,
-          })
-        : buildToolCallChunks({
-            content: "I accepted the trigger and can finish through the host lifecycle tool.",
-            finishReason: "tool_calls",
-            model,
-            toolCall,
-          });
-
-    return new Response(toEventStream(chunks), {
-      headers: {
-        "content-type": "text/event-stream",
-      },
-    });
-  };
-}
 
 function buildToolOutputBudgetFixtureChunks(
   messages: readonly { role?: string }[],

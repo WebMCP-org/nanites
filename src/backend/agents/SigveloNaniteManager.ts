@@ -26,10 +26,7 @@ import {
   getNoopIntents,
   runGeneratedTrigger,
   validateGeneratedTriggerSource,
-  type GitHubPullRequestFixtureId,
-  type GitHubPullRequestFixtureOverrides,
-  type GitHubPushFixtureId,
-  type GitHubPushFixtureOverrides,
+  type GitHubTriggerFixtureInput,
   type TriggerDispatchInput,
 } from "#/backend/nanites/triggers.ts";
 import {
@@ -359,15 +356,7 @@ export type StartNaniteManualRunOutput = {
 
 export type TestNaniteTriggerInput = {
   naniteId: string;
-  event:
-    | {
-        fixture: GitHubPullRequestFixtureId;
-        overrides?: GitHubPullRequestFixtureOverrides;
-      }
-    | {
-        fixture: GitHubPushFixtureId;
-        overrides?: GitHubPushFixtureOverrides;
-      };
+  event: GitHubTriggerFixtureInput;
   testInstruction?: string;
   actorId: string | null;
   actor?: ObservabilityActor | null;
@@ -380,7 +369,7 @@ export type TestNaniteTriggerOutput = {
   ok: boolean;
   managerName: string;
   naniteId: string;
-  fixture: GitHubPullRequestFixtureId | GitHubPushFixtureId;
+  fixture: GitHubTriggerFixtureInput["fixture"];
   event: GitHubWebhookEventSnapshot;
   acceptance: {
     fixtureBuilt: boolean;
@@ -1299,6 +1288,18 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
           message: `${APP_ERRORS.naniteRuntimeActivityMismatch.message}: run ${input.runId} belongs to ${run.naniteId}, not ${input.naniteId}`,
         });
       }
+
+      if (isTerminalNaniteRunStatus(run.status)) {
+        const activity = {
+          state: "idle" as const,
+          runId: run.runId,
+          toolName: null,
+          lastActivityAt: run.completedAt,
+          error: null,
+        };
+        this.setActivity(run.naniteId, activity);
+        return activity;
+      }
     }
 
     const observedAt = nowIso();
@@ -1515,10 +1516,9 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     this.requireNanite(input.naniteId);
 
     const event = buildGitHubTriggerFixture({
-      fixture: input.event.fixture,
+      ...input.event,
       deliveryId: `sigvelo-trigger-test-${input.requestId ?? crypto.randomUUID()}`,
       installationId: githubInstallationId,
-      overrides: input.event.overrides,
     });
     const eventSnapshot = snapshotGitHubWebhookEvent(event);
 

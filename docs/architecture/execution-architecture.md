@@ -261,8 +261,8 @@ an MCP tier or individual MCP tools.
 
 Use GitHub App installation tokens, not classic PATs. Installation tokens can be downscoped to the
 Nanite's repositories and app permissions. The official GitHub MCP server accepts app tokens, but it
-does not automatically hide tools based on app-token permissions, so SigVelo must provide an explicit
-`X-MCP-Tools`/`X-MCP-Exclude-Tools` inventory.
+does not automatically hide tools based on app-token permissions, so SigVelo uses coarse
+`X-MCP-Toolsets` plus `X-MCP-Exclude-Tools`. The scoped token remains the authorization boundary.
 
 Default guidance:
 

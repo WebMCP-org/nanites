@@ -15,7 +15,7 @@ const defaultDeniedGitHubMcpTools = [
   "update_pull_request_draft_state",
   "actions_run_trigger",
   "create_issue",
-  "issue_write",
+  "sub_issue_write",
   "create_repository",
   "fork_repository",
   "create_or_update_file",
@@ -51,10 +51,9 @@ type NaniteRepositoryManifest = {
 };
 
 export type NaniteGitHubMcpAccess = {
-  tools: string[];
+  toolsets: string[];
   deniedTools: string[];
   readonly: boolean;
-  appPermissions: GitHubAppPermissions;
 };
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -91,39 +90,34 @@ export function deriveNaniteGitHubMcpAccess(input: {
   appPermissions?: GitHubAppPermissions;
 }): NaniteGitHubMcpAccess | null {
   const appPermissions = input.appPermissions ?? {};
-  const tools = new Set(["get_me"]);
+  const toolsets = new Set(["context"]);
+  const deniedTools = new Set<string>(defaultDeniedGitHubMcpTools);
 
   if (grantsAtLeast(appPermissions, "pull_requests", "read")) {
-    tools.add("list_pull_requests");
-    tools.add("search_pull_requests");
-    tools.add("pull_request_read");
-  }
-  if (grantsAtLeast(appPermissions, "pull_requests", "write")) {
-    tools.add("create_pull_request");
-    tools.add("update_pull_request");
-    tools.add("update_pull_request_branch");
+    toolsets.add("pull_requests");
   }
 
   if (grantsAtLeast(appPermissions, "actions", "read")) {
-    tools.add("actions_list");
-    tools.add("actions_get");
+    toolsets.add("actions");
   }
 
   if (
     grantsAtLeast(appPermissions, "issues", "write") ||
     grantsAtLeast(appPermissions, "pull_requests", "write")
   ) {
-    tools.add("add_issue_comment");
+    toolsets.add("issues");
+  }
+  if (!grantsAtLeast(appPermissions, "issues", "write")) {
+    deniedTools.add("issue_write");
   }
 
-  if (tools.size === 1) {
+  if (toolsets.size === 1) {
     return null;
   }
 
   return {
-    tools: uniqueSorted(tools),
-    deniedTools: uniqueSorted(defaultDeniedGitHubMcpTools),
+    toolsets: uniqueSorted(toolsets),
+    deniedTools: uniqueSorted(deniedTools),
     readonly: !Object.values(appPermissions).some((level) => level === "write"),
-    appPermissions,
   };
 }

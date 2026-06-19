@@ -79,6 +79,7 @@ type PartialUIMessage = Partial<UIMessage> & {
 
 type RuntimeConversationProps = {
   readonly agentMessages: readonly UIMessage[];
+  readonly isRecovering?: boolean;
   readonly isStreaming: boolean;
   readonly error?: unknown;
   readonly emptyDescription?: string;
@@ -431,8 +432,9 @@ function ProseMarkdown({ children, streaming = false }: { children: string; stre
   );
 }
 
-function RuntimeConversation({
+export function RuntimeConversation({
   agentMessages,
+  isRecovering = false,
   isStreaming,
   error,
   emptyDescription = "The Nanite agent transcript appears here.",
@@ -445,11 +447,12 @@ function RuntimeConversation({
 }: RuntimeConversationProps) {
   const [openToolIds, setOpenToolIds] = useState<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const promptStatus = error ? "error" : isStreaming ? "streaming" : "ready";
+  const isBusy = isStreaming || isRecovering;
+  const promptStatus = error ? "error" : isBusy ? "streaming" : "ready";
   const normalizedMessages = useMemo(() => normalizeMessages(agentMessages), [agentMessages]);
   const conversationResetKey = useMemo(
-    () => getConversationResetKey(normalizedMessages, isStreaming),
-    [isStreaming, normalizedMessages],
+    () => getConversationResetKey(normalizedMessages, isBusy),
+    [isBusy, normalizedMessages],
   );
 
   return (
@@ -529,7 +532,7 @@ function RuntimeConversation({
                           );
                         }
 
-                        const toolActive = isLastAssistant && isStreaming && isLastPart;
+                        const toolActive = isLastAssistant && isBusy && isLastPart;
                         const toolOpen = toolActive || openToolIds.has(part.toolCallId);
                         const handleToolOpenChange = (next: boolean) => {
                           if (toolActive) return;
@@ -630,7 +633,7 @@ function RuntimeConversation({
                       })}
                     </MessageContent>
 
-                    {!isStreaming && isLastAssistant && onRegenerate ? (
+                    {!isBusy && isLastAssistant && onRegenerate ? (
                       <MessageActions>
                         <MessageAction
                           label="Regenerate response"
@@ -658,7 +661,7 @@ function RuntimeConversation({
         ) : null}
         <PromptInput
           onSubmit={({ text }) => {
-            if (!onSubmit || isStreaming) return;
+            if (!onSubmit || isBusy) return;
             onSubmit(text);
           }}
         >
@@ -675,7 +678,7 @@ function RuntimeConversation({
                         type="button"
                         className="nanites-workspace__chat-tool-button"
                         aria-label="Reset chat"
-                        disabled={isStreaming}
+                        disabled={isBusy}
                         onClick={onClearConversation}
                       >
                         <TrashIcon size={14} aria-hidden="true" />
@@ -703,7 +706,7 @@ function RuntimeConversation({
             <PromptInputSubmit
               status={promptStatus}
               onStop={onStop}
-              disabled={!onSubmit && !isStreaming}
+              disabled={!onSubmit && !isBusy}
             />
           </div>
         </PromptInput>
@@ -934,6 +937,7 @@ function ManagerRuntimeChatSession({
   const {
     messages: runMessages,
     isStreaming,
+    isRecovering,
     sendMessage,
     regenerate,
     stop,
@@ -943,35 +947,37 @@ function ManagerRuntimeChatSession({
     agent,
     experimental_throttle: 50,
   });
+  const isBusy = isStreaming || isRecovering;
 
   const handleSubmit = useCallback(
     (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || isStreaming) return;
+      if (!trimmed || isBusy) return;
       clearError();
       void sendMessage({
         role: "user",
         parts: [{ type: "text", text: trimmed }],
       });
     },
-    [clearError, isStreaming, sendMessage],
+    [clearError, isBusy, sendMessage],
   );
 
   const handleRegenerate = useCallback(() => {
-    if (isStreaming) return;
+    if (isBusy) return;
     clearError();
     void regenerate();
-  }, [clearError, isStreaming, regenerate]);
+  }, [clearError, isBusy, regenerate]);
 
   const handleClearConversation = useCallback(() => {
-    if (isStreaming) return;
+    if (isBusy) return;
     clearError();
     void agent.stub.clearConversation();
-  }, [agent.stub, clearError, isStreaming]);
+  }, [agent.stub, clearError, isBusy]);
 
   return (
     <RuntimeConversation
       agentMessages={runMessages}
+      isRecovering={isRecovering}
       isStreaming={isStreaming}
       error={error}
       emptyDescription={emptyDescription}
@@ -993,6 +999,7 @@ function NaniteRuntimeChatSession({
   const {
     messages: runMessages,
     isStreaming,
+    isRecovering,
     sendMessage,
     regenerate,
     stop,
@@ -1002,29 +1009,31 @@ function NaniteRuntimeChatSession({
     agent,
     experimental_throttle: 50,
   });
+  const isBusy = isStreaming || isRecovering;
 
   const handleSubmit = useCallback(
     (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || isStreaming) return;
+      if (!trimmed || isBusy) return;
       clearError();
       void sendMessage({
         role: "user",
         parts: [{ type: "text", text: trimmed }],
       });
     },
-    [clearError, isStreaming, sendMessage],
+    [clearError, isBusy, sendMessage],
   );
 
   const handleRegenerate = useCallback(() => {
-    if (isStreaming) return;
+    if (isBusy) return;
     clearError();
     void regenerate();
-  }, [clearError, isStreaming, regenerate]);
+  }, [clearError, isBusy, regenerate]);
 
   return (
     <RuntimeConversation
       agentMessages={runMessages}
+      isRecovering={isRecovering}
       isStreaming={isStreaming}
       error={error}
       onSubmit={handleSubmit}
