@@ -219,7 +219,6 @@ Trigger accepted no event:
 
 - Read `acceptance.triggerRejectionReason` first. It should include generated-trigger no-op reasons or manager dispatch/idempotency details when available.
 - Check `eventSource` candidate filters.
-- Check whether the Nanite is enabled.
 - Check fixture type and overrides.
 - Check generated trigger repository, branch, action, label, and path assumptions.
 - Watch for repeated idempotency keys in repeated tests.

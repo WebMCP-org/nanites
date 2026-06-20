@@ -3,13 +3,17 @@
  * Global styles and font loading for the design system
  */
 
-*,
-*::before,
-*::after {
+html {
+  accent-color: var(--app-accent, var(--sigvelo-primary-fill-mid));
   box-sizing: border-box;
+  color-scheme: light dark;
 }
 
-* {
+body {
+  box-sizing: inherit;
+}
+
+:where(body, h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd, ul, ol, menu) {
   margin: 0;
 }
 
@@ -21,6 +25,15 @@ body {
   background-color: var(--sigvelo-background-color);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root,
+#root::before,
+#root::after,
+#root :where(*),
+#root :where(*)::before,
+#root :where(*)::after {
+  box-sizing: inherit;
 }
 
 code,
@@ -48,14 +61,20 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  html:focus-within {
+    scroll-behavior: auto;
   }
 }
 

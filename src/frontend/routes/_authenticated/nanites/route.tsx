@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -83,7 +84,6 @@ import {
   ManagerRuntimeChatConnector,
   NaniteRuntimeChatConnector,
   NaniteRuntimeChatLoading,
-  NaniteRuntimeChatPlaceholder,
   type NaniteAgentInstance,
 } from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
 import { NanitesChooseInstallationState } from "#/frontend/routes/_authenticated/nanites/-choose-installation-state.tsx";
@@ -94,10 +94,29 @@ import {
   type NaniteDesktopPanel,
 } from "#/frontend/routes/_authenticated/nanites/-layout-controls.tsx";
 import { AgentConnectionPopover } from "#/frontend/ui/components/AgentConnection.tsx";
+import {
+  Select,
+  SelectList,
+  SelectOption,
+  SelectPopup,
+  SelectPortal,
+  SelectPositioner,
+  SelectTrigger,
+  SelectValue,
+} from "#/frontend/ui/components/Select.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
 import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
-import { NANITE_AGENT_NAME, NANITE_MANAGER_NAME } from "#/nanites.ts";
+import type {
+  SigveloManagerConversationAgent,
+  ManagerConversationState,
+} from "#/backend/agents/SigveloManagerConversationAgent.ts";
+import {
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+  MANAGER_CONVERSATION_AGENT_NAME,
+  NANITE_AGENT_NAME,
+  NANITE_MANAGER_NAME,
+} from "#/nanites.ts";
 import { buildNaniteManagerKey } from "#/nanites.ts";
 import { buildGitHubAppInstallHref, SIGVELO_GITHUB_APP_URL } from "#/github.ts";
 import {
@@ -157,6 +176,14 @@ async function fetchManagerState(managerName: string): Promise<ManagerStateRespo
   };
 }
 
+async function fetchNaniteModels(): Promise<string[]> {
+  const data = await readJsonResponse(httpClient.api.nanites.models.$get());
+  if (!isRecord(data) || !Array.isArray(data.models)) {
+    throw new Error("Nanite models response was malformed.");
+  }
+  return data.models.filter((model): model is string => typeof model === "string");
+}
+
 async function readJsonResponse<TResponse extends JsonResponseLike>(
   responsePromise: Promise<TResponse>,
 ): Promise<unknown> {
@@ -175,6 +202,7 @@ async function readJsonResponse<TResponse extends JsonResponseLike>(
 }
 
 const naniteMobileViews: readonly NaniteMobileView[] = ["nanites", "chat", "files", "summary"];
+const managerMobileViews: readonly NaniteMobileView[] = ["nanites", "chat"];
 const naniteMobileSwipeThreshold = 64;
 const naniteActiveActivityMs = 30_000;
 
@@ -236,10 +264,6 @@ export const Route = createFileRoute("/_authenticated/nanites")({
   component: NanitesRoute,
 });
 
-const naniteDateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
 const naniteRelativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: "auto",
   style: "narrow",
@@ -247,14 +271,6 @@ const naniteRelativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
 
 function formatStatus(status: NaniteRunStatus): string {
   return status.replaceAll("_", " ");
-}
-
-function formatDate(value: string | null): string {
-  if (!value) {
-    return "Not recorded";
-  }
-
-  return naniteDateFormatter.format(new Date(value));
 }
 
 function formatRelativeDate(value: string | null): string {
@@ -388,7 +404,7 @@ function getRunActivityLabel(
     return "ready";
   }
 
-  const completedAt = isTerminalRunStatus(run.status) ? run.completedAt : null;
+  const completedAt = "completedAt" in run ? run.completedAt : null;
   return formatRelativeDate(
     activity?.lastActivityAt ?? completedAt ?? run.updatedAt ?? run.startedAt,
   );
@@ -494,7 +510,9 @@ function InstallationPicker({
     <Popover.Root>
       <Popover.Trigger className="account-menu__trigger account-menu__trigger--nanites">
         <Avatar.Root className="account-menu__trigger-avatar">
-          {triggerAvatarSrc ? <Avatar.Image src={triggerAvatarSrc} alt="" /> : null}
+          {triggerAvatarSrc ? (
+            <Avatar.Image src={triggerAvatarSrc} alt="" width={40} height={40} />
+          ) : null}
           <Avatar.Fallback>
             {activeInstallation.account.login.slice(0, 2).toUpperCase()}
           </Avatar.Fallback>
@@ -507,7 +525,9 @@ function InstallationPicker({
           <Popover.Popup className="account-menu__popup">
             <div className="account-menu__header">
               <Avatar.Root className="account-menu__header-avatar">
-                {headerAvatarSrc ? <Avatar.Image src={headerAvatarSrc} alt="" /> : null}
+                {headerAvatarSrc ? (
+                  <Avatar.Image src={headerAvatarSrc} alt="" width={64} height={64} />
+                ) : null}
                 <Avatar.Fallback>
                   {activeInstallation.account.login.slice(0, 2).toUpperCase()}
                 </Avatar.Fallback>
@@ -549,7 +569,9 @@ function InstallationPicker({
                           }}
                         >
                           <Avatar.Root className="account-menu__row-avatar">
-                            {rowAvatarSrc ? <Avatar.Image src={rowAvatarSrc} alt="" /> : null}
+                            {rowAvatarSrc ? (
+                              <Avatar.Image src={rowAvatarSrc} alt="" width={56} height={56} />
+                            ) : null}
                             <Avatar.Fallback>
                               {accountLogin.slice(0, 2).toUpperCase()}
                             </Avatar.Fallback>
@@ -862,32 +884,21 @@ function InfoPanelRow({ row }: { readonly row: InfoRow }) {
         {row.icon}
         {row.label}
       </span>
-      <span title={row.value}>{row.value}</span>
+      <span>{row.value}</span>
       {row.href ? <ArrowSquareOutIcon size={13} aria-hidden="true" /> : null}
     </>
   );
 
   if (row.href) {
     return (
-      <a
-        className="nanites-workspace__info-row"
-        href={row.href}
-        target="_blank"
-        rel="noreferrer"
-        title={row.title}
-      >
+      <a className="nanites-workspace__info-row" href={row.href} target="_blank" rel="noreferrer">
         {content}
       </a>
     );
   }
 
   return (
-    <div
-      className="nanites-workspace__info-row nanites-workspace__info-row--static"
-      title={row.title}
-    >
-      {content}
-    </div>
+    <div className="nanites-workspace__info-row nanites-workspace__info-row--static">{content}</div>
   );
 }
 
@@ -1016,6 +1027,142 @@ function pickManagerState({
   return initialState;
 }
 
+function NaniteInfoRail({
+  label,
+  children,
+}: {
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <aside className="nanites-workspace__info-rail" aria-label={label}>
+      <div className="nanites-workspace__info-card">{children}</div>
+    </aside>
+  );
+}
+
+// Shared model picker for the manager and Nanite cards. `currentModel` is the
+// live source of truth (null while it loads → disabled); `onSelectModel` performs
+// the switch and resolves once it lands so the optimistic value can clear.
+function ModelSelect({
+  ariaLabel,
+  currentModel,
+  onSelectModel,
+}: {
+  readonly ariaLabel: string;
+  readonly currentModel: string | null;
+  readonly onSelectModel: (modelId: string) => Promise<unknown>;
+}) {
+  const labelId = useId();
+  const {
+    data: models,
+    isLoading: modelsLoading,
+    error: modelsError,
+  } = useQuery({
+    queryKey: ["nanites", "models"],
+    queryFn: fetchNaniteModels,
+    staleTime: 60 * 60 * 1000,
+  });
+  const [pendingModel, setPendingModel] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const selectedModel = pendingModel ?? currentModel ?? "";
+  // Keep the active model selectable even if it falls outside the fetched catalog.
+  const modelItems = useMemo(() => {
+    const list = models ?? [];
+    const withActive =
+      currentModel && !list.includes(currentModel) ? [currentModel, ...list] : list;
+    return withActive.map((model) => ({ label: model, value: model }));
+  }, [models, currentModel]);
+
+  return (
+    <InfoSection title="Model" collapsible={false}>
+      <span id={labelId} className="visually-hidden">
+        {ariaLabel}
+      </span>
+      <Select
+        value={selectedModel}
+        items={modelItems}
+        disabled={modelsLoading || currentModel === null || pendingModel !== null}
+        onValueChange={(next: string) => {
+          if (next === selectedModel) {
+            return;
+          }
+          setPendingModel(next);
+          setModelError(null);
+          void onSelectModel(next)
+            .then(() => setPendingModel(null))
+            .catch((error: unknown) => {
+              setPendingModel(null);
+              setModelError(getErrorMessage(error));
+            });
+        }}
+      >
+        <SelectTrigger size="sm" aria-labelledby={labelId}>
+          <SelectValue placeholder={modelsLoading ? "Loading models..." : "Select a model"} />
+        </SelectTrigger>
+        <SelectPortal>
+          <SelectPositioner>
+            <SelectPopup>
+              <SelectList>
+                {modelItems.map((item) => (
+                  <SelectOption key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectOption>
+                ))}
+              </SelectList>
+            </SelectPopup>
+          </SelectPositioner>
+        </SelectPortal>
+      </Select>
+      {modelsError ? (
+        <p className="nanites-workspace__action-error" role="alert">
+          Could not load available models. Try reloading.
+        </p>
+      ) : modelError ? (
+        <p className="nanites-workspace__action-error" role="alert">
+          {modelError}
+        </p>
+      ) : null}
+    </InfoSection>
+  );
+}
+
+function NaniteManagerInfoPanel({
+  managerName,
+  actor,
+}: {
+  readonly managerName: string;
+  readonly actor: BrowserNanitesContext["actor"];
+}) {
+  const conversationAgent = useAgent<SigveloManagerConversationAgent, ManagerConversationState>({
+    agent: MANAGER_CONVERSATION_AGENT_NAME,
+    name: `${managerName}:manager:${actor.id}`,
+  });
+
+  return (
+    <NaniteInfoRail label="Manager details">
+      <InfoSection title="Manager" className="nanites-workspace__info-section--about">
+        <div className="nanites-workspace__info-about">
+          <strong>Configuration manager</strong>
+          <p>Runs the conversation that creates and updates your Nanites.</p>
+        </div>
+      </InfoSection>
+
+      <ModelSelect
+        ariaLabel="Manager model"
+        // Once state syncs, an unset model means the agent runs on the default
+        // (getModel falls back to it) — show that rather than disabling the picker.
+        currentModel={
+          conversationAgent.state
+            ? (conversationAgent.state.model ?? DEFAULT_SIGVELO_AGENT_MODEL_ID)
+            : null
+        }
+        onSelectModel={(modelId) => conversationAgent.stub.setModel(modelId)}
+      />
+    </NaniteInfoRail>
+  );
+}
+
 function NaniteRunInfoPanel({
   activeInstallation,
   deleteError,
@@ -1024,6 +1171,7 @@ function NaniteRunInfoPanel({
   isTestingTrigger,
   nanite,
   onDeleteNanite,
+  onSetNaniteModel,
   onTestTrigger,
   run,
   testTriggerError,
@@ -1035,6 +1183,7 @@ function NaniteRunInfoPanel({
   readonly isTestingTrigger: boolean;
   readonly nanite: ManagedNanite | null;
   readonly onDeleteNanite: () => void;
+  readonly onSetNaniteModel: (modelId: string) => Promise<unknown>;
   readonly onTestTrigger: () => void;
   readonly run: NaniteRunRecord | null;
   readonly testTriggerError: unknown;
@@ -1121,19 +1270,13 @@ function NaniteRunInfoPanel({
           value: formatStatus(run.status),
         }
       : null,
-    run
+    run || nanite
       ? {
           key: "trigger",
           label: "Trigger",
           value: triggerLabel,
         }
-      : nanite
-        ? {
-            key: "trigger",
-            label: "Trigger",
-            value: triggerLabel,
-          }
-        : null,
+      : null,
     runSummary
       ? {
           key: "summary",
@@ -1151,139 +1294,146 @@ function NaniteRunInfoPanel({
   ].filter((row) => row !== null);
 
   return (
-    <aside className="nanites-workspace__info-rail" aria-label="Run details">
-      <section className="nanites-workspace__info-card">
-        {nanite ? (
-          <InfoSection title="Nanite" className="nanites-workspace__info-section--about">
-            <div className="nanites-workspace__info-about">
-              <strong>{nanite.manifest.name}</strong>
-              <p>{nanite.manifest.description}</p>
-            </div>
-            <div className="nanites-workspace__danger-zone">
+    <NaniteInfoRail label="Run details">
+      {nanite ? (
+        <InfoSection title="Nanite" className="nanites-workspace__info-section--about">
+          <div className="nanites-workspace__info-about">
+            <strong>{nanite.manifest.name}</strong>
+            <p>{nanite.manifest.description}</p>
+          </div>
+          <div className="nanites-workspace__danger-zone">
+            <button
+              type="button"
+              className="nanites-workspace__danger-action"
+              data-confirming={isConfirmingDelete ? "true" : undefined}
+              disabled={isDeleting}
+              onClick={() => {
+                if (!isConfirmingDelete) {
+                  setConfirmingDeleteNaniteId(nanite.manifest.id);
+                  return;
+                }
+
+                onDeleteNanite();
+              }}
+            >
+              <TrashIcon size={14} aria-hidden="true" />
+              <span>
+                {isDeleting
+                  ? "Deleting..."
+                  : isConfirmingDelete
+                    ? "Confirm delete"
+                    : "Delete Nanite"}
+              </span>
+            </button>
+            {isConfirmingDelete && !isDeleting ? (
               <button
                 type="button"
-                className="nanites-workspace__danger-action"
-                data-confirming={isConfirmingDelete ? "true" : undefined}
-                disabled={isDeleting}
-                onClick={() => {
-                  if (!isConfirmingDelete) {
-                    setConfirmingDeleteNaniteId(nanite.manifest.id);
-                    return;
-                  }
-
-                  onDeleteNanite();
-                }}
+                className="nanites-workspace__danger-cancel"
+                onClick={() => setConfirmingDeleteNaniteId(null)}
               >
-                <TrashIcon size={14} aria-hidden="true" />
-                <span>
-                  {isDeleting
-                    ? "Deleting..."
-                    : isConfirmingDelete
-                      ? "Confirm delete"
-                      : "Delete Nanite"}
-                </span>
+                Cancel
               </button>
-              {isConfirmingDelete && !isDeleting ? (
-                <button
-                  type="button"
-                  className="nanites-workspace__danger-cancel"
-                  onClick={() => setConfirmingDeleteNaniteId(null)}
-                >
-                  Cancel
-                </button>
-              ) : null}
-            </div>
-            {deleteError ? (
-              <p className="nanites-workspace__delete-error" role="alert">
-                {getErrorMessage(deleteError)}
-              </p>
             ) : null}
-          </InfoSection>
-        ) : null}
+          </div>
+          {deleteError ? (
+            <p className="nanites-workspace__delete-error" role="alert">
+              {getErrorMessage(deleteError)}
+            </p>
+          ) : null}
+        </InfoSection>
+      ) : null}
 
-        {nanite && canTestTrigger ? (
-          <InfoSection title="Controls" collapsible={false}>
-            <div className="nanites-workspace__danger-zone">
-              <Button
-                color="neutral"
-                size="sm"
-                variant="outline"
-                disabled={isTestingTrigger}
-                onClick={onTestTrigger}
-              >
-                {isTestingTrigger ? (
-                  <CircleNotchIcon size={14} aria-hidden="true" />
-                ) : (
-                  <ArrowClockwiseIcon size={14} aria-hidden="true" />
-                )}
-                <span>{isTestingTrigger ? "Testing..." : "Test trigger"}</span>
-              </Button>
-            </div>
-            {testTriggerError ? (
-              <p className="nanites-workspace__action-error" role="alert">
-                {getErrorMessage(testTriggerError)}
-              </p>
-            ) : null}
-          </InfoSection>
-        ) : null}
+      {nanite ? (
+        <ModelSelect
+          ariaLabel="Nanite model"
+          currentModel={nanite.manifest.model}
+          onSelectModel={onSetNaniteModel}
+        />
+      ) : null}
 
-        {gitInfoLinks.length > 0 ? (
-          <InfoSection title="Git" collapsible={false}>
-            <div className="nanites-workspace__info-link-list">
-              {gitInfoLinks.map((link) => (
+      {nanite && canTestTrigger ? (
+        <InfoSection title="Controls" collapsible={false}>
+          <div className="nanites-workspace__danger-zone">
+            <Button
+              color="neutral"
+              size="sm"
+              variant="outline"
+              disabled={isTestingTrigger}
+              onClick={onTestTrigger}
+            >
+              {isTestingTrigger ? (
+                <CircleNotchIcon size={14} aria-hidden="true" />
+              ) : (
+                <ArrowClockwiseIcon size={14} aria-hidden="true" />
+              )}
+              <span>{isTestingTrigger ? "Testing..." : "Test trigger"}</span>
+            </Button>
+          </div>
+          {testTriggerError ? (
+            <p className="nanites-workspace__action-error" role="alert">
+              {getErrorMessage(testTriggerError)}
+            </p>
+          ) : null}
+        </InfoSection>
+      ) : null}
+
+      {gitInfoLinks.length > 0 ? (
+        <InfoSection title="Git" collapsible={false}>
+          <ul className="nanites-workspace__info-link-list">
+            {gitInfoLinks.map((link) => (
+              <li key={link.key}>
                 <a
                   className="nanites-workspace__info-row"
                   href={link.href}
-                  key={link.key}
                   target="_blank"
                   rel="noreferrer"
-                  title={link.href}
                 >
                   <span>
                     {link.icon}
                     {link.label}
                   </span>
-                  <span title={link.value}>{link.value}</span>
+                  <span>{link.value}</span>
                   <ArrowSquareOutIcon size={13} aria-hidden="true" />
                 </a>
-              ))}
-            </div>
-          </InfoSection>
-        ) : null}
-
-        <InfoSection title="Scope" collapsible={false}>
-          <div className="nanites-workspace__info-link-list">
-            {scopeRows.map((row) => (
-              <InfoPanelRow key={row.key} row={row} />
+              </li>
             ))}
-          </div>
+          </ul>
         </InfoSection>
+      ) : null}
 
-        {outcomeRows.length > 0 ? (
-          <InfoSection title="Run" collapsible={false}>
-            <dl className="nanites-workspace__outcome-list">
-              {outcomeRows.map((row) => (
-                <div key={row.key}>
-                  <dt>{row.label}</dt>
-                  <dd title={row.value}>{row.value}</dd>
-                </div>
-              ))}
-              {runOutputUrl ? (
-                <div>
-                  <dt>Output</dt>
-                  <dd>
-                    <a href={runOutputUrl} target="_blank" rel="noreferrer">
-                      Open
-                      <ArrowSquareOutIcon size={12} aria-hidden="true" />
-                    </a>
-                  </dd>
-                </div>
-              ) : null}
-            </dl>
-          </InfoSection>
-        ) : null}
-      </section>
-    </aside>
+      <InfoSection title="Scope" collapsible={false}>
+        <div className="nanites-workspace__info-link-list">
+          {scopeRows.map((row) => (
+            <InfoPanelRow key={row.key} row={row} />
+          ))}
+        </div>
+      </InfoSection>
+
+      {outcomeRows.length > 0 ? (
+        <InfoSection title="Run" collapsible={false}>
+          <dl className="nanites-workspace__outcome-list">
+            {outcomeRows.map((row) => (
+              <div key={row.key}>
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </div>
+            ))}
+            {runOutputUrl ? (
+              <div>
+                <dt>Output</dt>
+                <dd>
+                  <a href={runOutputUrl} target="_blank" rel="noreferrer">
+                    Open
+                    <span className="visually-hidden"> run output</span>
+                    <ArrowSquareOutIcon size={12} aria-hidden="true" />
+                  </a>
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </InfoSection>
+      ) : null}
+    </NaniteInfoRail>
   );
 }
 
@@ -1304,9 +1454,7 @@ const naniteWorkspaceFallbackRootPath = "/";
 const naniteDefinitionRootPath = "/nanite";
 const naniteWorkspaceDirectoryLimit = 1_000;
 const naniteWorkspaceFilePreviewMaxBytes = 1_000_000;
-const naniteWorkspaceFilterScanEntryLimit = 2_000;
 const emptyLoadedDirectories = new Set<string>();
-const emptyWorkspaceTreeEntries: readonly NaniteWorkspaceTreeEntry[] = [];
 
 function resolveWorkspaceRoot(info: NaniteWorkspaceInfo | null): string {
   return info?.repositoryRoot ?? naniteWorkspaceFallbackRootPath;
@@ -1370,6 +1518,19 @@ function buildNaniteDefinitionFiles(nanite: ManagedNanite | null): NaniteWorkspa
     },
   ];
 
+  // Surface the generated trigger as its own .ts file so it reads as code, not buried JSON.
+  if (nanite.manifest.triggerSource) {
+    files.push({
+      path: "/nanite/trigger.ts",
+      name: "trigger.ts",
+      content: nanite.manifest.triggerSource,
+      error: null,
+      truncated: false,
+      additions: 0,
+      deletions: 0,
+    });
+  }
+
   return files;
 }
 
@@ -1419,24 +1580,24 @@ function NaniteWorkspacePanel({
 }) {
   if (!naniteId) {
     return (
-      <section className="nanites-workspace__workbench app__pane" aria-label="Nanite workspace">
+      <div className="nanites-workspace__workbench app__pane">
         <div className="nanites-workspace__files-header">
           <span>Workspace</span>
         </div>
         <p className="nanites-workspace__files-empty">Select a Nanite to inspect its workspace.</p>
-      </section>
+      </div>
     );
   }
 
   return (
     <Suspense
       fallback={
-        <section className="nanites-workspace__workbench app__pane" aria-label="Nanite workspace">
+        <div className="nanites-workspace__workbench app__pane">
           <div className="nanites-workspace__files-header">
             <span>Workspace</span>
           </div>
           <p className="nanites-workspace__files-empty">Loading workspace...</p>
-        </section>
+        </div>
       }
     >
       <NaniteWorkspaceReview key={naniteId} agent={agent} nanite={nanite} refreshKey={refreshKey} />
@@ -1465,22 +1626,12 @@ function NaniteWorkspaceReview({
   const [loading, setLoading] = useState(false);
   const [loadingDirectories, setLoadingDirectories] = useState<ReadonlySet<string>>(new Set());
   const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
-  const [filterSearch, setFilterSearch] = useState<{
-    readonly entries: readonly NaniteWorkspaceTreeEntry[];
-    readonly filter: string;
-    readonly loading: boolean;
-  } | null>(null);
   const [copiedFile, setCopiedFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadedDirectoriesRef = useRef<ReadonlySet<string>>(emptyLoadedDirectories);
-  const copiedFileTimeoutRef = useRef<number | null>(null);
 
   const workspaceRoot = resolveWorkspaceRoot(info);
-  const workspaceFilter = useMemo(() => fileFilter.trim().toLowerCase(), [fileFilter]);
-  const filterSearchEntries =
-    filterSearch?.filter === workspaceFilter ? filterSearch.entries : emptyWorkspaceTreeEntries;
-  const filterSearchLoading =
-    workspaceFilter.length > 0 && filterSearch?.filter === workspaceFilter && filterSearch.loading;
+  const workspaceFilter = fileFilter.trim().toLowerCase();
 
   const definitionFiles = useMemo(() => buildNaniteDefinitionFiles(nanite), [nanite]);
   const definitionFilesByPath = useMemo(
@@ -1631,98 +1782,6 @@ function NaniteWorkspaceReview({
     void loadWorkspaceRoot();
   }, [loadWorkspaceRoot, refreshKey]);
 
-  useEffect(() => {
-    setCopiedFile(false);
-    if (copiedFileTimeoutRef.current !== null) {
-      window.clearTimeout(copiedFileTimeoutRef.current);
-      copiedFileTimeoutRef.current = null;
-    }
-  }, [selectedPath]);
-
-  useEffect(() => {
-    return () => {
-      if (copiedFileTimeoutRef.current !== null) {
-        window.clearTimeout(copiedFileTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!workspaceFilter) return;
-
-    let canceled = false;
-    const timeout = window.setTimeout(() => {
-      setFilterSearch((current) => ({
-        entries: current?.filter === workspaceFilter ? current.entries : emptyWorkspaceTreeEntries,
-        filter: workspaceFilter,
-        loading: true,
-      }));
-      void (async () => {
-        const matches: NaniteWorkspaceTreeEntry[] = [];
-        const directories = [workspaceRoot];
-        let scannedEntries = 0;
-
-        try {
-          while (directories.length > 0 && scannedEntries < naniteWorkspaceFilterScanEntryLimit) {
-            if (!naniteAgent) break;
-            const directory = directories.shift() ?? workspaceRoot;
-            const output = await naniteAgent.stub.exploreWorkspace({
-              action: "list",
-              path: directory,
-              limit: naniteWorkspaceDirectoryLimit,
-            });
-            const entries =
-              output.action === "list" ? output.entries.map(toWorkspaceTreeEntry) : [];
-
-            for (const entry of entries) {
-              scannedEntries += 1;
-              if (entry.type === "directory") {
-                directories.push(entry.path);
-                continue;
-              }
-              if (entry.path.toLowerCase().includes(workspaceFilter)) {
-                matches.push(entry);
-              }
-              if (scannedEntries >= naniteWorkspaceFilterScanEntryLimit) {
-                break;
-              }
-            }
-          }
-
-          if (!canceled) {
-            setFilterSearch({
-              entries: uniqueWorkspaceEntries(matches),
-              filter: workspaceFilter,
-              loading: false,
-            });
-          }
-        } catch (searchError) {
-          if (!canceled) {
-            setFilterSearch({
-              entries: emptyWorkspaceTreeEntries,
-              filter: workspaceFilter,
-              loading: false,
-            });
-            setError(searchError instanceof Error ? searchError.message : String(searchError));
-          }
-        } finally {
-          if (!canceled) {
-            setFilterSearch((current) =>
-              current?.filter === workspaceFilter && current.loading
-                ? { ...current, loading: false }
-                : current,
-            );
-          }
-        }
-      })();
-    }, 250);
-
-    return () => {
-      canceled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [naniteAgent, workspaceFilter, workspaceRoot]);
-
   const loadedFileEntries = useMemo(() => {
     const entries = Object.values(entriesByDirectory).flat();
     return entries.filter((entry) => entry.type !== "directory");
@@ -1732,11 +1791,9 @@ function NaniteWorkspaceReview({
       return loadedFileEntries;
     }
     return uniqueWorkspaceEntries(
-      [...loadedFileEntries, ...filterSearchEntries].filter((entry) =>
-        entry.path.toLowerCase().includes(workspaceFilter),
-      ),
+      loadedFileEntries.filter((entry) => entry.path.toLowerCase().includes(workspaceFilter)),
     );
-  }, [filterSearchEntries, loadedFileEntries, workspaceFilter]);
+  }, [loadedFileEntries, workspaceFilter]);
   const selectedFile = selectedPath ? (filesByPath.get(selectedPath) ?? null) : null;
   const selectedFileIsLoading = selectedPath !== null && loadingFilePath === selectedPath;
   const hasWorkspaceEntries =
@@ -1748,6 +1805,7 @@ function NaniteWorkspaceReview({
 
   const handleSelectFile = useCallback(
     (path: string) => {
+      setCopiedFile(false);
       setSelectedPath(path);
       setWorkspaceView("preview");
       void loadFile(path);
@@ -1769,21 +1827,18 @@ function NaniteWorkspaceReview({
     [expandedPaths, loadDirectory],
   );
 
-  const renderWorkspaceEntry = useCallback(
-    (entry: NaniteWorkspaceTreeEntry): ReactNode => {
-      if (entry.type === "directory") {
-        const childEntries = entriesByDirectory[entry.path] ?? [];
-        return (
-          <FileTreeFolder key={entry.path} path={entry.path} name={entry.name}>
-            {childEntries.map(renderWorkspaceEntry)}
-          </FileTreeFolder>
-        );
-      }
+  const renderWorkspaceEntry = (entry: NaniteWorkspaceTreeEntry): ReactNode => {
+    if (entry.type === "directory") {
+      const childEntries = entriesByDirectory[entry.path] ?? [];
+      return (
+        <FileTreeFolder key={entry.path} path={entry.path} name={entry.name}>
+          {childEntries.map(renderWorkspaceEntry)}
+        </FileTreeFolder>
+      );
+    }
 
-      return <FileTreeFile key={entry.path} path={entry.path} name={entry.name} />;
-    },
-    [entriesByDirectory],
-  );
+    return <FileTreeFile key={entry.path} path={entry.path} name={entry.name} />;
+  };
 
   const definitionEntries = useMemo(() => {
     const filter = fileFilter.trim().toLowerCase();
@@ -1802,20 +1857,13 @@ function NaniteWorkspaceReview({
     try {
       await navigator.clipboard.writeText(selectedFile.content);
       setCopiedFile(true);
-      if (copiedFileTimeoutRef.current !== null) {
-        window.clearTimeout(copiedFileTimeoutRef.current);
-      }
-      copiedFileTimeoutRef.current = window.setTimeout(() => {
-        setCopiedFile(false);
-        copiedFileTimeoutRef.current = null;
-      }, 1500);
     } catch {
       /* ignore */
     }
   }, [selectedFile]);
 
   return (
-    <section className="nanites-workspace__workbench app__pane" aria-label="Nanite workspace">
+    <div className="nanites-workspace__workbench app__pane">
       <div className="app__workbench-shell">
         <div className="app__workbench-heading">
           <div className="nanites-workspace__review-title">
@@ -1853,7 +1901,7 @@ function NaniteWorkspaceReview({
       </div>
 
       <div className="app__workbench-content">
-        <div className="app__workbench-panel" role="tabpanel" aria-label="Workspace artifacts">
+        <div className="app__workbench-panel">
           {error ? <div className="app__workspace-empty">{error}</div> : null}
           {!error && hasWorkspaceEntries ? (
             workspaceView === "preview" && selectedPath ? (
@@ -1879,9 +1927,7 @@ function NaniteWorkspaceReview({
                       </TooltipPositioner>
                     </TooltipPortal>
                   </Tooltip>
-                  <span className="app__preview-url-text" title={selectedPath}>
-                    {selectedPathLabel}
-                  </span>
+                  <span className="app__preview-url-text">{selectedPathLabel}</span>
                   {selectedFile ? (
                     <Tooltip>
                       <TooltipTrigger
@@ -1942,16 +1988,28 @@ function NaniteWorkspaceReview({
               </div>
             ) : (
               <div className="nanites-workspace__review-tree">
-                <label className="nanites-workspace__review-filter">
-                  <MagnifyingGlassIcon size={13} aria-hidden="true" />
-                  <input
-                    type="search"
-                    value={fileFilter}
-                    onChange={(event) => setFileFilter(event.currentTarget.value)}
-                    placeholder="Filter files..."
-                    aria-label="Filter workspace files"
-                  />
-                </label>
+                <search>
+                  <label
+                    className="nanites-workspace__review-filter"
+                    htmlFor="workspace-file-filter"
+                  >
+                    <span className="visually-hidden" id="workspace-file-filter-label">
+                      Filter workspace files
+                    </span>
+                    <MagnifyingGlassIcon size={13} aria-hidden="true" />
+                    <input
+                      id="workspace-file-filter"
+                      type="search"
+                      name="workspaceFileFilter"
+                      value={fileFilter}
+                      onChange={(event) => setFileFilter(event.currentTarget.value)}
+                      placeholder="Filter files..."
+                      aria-labelledby="workspace-file-filter-label"
+                      autoComplete="off"
+                      enterKeyHint="search"
+                    />
+                  </label>
+                </search>
                 <div className="app__workspace-body app__workspace-body--tree">
                   {definitionEntries.length > 0 ? (
                     <section className="nanites-workspace__explorer-group">
@@ -1995,7 +2053,7 @@ function NaniteWorkspaceReview({
 
                   {definitionEntries.length === 0 && visibleTreeEntries.length === 0 ? (
                     <div className="app__workspace-empty">
-                      {loading || loadingDirectories.size > 0 || filterSearchLoading
+                      {loading || loadingDirectories.size > 0
                         ? "Loading workspace..."
                         : "No matching files"}
                     </div>
@@ -2011,7 +2069,7 @@ function NaniteWorkspaceReview({
           ) : null}
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -2115,17 +2173,6 @@ function NanitesRuntimeSurface({
   const [mobileView, setMobileView] = useState<NaniteMobileView>("chat");
   const [desktopPanel, setDesktopPanel] = useState<NaniteDesktopPanel>("summary");
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set());
-  const toggleGroupCollapsed = useCallback((repository: string) => {
-    setCollapsedGroups((previous) => {
-      const next = new Set(previous);
-      if (next.has(repository)) {
-        next.delete(repository);
-      } else {
-        next.add(repository);
-      }
-      return next;
-    });
-  }, []);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(248);
   const [asideWidth, setAsideWidth] = useState(340);
@@ -2149,6 +2196,17 @@ function NanitesRuntimeSurface({
     initialState,
     liveState: manager.state,
   });
+  const toggleGroupCollapsed = (repository: string) => {
+    setCollapsedGroups((previous) => {
+      const next = new Set(previous);
+      if (next.has(repository)) {
+        next.delete(repository);
+      } else {
+        next.add(repository);
+      }
+      return next;
+    });
+  };
   const runs = useMemo(
     () => state.runOrder.map((runId) => state.runs[runId]).filter((run) => run !== undefined),
     [state.runOrder, state.runs],
@@ -2184,13 +2242,11 @@ function NanitesRuntimeSurface({
     [runsByNanite, state.nanites, state.runtimeActivityByNanite],
   );
   const naniteGroups = useMemo(() => groupNanitesByRepository(naniteItems), [naniteItems]);
-  const fallbackNaniteItem = naniteItems[0] ?? null;
   const selectedNaniteItem = selectedNaniteId
     ? naniteItems.find((item) => item.id === selectedNaniteId)
     : undefined;
-  const isCreateMode =
-    selectedMode === "create" || (!selectedNaniteId && fallbackNaniteItem === null);
-  const activeNaniteItem = isCreateMode ? null : (selectedNaniteItem ?? fallbackNaniteItem);
+  const isCreateMode = selectedMode === "create" || selectedNaniteId === null;
+  const activeNaniteItem = isCreateMode ? null : (selectedNaniteItem ?? null);
   const selectedNaniteRuns = activeNaniteItem ? (runsByNanite.get(activeNaniteItem.id) ?? []) : [];
   const selectedRun =
     (selectedRunId ? selectedNaniteRuns.find((run) => run.runId === selectedRunId) : undefined) ??
@@ -2202,32 +2258,26 @@ function NanitesRuntimeSurface({
     agent: NANITE_MANAGER_NAME,
     name: managerName,
     enabled: selectedNaniteAgentId !== null,
-    sub: [
-      {
-        agent: NANITE_AGENT_NAME,
-        name: selectedNaniteAgentId ?? "unselected",
-      },
-    ],
+    sub: selectedNaniteAgentId
+      ? [
+          {
+            agent: NANITE_AGENT_NAME,
+            name: selectedNaniteAgentId,
+          },
+        ]
+      : [],
   });
-  const selectedNaniteAgent = selectedNaniteAgentId ? naniteAgent : null;
-  const createModeBaselineNaniteIdsRef = useRef<ReadonlySet<string> | null>(null);
-  const preferredMobileViewRef = useRef<{
-    readonly naniteId: string;
-    readonly view: NaniteMobileView;
-  } | null>(null);
-  const visibleMobileViews = useMemo(
-    () => (isCreateMode ? (["nanites", "chat"] as const) : naniteMobileViews),
-    [isCreateMode],
-  );
-  const preferredMobileView =
-    preferredMobileViewRef.current?.naniteId === selectedNaniteAgentId
-      ? preferredMobileViewRef.current.view
-      : null;
-  const requestedMobileView = preferredMobileView ?? mobileView;
-  const activeMobileView = visibleMobileViews.includes(requestedMobileView)
-    ? requestedMobileView
-    : "chat";
-  const effectiveDesktopPanel = isCreateMode ? null : desktopPanel;
+  const visibleMobileViews = selectedNaniteAgentId ? naniteMobileViews : managerMobileViews;
+  const activeMobileView = visibleMobileViews.includes(mobileView) ? mobileView : "chat";
+  // Create mode (the manager) has no file explorer, but it shares the summary
+  // panel — that's where the manager card lives, mirroring the Nanite layout.
+  const effectiveDesktopPanel =
+    isCreateMode || !selectedNaniteAgentId
+      ? desktopPanel === "summary"
+        ? "summary"
+        : null
+      : desktopPanel;
+  const isFileViewOpen = effectiveDesktopPanel === "files" || activeMobileView === "files";
   const deleteNanite = useMutation({
     mutationFn: async (input: { readonly naniteId: string }) => {
       const output = (await manager.stub.deprovisionNanite({
@@ -2248,15 +2298,14 @@ function NanitesRuntimeSurface({
       }
       return output;
     },
-    onSuccess: async (_output, input) => {
-      const nextItem = naniteItems.find((item) => item.id !== input.naniteId) ?? null;
+    onSuccess: async () => {
       await refetchManagerState();
       await navigate({
         search: (previous) => ({
           ...previous,
           installationId: activeInstallation.id,
-          mode: nextItem ? undefined : "create",
-          naniteId: nextItem?.id,
+          mode: undefined,
+          naniteId: undefined,
           runId: undefined,
           surface: undefined,
         }),
@@ -2303,11 +2352,6 @@ function NanitesRuntimeSurface({
     },
   });
 
-  const selectMobileView = (view: NaniteMobileView) => {
-    preferredMobileViewRef.current = null;
-    setMobileView(view);
-  };
-
   const moveMobileView = (direction: 1 | -1) => {
     const currentIndex = visibleMobileViews.indexOf(activeMobileView);
     const nextIndex = Math.min(
@@ -2316,91 +2360,9 @@ function NanitesRuntimeSurface({
     );
     const nextView = visibleMobileViews[nextIndex];
     if (nextView) {
-      selectMobileView(nextView);
+      setMobileView(nextView);
     }
   };
-
-  useEffect(() => {
-    if (isCreateMode) {
-      createModeBaselineNaniteIdsRef.current ??= new Set(naniteItems.map((item) => item.id));
-      return;
-    }
-
-    createModeBaselineNaniteIdsRef.current = null;
-  }, [isCreateMode, naniteItems]);
-
-  useEffect(() => {
-    if (!isCreateMode) {
-      return;
-    }
-
-    const baseline = createModeBaselineNaniteIdsRef.current;
-    if (!baseline) {
-      return;
-    }
-
-    const createdNanites = naniteItems.filter((item) => !baseline.has(item.id));
-    if (createdNanites.length === 0) {
-      return;
-    }
-
-    const [createdNanite] = createdNanites.sort((left, right) =>
-      right.nanite.updatedAt.localeCompare(left.nanite.updatedAt),
-    );
-    if (!createdNanite) {
-      return;
-    }
-
-    createModeBaselineNaniteIdsRef.current = new Set(naniteItems.map((item) => item.id));
-    preferredMobileViewRef.current = { naniteId: createdNanite.id, view: "chat" };
-    setSelection({ naniteId: createdNanite.id });
-  }, [isCreateMode, naniteItems, setSelection]);
-
-  useEffect(() => {
-    const hasInstallation = activeInstallation.id;
-
-    if (isCreateMode) {
-      if (selectedMode !== "create" || selectedNaniteId) {
-        void navigate({
-          search: (previous) => ({
-            ...previous,
-            installationId: hasInstallation,
-            mode: "create",
-            naniteId: undefined,
-            runId: undefined,
-            surface: undefined,
-          }),
-          replace: true,
-        });
-      }
-      return;
-    }
-
-    const nextNaniteId = selectedNaniteItem?.id ?? fallbackNaniteItem?.id;
-    if (!nextNaniteId || nextNaniteId === selectedNaniteId) {
-      return;
-    }
-
-    void navigate({
-      search: (previous) => ({
-        ...previous,
-        installationId: hasInstallation,
-        mode: undefined,
-        naniteId: nextNaniteId,
-        runId: undefined,
-        surface: undefined,
-      }),
-      replace: true,
-    });
-  }, [
-    activeInstallation.id,
-    fallbackNaniteItem?.id,
-    isCreateMode,
-    navigate,
-    selectedMode,
-    selectedNaniteId,
-    selectedNaniteItem?.id,
-  ]);
 
   const main = (
     <main
@@ -2475,10 +2437,7 @@ function NanitesRuntimeSurface({
 
       <header className="nanites-workspace__toolbar">
         <div className="nanites-workspace__toolbar-start">
-          <div
-            className="nanites-workspace__panel-toggle nanites-workspace__panel-toggle--sidebar"
-            aria-label="Sidebar"
-          >
+          <div className="nanites-workspace__panel-toggle nanites-workspace__panel-toggle--sidebar">
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -2505,14 +2464,13 @@ function NanitesRuntimeSurface({
           <h1 className="nanites-workspace__toolbar-title">Nanites</h1>
         </div>
         <div className="nanites-workspace__toolbar-actions">
-          {!isCreateMode ? (
-            <NaniteDesktopPanelControls
-              activePanel={desktopPanel}
-              onToggle={(panel) =>
-                setDesktopPanel((current) => getNextNaniteDesktopPanel(current, panel))
-              }
-            />
-          ) : null}
+          <NaniteDesktopPanelControls
+            activePanel={effectiveDesktopPanel}
+            showFiles={selectedNaniteAgentId !== null}
+            onToggle={(panel) =>
+              setDesktopPanel((current) => getNextNaniteDesktopPanel(current, panel))
+            }
+          />
         </div>
       </header>
 
@@ -2552,7 +2510,7 @@ function NanitesRuntimeSurface({
           </div>
         </div>
 
-        <div className="nanites-workspace__list">
+        <ul className="nanites-workspace__list">
           {naniteGroups.length > 0 ? (
             naniteGroups.map((group) => {
               const groupLabel = formatRepositoryGroupLabel(
@@ -2562,7 +2520,7 @@ function NanitesRuntimeSurface({
               const isCollapsed = collapsedGroups.has(group.repository);
 
               return (
-                <section
+                <li
                   className="nanites-workspace__group"
                   data-collapsed={isCollapsed || undefined}
                   key={group.repository}
@@ -2572,7 +2530,6 @@ function NanitesRuntimeSurface({
                     className="nanites-workspace__group-header"
                     onClick={() => toggleGroupCollapsed(group.repository)}
                     aria-expanded={!isCollapsed}
-                    title={group.repository}
                   >
                     <CaretDownIcon
                       className="nanites-workspace__group-caret"
@@ -2580,79 +2537,71 @@ function NanitesRuntimeSurface({
                       weight="bold"
                       aria-hidden="true"
                     />
-                    <h2>
+                    <span className="nanites-workspace__group-title">
                       <FolderSimpleIcon size={15} aria-hidden="true" />
                       <span>{groupLabel}</span>
-                    </h2>
+                    </span>
                     <span>{group.items.length}</span>
                   </button>
-                  <div className="nanites-workspace__items" hidden={isCollapsed || undefined}>
+                  <ul className="nanites-workspace__items" hidden={isCollapsed || undefined}>
                     {group.items.map((item) => (
-                      <button
-                        className="nanites-workspace__item"
-                        data-selected={!isCreateMode && item.id === activeNaniteItem?.id}
-                        key={`${group.repository}:${item.id}`}
-                        onClick={() => {
-                          setSelection({ naniteId: item.id });
-                          setMobileView("chat");
-                        }}
-                        type="button"
-                      >
-                        <span
-                          className="nanites-workspace__source-icon"
-                          data-tone={
-                            item.latestRun ? getRunStatusTone(item.latestRun.status) : "idle"
-                          }
-                          title={
-                            item.latestRun ? formatStatus(item.latestRun.status) : "No runs yet"
-                          }
+                      <li key={`${group.repository}:${item.id}`}>
+                        <button
+                          className="nanites-workspace__item"
+                          data-selected={!isCreateMode && item.id === activeNaniteItem?.id}
+                          onClick={() => {
+                            setSelection({ naniteId: item.id });
+                            setMobileView("chat");
+                          }}
+                          type="button"
                         >
-                          {getRunSourceIcon(item.latestRun)}
-                        </span>
-                        <span className="nanites-workspace__item-copy">
-                          <strong>{item.nanite.manifest.name}</strong>
-                        </span>
-                        <span
-                          className="nanites-workspace__activity"
-                          data-kind={getRunActivityKind(item.latestRun, item.activity)}
-                          data-tone={getRunActivityTone(item.latestRun, item.activity)}
-                          title={
-                            item.latestRun
-                              ? `${getRunActivityLabel(item.latestRun, item.activity)} · ${formatStatus(
-                                  item.latestRun.status,
-                                )} · ${formatDate(item.latestRun.startedAt)}`
-                              : "No runs yet"
-                          }
-                        >
-                          {getRunActivityKind(item.latestRun, item.activity) === "spinner" ? (
-                            <CircleNotchIcon size={14} aria-hidden="true" />
-                          ) : null}
-                          {getRunActivityKind(item.latestRun, item.activity) === "dot" ? (
-                            <DotOutlineIcon size={18} weight="fill" aria-hidden="true" />
-                          ) : null}
-                          {getRunActivityKind(item.latestRun, item.activity) === "time"
-                            ? getRunActivityLabel(item.latestRun, item.activity)
-                            : null}
-                        </span>
-                      </button>
+                          <span
+                            className="nanites-workspace__source-icon"
+                            data-tone={
+                              item.latestRun ? getRunStatusTone(item.latestRun.status) : "idle"
+                            }
+                          >
+                            {getRunSourceIcon(item.latestRun)}
+                          </span>
+                          <span className="nanites-workspace__item-copy">
+                            <strong>{item.nanite.manifest.name}</strong>
+                          </span>
+                          <span
+                            className="nanites-workspace__activity"
+                            data-kind={getRunActivityKind(item.latestRun, item.activity)}
+                            data-tone={getRunActivityTone(item.latestRun, item.activity)}
+                          >
+                            {getRunActivityKind(item.latestRun, item.activity) === "spinner" ? (
+                              <CircleNotchIcon size={14} aria-hidden="true" />
+                            ) : null}
+                            {getRunActivityKind(item.latestRun, item.activity) === "dot" ? (
+                              <DotOutlineIcon size={18} weight="fill" aria-hidden="true" />
+                            ) : null}
+                            {getRunActivityKind(item.latestRun, item.activity) === "time"
+                              ? getRunActivityLabel(item.latestRun, item.activity)
+                              : null}
+                          </span>
+                        </button>
+                      </li>
                     ))}
-                  </div>
-                </section>
+                  </ul>
+                </li>
               );
             })
           ) : (
-            <p className="nanites-workspace__empty">
-              No Nanites are configured for this installation yet.
-            </p>
+            <li>
+              <p className="nanites-workspace__empty">
+                No Nanites are configured for this installation yet.
+              </p>
+            </li>
           )}
-        </div>
+        </ul>
 
         <div className="nanites-workspace__create-action">
           <AgentConnectionPopover />
           <Button
             type="button"
             className="nanites-workspace__create-button"
-            aria-label={isCreateMode ? "Configuring Nanites" : "Configure Nanites"}
             color="primary"
             size="sm"
             variant="normal"
@@ -2666,7 +2615,7 @@ function NanitesRuntimeSurface({
         </div>
       </aside>
 
-      <section className="nanites-workspace__runtime app__pane--chat" aria-label="Nanite chat">
+      <div className="nanites-workspace__runtime app__pane--chat">
         <div className="nanites-workspace__runtime-body">
           <div className="nanites-workspace__chat">
             {isCreateMode ? (
@@ -2674,7 +2623,6 @@ function NanitesRuntimeSurface({
                 fallback={
                   <NaniteRuntimeChatLoading
                     description={`Connecting the configuration agent for ${activeInstallation.account.login}. You’ll be able to describe how you want Nanites configured here in a moment.`}
-                    placeholder={`Preparing Nanite configuration for ${activeInstallation.account.login}...`}
                     title={`Preparing configuration for ${activeInstallation.account.login}`}
                   />
                 }
@@ -2686,7 +2634,6 @@ function NanitesRuntimeSurface({
                   emptyTitle="Configure Nanites"
                   errorDescription="The Nanite configuration conversation could not connect."
                   loadingDescription={`Connecting the configuration agent for ${activeInstallation.account.login}. You’ll be able to describe how you want Nanites configured here in a moment.`}
-                  loadingPlaceholder="Connecting to Nanite configuration..."
                   loadingTitle={`Preparing configuration for ${activeInstallation.account.login}`}
                   managerName={managerName}
                   placeholder={`Describe how you want Nanites configured for ${activeInstallation.account.login}`}
@@ -2701,11 +2648,6 @@ function NanitesRuntimeSurface({
                         ? `Loading ${selectedNanite.manifest.name} so its transcript, tools, and workspace context are ready here.`
                         : "Loading the selected Nanite so its transcript, tools, and workspace context are ready here."
                     }
-                    placeholder={
-                      selectedNanite
-                        ? `Opening ${selectedNanite.manifest.name}...`
-                        : "Connecting to the Nanite runtime..."
-                    }
                     title={
                       selectedNanite
                         ? `Opening ${selectedNanite.manifest.name}`
@@ -2714,25 +2656,26 @@ function NanitesRuntimeSurface({
                   />
                 }
               >
-                <NaniteRuntimeChatConnector
-                  key={selectedNaniteAgentId}
-                  agent={selectedNaniteAgent}
-                />
+                <NaniteRuntimeChatConnector key={selectedNaniteAgentId} agent={naniteAgent} />
               </Suspense>
             ) : (
-              <NaniteRuntimeChatPlaceholder />
+              <NaniteRuntimeChatLoading
+                description="Waiting for the selected Nanite to appear in the manager state."
+                title="Loading selected Nanite"
+              />
             )}
           </div>
         </div>
-      </section>
+      </div>
 
-      {!isCreateMode ? (
-        <section
-          className="nanites-workspace__summary-layer"
-          data-open={effectiveDesktopPanel === "summary"}
-          aria-label="Nanite summary"
-        >
-          <div className="nanites-workspace__summary-card">
+      <div
+        className="nanites-workspace__summary-layer"
+        data-open={effectiveDesktopPanel === "summary"}
+      >
+        <div className="nanites-workspace__summary-card">
+          {isCreateMode ? (
+            <NaniteManagerInfoPanel managerName={managerName} actor={actor} />
+          ) : selectedNaniteAgentId ? (
             <NaniteRunInfoPanel
               activeInstallation={activeInstallation}
               deleteError={deleteNanite.error}
@@ -2754,26 +2697,51 @@ function NanitesRuntimeSurface({
 
                 deleteNanite.mutate({ naniteId: selectedNaniteAgentId });
               }}
+              onSetNaniteModel={async (modelId) => {
+                if (!selectedNaniteAgentId) {
+                  return;
+                }
+
+                await manager.stub.setNaniteModel({
+                  naniteId: selectedNaniteAgentId,
+                  modelId,
+                  actor: {
+                    kind: "github_user",
+                    source: "browser",
+                    githubUserId: actor.id,
+                    githubLogin: actor.login,
+                    actorId: `github:${actor.id}`,
+                    actorLogin: actor.login,
+                  },
+                });
+              }}
               run={selectedRun}
               testTriggerError={testTrigger.error}
             />
-          </div>
-        </section>
-      ) : null}
+          ) : (
+            <RoutePendingPage
+              title="Loading selected Nanite"
+              description="Waiting for the selected Nanite to appear in the manager state."
+            />
+          )}
+        </div>
+      </div>
 
-      {!isCreateMode ? (
+      {selectedNaniteAgentId ? (
         <aside
           className="nanites-workspace__aside"
           data-open={effectiveDesktopPanel === "files"}
           aria-label="File explorer"
         >
           <div className="nanites-workspace__files-slot">
-            <NaniteWorkspacePanel
-              agent={selectedNaniteAgent}
-              nanite={selectedNanite}
-              naniteId={selectedNaniteAgentId}
-              refreshKey={`${selectedRun?.runId ?? "no-run"}:${selectedRun?.updatedAt ?? "no-update"}`}
-            />
+            {isFileViewOpen ? (
+              <NaniteWorkspacePanel
+                agent={naniteAgent}
+                nanite={selectedNanite}
+                naniteId={selectedNaniteAgentId}
+                refreshKey={`${selectedRun?.runId ?? "no-run"}:${selectedRun?.updatedAt ?? "no-update"}`}
+              />
+            ) : null}
           </div>
         </aside>
       ) : null}
@@ -2790,7 +2758,8 @@ function NanitesRuntimeSurface({
         <button
           type="button"
           data-selected={activeMobileView === "nanites"}
-          onClick={() => selectMobileView("nanites")}
+          aria-current={activeMobileView === "nanites" ? "true" : undefined}
+          onClick={() => setMobileView("nanites")}
         >
           <FolderSimpleIcon size={18} aria-hidden="true" />
           <span>Nanites</span>
@@ -2798,26 +2767,29 @@ function NanitesRuntimeSurface({
         <button
           type="button"
           data-selected={activeMobileView === "chat"}
-          onClick={() => selectMobileView("chat")}
+          aria-current={activeMobileView === "chat" ? "true" : undefined}
+          onClick={() => setMobileView("chat")}
         >
           <ChatCircleTextIcon size={18} aria-hidden="true" />
           <span>Chat</span>
         </button>
-        {!isCreateMode ? (
+        {selectedNaniteAgentId ? (
           <button
             type="button"
             data-selected={activeMobileView === "files"}
-            onClick={() => selectMobileView("files")}
+            aria-current={activeMobileView === "files" ? "true" : undefined}
+            onClick={() => setMobileView("files")}
           >
             <FileIcon size={18} aria-hidden="true" />
             <span>Files</span>
           </button>
         ) : null}
-        {!isCreateMode ? (
+        {selectedNaniteAgentId ? (
           <button
             type="button"
             data-selected={activeMobileView === "summary"}
-            onClick={() => selectMobileView("summary")}
+            aria-current={activeMobileView === "summary" ? "true" : undefined}
+            onClick={() => setMobileView("summary")}
           >
             <SlidersHorizontalIcon size={18} aria-hidden="true" />
             <span>Summary</span>

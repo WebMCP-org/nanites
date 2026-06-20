@@ -19,12 +19,14 @@ export function getNextNaniteDesktopPanel(
 export function NaniteDesktopPanelControls({
   activePanel,
   onToggle,
+  showFiles = true,
 }: {
   readonly activePanel: NaniteDesktopPanel;
   readonly onToggle: (panel: Exclude<NaniteDesktopPanel, null>) => void;
+  readonly showFiles?: boolean;
 }) {
   return (
-    <div className="nanites-workspace__panel-toggle" aria-label="Chat panels">
+    <div className="nanites-workspace__panel-toggle">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -45,26 +47,28 @@ export function NaniteDesktopPanelControls({
           </TooltipPositioner>
         </TooltipPortal>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label="File explorer"
-              aria-pressed={activePanel === "files"}
-              data-selected={activePanel === "files"}
-              onClick={() => onToggle("files")}
-            >
-              <FileIcon size={14} aria-hidden="true" />
-            </button>
-          }
-        />
-        <TooltipPortal>
-          <TooltipPositioner side="bottom" sideOffset={6}>
-            <TooltipPopup>File explorer</TooltipPopup>
-          </TooltipPositioner>
-        </TooltipPortal>
-      </Tooltip>
+      {showFiles ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="File explorer"
+                aria-pressed={activePanel === "files"}
+                data-selected={activePanel === "files"}
+                onClick={() => onToggle("files")}
+              >
+                <FileIcon size={14} aria-hidden="true" />
+              </button>
+            }
+          />
+          <TooltipPortal>
+            <TooltipPositioner side="bottom" sideOffset={6}>
+              <TooltipPopup>File explorer</TooltipPopup>
+            </TooltipPositioner>
+          </TooltipPortal>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }

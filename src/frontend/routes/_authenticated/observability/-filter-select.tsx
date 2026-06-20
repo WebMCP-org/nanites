@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import type { SessionInstallationSnapshot } from "#/frontend/lib/auth.ts";
 import {
   Select,
@@ -98,9 +98,11 @@ function ObservabilityValueSelect({
   }[];
   readonly onValueChange: (value: string) => void;
 }) {
+  const labelId = useId();
+
   return (
     <div className="observability-filter">
-      <span>{label}</span>
+      <span id={labelId}>{label}</span>
       <Select
         value={value}
         items={items}
@@ -110,7 +112,7 @@ function ObservabilityValueSelect({
           }
         }}
       >
-        <SelectTrigger size="sm" aria-label={label}>
+        <SelectTrigger size="sm" aria-labelledby={labelId}>
           <SelectValue />
         </SelectTrigger>
         <SelectPortal>

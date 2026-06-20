@@ -207,6 +207,7 @@ export interface ToolOutputProps extends React.HTMLAttributes<HTMLDivElement> {
  */
 export function ToolOutput({
   className,
+  children,
   output,
   errorText,
   ref,
@@ -220,7 +221,11 @@ export function ToolOutput({
       {...props}
     >
       <div className="tool__section-label">{isError ? "Error" : "Output"}</div>
-      {isError ? <div className="tool__error-text">{errorText}</div> : <div>{output}</div>}
+      {isError ? (
+        <div className="tool__error-text">{errorText}</div>
+      ) : (
+        <div>{children ?? output}</div>
+      )}
     </div>
   );
 }

@@ -27,7 +27,10 @@ import {
 } from "#/backend/agents/SigveloChatIngress.ts";
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
-import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
+import {
+  createSigveloAgentLanguageModel,
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+} from "#/backend/nanites/language-model.ts";
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
 import { MCP_SCOPES } from "#/mcp.ts";
 import { buildNaniteManagerKey, parseNaniteManagerKey } from "#/nanites.ts";
@@ -92,6 +95,8 @@ export type ManagerReplyPublication = {
 type DisconnectedManagerConversationState = {
   status: "disconnected";
   repositories: GitHubInstallationRepository[];
+  /** Model the manager conversation runs on; switchable from the manager card. */
+  model: string;
 };
 
 type ConnectedManagerConversationState = {
@@ -103,9 +108,11 @@ type ConnectedManagerConversationState = {
   sigveloToolAuthProps: SigveloMcpAuthProps;
   repositories: GitHubInstallationRepository[];
   connectedAt: string;
+  /** Model the manager conversation runs on; switchable from the manager card. */
+  model: string;
 };
 
-type ManagerConversationState =
+export type ManagerConversationState =
   | DisconnectedManagerConversationState
   | ConnectedManagerConversationState;
 
@@ -125,6 +132,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   initialState: ManagerConversationState = {
     status: "disconnected",
     repositories: [],
+    model: DEFAULT_SIGVELO_AGENT_MODEL_ID,
   };
   override maxSteps = 1000;
   // Never externalize evicted transcript media into the workspace: repos are
@@ -142,7 +150,20 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     return createSigveloAgentLanguageModel({
       env: this.env,
       sessionAffinity: this.sessionAffinity,
+      modelId: this.state.model,
     });
+  }
+
+  @callable()
+  async setModel(modelId: string): Promise<{ model: string }> {
+    const model = modelId.trim();
+    if (!model) {
+      throw new AppError("requestValidationFailed", {
+        details: { reason: "Model id must not be empty." },
+      });
+    }
+    this.setState({ ...this.state, model });
+    return { model };
   }
 
   // AI Gateway owns upstream-provider retries (NANITES_AI_GATEWAY_REQUEST_DEFAULTS); cap the AI
@@ -255,6 +276,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       sigveloToolAuthProps: props,
       repositories,
       connectedAt: new Date().toISOString(),
+      model: this.state.model,
     });
   }
 

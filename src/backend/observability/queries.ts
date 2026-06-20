@@ -154,7 +154,6 @@ export type NaniteCatalogRow = {
   id: string;
   naniteId: string;
   name: string;
-  enabled: boolean;
   eventSourceType: string;
   repositories: string[];
   repositoryCount: number;
@@ -280,7 +279,6 @@ type CatalogFeedDbRow = {
   id: string;
   naniteId: string;
   name: string;
-  enabled: boolean;
   eventSourceType: string;
   repositoryFullNamesJson: string;
   repositoryCount: number;
@@ -944,7 +942,7 @@ async function readOverviewKpiTotals(
       .then((rows) => rows[0]),
     db
       .select({
-        activeNanites: countMatching(sql`${naniteCatalog.enabled} = 1`),
+        activeNanites: countMatching(sql`1 = 1`),
         newNanites: countMatching(gte(naniteCatalog.createdAt, start)),
         waitingCatalogRows: countMatching(
           textEquals(naniteCatalog.lastRunStatus, "waiting_for_human"),
@@ -1055,7 +1053,6 @@ async function readCatalogFeedRows(
       id: naniteCatalog.id,
       naniteId: naniteCatalog.naniteId,
       name: naniteCatalog.name,
-      enabled: naniteCatalog.enabled,
       eventSourceType: naniteCatalog.eventSourceType,
       repositoryFullNamesJson: naniteCatalog.repositoryFullNamesJson,
       repositoryCount: naniteCatalog.repositoryCount,
@@ -1361,7 +1358,6 @@ export async function getNaniteCatalogRows(
     id: row.id,
     naniteId: row.naniteId,
     name: row.name,
-    enabled: row.enabled,
     eventSourceType: row.eventSourceType,
     repositories: parseRepositories(row.repositoryFullNamesJson),
     repositoryCount: row.repositoryCount,

@@ -751,6 +751,10 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return createSigveloAgentLanguageModel({
       env: this.env,
       sessionAffinity: this.state.activeRunId ?? this.name,
+      // The manifest model is the single source of truth for this Nanite — used by
+      // both interactive chat (here) and runs (getTurnModel). beforeTurn refreshes
+      // it from the manager, so a model switch on the card applies on the next turn.
+      modelId: this.state.manifest?.model,
     });
   }
 
@@ -1144,10 +1148,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     );
 
     const eventSource = input.nanite.manifest.eventSource;
-    if (
-      !input.nanite.enabled ||
-      (eventSource.type !== "schedule" && eventSource.type !== "scheduleEvery")
-    ) {
+    if (eventSource.type !== "schedule" && eventSource.type !== "scheduleEvery") {
       return;
     }
 

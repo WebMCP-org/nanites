@@ -14,6 +14,13 @@ export const NANITES_SETUP_AGENT_NAME = "nanites-setup-agent";
 export const NANITES_SETUP_AGENT_INSTANCE_NAME = "default";
 
 /**
+ * Default model for SigVelo agents. Shared (not server-only) so the browser can
+ * show it as the manager's effective model when conversation state predates the
+ * `model` field — getModel() falls back to this same value.
+ */
+export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/zai-org/glm-4.7-flash";
+
+/**
  * Manager Durable Objects are keyed by the (GitHub App, installation) pair.
  * GitHub installation ids are only meaningful relative to the app that owns
  * them, so the app id is part of the identity, never ambient context.

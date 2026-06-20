@@ -1,9 +1,16 @@
 .conversation {
+  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
+  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
+
   position: relative;
-  width: 100%;
-  height: 100%;
+  inline-size: 100%;
+  block-size: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
   font-family: var(--sigvelo-font-family);
   color: var(--sigvelo-text-body);
 }
@@ -14,7 +21,7 @@
   gap: 0.75rem;
   padding-block: 1rem;
   padding-inline: 1rem;
-  min-height: 100%;
+  min-block-size: 100%;
 }
 
 .conversation__empty {
@@ -34,8 +41,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 3rem;
-  height: 3rem;
+  inline-size: 3rem;
+  block-size: 3rem;
   border-radius: var(--sigvelo-border-radius-pill);
   background-color: var(--sigvelo-neutral-fill-softer);
   color: var(--sigvelo-text-muted);
@@ -49,7 +56,7 @@
 }
 
 .conversation__empty-description {
-  max-width: 32ch;
+  max-inline-size: 32ch;
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--sigvelo-text-muted);

@@ -9,6 +9,7 @@
     />
     <meta name="application-name" content="Nanites" />
     <meta name="apple-mobile-web-app-title" content="Nanites" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f5f7fa" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#151e2c" media="(prefers-color-scheme: dark)" />
     <meta property="og:type" content="website" />
@@ -25,9 +26,19 @@
     <link rel="manifest" href="/app.webmanifest" />
     <script>
       (() => {
-        const mode = localStorage.getItem("theme") || "light";
-        document.documentElement.setAttribute("data-mode", mode);
-        document.documentElement.style.colorScheme = mode;
+        const mode = localStorage.getItem("theme");
+        const colorScheme = mode === "light" || mode === "dark" ? mode : "light dark";
+        const meta = document.querySelector('meta[name="color-scheme"]');
+
+        if (meta) {
+          meta.setAttribute("content", colorScheme);
+        }
+
+        document.documentElement.style.colorScheme = colorScheme;
+
+        if (mode === "light" || mode === "dark") {
+          document.documentElement.setAttribute("data-mode", mode);
+        }
       })();
     </script>
   </head>

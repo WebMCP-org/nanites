@@ -13,6 +13,12 @@
   border: var(--sigvelo-border-style) var(--sigvelo-border-width) var(--sigvelo-neutral-stroke-soft);
   border-radius: var(--sigvelo-border-radius-md);
   box-shadow: var(--sigvelo-shadow-soft);
+  /* base-ui drives enter/exit via [data-starting-style]/[data-ending-style];
+     without a transition it stays stuck at the starting opacity:0 and never shows. */
+  transform-origin: var(--transform-origin);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
 }
 
 .tooltip__popup[data-starting-style],
@@ -22,31 +28,42 @@
 }
 
 .tooltip__arrow {
-  width: 0.5rem;
-  height: 0.5rem;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
   background-color: var(--sigvelo-paper-color);
   border: var(--sigvelo-border-style) var(--sigvelo-border-width) var(--sigvelo-neutral-stroke-soft);
-  border-right: none;
-  border-bottom: none;
+  border-block-end: none;
+  border-inline-end: none;
   transform: rotate(45deg);
 }
 
 [data-side="top"] .tooltip__arrow {
-  bottom: -0.25rem;
+  inset-block-end: -0.25rem;
   transform: rotate(-135deg);
 }
 
 [data-side="bottom"] .tooltip__arrow {
-  top: -0.25rem;
+  inset-block-start: -0.25rem;
   transform: rotate(45deg);
 }
 
 [data-side="left"] .tooltip__arrow {
-  right: -0.25rem;
+  inset-inline-end: -0.25rem;
   transform: rotate(135deg);
 }
 
 [data-side="right"] .tooltip__arrow {
-  left: -0.25rem;
+  inset-inline-start: -0.25rem;
   transform: rotate(-45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip__popup {
+    transition: none;
+  }
+
+  .tooltip__popup[data-starting-style],
+  .tooltip__popup[data-ending-style] {
+    transform: none;
+  }
 }

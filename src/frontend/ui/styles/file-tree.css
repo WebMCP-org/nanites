@@ -1,5 +1,8 @@
 .file-tree {
-  width: 100%;
+  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
+  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
+
+  inline-size: 100%;
   font-family: var(--sigvelo-font-family);
   color: var(--sigvelo-text-body);
   background-color: var(--sigvelo-paper-color);
@@ -8,6 +11,10 @@
   border-radius: var(--sigvelo-border-radius-md);
   padding-block: 0.375rem;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .file-tree__list {
@@ -28,7 +35,7 @@
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  width: 100%;
+  inline-size: 100%;
   padding-block: 0.25rem;
   padding-inline-end: 0.5rem;
   background-color: transparent;
@@ -42,17 +49,23 @@
   transition: background-color 120ms ease;
 }
 
+.file-tree__node--folder {
+  padding-inline-start: calc(var(--file-tree-level, 0) * 1.125rem + 0.5rem);
+}
+
+.file-tree__node--file {
+  padding-inline-start: calc(var(--file-tree-level, 0) * 1.125rem + 1.5rem);
+}
+
 .file-tree__node:hover:not([data-disabled]) {
   background-color: var(--sigvelo-neutral-fill-softer);
 }
 
 .file-tree__node[data-focused],
 .file-tree__node:focus-visible {
-  outline: none;
+  outline: 2px solid var(--sigvelo-focus-color);
+  outline-offset: 2px;
   background-color: var(--sigvelo-neutral-fill-soft);
-  box-shadow:
-    0 0 0 2px var(--sigvelo-background-color),
-    0 0 0 4px var(--sigvelo-focus-color);
 }
 
 .file-tree__node[data-selected] {
@@ -70,7 +83,7 @@
   flex-shrink: 0;
   color: var(--sigvelo-text-muted);
   transition: transform 150ms ease;
-  width: 1rem;
+  inline-size: 1rem;
   justify-content: center;
 }
 
@@ -90,7 +103,7 @@
 
 .file-tree__name {
   flex: 1;
-  min-width: 0;
+  min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -140,7 +140,7 @@ export function FileTreeFolder({
         onClick={toggle}
         onFocus={() => onFocus(path)}
         onKeyDown={(e) => handleKeyDown(e, path, "folder")}
-        style={{ paddingInlineStart: `${level * 1.125 + 0.5}rem` }}
+        style={{ "--file-tree-level": level } as React.CSSProperties}
       >
         <span
           className={cx("file-tree__chevron", isExpanded && "file-tree__chevron--expanded")}
@@ -212,7 +212,7 @@ export function FileTreeFile({
         onClick={() => onSelect(path)}
         onFocus={() => onFocus(path)}
         onKeyDown={(e) => handleKeyDown(e, path, "file")}
-        style={{ paddingInlineStart: `${level * 1.125 + 1.5}rem` }}
+        style={{ "--file-tree-level": level } as React.CSSProperties}
       >
         <span className="file-tree__icon" aria-hidden="true">
           {icon ?? <FileIcon />}

@@ -106,7 +106,7 @@ async function buildCookieHeader(request: Request): Promise<string> {
 
 async function seedObservabilityRows(): Promise<void> {
   const db = createDbClient(env.DB);
-  const now = new Date("2026-06-12T12:00:00Z");
+  const now = new Date();
 
   await db
     .insert(accounts)

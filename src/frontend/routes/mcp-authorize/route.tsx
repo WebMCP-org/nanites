@@ -167,9 +167,10 @@ function McpAuthorizePage() {
       <form className="mcp-authorize__form" method="post" action={context.authorizeAction}>
         <input type="hidden" name="csrf_token" value={context.csrfToken} />
 
-        <label className="mcp-authorize__field">
+        <label className="mcp-authorize__field" htmlFor="mcp-authorize-installation">
           <span>GitHub installation</span>
           <select
+            id="mcp-authorize-installation"
             className="mcp-authorize__select"
             name="github_installation_id"
             defaultValue={String(selectedInstallationId)}
@@ -226,13 +227,8 @@ function McpAuthorizeShell({
 }) {
   return (
     <main className="mcp-authorize">
-      <section className="mcp-authorize__panel" aria-labelledby="mcp-authorize-title">
-        <NaniteScene
-          className="mcp-authorize__nanite"
-          mode="solo"
-          title="Nanite authorizing MCP"
-          variant="working"
-        />
+      <div className="mcp-authorize__panel">
+        <NaniteScene className="mcp-authorize__nanite" mode="solo" variant="working" />
 
         <div className="mcp-authorize__body">
           <h1 id="mcp-authorize-title">{title}</h1>
@@ -240,7 +236,7 @@ function McpAuthorizeShell({
         </div>
 
         <div className="mcp-authorize__content">{children}</div>
-      </section>
+      </div>
     </main>
   );
 }

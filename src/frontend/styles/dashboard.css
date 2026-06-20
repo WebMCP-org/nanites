@@ -61,19 +61,28 @@
   --sigvelo-focus-color: #2d5a8a;
 }
 
+@media (prefers-contrast: more) {
+  :root {
+    --app-scrollbar-track: #ffffff;
+    --app-scrollbar-thumb: #1a2332;
+    --app-scrollbar-thumb-hover: #000000;
+  }
+}
+
 .app-header__identity {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  min-width: 0;
+  min-inline-size: 0;
 }
 
 /* ── Login screen ── */
 
 .login-screen {
-  min-block-size: 100%;
+  min-block-size: 100dvb;
   display: grid;
-  place-content: center;
+  align-content: safe center;
+  justify-content: center;
   justify-items: center;
   gap: 1.5rem;
   padding: clamp(1.5rem, 5vw, 4rem);
@@ -104,6 +113,7 @@
   font-size: clamp(2.5rem, 9vw, 4.5rem);
   font-weight: 800;
   line-height: 0.95;
+  text-wrap: balance;
 }
 
 .login-screen__copy p {
@@ -112,6 +122,7 @@
   color: var(--app-text-muted);
   font-size: 1rem;
   line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .login-screen__actions {
@@ -142,7 +153,9 @@
 }
 
 .mcp-authorize__panel {
+  box-sizing: border-box;
   inline-size: min(100%, 34rem);
+  min-inline-size: 0;
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
@@ -172,6 +185,7 @@
   font-size: clamp(1.65rem, 4vw, 2.35rem);
   line-height: 1.08;
   letter-spacing: 0;
+  text-wrap: balance;
 }
 
 .mcp-authorize__summary {
@@ -179,6 +193,7 @@
   color: var(--app-text-muted);
   font-size: 0.975rem;
   line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .mcp-authorize__content,
@@ -306,7 +321,7 @@
   justify-content: center;
 }
 
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .mcp-authorize {
     place-items: stretch;
   }
@@ -324,7 +339,7 @@
 /* ── Not found page ── */
 
 .not-found {
-  min-height: 100%;
+  min-block-size: 100%;
   background-color: var(--app-dark);
   color: var(--app-dark-text);
   display: flex;
@@ -365,9 +380,10 @@
   font-size: clamp(1.75rem, 3vw, 2.5rem);
   font-weight: 400;
   line-height: 1.15;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
   color: var(--app-dark-text);
   margin: 0;
+  text-wrap: balance;
 }
 
 .not-found__body {
@@ -376,6 +392,7 @@
   color: var(--app-dark-muted);
   max-inline-size: 42ch;
   margin: 0;
+  text-wrap: pretty;
 }
 
 .not-found__actions {
@@ -413,7 +430,7 @@
 /* ── App shell ── */
 
 .app-shell {
-  min-height: 100%;
+  min-block-size: 100%;
   display: grid;
   grid-template-rows: auto auto 1fr;
 }
@@ -443,7 +460,7 @@
 .app-topbar__wordmark {
   font-size: 1rem;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   color: var(--app-dark-text);
   text-decoration: none;
 }
@@ -508,6 +525,28 @@
   text-align: center;
 }
 
+.page-loading {
+  min-block-size: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1.25rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.page-loading__nanite.nanite-scene--solo {
+  inline-size: min(11rem, 56vw);
+  block-size: auto;
+  aspect-ratio: 120 / 56;
+}
+
+.page-loading__copy {
+  display: grid;
+  gap: 0.375rem;
+  max-inline-size: 32rem;
+}
+
 .page-state-card__nanite.nanite-scene--solo {
   justify-self: center;
   inline-size: min(11rem, 56vw);
@@ -537,7 +576,7 @@
   font-size: 1.5rem;
   line-height: 1.2;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   margin: 0;
   color: var(--app-charcoal);
 }
@@ -574,12 +613,14 @@
   font-size: 1rem;
   font-weight: 600;
   color: var(--app-charcoal);
+  text-wrap: balance;
 }
 
 .app-section-header p {
   margin: 0;
   color: var(--app-text-muted);
   font-size: 0.875rem;
+  text-wrap: pretty;
 }
 
 /* ── Detail rows ── */
@@ -645,6 +686,7 @@
   font-size: 1.5rem;
   font-weight: 760;
   line-height: 1.18;
+  text-wrap: balance;
 }
 
 .dashboard__subtext {
@@ -653,6 +695,7 @@
   color: var(--app-text-muted);
   font-size: 0.9375rem;
   line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .dashboard__zero-install-actions {
@@ -741,7 +784,7 @@
   color: var(--app-accent-dark);
 }
 
-@media (max-width: 36rem) {
+@media (width <= 36rem) {
   .dashboard__zero-install-actions {
     align-items: stretch;
     flex-direction: column;

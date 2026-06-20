@@ -16,7 +16,6 @@ import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/n
 import {
   createWorkerRequestId,
   getApiRequestLogEvent,
-  getHttpStatusClass,
   LOGGING,
   OTEL_ATTRS,
 } from "#/backend/logging.ts";
@@ -43,15 +42,9 @@ function createRequestLogProperties(context: HonoContext, responseTime: number) 
   const status = context.res.status;
 
   return {
-    method: context.req.method,
-    url: url.pathname,
-    path: url.pathname,
-    status,
-    responseTime,
     message: getApiRequestLogEvent(status),
     [OTEL_ATTRS.HTTP_REQUEST_METHOD]: context.req.method,
     [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CODE]: status,
-    [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CLASS]: getHttpStatusClass(status),
     [OTEL_ATTRS.HTTP_ROUTE]: routePath(context, -1),
     [OTEL_ATTRS.REQUEST_ID]: context.get("requestId"),
     [OTEL_ATTRS.REQUEST_DURATION_MS]: Math.round(responseTime),

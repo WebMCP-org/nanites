@@ -136,7 +136,7 @@ function SetupFrame({
 }) {
   return (
     <main className="setup-screen">
-      <section className="setup-frame" aria-labelledby="setup-title">
+      <div className="setup-frame">
         {(["tl", "tr", "bl", "br"] as const).map((corner) => (
           <span
             aria-hidden="true"
@@ -151,11 +151,7 @@ function SetupFrame({
             {children}
           </div>
           <div className="setup-frame__scene">
-            <NaniteScene
-              mode="solo"
-              title="Nanite status"
-              variant={NANITE_VARIANT_FOR_STATE[indicatorState]}
-            />
+            <NaniteScene mode="solo" variant={NANITE_VARIANT_FOR_STATE[indicatorState]} />
           </div>
         </div>
         <footer className="setup-frame__footer">
@@ -175,11 +171,10 @@ function SetupFrame({
             <span className="setup-progress__label">
               Step {viewIndex + 1}/{SETUP_STEP_COUNT}
             </span>
-            <span
-              aria-hidden="true"
-              className="setup-progress__state"
-              data-state={indicatorState}
-            />
+            <span aria-hidden="true" className="setup-progress__state" data-state={indicatorState}>
+              <span data-state-icon="fail">x</span>
+              <span data-state-icon="done">✓</span>
+            </span>
           </div>
           <div className="setup-frame__nav">
             <div className="setup-frame__nav-steps">
@@ -209,7 +204,7 @@ function SetupFrame({
             {primaryAction ? <div className="setup-frame__nav-action">{primaryAction}</div> : null}
           </div>
         </footer>
-      </section>
+      </div>
     </main>
   );
 }
@@ -477,11 +472,13 @@ function SetupPage() {
         </p>
         {githubAppFinishing ? null : (
           <div className="setup-step__actions">
-            <div className="setup-owner-toggle" role="radiogroup" aria-label="GitHub App owner">
-              <label>
+            <fieldset className="setup-owner-toggle">
+              <legend className="visually-hidden">GitHub App owner</legend>
+              <label htmlFor="setup-owner-user">
                 <input
+                  id="setup-owner-user"
                   checked={ownerType === "user"}
-                  aria-label="Personal account"
+                  aria-labelledby="setup-owner-user-label"
                   name="ownerType"
                   type="radio"
                   value="user"
@@ -489,12 +486,13 @@ function SetupPage() {
                     setOwnerType("user");
                   }}
                 />
-                <span>Personal</span>
+                <span id="setup-owner-user-label">Personal</span>
               </label>
-              <label>
+              <label htmlFor="setup-owner-organization">
                 <input
+                  id="setup-owner-organization"
                   checked={ownerType === "organization"}
-                  aria-label="Organization account"
+                  aria-labelledby="setup-owner-organization-label"
                   name="ownerType"
                   type="radio"
                   value="organization"
@@ -502,20 +500,34 @@ function SetupPage() {
                     setOwnerType("organization");
                   }}
                 />
-                <span>Organization</span>
+                <span id="setup-owner-organization-label">Organization</span>
               </label>
-            </div>
+            </fieldset>
             {ownerType === "organization" ? (
-              <input
-                className="setup-owner-input"
-                aria-label="GitHub organization"
-                value={ownerLogin}
-                placeholder="organization"
-                type="text"
-                onChange={(event) => {
-                  setOwnerLogin(event.target.value);
-                }}
-              />
+              <>
+                <label
+                  id="setup-owner-login-label"
+                  className="visually-hidden"
+                  htmlFor="setup-owner-login"
+                >
+                  GitHub organization
+                </label>
+                <input
+                  id="setup-owner-login"
+                  className="setup-owner-input"
+                  aria-labelledby="setup-owner-login-label"
+                  autoComplete="organization"
+                  enterKeyHint="next"
+                  name="ownerLogin"
+                  value={ownerLogin}
+                  placeholder="organization"
+                  required
+                  type="text"
+                  onChange={(event) => {
+                    setOwnerLogin(event.target.value);
+                  }}
+                />
+              </>
             ) : null}
           </div>
         )}
@@ -614,7 +626,7 @@ function SetupPage() {
         <p className="setup-step__note">
           Setup is complete. Install the agent-facing pieces, then start Nanites.
         </p>
-        <AgentConnectionPanel className="setup-agent-connect" />
+        <AgentConnectionPanel className="setup-agent-connect" headingLevel={3} section={false} />
         <StepStatus errors={[]} />
       </>
     );

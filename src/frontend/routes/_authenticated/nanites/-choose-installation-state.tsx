@@ -14,12 +14,7 @@ export function NanitesChooseInstallationState({
     <div className="dashboard">
       <Card>
         <div className="dashboard__zero-install">
-          <NaniteScene
-            className="dashboard__setup-nanite"
-            mode="solo"
-            title="Nanite choosing an installation"
-            variant="working"
-          />
+          <NaniteScene className="dashboard__setup-nanite" mode="solo" variant="working" />
           <h1 className="dashboard__heading">Choose where Nanites can work</h1>
           <p className="dashboard__subtext">
             GitHub says this deployment app is installed on these accounts visible to your signed-in
@@ -38,7 +33,7 @@ export function NanitesChooseInstallationState({
                   >
                     <Avatar.Root className="dashboard__installation-avatar">
                       {account?.avatar_url ? (
-                        <Avatar.Image src={account.avatar_url} alt="" />
+                        <Avatar.Image src={account.avatar_url} alt="" width={56} height={56} />
                       ) : null}
                       <Avatar.Fallback>{accountLogin.slice(0, 2).toUpperCase()}</Avatar.Fallback>
                     </Avatar.Root>

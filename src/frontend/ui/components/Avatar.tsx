@@ -62,11 +62,25 @@ function AvatarRoot({
  */
 function AvatarImage({
   className = "",
+  decoding = "async",
+  height = 64,
+  loading = "lazy",
   ref,
+  width = 64,
   ...props
 }: AvatarImageProps & { ref?: React.Ref<HTMLImageElement> }) {
   const classes = cx("avatar__image", className);
-  return <BaseAvatar.Image ref={ref} className={classes} {...props} />;
+  return (
+    <BaseAvatar.Image
+      ref={ref}
+      className={classes}
+      decoding={decoding}
+      height={height}
+      loading={loading}
+      width={width}
+      {...props}
+    />
+  );
 }
 
 /**

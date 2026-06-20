@@ -1,6 +1,6 @@
 .stepper {
   display: grid;
-  width: 100%;
+  inline-size: 100%;
   gap: 1rem;
   color: var(--sigvelo-text-body);
   font-family: var(--sigvelo-font-family);
@@ -8,8 +8,8 @@
 
 .stepper__nav {
   display: flex;
-  width: 100%;
-  min-width: 0;
+  inline-size: 100%;
+  min-inline-size: 0;
 }
 
 .stepper__nav[data-orientation="horizontal"] {
@@ -24,7 +24,7 @@
 
 .stepper__item {
   display: flex;
-  min-width: 0;
+  min-inline-size: 0;
   align-items: center;
   flex: 1 1 0;
 }
@@ -34,19 +34,19 @@
 }
 
 .stepper__nav[data-orientation="vertical"] .stepper__item {
-  width: 100%;
+  inline-size: 100%;
   flex: 0 0 auto;
   flex-direction: column;
   align-items: flex-start;
 }
 
 .stepper__nav[data-orientation="vertical"] .stepper__trigger {
-  width: 100%;
+  inline-size: 100%;
 }
 
 .stepper__trigger {
   display: inline-flex;
-  min-width: 0;
+  min-inline-size: 0;
   align-items: center;
   gap: 0.625rem;
   padding: 0;
@@ -168,13 +168,13 @@
 }
 
 .stepper__panel {
-  width: 100%;
-  min-width: 0;
+  inline-size: 100%;
+  min-inline-size: 0;
 }
 
 .stepper__content {
-  width: 100%;
-  min-width: 0;
+  inline-size: 100%;
+  min-inline-size: 0;
 }
 
 .stepper__content:focus-visible {
@@ -200,5 +200,11 @@
 
   .stepper__separator {
     background-color: CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stepper__indicator[data-loading] .stepper__indicator-content {
+    animation: none;
   }
 }

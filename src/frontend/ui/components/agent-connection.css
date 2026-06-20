@@ -1,7 +1,7 @@
 .agent-connect {
   display: grid;
   gap: 0.75rem;
-  min-width: 0;
+  min-inline-size: 0;
   color: var(--sigvelo-text-body);
 }
 
@@ -9,7 +9,7 @@
   display: flex;
   gap: 0.65rem;
   align-items: flex-start;
-  min-width: 0;
+  min-inline-size: 0;
 }
 
 .agent-connect__icon {
@@ -27,10 +27,10 @@
 .agent-connect__title-group {
   display: grid;
   gap: 0.2rem;
-  min-width: 0;
+  min-inline-size: 0;
 }
 
-.agent-connect__title-group h2 {
+.agent-connect__title-group :where(h2, h3) {
   margin: 0;
   color: var(--sigvelo-text-body);
   font-size: 0.95rem;
@@ -76,7 +76,7 @@
   align-items: center;
   justify-content: center;
   min-block-size: 1.75rem;
-  min-width: 0;
+  min-inline-size: 0;
   padding: 0 0.45rem;
   border: 0;
   border-radius: var(--sigvelo-border-radius-sm);
@@ -88,6 +88,13 @@
   font-weight: var(--sigvelo-font-weight-semibold);
   line-height: 1.15;
   text-align: center;
+}
+
+@media (pointer: coarse) {
+  .agent-connect__target {
+    min-block-size: 2.5rem;
+    padding-inline: 0.75rem;
+  }
 }
 
 .agent-connect__target:hover {
@@ -107,7 +114,7 @@
 }
 
 .agent-connect .code-block {
-  min-width: 0;
+  min-inline-size: 0;
 }
 
 .agent-connect .code-block__container {
@@ -125,8 +132,8 @@
 }
 
 .agent-connect-popover {
-  inline-size: min(36rem, calc(100vw - 1.5rem));
-  max-inline-size: min(36rem, calc(100vw - 1.5rem));
+  inline-size: min(36rem, calc(100dvi - 1.5rem));
+  max-inline-size: min(36rem, calc(100dvi - 1.5rem));
   padding: 0.875rem;
 }
 
@@ -139,12 +146,23 @@
   background: color-mix(in oklab, var(--sigvelo-paper-color), var(--sigvelo-neutral-fill-softer));
 }
 
-@media (max-width: 40rem) {
+@media (width <= 40rem) {
   .agent-connect__targets {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .agent-connect-popover {
-    inline-size: min(24rem, calc(100vw - 1.5rem));
+    inline-size: min(24rem, calc(100dvi - 1.5rem));
+  }
+}
+
+@media (forced-colors: active) {
+  .agent-connect__targets {
+    border-color: ButtonText;
+  }
+
+  .agent-connect__target[data-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }

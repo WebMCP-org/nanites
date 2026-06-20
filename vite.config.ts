@@ -81,6 +81,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ["shiki"],
+    // Restrict dep-scan to the real entry; default `**/*.html` crawls vendored opensrc/ repos and fails.
+    entries: ["index.html"],
   },
   fmt: {
     ignorePatterns: ["src/frontend/routeTree.gen.ts"],

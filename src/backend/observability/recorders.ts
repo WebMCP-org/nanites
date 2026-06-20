@@ -372,7 +372,7 @@ export async function recordNaniteCatalogProjection(
     githubInstallationId: input.githubInstallationId,
     naniteId: input.nanite.manifest.id,
     name: input.nanite.manifest.name,
-    enabled: input.nanite.enabled,
+    enabled: true,
     eventSourceType: input.nanite.manifest.eventSource.type,
     latestVersionId: input.nanite.latestVersion.versionId,
     modelId: input.nanite.manifest.model,
