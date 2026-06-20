@@ -3,7 +3,7 @@ import type { McpConnectionLike } from "@cloudflare/codemode";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-export const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
+const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
 
 export type GitHubMcpConnectorOptions = {
   /**
@@ -35,6 +35,7 @@ export class GitHubMcpConnector extends McpConnector {
     this.#options = options;
   }
 
+  // fallow-ignore-next-line unused-class-member
   name(): string {
     return "github";
   }
@@ -74,6 +75,7 @@ export class GitHubMcpConnector extends McpConnector {
   // transport too, otherwise each turn leaks an open SSE connection to GitHub
   // MCP. Best-effort and idempotent per the hook contract; never fires on an
   // approval-pause, so the connection survives a resume.
+  // fallow-ignore-next-line unused-class-member
   override async disposeExecution(
     executionId: string,
     status: Parameters<McpConnector["disposeExecution"]>[1],

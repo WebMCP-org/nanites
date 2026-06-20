@@ -1,6 +1,6 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { INVALID_MCP_AUTH_PROPS_DESCRIPTION, nanitesMcpApiHandler } from "#/backend/mcp/index.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 test("MCP API rejects access-token props that do not match the current auth schema", async () => {
   const executionContext = createExecutionContext() as ExecutionContext & {

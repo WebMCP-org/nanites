@@ -1,3 +1,4 @@
+import { NANITE_AGENT_NAME } from "#/shared/constants.ts";
 import { Agent, callable, getAgentByName } from "agents";
 import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webhooks";
 import { getLogger } from "@logtape/logtape";
@@ -30,11 +31,10 @@ import {
   type TriggerDispatchInput,
 } from "#/backend/nanites/triggers.ts";
 import {
-  NANITE_AGENT_NAME,
   buildNaniteManagerKey,
   parseNaniteManagerKey,
   type NaniteManagerIdentity,
-} from "#/nanites.ts";
+} from "#/shared/utils/nanites.ts";
 import {
   getGitHubWebhookBranch,
   getGitHubWebhookEventName,
@@ -44,7 +44,7 @@ import {
   getGitHubWebhookRepositoryFullName,
   snapshotGitHubWebhookEvent,
   type GitHubWebhookEventSnapshot,
-} from "#/github.ts";
+} from "#/shared/utils/github.ts";
 import {
   deleteNaniteCatalogProjection,
   manualActorFromId,
@@ -147,7 +147,7 @@ export type ManagedNanite = {
 
 export const naniteRunStatuses = [
   "running",
-  "waiting_for_human",
+  "waiting_for_manager",
   "complete",
   "no_change",
   "fail",
@@ -162,8 +162,8 @@ export type CompletableNaniteRunStatus = Exclude<TerminalNaniteRunStatus, "cance
 export type UnreportedThinkSubmissionStatus = "completed" | "aborted" | "skipped" | "error";
 
 const allowedRunStatusTransitions: Record<NaniteRunStatus, readonly NaniteRunStatus[]> = {
-  running: ["waiting_for_human", "complete", "no_change", "fail", "canceled"],
-  waiting_for_human: ["running", "complete", "no_change", "fail", "canceled"],
+  running: ["waiting_for_manager", "complete", "no_change", "fail", "canceled"],
+  waiting_for_manager: ["running", "complete", "no_change", "fail", "canceled"],
   complete: [],
   no_change: [],
   fail: [],
@@ -181,7 +181,7 @@ export const naniteRuntimeActivityStates = [
   "idle",
   "thinking",
   "tool_calling",
-  "waiting_for_human",
+  "waiting_for_manager",
   "error",
 ] as const;
 export type NaniteRuntimeActivityState = (typeof naniteRuntimeActivityStates)[number];
@@ -217,10 +217,9 @@ export type NaniteTriggerEvent =
       input?: TriggerDispatchInput;
     };
 
-export type HumanRequest = {
+export type ManagerRequest = {
   id: string;
-  summary: string;
-  requestedScopes: string[];
+  request: string;
   createdAt: string;
 };
 
@@ -271,7 +270,7 @@ type NaniteTerminalRunRecord = {
 export type NaniteRunRecord = NaniteRunRecordBase &
   (
     | { status: "running" }
-    | { status: "waiting_for_human"; summary: string; humanRequest: HumanRequest }
+    | { status: "waiting_for_manager"; managerRequest: ManagerRequest }
     | NaniteTerminalRunRecord
   );
 
@@ -492,10 +491,9 @@ export type CompleteNaniteRunInput = {
   | { status: "no_change" | "fail"; outputUrl: null }
 );
 
-export type AskHumanInput = {
+export type AskManagerInput = {
   runId: string;
-  summary: string;
-  requestedScopes: string[];
+  request: string;
 };
 
 export type RecordUnreportedRunCompletionInput = {
@@ -1221,31 +1219,29 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     return run;
   }
 
-  async askHuman(
-    input: AskHumanInput,
-  ): Promise<Extract<NaniteRunRecord, { status: "waiting_for_human" }>> {
+  async askManager(
+    input: AskManagerInput,
+  ): Promise<Extract<NaniteRunRecord, { status: "waiting_for_manager" }>> {
     const current = this.requireRun(input.runId);
-    if (current.status === "waiting_for_human") {
+    if (current.status === "waiting_for_manager") {
       return current;
     }
 
-    assertNaniteRunStatusTransition(current.status, "waiting_for_human");
+    assertNaniteRunStatusTransition(current.status, "waiting_for_manager");
     const createdAt = nowIso();
     const run = this.setRun(input.runId, (previous) => {
       return {
         ...replaceRunRecordBase(previous, createdAt),
-        status: "waiting_for_human",
-        summary: input.summary,
-        humanRequest: {
+        status: "waiting_for_manager",
+        managerRequest: {
           id: crypto.randomUUID(),
-          summary: input.summary,
-          requestedScopes: input.requestedScopes,
+          request: input.request,
           createdAt,
         },
       };
     });
     this.setActivity(run.naniteId, {
-      state: "waiting_for_human",
+      state: "waiting_for_manager",
       runId: run.runId,
       toolName: null,
       lastActivityAt: createdAt,
@@ -1262,9 +1258,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
    */
   async recordUnreportedRunCompletion(
     input: RecordUnreportedRunCompletionInput,
-  ): Promise<Extract<NaniteRunRecord, { status: TerminalNaniteRunStatus | "waiting_for_human" }>> {
+  ): Promise<
+    Extract<NaniteRunRecord, { status: TerminalNaniteRunStatus | "waiting_for_manager" }>
+  > {
     const current = this.requireRun(input.runId);
-    if (isTerminalNaniteRunStatus(current.status) || current.status === "waiting_for_human") {
+    if (isTerminalNaniteRunStatus(current.status) || current.status === "waiting_for_manager") {
       return current;
     }
 
@@ -1400,8 +1398,8 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         skippedRuns.push({ runId, reason: "already_terminal" });
         continue;
       }
-      if (run.status === "waiting_for_human" && !explicitRunIds.has(runId)) {
-        skippedRuns.push({ runId, reason: "waiting_for_human" });
+      if (run.status === "waiting_for_manager" && !explicitRunIds.has(runId)) {
+        skippedRuns.push({ runId, reason: "waiting_for_manager" });
         continue;
       }
 

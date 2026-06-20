@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
 import { findInstallationAccount } from "#/backend/db/facts.ts";
@@ -8,7 +9,6 @@ import {
   defineSigveloMcpTool,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const whoamiToolInputSchema = z.object({});
 const whoamiToolOutputSchema = z.object({

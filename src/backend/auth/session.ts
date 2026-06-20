@@ -1,3 +1,8 @@
+import {
+  BROWSER_AUTH_COOKIE_PATH,
+  BROWSER_AUTH_COOKIE_SAME_SITE,
+  BROWSER_AUTH_COOKIE_NAMES,
+} from "#/shared/constants.ts";
 import { generateCookie } from "hono/cookie";
 import { parse, type CookieOptions } from "hono/utils/cookie";
 import { EncryptJWT, jwtDecrypt, errors as joseErrors, type JWTPayload } from "jose";
@@ -8,11 +13,6 @@ import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods"
 import type { GitHubVisibleInstallation } from "#/backend/github/index.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
-import {
-  BROWSER_AUTH_COOKIE_NAMES,
-  BROWSER_AUTH_COOKIE_PATH,
-  BROWSER_AUTH_COOKIE_SAME_SITE,
-} from "#/auth.ts";
 
 /**
  * GitHub OAuth state lifetime in seconds.

@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import {
   NANITE_TRIGGER_TEST_INSTRUCTION,
@@ -16,7 +17,6 @@ import {
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const githubTriggerFixtureOverridesSchema = z.record(z.string(), z.unknown()).optional();
 const githubTriggerFixtureInputSchema = z.discriminatedUnion("fixture", [

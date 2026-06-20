@@ -13,7 +13,7 @@ import {
   authorizeSigveloNaniteToolScope,
   type SigveloNaniteToolAuthorization,
 } from "#/backend/nanites/tools/authorization.ts";
-import { buildNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
 export type SigveloNaniteToolSurface = "mcp" | "manager_chat";
 

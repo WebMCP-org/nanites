@@ -1,3 +1,13 @@
+import {
+  GITHUB_OAUTH_LOGIN_PATH,
+  AUTH_RETURN_TO_PARAM,
+  MCP_AUTHORIZE_ROUTE,
+  MCP_AUTHORIZE_UI_ROUTE,
+  MCP_AUTHORIZE_CONTEXT_ROUTE,
+  MCP_CONSENT_COOKIE_NAME,
+  MCP_CONSENT_COOKIE_PATH,
+  MCP_CONSENT_COOKIE_MAX_AGE_SECONDS,
+} from "#/shared/constants.ts";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
@@ -18,16 +28,7 @@ import { listInstallationRepositories, type GitHubUserToken } from "#/backend/gi
 import { createSigveloMcpVisibleRepositorySnapshot } from "#/backend/mcp/auth-props.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { resolveGrantedMcpScopes } from "#/backend/mcp/index.ts";
-import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
-import {
-  MCP_AUTHORIZE_CONTEXT_ROUTE,
-  MCP_AUTHORIZE_ROUTE,
-  MCP_AUTHORIZE_UI_ROUTE,
-  MCP_CONSENT_COOKIE_MAX_AGE_SECONDS,
-  MCP_CONSENT_COOKIE_NAME,
-  MCP_CONSENT_COOKIE_PATH,
-} from "#/mcp.ts";
-import { buildGitHubAppInstallHref } from "#/github.ts";
+import { buildGitHubAppInstallHref } from "#/shared/utils/github.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 
 const consentCookiePayloadSchema = z.object({

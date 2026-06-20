@@ -13,7 +13,7 @@ Browser Run, and end with one of four explicit outcomes:
 
 - `complete`: opened a PR or produced a concrete change proposal.
 - `no_change`: verified the target and found no useful change.
-- `ask_human`: needs a preview URL, login, approval, or cost-sensitive browser
+- `ask_manager`: needs a preview URL, login, approval, or cost-sensitive browser
   run.
 - `fail`: browser/runtime/source inspection failed in a repeatable way.
 
@@ -356,7 +356,7 @@ The first audit should be narrow and evidence-backed:
 5. Decide whether there is a small, useful code change.
 6. If changing code, patch the repo, run local validation, and open a PR or
    change proposal.
-7. Finish through `complete`, `no_change`, `ask_human`, or `fail`.
+7. Finish through `complete`, `no_change`, `ask_manager`, or `fail`.
 
 Evidence should be saved as artifacts when possible, not only summarized in the
 model transcript. At minimum, store target URL, commit SHA, run timestamp,
@@ -407,7 +407,7 @@ version.
    - Self-host setup creates GitHub App, selects repo, creates onboarding
      Nanite, and reaches launch.
    - Browser Run and Worker Loader both execute from the deployed Worker.
-   - A first audit on a public target ends in `no_change`, `ask_human`, or a PR,
+   - A first audit on a public target ends in `no_change`, `ask_manager`, or a PR,
      never an unreported active run.
 
 ## Open questions

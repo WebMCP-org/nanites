@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import {
   naniteDebugIncludeSections,
@@ -12,7 +13,6 @@ import {
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const naniteRunStatusSchema = z.enum(naniteRunStatuses);
 const naniteActivitySchema = z.enum(naniteRuntimeActivityStates);

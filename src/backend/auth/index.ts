@@ -1,3 +1,8 @@
+import {
+  GITHUB_OAUTH_CALLBACK_PATH,
+  NANITE_MANAGER_NAME,
+  MANAGER_CONVERSATION_AGENT_NAME,
+} from "#/shared/constants.ts";
 import { getLogger } from "@logtape/logtape";
 import { AppError, createAppErrorProblemResponse } from "#/backend/errors.ts";
 import { requireBrowserInstallationScope } from "#/backend/auth/installations.ts";
@@ -29,12 +34,8 @@ import {
 } from "#/backend/github/index.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
-import { GITHUB_OAUTH_CALLBACK_PATH, normalizeAuthenticatedReturnToPath } from "#/auth.ts";
-import {
-  MANAGER_CONVERSATION_AGENT_NAME,
-  NANITE_MANAGER_NAME,
-  parseNaniteManagerKey,
-} from "#/nanites.ts";
+import { normalizeAuthenticatedReturnToPath } from "#/shared/utils/auth.ts";
+import { parseNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
 const authLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .getChild("auth")

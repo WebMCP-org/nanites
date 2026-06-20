@@ -80,7 +80,7 @@ It owns runtime behavior that belongs to the Nanite:
 - live token streaming
 - workspace and file inspection
 - MCP attachments
-- lifecycle tools such as `complete`, `no_change`, `fail`, and `ask_human`
+- lifecycle tools such as `complete`, `no_change`, `fail`, and `ask_manager`
 
 The tool registry never owns Nanite runtime state. It can ask the manager to delegate to a child Nanite for debug, transcript, submission, or workspace inspection.
 

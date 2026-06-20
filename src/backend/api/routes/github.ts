@@ -1,3 +1,8 @@
+import {
+  GITHUB_WEBHOOK_PATH,
+  GITHUB_WEBHOOK_TARGET_ID_HEADER,
+  NANITES_SETUP_AGENT_INSTANCE_NAME,
+} from "#/shared/constants.ts";
 import { getLogger } from "@logtape/logtape";
 import { Hono } from "hono";
 import { createWebMiddleware, Webhooks } from "@octokit/webhooks";
@@ -15,15 +20,12 @@ import { createDbClient } from "#/backend/db/index.ts";
 import { recordAuthFunnelFact } from "#/backend/db/facts.ts";
 import { resolveGitHubApp } from "#/backend/github/apps.ts";
 import {
-  GITHUB_WEBHOOK_PATH,
-  GITHUB_WEBHOOK_TARGET_ID_HEADER,
   getGitHubWebhookAction,
   getGitHubWebhookEventName,
   getGitHubWebhookInstallationId,
   getGitHubWebhookRepositoryFullName,
   getGitHubWebhookRepositoryId,
-} from "#/github.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/nanites.ts";
+} from "#/shared/utils/github.ts";
 
 const githubWebhookLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .getChild("github")

@@ -311,7 +311,7 @@ Owns:
 - current and recent Runs
 - workspace-backed investigation and edits
 - change proposal pointer
-- lifecycle tools such as complete, no-change, fail, ask-human, and create-child-nanite
+- lifecycle tools such as complete, no-change, fail, ask-manager, and create-child-nanite
 
 Use Agents SDK sub-agent routing for browser access. The UI should connect directly to the Nanite sub-agent instead of reading a mirrored transcript from the manager.
 

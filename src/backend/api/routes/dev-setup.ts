@@ -14,6 +14,7 @@
  * production builds tree-shake this module away entirely; the loopback check
  * below is defense in depth, not the primary gate.
  */
+import { GITHUB_OAUTH_LOGIN_PATH, GITHUB_OAUTH_CALLBACK_PATH } from "#/shared/constants.ts";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
@@ -38,7 +39,6 @@ import {
   DEFAULT_GITHUB_APP_PERMISSIONS,
   GITHUB_APP_MANIFEST_DESCRIPTION,
 } from "#/backend/agents/NanitesSetupAgent.ts";
-import { GITHUB_OAUTH_CALLBACK_PATH, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 
 const DEV_LOCAL_SETUP_PATH = "/setup/local";

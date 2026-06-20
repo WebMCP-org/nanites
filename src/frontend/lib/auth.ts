@@ -1,14 +1,11 @@
+import { AUTH_RETURN_TO_PARAM } from "#/shared/constants.ts";
 import type { QueryClient } from "@tanstack/react-query";
 import { redirect } from "@tanstack/react-router";
 import { DetailedError, parseResponse } from "hono/client";
 import type { InferResponseType } from "hono/client";
 import { httpClient } from "#/frontend/lib/http-client.ts";
 import type { NanitesRouterContext } from "#/frontend/lib/router.ts";
-import {
-  AUTH_RETURN_TO_PARAM,
-  normalizeAuthenticatedReturnToPath,
-  normalizeReturnToPath,
-} from "#/auth.ts";
+import { normalizeAuthenticatedReturnToPath, normalizeReturnToPath } from "#/shared/utils/auth.ts";
 
 type InstallationAuthErrorResponse =
   | {

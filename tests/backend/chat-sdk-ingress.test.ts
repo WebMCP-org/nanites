@@ -1,39 +1,18 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { getAgentByName } from "agents";
 import worker from "#/server.ts";
 import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
-import { encodeHex } from "#/backend/crypto.ts";
-import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
-import { buildNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 import {
   TEST_GITHUB_APP_ID,
   ensureD1BaselineSchema,
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
-
-const textEncoder = new TextEncoder();
-
-async function signGitHubWebhookBody(body: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    textEncoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return `sha256=${encodeHex(await crypto.subtle.sign("HMAC", key, textEncoder.encode(body)))}`;
-}
-
-function requireTestGitHubWebhookSecret(): string {
-  const secret = Reflect.get(env, `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`);
-  if (typeof secret !== "string" || secret.length === 0) {
-    throw new Error("The test GitHub App webhook secret is required for webhook signature tests.");
-  }
-
-  return secret;
-}
+import {
+  buildTestGitHubWebhookRequest,
+  type TestGitHubWebhookPayload,
+} from "../helpers/github-webhook.ts";
 
 function buildGitHubApiJsonResponse(path: string, payload: unknown, init?: ResponseInit): Response {
   const response = Response.json(payload, init);
@@ -55,7 +34,7 @@ async function waitForManagerSubmission(
   await expect.poll(isReady, { interval: 10, timeout: timeoutMs }).toBe(true);
 }
 
-type GitHubIssueCommentCreatedPayload = EmitterWebhookEvent<"issue_comment.created">["payload"];
+type GitHubIssueCommentCreatedPayload = TestGitHubWebhookPayload<"issue_comment.created">;
 type CapturedGitHubRequest = { method: string; path: string; body: string };
 
 type GitHubIssueCommentFixture = {
@@ -115,7 +94,7 @@ function buildIssueCommentPayload(
       login: fixture.authorLogin,
       type: "User",
     },
-  } as GitHubIssueCommentCreatedPayload;
+  } satisfies GitHubIssueCommentCreatedPayload;
 }
 
 function mockManagerConversationGitHubApi(
@@ -312,20 +291,11 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
     const body = JSON.stringify(buildIssueCommentPayload());
     const ctx = createExecutionContext();
     const response = await worker.fetch(
-      new Request(`http://example.com${GITHUB_WEBHOOK_PATH}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-github-delivery": "chat-sdk-delivery-1",
-          "x-github-event": "issue_comment",
-          "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-          "x-github-hook-installation-target-type": "integration",
-          "x-hub-signature-256": await signGitHubWebhookBody(
-            body,
-            requireTestGitHubWebhookSecret(),
-          ),
-        },
+      await buildTestGitHubWebhookRequest({
         body,
+        delivery: "chat-sdk-delivery-1",
+        event: "issue_comment",
+        origin: "http://example.com",
       }),
       env,
       ctx,
@@ -383,20 +353,11 @@ test("GitHub issue comments route through Chat SDK ingress", async () => {
 
     const duplicateCtx = createExecutionContext();
     const duplicateResponse = await worker.fetch(
-      new Request(`http://example.com${GITHUB_WEBHOOK_PATH}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-github-delivery": "chat-sdk-delivery-2",
-          "x-github-event": "issue_comment",
-          "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-          "x-github-hook-installation-target-type": "integration",
-          "x-hub-signature-256": await signGitHubWebhookBody(
-            body,
-            requireTestGitHubWebhookSecret(),
-          ),
-        },
+      await buildTestGitHubWebhookRequest({
         body,
+        delivery: "chat-sdk-delivery-2",
+        event: "issue_comment",
+        origin: "http://example.com",
       }),
       env,
       duplicateCtx,
@@ -430,20 +391,11 @@ test("GitHub and browser manager chats share the manager conversation behavior",
     const body = JSON.stringify(buildIssueCommentPayload(fixture));
     const ctx = createExecutionContext();
     const response = await worker.fetch(
-      new Request(`http://example.com${GITHUB_WEBHOOK_PATH}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-github-delivery": "chat-sdk-delivery-same-manager",
-          "x-github-event": "issue_comment",
-          "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-          "x-github-hook-installation-target-type": "integration",
-          "x-hub-signature-256": await signGitHubWebhookBody(
-            body,
-            requireTestGitHubWebhookSecret(),
-          ),
-        },
+      await buildTestGitHubWebhookRequest({
         body,
+        delivery: "chat-sdk-delivery-same-manager",
+        event: "issue_comment",
+        origin: "http://example.com",
       }),
       env,
       ctx,
@@ -497,16 +449,12 @@ test("GitHub webhook ping requires a valid signature", async () => {
     },
   });
   const unsignedResponse = await worker.fetch(
-    new Request(`http://example.com${GITHUB_WEBHOOK_PATH}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "ping-unsigned",
-        "x-github-event": "ping",
-        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-        "x-github-hook-installation-target-type": "integration",
-      },
+    await buildTestGitHubWebhookRequest({
       body,
+      delivery: "ping-unsigned",
+      event: "ping",
+      origin: "http://example.com",
+      signed: false,
     }),
     env,
     createExecutionContext(),
@@ -515,17 +463,11 @@ test("GitHub webhook ping requires a valid signature", async () => {
   expect(unsignedResponse.status).not.toBe(200);
 
   const signedResponse = await worker.fetch(
-    new Request(`http://example.com${GITHUB_WEBHOOK_PATH}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "ping-signed",
-        "x-github-event": "ping",
-        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-        "x-github-hook-installation-target-type": "integration",
-        "x-hub-signature-256": await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
-      },
+    await buildTestGitHubWebhookRequest({
       body,
+      delivery: "ping-signed",
+      event: "ping",
+      origin: "http://example.com",
     }),
     env,
     createExecutionContext(),

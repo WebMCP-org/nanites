@@ -1,3 +1,13 @@
+import {
+  GITHUB_OAUTH_CALLBACK_PATH,
+  BROWSER_AUTH_COOKIE_PATH,
+  BROWSER_AUTH_COOKIE_SAME_SITE,
+  BROWSER_AUTH_COOKIE_NAMES,
+  MCP_AUTHORIZE_ROUTE,
+  MCP_AUTHORIZE_CONTEXT_ROUTE,
+  MCP_CONSENT_COOKIE_NAME,
+  MCP_CONSENT_COOKIE_PATH,
+} from "#/shared/constants.ts";
 import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import type { Hook } from "@hono/zod-validator";
 import * as Sentry from "@sentry/cloudflare";
@@ -5,18 +15,6 @@ import { deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { Env as HonoEnv, ErrorHandler } from "hono";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
-import {
-  BROWSER_AUTH_COOKIE_NAMES,
-  BROWSER_AUTH_COOKIE_PATH,
-  BROWSER_AUTH_COOKIE_SAME_SITE,
-  GITHUB_OAUTH_CALLBACK_PATH,
-} from "#/auth.ts";
-import {
-  MCP_AUTHORIZE_CONTEXT_ROUTE,
-  MCP_AUTHORIZE_ROUTE,
-  MCP_CONSENT_COOKIE_NAME,
-  MCP_CONSENT_COOKIE_PATH,
-} from "#/mcp.ts";
 
 type AppErrorStatus = 400 | 401 | 403 | 404 | 500;
 type AppErrorDetails = Record<string, unknown>;

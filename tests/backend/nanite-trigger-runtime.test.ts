@@ -12,7 +12,7 @@ import {
   type NaniteRunRecord,
   type SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
-import { getGitHubWebhookRepositoryFullName } from "#/github.ts";
+import { getGitHubWebhookRepositoryFullName } from "#/shared/utils/github.ts";
 
 beforeAll(async () => {
   await ensureD1BaselineSchema(env.DB);
@@ -513,6 +513,54 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
   }
 });
 
+test("ask_manager lifecycle pauses the run with a request-only manager request", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "ask-manager-lifecycle";
+  const originalFixture = env.NANITES_LLM_FIXTURE;
+
+  try {
+    env.NANITES_LLM_FIXTURE = "ask_manager";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Ask manager lifecycle",
+        description: "Exercises manager escalation.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {},
+      },
+    });
+
+    const run = await manager.startRun({
+      naniteId,
+      trigger: {
+        type: "manual",
+        requestId: crypto.randomUUID(),
+        actorId: "github:1",
+        message: "Open the documentation PR.",
+      },
+    });
+    await manager.dispatchRun({ runId: run.runId });
+
+    const waitingRun = await waitForRunStatus(manager, run.runId, "waiting_for_manager");
+    if (waitingRun.status !== "waiting_for_manager") {
+      throw new Error("Expected the Nanite run to wait for the manager.");
+    }
+    expect(waitingRun.managerRequest.request).toContain("repository authority");
+    expect("summary" in waitingRun).toBe(false);
+
+    const activity = (await manager.getSnapshot()).runtimeActivityByNanite[naniteId];
+    expect(activity).toMatchObject({
+      state: "waiting_for_manager",
+      runId: run.runId,
+    });
+  } finally {
+    env.NANITES_LLM_FIXTURE = originalFixture;
+  }
+});
+
 test("terminal run activity ignores late Think submission activity reports", async () => {
   const manager = await getInstallationManager();
   const naniteId = "terminal-activity-race";
@@ -587,6 +635,23 @@ async function waitForTerminalRun(
   }
 
   throw new Error(`Run ${runId} did not reach a terminal status in time.`);
+}
+
+async function waitForRunStatus(
+  manager: InstallationManager,
+  runId: string,
+  status: NaniteRunRecord["status"],
+): Promise<NaniteRunRecord> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const run = (await manager.getSnapshot()).runs[runId];
+    if (run?.status === status) {
+      return run;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(`Run ${runId} did not reach ${status} in time.`);
 }
 
 test("webhook dispatch dedupes runs by trigger idempotency key", async () => {

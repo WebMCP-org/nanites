@@ -661,7 +661,7 @@ const runActorKey = sql<string>`coalesce(${naniteRunFacts.actorGithubLogin}, ${n
 const creatorKey = sql<string>`coalesce(${naniteCatalog.createdByGithubLogin}, 'Unknown')`;
 const runSuccessCondition = sql`${runOutcomeKey} = 'success'`;
 const runFailureCondition = sql`${runOutcomeKey} in ('failure', 'fail')`;
-const runWaitingCondition = sql`${runOutcomeKey} in ('waiting_for_human', 'waiting')`;
+const runWaitingCondition = sql`${runOutcomeKey} = 'waiting_for_manager'`;
 const runNoChangeCondition = sql`${runOutcomeKey} = 'no_change'`;
 const outputLinkedRunCondition = sql`${naniteRunFacts.outputUrl} is not null and ${naniteRunFacts.outputUrl} <> ''`;
 const outputPullRequestCondition = sql`${naniteRunFacts.outputPullRequestNumber} is not null`;
@@ -858,7 +858,7 @@ async function readRunsByActor(
       runCount,
       successfulRunCount: countMatching(sql`${runOutcomeKey} = 'success'`),
       failedRunCount: countMatching(sql`${runOutcomeKey} = 'failure'`),
-      waitingRunCount: countMatching(sql`${runOutcomeKey} = 'waiting_for_human'`),
+      waitingRunCount: countMatching(sql`${runOutcomeKey} = 'waiting_for_manager'`),
     })
     .from(naniteRunFacts)
     .where(runWhere(scope))
@@ -945,7 +945,7 @@ async function readOverviewKpiTotals(
         activeNanites: countMatching(sql`1 = 1`),
         newNanites: countMatching(gte(naniteCatalog.createdAt, start)),
         waitingCatalogRows: countMatching(
-          textEquals(naniteCatalog.lastRunStatus, "waiting_for_human"),
+          textEquals(naniteCatalog.lastRunStatus, "waiting_for_manager"),
         ),
       })
       .from(naniteCatalog)

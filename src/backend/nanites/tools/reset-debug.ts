@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import type { ResetNaniteDebugOutput } from "#/backend/agents/SigveloNaniteManager.ts";
 import {
@@ -7,7 +8,6 @@ import {
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const resetDebugToolInputSchema = z
   .object({

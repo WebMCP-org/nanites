@@ -25,7 +25,7 @@ export const RUN_TRIGGER_KINDS = [
 export const CONFIG_SOURCES = ["default"] as const;
 export const RUN_STATUSES = [
   "running",
-  "waiting_for_human",
+  "waiting_for_manager",
   "complete",
   "no_change",
   "fail",
@@ -35,7 +35,7 @@ export const RUN_CONCLUSIONS = [
   "success",
   "failure",
   "no_change",
-  "waiting_for_human",
+  "waiting_for_manager",
   "canceled",
 ] as const;
 export const RUN_PHASES = [
@@ -119,6 +119,17 @@ function billingAttributionColumns() {
   };
 }
 
+function timestampColumns() {
+  return {
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  };
+}
+
 export const accounts = sqliteTable(
   "accounts",
   {
@@ -131,12 +142,7 @@ export const accounts = sqliteTable(
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
+    ...timestampColumns(),
   },
   (table) => [uniqueIndex("accounts_github_account_id_unique").on(table.githubAccountId)],
 );
@@ -161,12 +167,7 @@ export const accountInstallations = sqliteTable(
       .$defaultFn(() => new Date()),
     suspendedAt: integer("suspended_at", { mode: "timestamp" }),
     removedAt: integer("removed_at", { mode: "timestamp" }),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
+    ...timestampColumns(),
   },
   (table) => [
     // An installation id belongs to exactly one app; the single-column unique
@@ -203,12 +204,7 @@ export const accountRepositories = sqliteTable(
     lastSeenAt: integer("last_seen_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
+    ...timestampColumns(),
   },
   (table) => [
     uniqueIndex("account_repositories_account_repo_unique").on(
@@ -233,12 +229,7 @@ export const accountPeople = sqliteTable(
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
+    ...timestampColumns(),
   },
   (table) => [
     uniqueIndex("account_people_account_user_unique").on(table.accountId, table.githubUserId),
@@ -270,12 +261,7 @@ export const githubApps = sqliteTable(
     eventsJson: text("events_json").notNull(),
     status: text("status", { enum: GITHUB_APP_STATUSES }).notNull().default("active"),
     retiredAt: integer("retired_at", { mode: "timestamp" }),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
+    ...timestampColumns(),
   },
   (table) => [
     uniqueIndex("github_apps_active_unique")
@@ -341,12 +327,7 @@ export const naniteRunFacts = sqliteTable(
     startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
     completedAt: integer("completed_at", { mode: "timestamp" }),
     lastUpdatedAt: integer("last_updated_at", { mode: "timestamp" }).notNull(),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
+    ...timestampColumns(),
   },
   (table) => [
     uniqueIndex("nanite_run_facts_installation_repo_run_unique").on(
@@ -521,10 +502,5 @@ export const accountEntitlements = sqliteTable("account_entitlements", {
   browserVerificationOverageCount: integer("browser_verification_overage_count")
     .notNull()
     .default(0),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
+  ...timestampColumns(),
 });

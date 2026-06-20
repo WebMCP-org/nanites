@@ -1,3 +1,4 @@
+import { MCP_ROUTE, MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/shared/constants.ts";
 import { createMcpHandler } from "agents/mcp";
 import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -7,7 +8,6 @@ import { AppError } from "#/backend/errors.ts";
 import { sigveloMcpVisibleRepositorySchema } from "#/backend/mcp/auth-props.ts";
 import { executeSigveloNaniteTool } from "#/backend/nanites/tools/define-tool.ts";
 import { naniteTools } from "#/backend/nanites/tools/index.ts";
-import { MCP_ROUTE, MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/mcp.ts";
 
 type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
 type McpExecutionContext = ExecutionContext & {

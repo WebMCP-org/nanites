@@ -1,5 +1,5 @@
 import { createWorker } from "@cloudflare/worker-bundler";
-import { isRecord } from "#/utils.ts";
+import { isRecord } from "#/shared/utils/values.ts";
 // import { InMemoryFileSystem, installDependencies } from "@cloudflare/worker-bundler";
 // import { createTypescriptLanguageService } from "@cloudflare/worker-bundler/typescript";
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
@@ -111,7 +111,10 @@ export function defineGitHubTrigger(trigger) {
 `;
 
 const sigveloTriggerTypesSource = `
-import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webhooks";
+import type {
+  EmitterWebhookEvent,
+  EmitterWebhookEventName,
+} from "@octokit/webhooks";
 import type { RestEndpointMethodTypes } from "@octokit/plugin-rest-endpoint-methods";
 
 export type { EmitterWebhookEvent, EmitterWebhookEventName, RestEndpointMethodTypes };

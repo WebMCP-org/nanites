@@ -1,3 +1,4 @@
+import { MCP_AUTHORIZE_CONTEXT_ROUTE } from "#/shared/constants.ts";
 import { Badge } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
@@ -6,7 +7,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { McpAuthorizeContext } from "#/backend/api/routes/mcp.ts";
 import { ArrowSquareOutIcon, ArrowRightIcon, ShieldCheckIcon } from "@phosphor-icons/react";
-import { MCP_AUTHORIZE_CONTEXT_ROUTE } from "#/mcp.ts";
 
 export const Route = createFileRoute("/mcp-authorize")({
   loader: async ({ location }) => {

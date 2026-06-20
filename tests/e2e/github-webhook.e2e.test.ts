@@ -1,21 +1,20 @@
+import { GITHUB_WEBHOOK_PATH, NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/shared/constants.ts";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import worker from "#/server.ts";
-import {
-  TEST_GITHUB_APP_ID,
-  ensureD1BaselineSchema,
-  saveTestGitHubApp,
-} from "../helpers/d1-baseline.ts";
+import { ensureD1BaselineSchema, saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 import {
   createInitialSetupState,
   type NanitesSetupAgent,
   type NanitesSetupState,
 } from "#/backend/agents/NanitesSetupAgent.ts";
-import { encodeHex } from "#/backend/crypto.ts";
-import { GITHUB_WEBHOOK_PATH } from "#/github.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/nanites.ts";
+import {
+  buildTestGitHubWebhookRequest,
+  type TestGitHubWebhookPayload,
+} from "../helpers/github-webhook.ts";
 
-const textEncoder = new TextEncoder();
+type GitHubPingPayload = TestGitHubWebhookPayload<"ping">;
+type GitHubInstallationDeletedPayload = TestGitHubWebhookPayload<"installation.deleted">;
 
 type SetupAgentTestRpc = {
   setState(state: NanitesSetupState): void;
@@ -32,28 +31,8 @@ async function getSetupAgent(): Promise<SetupAgentTestRpc> {
   ) as unknown as SetupAgentTestRpc;
 }
 
-async function signGitHubWebhookBody(body: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    textEncoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return `sha256=${encodeHex(await crypto.subtle.sign("HMAC", key, textEncoder.encode(body)))}`;
-}
-
-function requireTestGitHubWebhookSecret(): string {
-  const secret = Reflect.get(env, `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`);
-  if (typeof secret !== "string" || secret.length === 0) {
-    throw new Error("The test GitHub App webhook secret is required for webhook e2e tests.");
-  }
-
-  return secret;
-}
-
 function buildGitHubPingBody(): string {
-  return JSON.stringify({
+  const payload = {
     zen: "Approachable is better than simple.",
     hook_id: 123,
     hook: {
@@ -77,11 +56,12 @@ function buildGitHubPingBody(): string {
       login: "alice",
       type: "User",
     },
-  });
+  } satisfies GitHubPingPayload;
+  return JSON.stringify(payload);
 }
 
 function buildGitHubInstallationDeletedBody(githubInstallationId: number): string {
-  return JSON.stringify({
+  const payload = {
     action: "deleted",
     installation: {
       id: githubInstallationId,
@@ -96,7 +76,8 @@ function buildGitHubInstallationDeletedBody(githubInstallationId: number): strin
       login: "alice",
       type: "User",
     },
-  });
+  } satisfies GitHubInstallationDeletedPayload;
+  return JSON.stringify(payload);
 }
 
 async function resetSetupAgent(): Promise<SetupAgentTestRpc> {
@@ -131,16 +112,12 @@ test("GitHub webhook ping requires the configured app secret and a valid signatu
   await saveTestGitHubApp(env.DB);
   const body = buildGitHubPingBody();
   const unsignedResponse = await worker.fetch(
-    new Request(`https://sigvelo-agent-tests.example.workers.dev${GITHUB_WEBHOOK_PATH}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "e2e-ping-unsigned",
-        "x-github-event": "ping",
-        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-        "x-github-hook-installation-target-type": "integration",
-      },
+    await buildTestGitHubWebhookRequest({
       body,
+      delivery: "e2e-ping-unsigned",
+      event: "ping",
+      origin: "https://sigvelo-agent-tests.example.workers.dev",
+      signed: false,
     }),
     env,
     createExecutionContext(),
@@ -149,17 +126,11 @@ test("GitHub webhook ping requires the configured app secret and a valid signatu
   expect(unsignedResponse.status).not.toBe(200);
 
   const signedResponse = await worker.fetch(
-    new Request(`https://sigvelo-agent-tests.example.workers.dev${GITHUB_WEBHOOK_PATH}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "e2e-ping-signed",
-        "x-github-event": "ping",
-        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-        "x-github-hook-installation-target-type": "integration",
-        "x-hub-signature-256": await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
-      },
+    await buildTestGitHubWebhookRequest({
       body,
+      delivery: "e2e-ping-signed",
+      event: "ping",
+      origin: "https://sigvelo-agent-tests.example.workers.dev",
     }),
     env,
     createExecutionContext(),
@@ -203,17 +174,11 @@ test("GitHub installation deletion webhook moves completed setup back to reposit
   const body = buildGitHubInstallationDeletedBody(42);
   const ctx = createExecutionContext();
   const response = await worker.fetch(
-    new Request(`https://sigvelo-agent-tests.example.workers.dev${GITHUB_WEBHOOK_PATH}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "e2e-installation-deleted",
-        "x-github-event": "installation",
-        "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
-        "x-github-hook-installation-target-type": "integration",
-        "x-hub-signature-256": await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
-      },
+    await buildTestGitHubWebhookRequest({
       body,
+      delivery: "e2e-installation-deleted",
+      event: "installation",
+      origin: "https://sigvelo-agent-tests.example.workers.dev",
     }),
     env,
     ctx,

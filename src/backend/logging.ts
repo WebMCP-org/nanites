@@ -7,7 +7,7 @@ import {
 } from "@logtape/logtape";
 import { redactByField } from "@logtape/redaction";
 import { subscribe, type ChannelEventMap, type ObservabilityEvent } from "agents/observability";
-import { isRecord } from "#/utils.ts";
+import { isRecord } from "#/shared/utils/values.ts";
 
 /**
  * Logger categories and runtime values for the agent app and its DB package so

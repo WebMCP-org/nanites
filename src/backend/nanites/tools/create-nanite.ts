@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { emitterEventNames } from "@octokit/webhooks";
 import { z } from "zod";
 import type { ManagedNanite } from "#/backend/agents/SigveloNaniteManager.ts";
@@ -8,7 +9,6 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const naniteManualEventSourceSpecSchema = z.object({
   type: z.literal("manual"),

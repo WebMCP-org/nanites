@@ -1,19 +1,12 @@
+import {
+  DEFAULT_GITHUB_APP_SLUG,
+  SIGVELO_GITHUB_APP_INSTALL_PATH,
+  SIGVELO_GITHUB_APP_PERMISSIONS_PATH,
+} from "#/shared/constants.ts";
+import { emitterEventNames } from "@octokit/webhooks";
 import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webhooks";
-import { isRecord } from "#/utils.ts";
-
-const DEFAULT_GITHUB_APP_SLUG = "sigvelo";
-export const SIGVELO_GITHUB_APP_URL = `https://github.com/apps/${DEFAULT_GITHUB_APP_SLUG}`;
-
-const SIGVELO_GITHUB_APP_INSTALL_PATH = "/installations/new";
-const SIGVELO_GITHUB_APP_PERMISSIONS_PATH = `${SIGVELO_GITHUB_APP_INSTALL_PATH}/permissions`;
-
-export const GITHUB_WEBHOOK_PATH = "/api/github/webhook";
-
-/**
- * GitHub stamps app webhook deliveries with the owning app's id, which lets
- * one webhook URL serve every registered app.
- */
-export const GITHUB_WEBHOOK_TARGET_ID_HEADER = "x-github-hook-installation-target-id";
+import type { WebhookEvents } from "@octokit/webhooks/types";
+import { isRecord } from "#/shared/utils/values.ts";
 
 interface BuildGitHubAppInstallHrefOptions {
   readonly appSlug?: string | null;
@@ -68,6 +61,21 @@ export type GitHubWebhookEventSnapshot = {
 };
 
 type GitHubWebhookEventLike = EmitterWebhookEvent | GitHubWebhookEventSnapshot;
+
+export type GitHubWebhookEventName = WebhookEvents;
+
+const githubWebhookEventNameSet = new Set<string>(
+  emitterEventNames.filter((eventName) => !eventName.includes(".")),
+);
+const githubEmitterWebhookEventNameSet = new Set<string>(emitterEventNames);
+
+export function isGitHubWebhookEventName(value: string): value is GitHubWebhookEventName {
+  return githubWebhookEventNameSet.has(value);
+}
+
+function isGitHubEmitterWebhookEventName(value: string): value is EmitterWebhookEventName {
+  return githubEmitterWebhookEventNameSet.has(value);
+}
 
 /**
  * Reads `payload.installation.id` from any Octokit webhook event.
@@ -137,7 +145,8 @@ export function getGitHubWebhookAction(event: GitHubWebhookEventLike): string | 
  */
 export function getGitHubWebhookEventName(event: GitHubWebhookEventLike): EmitterWebhookEventName {
   const action = getGitHubWebhookAction(event);
-  return (action ? `${event.name}.${action}` : event.name) as EmitterWebhookEventName;
+  const eventName = action ? `${event.name}.${action}` : event.name;
+  return isGitHubEmitterWebhookEventName(eventName) ? eventName : event.name;
 }
 
 /**

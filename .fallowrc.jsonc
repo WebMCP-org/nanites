@@ -10,6 +10,11 @@
     "crapRefactorBand": 0,
     "suggestInlineSuppression": false,
   },
+  "duplicates": {
+    // Local repetition in schema/test/UI files is often clearer than a helper.
+    // Cross-directory clones are the ones that should graduate into shared utilities.
+    "skipLocal": true,
+  },
   "overrides": [
     {
       // Shared UI primitives intentionally expose a library-style surface.

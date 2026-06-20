@@ -1,5 +1,6 @@
+import { MANAGER_CONVERSATION_AGENT_NAME } from "#/shared/constants.ts";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
-import { isRecord } from "#/utils.ts";
+import { isRecord } from "#/shared/utils/values.ts";
 import { getToolName, isToolUIPart } from "ai";
 import type { UIMessage } from "ai";
 import { useAgent } from "agents/react";
@@ -64,7 +65,6 @@ import type {
   SigveloManagerConversationAgent,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import type { NaniteAgentState, SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
-import { MANAGER_CONVERSATION_AGENT_NAME } from "#/nanites.ts";
 
 type PartialUIMessage = Partial<UIMessage> & {
   readonly id?: unknown;
@@ -179,7 +179,7 @@ function getErrorText(error: unknown): string {
   return "The Nanite chat hit an error.";
 }
 
-type NaniteLifecycleToolName = "complete" | "no_change" | "fail" | "ask_human";
+type NaniteLifecycleToolName = "complete" | "no_change" | "fail" | "ask_manager";
 type NaniteLifecycleToolTone = "success" | "neutral" | "danger" | "warning" | "active";
 
 type NaniteLifecycleOutcome = {
@@ -188,10 +188,9 @@ type NaniteLifecycleOutcome = {
   readonly tone: NaniteLifecycleToolTone;
   readonly summary: string | null;
   readonly outputUrl: string | null;
-  readonly requestedScopes: readonly string[];
 };
 
-const naniteLifecycleToolNames = new Set<string>(["complete", "no_change", "fail", "ask_human"]);
+const naniteLifecycleToolNames = new Set<string>(["complete", "no_change", "fail", "ask_manager"]);
 
 function isNaniteLifecycleToolName(toolName: string): toolName is NaniteLifecycleToolName {
   return naniteLifecycleToolNames.has(toolName);
@@ -201,11 +200,6 @@ function getStringField(value: unknown, field: string): string | null {
   if (!isRecord(value)) return null;
   const candidate = value[field];
   return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : null;
-}
-
-function getStringArrayField(value: unknown, field: string): readonly string[] {
-  if (!isRecord(value) || !Array.isArray(value[field])) return [];
-  return value[field].filter((entry): entry is string => typeof entry === "string");
 }
 
 function getLifecycleBaseOutcome(toolName: NaniteLifecycleToolName): {
@@ -232,10 +226,10 @@ function getLifecycleBaseOutcome(toolName: NaniteLifecycleToolName): {
         statusLabel: "Failed",
         tone: "danger",
       };
-    case "ask_human":
+    case "ask_manager":
       return {
-        title: "Human decision needed",
-        statusLabel: "Needs human",
+        title: "Manager input needed",
+        statusLabel: "Needs manager",
         tone: "warning",
       };
   }
@@ -258,7 +252,6 @@ function getNaniteLifecycleOutcome(
     statusLabel: isActive ? "Reporting" : base.statusLabel,
     summary: getLifecycleSummary(part),
     outputUrl: getStringField(part.output, "outputUrl") ?? getStringField(part.input, "outputUrl"),
-    requestedScopes: getLifecycleRequestedScopes(part),
   };
 }
 
@@ -272,17 +265,12 @@ function getLifecycleSummary(part: {
     return summary;
   }
 
-  return part.state === "output-available" ? "The Nanite reported this outcome." : null;
-}
+  const request = getStringField(part.output, "request") ?? getStringField(part.input, "request");
+  if (request) {
+    return request;
+  }
 
-function getLifecycleRequestedScopes(part: {
-  readonly input?: unknown;
-  readonly output?: unknown;
-}): readonly string[] {
-  const outputScopes = getStringArrayField(part.output, "requestedScopes");
-  return outputScopes.length > 0
-    ? outputScopes
-    : getStringArrayField(part.input, "requestedScopes");
+  return part.state === "output-available" ? "The Nanite reported this outcome." : null;
 }
 
 function NaniteLifecycleIcon({ tone }: { readonly tone: NaniteLifecycleToolTone }) {
@@ -321,13 +309,6 @@ function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteLifecycl
           >
             Open change proposal
           </a>
-        ) : null}
-        {outcome.requestedScopes.length > 0 ? (
-          <ul className="nanite-lifecycle-tool__scopes">
-            {outcome.requestedScopes.map((scope) => (
-              <li key={scope}>{scope}</li>
-            ))}
-          </ul>
         ) : null}
       </div>
     </section>

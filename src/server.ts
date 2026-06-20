@@ -1,5 +1,15 @@
 // Wrangler entrypoint ("main" in wrangler.jsonc).
-import * as Sentry from "@sentry/cloudflare";
+import {
+  MCP_ROUTE,
+  MCP_AUTHORIZE_ROUTE,
+  MCP_TOKEN_ROUTE,
+  MCP_CLIENT_REGISTRATION_ROUTE,
+  SUPPORTED_MCP_SCOPES,
+  DEFAULT_LOCAL_TRACES_SAMPLE_RATE,
+  DEFAULT_REMOTE_TRACES_SAMPLE_RATE,
+  SAMPLING_RATE_MIN,
+  SAMPLING_RATE_MAX,
+} from "#/shared/constants.ts";
 import {
   OAuthError,
   OAuthProvider,
@@ -9,13 +19,7 @@ import { HostBridgeLoopback } from "@cloudflare/think/extensions";
 import { getLogger } from "@logtape/logtape";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { nanitesMcpApiHandler } from "#/backend/mcp/index.ts";
-import {
-  MCP_AUTHORIZE_ROUTE,
-  MCP_CLIENT_REGISTRATION_ROUTE,
-  MCP_ROUTE,
-  MCP_TOKEN_ROUTE,
-  SUPPORTED_MCP_SCOPES,
-} from "#/mcp.ts";
+import * as Sentry from "@sentry/cloudflare";
 import {
   downscopeMcpAuthPropsForToken,
   INVALID_MCP_AUTH_PROPS_DESCRIPTION,
@@ -40,15 +44,12 @@ import { SigveloManagerConversationAgent as BaseSigveloManagerConversationAgent 
 import { SigveloNaniteManager as BaseSigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 import { NanitesSetupAgent as BaseNanitesSetupAgent } from "#/backend/agents/NanitesSetupAgent.ts";
+import { parseBoundedNumber } from "#/shared/utils/values.ts";
 
 configureAgentLogging("info");
 
 type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions<Env>["onError"]>>[0];
 
-const DEFAULT_LOCAL_TRACES_SAMPLE_RATE = 1;
-const DEFAULT_REMOTE_TRACES_SAMPLE_RATE = 0.1;
-const SAMPLING_RATE_MIN = 0;
-const SAMPLING_RATE_MAX = 1;
 const OAUTH_AUTHORIZATION_SERVER_METADATA_ROUTE = "/.well-known/oauth-authorization-server";
 const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-protected-resource";
 
@@ -67,19 +68,6 @@ export { ChatSdkStateAgent, HostBridgeLoopback, SigveloNaniteAgent };
 // works in the vitest workerd pool but not in deployed Workers.
 export { CodemodeRuntime } from "@cloudflare/think/server-entry";
 
-function parseSamplingRate(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < SAMPLING_RATE_MIN || parsed > SAMPLING_RATE_MAX) {
-    return fallback;
-  }
-
-  return parsed;
-}
-
 function createServerSentryOptions(env: Env) {
   const isLocalLikeEnvironment =
     env.SENTRY_ENVIRONMENT === "local" || env.SENTRY_ENVIRONMENT === "development";
@@ -88,9 +76,11 @@ function createServerSentryOptions(env: Env) {
     dsn: env.SENTRY_DSN ?? "",
     enabled: Boolean(env.SENTRY_DSN),
     environment: env.SENTRY_ENVIRONMENT,
-    tracesSampleRate: parseSamplingRate(
+    tracesSampleRate: parseBoundedNumber(
       env.SENTRY_TRACES_SAMPLE_RATE,
       isLocalLikeEnvironment ? DEFAULT_LOCAL_TRACES_SAMPLE_RATE : DEFAULT_REMOTE_TRACES_SAMPLE_RATE,
+      SAMPLING_RATE_MIN,
+      SAMPLING_RATE_MAX,
     ),
     integrations: [Sentry.vercelAIIntegration()],
   };

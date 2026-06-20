@@ -1,4 +1,3 @@
-import { page } from "vite-plus/test/browser/context";
 import { expect, test as baseTest } from "vite-plus/test";
 import { browserWorker } from "./msw-browser-worker.ts";
 
@@ -17,4 +16,4 @@ export const test = baseTest.extend<BrowserFixtures>({
   ],
 });
 
-export { expect, page };
+export { expect };

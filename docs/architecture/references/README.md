@@ -14,6 +14,8 @@ Use these first instead:
 Implementation-reading aids in this directory include:
 
 - `explain-nanites-imports.md` for historical old-prototype import-map and ownership-model context
+- `workflow-backed-nanite-runs.md` for Cloudflare Workflow-backed Nanite Runs and later generated
+  Dynamic Workflow plans
 - `long-term-composability.md` for the builder direction, Session alignment, and rewrite guardrails
 - `lifecycle-watchdog-primitives.md` for Cloudflare Agents, Durable Object, and Think primitives that can support a Nanite stale-run watchdog
 - `mcp-agent-auth.md` for agent-facing MCP auth notes covering client credentials, private key JWT,

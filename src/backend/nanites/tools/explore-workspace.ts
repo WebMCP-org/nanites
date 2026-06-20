@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import type { NaniteWorkspaceExploreOutput } from "#/backend/agents/SigveloNaniteAgent.ts";
 import type { ExploreNaniteWorkspaceInput } from "#/backend/agents/SigveloNaniteManager.ts";
@@ -8,7 +9,6 @@ import {
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 // MCP tool registration only advertises top-level object schemas; a top-level
 // discriminated union is published as an empty input schema, so clients never see

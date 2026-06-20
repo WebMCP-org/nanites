@@ -286,7 +286,7 @@ function outcomeBadgeColor(value: string | null): BadgeColor {
     case "fail":
     case "denied":
       return "destructive";
-    case "waiting_for_human":
+    case "waiting_for_manager":
     case "running":
       return "warning";
     default:
@@ -303,7 +303,7 @@ function outcomeColor(value: string, index: number): string {
     case "fail":
     case "denied":
       return "var(--sigvelo-destructive-fill-mid)";
-    case "waiting_for_human":
+    case "waiting_for_manager":
     case "running":
       return "var(--sigvelo-warning-fill-mid)";
     default:

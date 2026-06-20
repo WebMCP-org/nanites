@@ -1,3 +1,4 @@
+import { SUPPORTED_MCP_SCOPES } from "#/shared/constants.ts";
 import { APP_ERRORS, AppError } from "#/backend/errors.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import type { SigveloMcpVisibleRepository } from "#/backend/mcp/auth-props.ts";
@@ -8,7 +9,6 @@ import type {
   NaniteToolRuntime,
   SigveloNaniteToolSurface,
 } from "#/backend/nanites/tools/define-tool.ts";
-import { SUPPORTED_MCP_SCOPES } from "#/mcp.ts";
 
 type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
 type RepositoryAccessLevel = "read" | "write";

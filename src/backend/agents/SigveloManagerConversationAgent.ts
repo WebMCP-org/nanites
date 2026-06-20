@@ -1,3 +1,4 @@
+import { MCP_SCOPES, DEFAULT_SIGVELO_AGENT_MODEL_ID } from "#/shared/constants.ts";
 import { Think, Workspace, skills } from "@cloudflare/think";
 import type {
   Session,
@@ -27,13 +28,9 @@ import {
 } from "#/backend/agents/SigveloChatIngress.ts";
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
-import {
-  createSigveloAgentLanguageModel,
-  DEFAULT_SIGVELO_AGENT_MODEL_ID,
-} from "#/backend/nanites/language-model.ts";
+import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
-import { buildNaniteManagerKey, parseNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey, parseNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
 const SIGVELO_MANAGER_CHAT_CLIENT_ID = "sigvelo-github-manager-chat";
 const STALE_MANAGER_SUBMISSION_AGE_MS = 120_000;

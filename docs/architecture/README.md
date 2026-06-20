@@ -34,7 +34,7 @@ flowchart LR
   Manager -->|"start run"| Nanite
   Nanite --> Workspace["Workspace + Shell git<br/>files, diffs, branches"]
   Nanite --> GitHubMcp["Scoped GitHub MCP<br/>PRs, checks, search"]
-  Nanite --> Lifecycle["Lifecycle tools<br/>complete, no_change, fail, ask_human"]
+  Nanite --> Lifecycle["Lifecycle tools<br/>complete, no_change, fail, ask_manager"]
   Lifecycle --> Manager
   Manager --> Surface["GitHub feedback<br/>run link + native surfaces"]
   Nanite --> UI["UI connects directly<br/>useAgent + useAgentChat"]
@@ -151,7 +151,7 @@ A Nanite definition should mostly describe:
 
 - scope: repos, files, packages, docs, or surfaces it owns
 - soul: what it is trying to preserve and how it should make tradeoffs
-- stop conditions: what counts as done, no-change, failed, or waiting for a human
+- stop conditions: what counts as done, no-change, failed, or waiting for the manager
 
 Capabilities should come from repo-local instructions, MCP servers, skills, Workspace/git tools, and runtime-owned lifecycle commands. Do not grow a giant SigVelo-specific tool manifest unless a real authorization boundary requires it.
 
@@ -262,9 +262,9 @@ When finished, call exactly one lifecycle tool.
 ```
 
 The manager does not publish a hidden support lane for the Nanite. The Nanite chooses whether to
-reuse an existing PR, open a new PR, create a simple PR stack, report no change, fail, or ask for a
-human. For now, a stack is represented by the best review URL plus summary text rather than a
-first-class SigVelo stack model.
+reuse an existing PR, open a new PR, create a simple PR stack, report no change, fail, or ask the
+manager for more authority. For now, a stack is represented by the best review URL plus summary text
+rather than a first-class SigVelo stack model.
 
 ## Source of truth
 
@@ -276,7 +276,7 @@ first-class SigVelo stack model.
 | Repo edits and git operations                | Workspace + Shell git     | Uses scoped GitHub installation auth.                    |
 | PR/search/status operations                  | GitHub MCP via codemode   | `github.*` in execute; Nanite-scoped tool inventory.     |
 | Build, typecheck, test truth                 | GitHub CI                 | Prefer CI signals over a SigVelo process harness.        |
-| Final outcome                                | Lifecycle tools           | `complete`, `no_change`, `fail`, `ask_human`.            |
+| Final outcome                                | Lifecycle tools           | `complete`, `no_change`, `fail`, `ask_manager`.          |
 
 ## Future path
 
@@ -294,10 +294,12 @@ Do not build code around the generated-owner future until the stable path stops 
 
 ## Active documents
 
-This directory has seven active documents.
+This directory has eight active documents.
 
 - `architecture.md` - long-term product model and durable boundaries
 - `execution-architecture.md` - current runtime shape, centered on Think sub-agents and Workspace
+- `ask-manager-escalation-plan.md` - plan to replace app-local approval checkpoints with manager
+  escalation
 - `nanite-model-config-plan.md` - MCP/manager-authored model selection for Nanite manifests
 - `observability-plan.md` - cost, audit, telemetry, and dashboard planning for Nanites
 - `tool-surface-lld.md` - low-level design for shared MCP/browser/manager-chat Nanite tools
@@ -320,12 +322,16 @@ Use `references/source-index.md` when you need first-party docs, `opensrc/` loca
 Use `references/github-mcp-capability-assignment.md` when changing GitHub MCP attachment,
 Nanite-scoped GitHub tools, installation-token handling, or PR/stacked-PR capability.
 
+Use `references/workflow-backed-nanite-runs.md` when implementing Cloudflare Workflow-backed Nanite
+Runs or evaluating generated Dynamic Workflow plans.
+
 ## Maintenance rule
 
 Do not let this directory turn back into a stack of overlapping plans.
 
 - Product truth belongs in `architecture.md`.
 - Build-now runtime truth belongs in `execution-architecture.md`.
+- Manager escalation planning belongs in `ask-manager-escalation-plan.md`.
 - Future Nanite model-selection implementation detail belongs in `nanite-model-config-plan.md`.
 - Observability and reporting planning belongs in `observability-plan.md`.
 - Shared manager tool-surface implementation detail belongs in `tool-surface-lld.md`.

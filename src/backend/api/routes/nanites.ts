@@ -8,7 +8,7 @@ import { requireBrowserInstallationScope } from "#/backend/auth/installations.ts
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
-import { parseNaniteManagerKey } from "#/nanites.ts";
+import { parseNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
 const managerNameInput = zValidator(
   "param",

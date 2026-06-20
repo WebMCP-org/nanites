@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import {
   NANITE_MANUAL_RUN_TIMEOUT_MS,
@@ -10,7 +11,6 @@ import {
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
 import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const startNaniteRunToolInputSchema = z.object({
   naniteId: nonEmptyStringSchema,

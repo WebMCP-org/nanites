@@ -393,7 +393,7 @@ Initial event names:
 - `audit.nanite.permissions.updated`
 - `audit.run.started`
 - `audit.run.canceled`
-- `audit.human_checkpoint.resolved`
+- `audit.manager_escalation.resolved`
 - `audit.mcp.authorization.granted`
 - `audit.mcp.authorization.denied`
 
@@ -423,7 +423,7 @@ milestones only:
 - `nanite.lifecycle.completed`
 - `nanite.lifecycle.failed`
 - `nanite.lifecycle.no_change`
-- `nanite.lifecycle.waiting_for_human`
+- `nanite.lifecycle.waiting_for_manager`
 - `nanite.run.canceled`
 
 ## Backend Shape
@@ -562,7 +562,7 @@ Top cards:
 - successful runs
 - failed runs
 - no-change runs
-- waiting-for-human runs
+- waiting-for-manager runs
 - active Nanites
 - newly created Nanites
 

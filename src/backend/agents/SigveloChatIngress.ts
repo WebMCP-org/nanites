@@ -1,5 +1,6 @@
+import { GITHUB_WEBHOOK_PATH, GITHUB_WEBHOOK_TARGET_ID_HEADER } from "#/shared/constants.ts";
 import { createGitHubAdapter } from "@chat-adapter/github";
-import { isRecord } from "#/utils.ts";
+import { isRecord } from "#/shared/utils/values.ts";
 import type { GitHubAdapter, GitHubRawMessage } from "@chat-adapter/github";
 import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 import { getLogger } from "@logtape/logtape";
@@ -13,8 +14,7 @@ import type {
   SigveloManagerConversationAgent,
   ManagerReplyPublication,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
-import { GITHUB_WEBHOOK_PATH, GITHUB_WEBHOOK_TARGET_ID_HEADER } from "#/github.ts";
-import { buildNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { requireGitHubApp } from "#/backend/github/apps.ts";
 

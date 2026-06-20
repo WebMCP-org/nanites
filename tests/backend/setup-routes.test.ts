@@ -1,3 +1,4 @@
+import { NANITES_SETUP_AGENT_NAME, NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/shared/constants.ts";
 import { createExecutionContext, env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
@@ -31,7 +32,6 @@ import {
 } from "#/backend/auth/session.ts";
 import { beforeEach } from "vite-plus/test";
 import worker from "#/server.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 
 const GITHUB_UPSTREAM_STAR_URL = "https://api.github.com/user/starred/WebMCP-org/nanites";
 const SETUP_CLAIM_COOKIE_NAME = "nanites_setup_claim";

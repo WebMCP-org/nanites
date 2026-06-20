@@ -1,4 +1,10 @@
 import "./setup.css";
+import {
+  GITHUB_OAUTH_LOGIN_PATH,
+  AUTH_RETURN_TO_PARAM,
+  NANITES_SETUP_AGENT_NAME,
+  NANITES_SETUP_AGENT_INSTANCE_NAME,
+} from "#/shared/constants.ts";
 import { useState, type ReactNode } from "react";
 import { useAgent } from "agents/react";
 import { createFileRoute, redirect } from "@tanstack/react-router";
@@ -15,8 +21,7 @@ import { Button } from "#/frontend/ui/components/Button.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
 import { AgentConnectionPanel } from "#/frontend/ui/components/AgentConnection.tsx";
 import { httpClient } from "#/frontend/lib/http-client.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
-import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
+import { isLocalSetupOrigin } from "#/frontend/lib/setup-origin.ts";
 import type {
   GitHubAppManifest,
   NanitesSetupAgent,
@@ -232,22 +237,6 @@ function buildGitHubLoginUrl(returnTo = "/nanites"): string {
   const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, window.location.href);
   loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, returnTo);
   return loginUrl.toString();
-}
-
-function isLocalSetupOrigin(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const hostname = window.location.hostname.toLowerCase();
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0" ||
-    hostname === "::1" ||
-    hostname === "[::1]" ||
-    hostname.endsWith(".localhost")
-  );
 }
 
 async function postSetupAction<T>(path: string, body?: unknown): Promise<T> {

@@ -1,3 +1,4 @@
+import { MANAGER_CONVERSATION_AGENT_NAME } from "#/shared/constants.ts";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { authorizeAgentRequest } from "#/backend/auth/index.ts";
@@ -9,7 +10,7 @@ import {
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
-import { MANAGER_CONVERSATION_AGENT_NAME, buildNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 import worker from "#/server.ts";
 
 const GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token";

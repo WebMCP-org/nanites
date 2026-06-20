@@ -3,7 +3,7 @@ import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import { AppError } from "#/backend/errors.ts";
 import { isGitHubAuthenticationFailure, listVisibleInstallations } from "#/backend/github/index.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
-import { buildNaniteManagerKey, type NaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey, type NaniteManagerKey } from "#/shared/utils/nanites.ts";
 import {
   appendExpiredAuthCookies,
   clearRevokedSessionSelectionIfNeeded,

@@ -1,5 +1,12 @@
 import "./nanites.css";
-import { isRecord } from "#/utils.ts";
+import {
+  SIGVELO_GITHUB_APP_URL,
+  NANITE_MANAGER_NAME,
+  MANAGER_CONVERSATION_AGENT_NAME,
+  NANITE_AGENT_NAME,
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+} from "#/shared/constants.ts";
+import { isRecord } from "#/shared/utils/values.ts";
 import {
   Suspense,
   useCallback,
@@ -111,14 +118,8 @@ import type {
   SigveloManagerConversationAgent,
   ManagerConversationState,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
-import {
-  DEFAULT_SIGVELO_AGENT_MODEL_ID,
-  MANAGER_CONVERSATION_AGENT_NAME,
-  NANITE_AGENT_NAME,
-  NANITE_MANAGER_NAME,
-} from "#/nanites.ts";
-import { buildNaniteManagerKey } from "#/nanites.ts";
-import { buildGitHubAppInstallHref, SIGVELO_GITHUB_APP_URL } from "#/github.ts";
+import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
+import { buildGitHubAppInstallHref } from "#/shared/utils/github.ts";
 import {
   getGitHubWebhookAction,
   getGitHubWebhookBranch,
@@ -126,7 +127,7 @@ import {
   getGitHubWebhookHeadSha,
   getGitHubWebhookPullRequestNumber,
   getGitHubWebhookRepositoryFullName,
-} from "#/github.ts";
+} from "#/shared/utils/github.ts";
 
 const emptyState: NaniteManagerState = {
   nanites: {},
@@ -354,7 +355,7 @@ function getRunStatusTone(status: NaniteRunStatus): string {
   if (status === "fail" || status === "canceled") {
     return "danger";
   }
-  if (status === "waiting_for_human") {
+  if (status === "waiting_for_manager") {
     return "warning";
   }
   return "idle";
@@ -367,7 +368,7 @@ function getRunActivityTone(
   if (activity?.state === "error") {
     return "danger";
   }
-  if (activity?.state === "waiting_for_human" || run?.status === "waiting_for_human") {
+  if (activity?.state === "waiting_for_manager" || run?.status === "waiting_for_manager") {
     return "warning";
   }
   if (
@@ -396,7 +397,7 @@ function getRunActivityLabel(
     return "thinking";
   }
 
-  if (run.status === "waiting_for_human" || activity?.state === "waiting_for_human") {
+  if (run.status === "waiting_for_manager" || activity?.state === "waiting_for_manager") {
     return "waiting";
   }
 
@@ -430,7 +431,7 @@ function getRunActivityKind(
     return "spinner";
   }
 
-  if (activity?.state === "waiting_for_human" || run.status === "waiting_for_human") {
+  if (activity?.state === "waiting_for_manager" || run.status === "waiting_for_manager") {
     return "dot";
   }
 
@@ -1216,8 +1217,9 @@ function NaniteRunInfoPanel({
     suggestedTargetId: activeInstallation.account.id,
   });
   const triggerLabel = run ? formatTriggerEvent(run.trigger) : nanite ? triggerSpec : "No trigger";
-  const runSummary = run && run.status !== "running" ? run.summary : null;
-  const runHumanRequest = run?.status === "waiting_for_human" ? run.humanRequest : null;
+  const runSummary =
+    run && run.status !== "running" && run.status !== "waiting_for_manager" ? run.summary : null;
+  const runManagerRequest = run?.status === "waiting_for_manager" ? run.managerRequest : null;
   const runOutputUrl = run?.status === "complete" ? run.outputUrl : null;
   const scopeRows: InfoRow[] = [
     {
@@ -1284,11 +1286,11 @@ function NaniteRunInfoPanel({
           value: runSummary,
         }
       : null,
-    runHumanRequest
+    runManagerRequest
       ? {
           key: "waiting",
           label: "Waiting",
-          value: runHumanRequest.summary,
+          value: runManagerRequest.request,
         }
       : null,
   ].filter((row) => row !== null);

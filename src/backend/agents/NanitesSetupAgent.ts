@@ -1,7 +1,13 @@
+import {
+  GITHUB_OAUTH_CALLBACK_PATH,
+  GITHUB_WEBHOOK_PATH,
+  NANITES_SETUP_AGENT_NAME,
+  NANITES_SETUP_AGENT_INSTANCE_NAME,
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+} from "#/shared/constants.ts";
 import { Agent, DurableObjectOAuthClientProvider, getCurrentAgent } from "agents";
 import type { MCPClientOAuthResult } from "agents/mcp/client";
 import type { RestEndpointMethodTypes } from "@octokit/plugin-rest-endpoint-methods";
-import type { EmitterWebhookEventName } from "@octokit/webhooks";
 import { getLogger } from "@logtape/logtape";
 import { generateCookie } from "hono/cookie";
 import { z } from "zod";
@@ -22,14 +28,11 @@ import {
 } from "#/backend/github/index.ts";
 import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
 import {
-  DEFAULT_SIGVELO_AGENT_MODEL_ID,
   NANITES_AI_GATEWAY_ID,
   NANITES_AI_GATEWAY_REQUEST_DEFAULTS,
 } from "#/backend/nanites/language-model.ts";
 import { LOGGING } from "#/backend/logging.ts";
-import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
-import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
+import { buildGitHubAppInstallHref, type GitHubWebhookEventName } from "#/shared/utils/github.ts";
 
 const setupLogger = getLogger(LOGGING.NANITES_CATEGORY).getChild("setup");
 
@@ -89,10 +92,6 @@ type GitHubAppManifestPermissions = NonNullable<
   RestEndpointMethodTypes["apps"]["createInstallationAccessToken"]["parameters"]["permissions"]
 >;
 
-// Manifests take top-level webhook event names, not the `event.action`
-// variants the emitter also names.
-type GitHubAppManifestEvent = Exclude<EmitterWebhookEventName, `${string}.${string}`>;
-
 export const DEFAULT_GITHUB_APP_PERMISSIONS = {
   actions: "write",
   checks: "write",
@@ -146,7 +145,7 @@ export const DEFAULT_GITHUB_APP_EVENTS = [
   "workflow_dispatch",
   "workflow_job",
   "workflow_run",
-] as const satisfies readonly GitHubAppManifestEvent[];
+] as const satisfies readonly GitHubWebhookEventName[];
 
 // ---------------------------------------------------------------------------
 // Public state

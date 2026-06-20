@@ -1,16 +1,15 @@
+import { DEFAULT_SIGVELO_AGENT_MODEL_ID } from "#/shared/constants.ts";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
-import { DEFAULT_SIGVELO_AGENT_MODEL_ID } from "#/nanites.ts";
 
 // AI Gateway policy. Not an env var on purpose: self-hosters own this repo, so to
 // change it you edit the constant and redeploy — your Cloudflare account holds the
 // resulting gateway config. The setup flow provisions the gateway with these values.
-// The default model id lives in #/nanites.ts so the browser can share it.
-export { DEFAULT_SIGVELO_AGENT_MODEL_ID };
+// The default model id lives in #/shared/constants.ts so the browser can share it.
 export const NANITES_AI_GATEWAY_ID = "sigvelo-nanites";
 
-export type NanitesAiGatewayBackoff = "constant" | "linear" | "exponential";
+type NanitesAiGatewayBackoff = "constant" | "linear" | "exponential";
 
 export const NANITES_AI_GATEWAY_REQUEST_DEFAULTS = {
   maxAttempts: 5,
@@ -69,7 +68,7 @@ function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel |
   if (
     testFixture === "complete" ||
     testFixture === "no_change" ||
-    testFixture === "ask_human" ||
+    testFixture === "ask_manager" ||
     testFixture === "no_lifecycle" ||
     testFixture === "github_mcp_issue_actions" ||
     testFixture === "tool_output_budget"
@@ -230,7 +229,7 @@ export async function createNaniteRunLanguageModel(
 type NaniteLlmFixture =
   | "complete"
   | "no_change"
-  | "ask_human"
+  | "ask_manager"
   | "no_lifecycle"
   | "github_mcp_issue_actions"
   | "tool_output_budget";
@@ -343,12 +342,12 @@ function buildFixtureToolCall(fixture: Exclude<NaniteLlmFixture, "no_lifecycle">
     };
   }
 
-  if (fixture === "ask_human") {
+  if (fixture === "ask_manager") {
     return {
-      name: "ask_human",
+      name: "ask_manager",
       arguments: JSON.stringify({
-        summary: "Need contents:write before opening the documentation PR.",
-        requestedScopes: ["contents:write"],
+        request:
+          "I tried to open the documentation PR, but the current run does not have enough repository authority. Please update my access so I can continue.",
       }),
     };
   }

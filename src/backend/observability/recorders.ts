@@ -29,7 +29,7 @@ import {
   getGitHubWebhookPullRequestNumber,
   getGitHubWebhookRepositoryFullName,
   getGitHubWebhookRepositoryId,
-} from "#/github.ts";
+} from "#/shared/utils/github.ts";
 
 type AiUsageFactInsert = InferInsertModel<typeof aiUsageFacts>;
 type NaniteCatalogInsert = InferInsertModel<typeof naniteCatalog>;
@@ -495,8 +495,8 @@ function runConclusionForStatus(status: NaniteRunRecord["status"]): RunConclusio
       return "failure";
     case "no_change":
       return "no_change";
-    case "waiting_for_human":
-      return "waiting_for_human";
+    case "waiting_for_manager":
+      return "waiting_for_manager";
     case "canceled":
       return "canceled";
     case "running":
@@ -547,7 +547,13 @@ function readRunPhase(run: NaniteRunRecord): "investigating" | "completed" {
 }
 
 function readRunSummary(run: NaniteRunRecord): string | null {
-  return run.status === "running" ? null : run.summary;
+  if (run.status === "running") {
+    return null;
+  }
+  if (run.status === "waiting_for_manager") {
+    return run.managerRequest.request;
+  }
+  return run.summary;
 }
 
 function readRunOutputUrl(run: NaniteRunRecord): string | null {
@@ -562,13 +568,13 @@ function readRunImplicitFailureReason(run: NaniteRunRecord): string | null {
       return run.cancellation.type === "unreported" ? run.cancellation.dispatchError : null;
     case "complete":
     case "running":
-    case "waiting_for_human":
+    case "waiting_for_manager":
       return null;
   }
 }
 
 function readRunCompletedAt(run: NaniteRunRecord): Date | null {
-  return run.status === "running" || run.status === "waiting_for_human"
+  return run.status === "running" || run.status === "waiting_for_manager"
     ? null
     : new Date(run.completedAt);
 }

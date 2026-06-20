@@ -1,3 +1,8 @@
+import {
+  GITHUB_OAUTH_LOGIN_PATH,
+  AUTH_RETURN_TO_PARAM,
+  NANITES_SETUP_AGENT_INSTANCE_NAME,
+} from "#/shared/constants.ts";
 import { Hono, type Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { parse } from "hono/utils/cookie";
@@ -31,8 +36,6 @@ import {
   resolveGitHubApp,
 } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
-import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/nanites.ts";
 import {
   GITHUB_APP_INSTALL_CALLBACK_PATH,
   GITHUB_APP_MANIFEST_CALLBACK_PATH,

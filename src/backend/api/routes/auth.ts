@@ -1,3 +1,9 @@
+import {
+  DEFAULT_AUTH_RETURN_TO_PATH,
+  GITHUB_OAUTH_LOGIN_PATH,
+  GITHUB_OAUTH_CALLBACK_PATH,
+  AUTH_RETURN_TO_PARAM,
+} from "#/shared/constants.ts";
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
@@ -23,13 +29,7 @@ import {
 } from "#/backend/auth/session.ts";
 import { readDeploymentGitHubAppMetadata } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
-import {
-  AUTH_RETURN_TO_PARAM,
-  GITHUB_OAUTH_CALLBACK_PATH,
-  GITHUB_OAUTH_LOGIN_PATH,
-  DEFAULT_AUTH_RETURN_TO_PATH,
-  normalizeAuthenticatedReturnToPath,
-} from "#/auth.ts";
+import { normalizeAuthenticatedReturnToPath } from "#/shared/utils/auth.ts";
 import { shouldShowSetup } from "#/backend/setup-policy.ts";
 
 const activeInstallationInput = zValidator(

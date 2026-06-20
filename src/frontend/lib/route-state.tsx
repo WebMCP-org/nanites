@@ -1,3 +1,4 @@
+import { DEFAULT_AUTH_RETURN_TO_PATH } from "#/shared/constants.ts";
 import { type ReactNode, useEffect } from "react";
 import * as Sentry from "@sentry/react";
 import { useQueryClient, useQueryErrorResetBoundary } from "@tanstack/react-query";
@@ -13,7 +14,7 @@ import {
   readApiErrorMessage,
   type InstallationAuthErrorDetails,
 } from "#/frontend/lib/auth.ts";
-import { DEFAULT_AUTH_RETURN_TO_PATH, resolveAuthReturnTo } from "#/auth.ts";
+import { resolveAuthReturnTo } from "#/shared/utils/auth.ts";
 
 interface StateAction {
   readonly label: string;

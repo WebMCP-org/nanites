@@ -4,7 +4,7 @@ import { buildReturnToPath } from "#/frontend/lib/auth.ts";
 import { Card } from "#/frontend/ui/components/Card.tsx";
 import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
-import { buildGitHubAppInstallHref } from "#/github.ts";
+import { buildGitHubAppInstallHref } from "#/shared/utils/github.ts";
 
 export function NanitesZeroInstallState({
   githubApp,
