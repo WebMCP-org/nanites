@@ -25,7 +25,6 @@ import {
   configureAgentLogging,
   createWorkerRequestId,
   getApiRequestLogEvent,
-  getHttpStatusClass,
   LOG_EVENTS,
   LOGGING,
   OTEL_ATTRS,
@@ -167,15 +166,8 @@ function createOAuthProviderRequestLogProperties({
   const roundedResponseTime = Math.round(responseTime);
 
   return {
-    method: request.method,
-    url: url.pathname,
-    path: url.pathname,
-    status: response.status,
-    responseTime: roundedResponseTime,
-    message: getApiRequestLogEvent(response.status),
     [OTEL_ATTRS.HTTP_REQUEST_METHOD]: request.method,
     [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CODE]: response.status,
-    [OTEL_ATTRS.HTTP_RESPONSE_STATUS_CLASS]: getHttpStatusClass(response.status),
     [OTEL_ATTRS.HTTP_ROUTE]: route,
     [OTEL_ATTRS.REQUEST_ID]: requestId,
     [OTEL_ATTRS.REQUEST_DURATION_MS]: roundedResponseTime,
@@ -197,14 +189,15 @@ function logOAuthProviderRequest({
   requestId: string;
   startTime: number;
 }): void {
+  const responseTime = performance.now() - startTime;
   oauthProviderRequestLogger.info(
-    "{method} {url} {status} - {responseTime} ms",
+    getApiRequestLogEvent(response.status),
     createOAuthProviderRequestLogProperties({
       request,
       response,
       route,
       requestId,
-      responseTime: performance.now() - startTime,
+      responseTime,
     }),
   );
 }

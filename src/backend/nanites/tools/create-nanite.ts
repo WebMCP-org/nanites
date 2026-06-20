@@ -89,8 +89,8 @@ const naniteManifestSchema = z.union([
 const createNaniteToolInputSchema = z
   .object({
     manifest: naniteManifestSchema,
-    enabled: z.boolean().default(true),
   })
+  .strict()
   .describe("Create or update a stable Nanite through the authorized installation-scoped manager.");
 
 export const createNaniteTool = defineSigveloMcpTool({
@@ -116,7 +116,6 @@ export const createNaniteTool = defineSigveloMcpTool({
   async execute(input, { context, manager }) {
     return manager.registerNanite({
       manifest: input.manifest,
-      enabled: input.enabled,
       actor: context.actor,
       requestId: context.requestId,
     });

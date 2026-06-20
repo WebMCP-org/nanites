@@ -231,12 +231,6 @@ export const APP_ERRORS = {
     message: "Nanite run not found.",
     publicDetailKeys: ["runId"],
   },
-  naniteDisabled: {
-    code: "nanite_disabled",
-    status: 400,
-    message: "Nanite is disabled.",
-    publicDetailKeys: ["naniteId"],
-  },
   naniteManagerInstallationRequired: {
     code: "nanite_manager_installation_required",
     status: 403,

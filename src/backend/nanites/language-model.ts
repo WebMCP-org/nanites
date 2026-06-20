@@ -1,12 +1,13 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
+import { DEFAULT_SIGVELO_AGENT_MODEL_ID } from "#/nanites.ts";
 
-// Default model and AI Gateway policy. These are not env vars on purpose: self-hosters
-// own this repo, so to change them you edit the constant and redeploy — your Cloudflare
-// account holds the resulting gateway config. The setup flow provisions the gateway below
-// with these values; per-request overrides aren't needed.
-export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/zai-org/glm-4.7-flash";
+// AI Gateway policy. Not an env var on purpose: self-hosters own this repo, so to
+// change it you edit the constant and redeploy — your Cloudflare account holds the
+// resulting gateway config. The setup flow provisions the gateway with these values.
+// The default model id lives in #/nanites.ts so the browser can share it.
+export { DEFAULT_SIGVELO_AGENT_MODEL_ID };
 export const NANITES_AI_GATEWAY_ID = "sigvelo-nanites";
 
 export type NanitesAiGatewayBackoff = "constant" | "linear" | "exponential";
@@ -54,6 +55,8 @@ interface SigveloAgentLanguageModelInput {
   env: Env;
   sessionAffinity: string;
   gatewayMetadata?: Record<string, string>;
+  /** Override the default agent model (e.g. a user-picked model from the dropdown). */
+  modelId?: string;
 }
 
 interface NaniteRunLanguageModelInput extends SigveloAgentLanguageModelInput {
@@ -200,7 +203,7 @@ export function createSigveloAgentLanguageModel(
 
   return createPromptCachedWorkersAIModel({
     binding: input.env.AI,
-    model: DEFAULT_SIGVELO_AGENT_MODEL_ID,
+    model: input.modelId?.trim() || DEFAULT_SIGVELO_AGENT_MODEL_ID,
     sessionAffinity: input.sessionAffinity,
     gatewayId: NANITES_AI_GATEWAY_ID,
     gatewayMetadata: input.gatewayMetadata,

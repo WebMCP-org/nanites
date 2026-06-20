@@ -29,13 +29,22 @@ interface PageStateCardProps {
   readonly sceneVariant?: NaniteSceneVariant;
 }
 
-export function RoutePendingPage() {
+export function RoutePendingPage({
+  title = "Loading Nanites.",
+  description = "Nanites are preparing the next screen and syncing the required data.",
+}: {
+  readonly title?: string;
+  readonly description?: string;
+} = {}) {
+  // ponytail: card-less, centered loader shared by routes and the chat Suspense fallback.
   return (
-    <PageStateCard
-      sceneVariant="working"
-      title="Loading Nanites."
-      description="Nanites are preparing the next screen and syncing the required data."
-    />
+    <div className="page-loading">
+      <NaniteScene className="page-loading__nanite" mode="solo" variant="working" />
+      <div className="page-loading__copy">
+        <h1 className="app-page-title">{title}</h1>
+        <p className="app-page-description">{description}</p>
+      </div>
+    </div>
   );
 }
 
@@ -43,12 +52,7 @@ export function RouteNotFoundPage() {
   return (
     <div className="not-found">
       <div className="not-found__inner">
-        <NaniteScene
-          className="not-found__nanite"
-          mode="solo"
-          title="Concerned Nanite"
-          variant="concerned"
-        />
+        <NaniteScene className="not-found__nanite" mode="solo" variant="concerned" />
         <div className="not-found__content">
           <span className="not-found__eyebrow">404</span>
           <h1 className="not-found__heading">There aren't any nanites here.</h1>
@@ -208,12 +212,7 @@ function PageStateCard({
         <div className="app-stack">
           <Card className="page-state-card">
             <div className="app-stack">
-              <NaniteScene
-                className="page-state-card__nanite"
-                mode="solo"
-                title="Nanite status"
-                variant={sceneVariant}
-              />
+              <NaniteScene className="page-state-card__nanite" mode="solo" variant={sceneVariant} />
               <div className="app-page-header">
                 <h1 className="app-page-title">{title}</h1>
                 <p className="app-page-description">{description}</p>

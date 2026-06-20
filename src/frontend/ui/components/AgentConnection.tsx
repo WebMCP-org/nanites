@@ -29,11 +29,15 @@ function getBrowserOrigin(): string {
 export function AgentConnectionPanel({
   className,
   defaultTarget = "codex",
+  headingLevel = 2,
   origin,
+  section = true,
 }: {
   readonly className?: string;
   readonly defaultTarget?: AgentConnectionTarget;
+  readonly headingLevel?: 2 | 3;
   readonly origin?: string;
+  readonly section?: boolean;
 }) {
   const [target, setTarget] = useState<AgentConnectionTarget>(defaultTarget);
   const commands = useMemo(
@@ -41,15 +45,17 @@ export function AgentConnectionPanel({
     [origin],
   );
   const selected = commands.find((command) => command.target === target) ?? commands[0];
+  const Heading = headingLevel === 3 ? "h3" : "h2";
+  const Wrapper = section ? "section" : "div";
 
   return (
-    <section className={cx("agent-connect", className)}>
+    <Wrapper className={cx("agent-connect", className)}>
       <div className="agent-connect__header">
         <div className="agent-connect__icon" aria-hidden="true">
           <PlugsConnectedIcon size={18} weight="bold" />
         </div>
         <div className="agent-connect__title-group">
-          <h2>Connect Agent</h2>
+          <Heading>Connect Agent</Heading>
           <p>{selected.description}</p>
         </div>
       </div>
@@ -81,7 +87,7 @@ export function AgentConnectionPanel({
           <CodeBlockContent />
         </CodeBlockContainer>
       </CodeBlock>
-    </section>
+    </Wrapper>
   );
 }
 

@@ -1,7 +1,7 @@
 .code-block {
   display: flex;
   flex-direction: column;
-  width: 100%;
+  inline-size: 100%;
   font-family: var(--sigvelo-font-family);
   background-color: var(--sigvelo-paper-color);
   border: var(--sigvelo-border-style) var(--sigvelo-border-width)
@@ -46,9 +46,16 @@
 }
 
 .code-block__container {
+  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
+  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
+
   position: relative;
   overflow: auto;
-  max-height: 30rem;
+  max-block-size: 30rem;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .code-block__content {
@@ -61,6 +68,10 @@
   color: var(--sigvelo-text-body);
   background-color: var(--sigvelo-paper-color);
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .code-block__content--highlighted {
@@ -76,6 +87,10 @@
   font-size: 0.8125rem;
   line-height: 1.55;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .code-block__content--numbered pre code {
@@ -89,7 +104,7 @@
 .code-block__content--numbered pre code .line::before {
   content: counter(line);
   display: inline-block;
-  width: 2rem;
+  inline-size: 2rem;
   padding-inline-end: 0.75rem;
   margin-inline-end: 0.75rem;
   color: var(--sigvelo-text-muted);

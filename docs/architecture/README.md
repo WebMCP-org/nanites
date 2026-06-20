@@ -199,7 +199,6 @@ path filters, debounce rules, and other behavior belong in `triggerSource` code.
     },
     triggerSource: "...",
   },
-  enabled: true,
 }
 ```
 

@@ -55,4 +55,4 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 - Let the Nanite decide whether to update an existing PR, open a new PR, or create stacked PRs.
 - Use generic lifecycle `outputUrl` for the final review URL.
 - Do not add manager-owned workflow harnesses unless they enforce product policy or an authorization boundary.
-- Do not pass manager names, MCP tiers, runtime classes, tool allowlists, caller-owned ids, or caller-owned timestamps into Nanite manifests.
+- Do not pass `enabled`, manager names, MCP tiers, runtime classes, tool allowlists, caller-owned ids, or caller-owned timestamps into Nanite manifests.

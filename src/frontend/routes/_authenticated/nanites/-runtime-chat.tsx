@@ -3,16 +3,7 @@ import { isRecord } from "#/utils.ts";
 import { getToolName, isToolUIPart } from "ai";
 import type { UIMessage } from "ai";
 import { useAgent } from "agents/react";
-import {
-  Component,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ErrorInfo,
-  type ReactNode,
-} from "react";
+import { Component, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import {
   CodeBlock,
@@ -58,6 +49,7 @@ import {
   TooltipTrigger,
 } from "#/frontend/ui/components/Tooltip.tsx";
 import { formatStructuredCodeDisplay } from "#/frontend/ui/code-display/structured-code.ts";
+import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import {
   ArrowsClockwiseIcon,
   CheckCircleIcon,
@@ -67,7 +59,10 @@ import {
   WarningCircleIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
-import type { SigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
+import type {
+  ManagerConversationState,
+  SigveloManagerConversationAgent,
+} from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import type { NaniteAgentState, SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 import { MANAGER_CONVERSATION_AGENT_NAME } from "#/nanites.ts";
 
@@ -328,11 +323,11 @@ function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteLifecycl
           </a>
         ) : null}
         {outcome.requestedScopes.length > 0 ? (
-          <div className="nanite-lifecycle-tool__scopes" aria-label="Requested scopes">
+          <ul className="nanite-lifecycle-tool__scopes">
             {outcome.requestedScopes.map((scope) => (
-              <span key={scope}>{scope}</span>
+              <li key={scope}>{scope}</li>
             ))}
-          </div>
+          </ul>
         ) : null}
       </div>
     </section>
@@ -446,7 +441,6 @@ export function RuntimeConversation({
   placeholder = "Ask for follow-up changes",
 }: RuntimeConversationProps) {
   const [openToolIds, setOpenToolIds] = useState<Set<string>>(new Set());
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isBusy = isStreaming || isRecovering;
   const promptStatus = error ? "error" : isBusy ? "streaming" : "ready";
   const normalizedMessages = useMemo(() => normalizeMessages(agentMessages), [agentMessages]);
@@ -561,18 +555,16 @@ export function RuntimeConversation({
                               <ToolHeader type="function" toolName={toolName} />
                               <ToolContent>
                                 <ToolInput input={part.input} />
-                                <ToolOutput
-                                  output={
-                                    <CodeBlock
-                                      code={formattedOutput.code}
-                                      language={formattedOutput.language}
-                                    >
-                                      <CodeBlockContainer>
-                                        <CodeBlockContent />
-                                      </CodeBlockContainer>
-                                    </CodeBlock>
-                                  }
-                                />
+                                <ToolOutput>
+                                  <CodeBlock
+                                    code={formattedOutput.code}
+                                    language={formattedOutput.language}
+                                  >
+                                    <CodeBlockContainer>
+                                      <CodeBlockContent />
+                                    </CodeBlockContainer>
+                                  </CodeBlock>
+                                </ToolOutput>
                               </ToolContent>
                             </Tool>
                           );
@@ -693,10 +685,13 @@ export function RuntimeConversation({
                 </Tooltip>
               ) : null}
             </PromptInputTools>
+            <span id="nanite-chat-prompt-label" className="visually-hidden">
+              Message Nanites
+            </span>
             <PromptInputBody>
               <PromptInputTextarea
-                ref={textareaRef}
                 className="app__composer-textarea"
+                aria-labelledby="nanite-chat-prompt-label"
                 placeholder={placeholder}
                 disabled={!onSubmit}
                 minHeight={22}
@@ -715,100 +710,16 @@ export function RuntimeConversation({
   );
 }
 
-export function NaniteRuntimeChatPlaceholder() {
-  return (
-    <div className="nanites-workspace__chat-inner">
-      <div className="app__messages-list" data-testid="messages-list">
-        <Conversation className="app__conversation">
-          <ConversationContent>
-            <ConversationEmptyState>
-              <div className="app__empty">
-                <div className="app__empty-copy">
-                  <div className="app__empty-title">Waiting for the runtime</div>
-                  <div className="app__empty-description">
-                    The Nanite agent transcript appears here.
-                  </div>
-                </div>
-              </div>
-            </ConversationEmptyState>
-          </ConversationContent>
-        </Conversation>
-      </div>
-      <div className="app__composer">
-        <PromptInput onSubmit={() => {}}>
-          <div className="app__composer-row">
-            <PromptInputTools className="app__composer-tools" data-empty="true" />
-            <PromptInputBody>
-              <PromptInputTextarea
-                className="app__composer-textarea"
-                placeholder="Ask for follow-up changes"
-                disabled
-                minHeight={22}
-                maxHeight={96}
-              />
-            </PromptInputBody>
-            <PromptInputSubmit status="ready" disabled />
-          </div>
-        </PromptInput>
-      </div>
-    </div>
-  );
-}
-
-// Suspense fallback shown while a sub-agent connection resolves. It mirrors the
-// chat shell (empty transcript + disabled composer) at reduced opacity so the
-// real conversation can fade up into place without a layout swap or flicker.
+// Suspense fallback shown while a sub-agent connection resolves. Delegates to the
+// shared centered loading screen so the chat matches the rest of the app.
 export function NaniteRuntimeChatLoading({
   description = "The conversation is getting ready. You can stay here while the runtime connects.",
-  placeholder = "Connecting to the Nanite runtime...",
   title = "Preparing the runtime",
 }: {
   readonly description?: string;
-  readonly placeholder?: string;
   readonly title?: string;
 }) {
-  return (
-    <div
-      className="nanites-workspace__chat-inner nanites-workspace__chat-inner--loading"
-      aria-busy="true"
-    >
-      <div className="app__messages-list" data-testid="messages-loading">
-        <Conversation className="app__conversation">
-          <ConversationContent>
-            <ConversationEmptyState>
-              <div className="app__empty app__empty--loading">
-                <div className="app__empty-status" aria-hidden="true">
-                  <CircleNotchIcon size={14} />
-                  <span>Preparing</span>
-                </div>
-                <div className="app__empty-copy">
-                  <div className="app__empty-title">{title}</div>
-                  <div className="app__empty-description">{description}</div>
-                </div>
-              </div>
-            </ConversationEmptyState>
-          </ConversationContent>
-        </Conversation>
-      </div>
-      <div className="app__composer">
-        <PromptInput onSubmit={() => {}}>
-          <div className="app__composer-row">
-            <PromptInputTools className="app__composer-tools" data-empty="true" />
-            <PromptInputBody>
-              <PromptInputTextarea
-                className="app__composer-textarea"
-                placeholder={placeholder}
-                disabled
-                minHeight={22}
-                maxHeight={96}
-              />
-            </PromptInputBody>
-            <PromptInputSubmit status="ready" disabled />
-          </div>
-        </PromptInput>
-      </div>
-    </div>
-  );
+  return <RoutePendingPage title={title} description={description} />;
 }
 
 export type NaniteAgentInstance = ReturnType<typeof useAgent<SigveloNaniteAgent, NaniteAgentState>>;
@@ -824,17 +735,27 @@ type ManagerRuntimeChatConnectorProps = {
   readonly emptyTitle?: string;
   readonly errorDescription?: string;
   readonly loadingDescription?: string;
-  readonly loadingPlaceholder?: string;
   readonly loadingTitle?: string;
   readonly placeholder?: string;
 };
 
-export function NaniteRuntimeChatConnector({
-  agent,
-}: {
-  readonly agent: NaniteAgentInstance | null;
-}) {
-  if (!agent) return <NaniteRuntimeChatPlaceholder />;
+function isConnectedManagerConversationState(
+  state: ManagerConversationState | undefined,
+  input: {
+    readonly accountLogin: string;
+    readonly actorId: number;
+    readonly managerName: string;
+  },
+): boolean {
+  return (
+    state?.status === "connected" &&
+    state.managerName === input.managerName &&
+    state.githubAccountLogin === input.accountLogin &&
+    state.sigveloToolAuthProps.githubUserId === input.actorId
+  );
+}
+
+export function NaniteRuntimeChatConnector({ agent }: { readonly agent: NaniteAgentInstance }) {
   return <NaniteRuntimeChatSession agent={agent} />;
 }
 
@@ -845,72 +766,46 @@ export function ManagerRuntimeChatConnector({
   emptyTitle = "Manager ready",
   errorDescription = "The installation manager conversation could not connect.",
   loadingDescription = "The conversation is getting ready. You’ll be able to continue here in a moment.",
-  loadingPlaceholder = "Connecting to the manager...",
   loadingTitle = "Preparing the runtime",
   managerName,
   placeholder = "Ask the manager to work on Nanites",
 }: ManagerRuntimeChatConnectorProps) {
-  const conversationAgent = useAgent<SigveloManagerConversationAgent>({
+  const connectionKey = [managerName, accountLogin, actor.id, actor.login].join(":");
+  const [connectionError, setConnectionError] = useState<{
+    readonly error: unknown;
+    readonly key: string;
+  } | null>(null);
+  const conversationAgent = useAgent<SigveloManagerConversationAgent, ManagerConversationState>({
     agent: MANAGER_CONVERSATION_AGENT_NAME,
     name: `${managerName}:manager:${actor.id}`,
-  });
-  const connectionKey = useMemo(
-    () => [managerName, accountLogin, actor.id, actor.login].join(":"),
-    [accountLogin, actor.id, actor.login, managerName],
-  );
-  const [connectionState, setConnectionState] = useState<
-    | {
-        readonly key: string;
-        readonly status: "connected";
-      }
-    | {
-        readonly error: unknown;
-        readonly key: string;
-        readonly status: "error";
-      }
-  >();
-  const activeConnectionState =
-    connectionState?.key === connectionKey ? connectionState : undefined;
-
-  useEffect(() => {
-    let canceled = false;
-    void conversationAgent.stub
-      .connectBrowserInstallation()
-      .then(() => {
-        if (!canceled) {
-          setConnectionState({ key: connectionKey, status: "connected" });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!canceled) {
-          setConnectionState({ error, key: connectionKey, status: "error" });
-        }
+    onOpen: () => {
+      setConnectionError(null);
+      void conversationAgent.stub.connectBrowserInstallation().catch((error: unknown) => {
+        setConnectionError({ error, key: connectionKey });
       });
+    },
+  });
+  const isConnected = isConnectedManagerConversationState(conversationAgent.state, {
+    accountLogin,
+    actorId: actor.id,
+    managerName,
+  });
+  const activeConnectionError =
+    connectionError?.key === connectionKey ? connectionError.error : null;
 
-    return () => {
-      canceled = true;
-    };
-  }, [accountLogin, actor, connectionKey, conversationAgent.stub]);
-
-  if (activeConnectionState?.status === "error") {
+  if (!isConnected && activeConnectionError) {
     return (
       <RuntimeConversation
         agentMessages={[]}
         isStreaming={false}
-        error={activeConnectionState.error}
+        error={activeConnectionError}
         emptyDescription={errorDescription}
       />
     );
   }
 
-  if (activeConnectionState?.status !== "connected") {
-    return (
-      <NaniteRuntimeChatLoading
-        description={loadingDescription}
-        placeholder={loadingPlaceholder}
-        title={loadingTitle}
-      />
-    );
+  if (!isConnected) {
+    return <NaniteRuntimeChatLoading description={loadingDescription} title={loadingTitle} />;
   }
 
   return (
@@ -949,30 +844,27 @@ function ManagerRuntimeChatSession({
   });
   const isBusy = isStreaming || isRecovering;
 
-  const handleSubmit = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || isBusy) return;
-      clearError();
-      void sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: trimmed }],
-      });
-    },
-    [clearError, isBusy, sendMessage],
-  );
+  const handleSubmit = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isBusy) return;
+    clearError();
+    void sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: trimmed }],
+    });
+  };
 
-  const handleRegenerate = useCallback(() => {
+  const handleRegenerate = () => {
     if (isBusy) return;
     clearError();
     void regenerate();
-  }, [clearError, isBusy, regenerate]);
+  };
 
-  const handleClearConversation = useCallback(() => {
+  const handleClearConversation = () => {
     if (isBusy) return;
     clearError();
     void agent.stub.clearConversation();
-  }, [agent.stub, clearError, isBusy]);
+  };
 
   return (
     <RuntimeConversation
@@ -1011,24 +903,21 @@ function NaniteRuntimeChatSession({
   });
   const isBusy = isStreaming || isRecovering;
 
-  const handleSubmit = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || isBusy) return;
-      clearError();
-      void sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: trimmed }],
-      });
-    },
-    [clearError, isBusy, sendMessage],
-  );
+  const handleSubmit = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isBusy) return;
+    clearError();
+    void sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: trimmed }],
+    });
+  };
 
-  const handleRegenerate = useCallback(() => {
+  const handleRegenerate = () => {
     if (isBusy) return;
     clearError();
     void regenerate();
-  }, [clearError, isBusy, regenerate]);
+  };
 
   return (
     <RuntimeConversation

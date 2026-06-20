@@ -24,6 +24,8 @@ Avoid:
 ## Manifest Shape
 
 Use the live MCP schema as the final authority. The create schema is strict: unexpected fields are rejected.
+The `sigvelo_create_nanite` input has one top-level key: `manifest`. Registering a Nanite makes it
+active until it is deprovisioned.
 
 Every manifest includes `model` as an explicit Cloudflare AI model catalog id string. Pick the
 cheapest reliable function-calling text model for the Nanite's job from the current Cloudflare model
@@ -31,7 +33,7 @@ catalog. Use `openai/gpt-5.5` as the default strong model when no cheaper proven
 keep `@cf/...` Workers AI models as explicit opt-in choices. Do not put gateway ids, BYOK aliases,
 provider API keys, or auth headers in the manifest.
 
-GitHub machine-source Nanite:
+GitHub machine-source `sigvelo_create_nanite` input:
 
 ```json
 {
@@ -56,13 +58,12 @@ GitHub machine-source Nanite:
         }
       }
     },
-    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ event: 'push', async handle(event, ctx) { if (event.payload.repository.full_name !== 'WebMCP-org/npm-packages') return ctx.noop('Different repository.'); if (event.payload.ref !== 'refs/heads/main') return ctx.noop('Not the main branch.'); return ctx.dispatchSelf({ reason: 'Relevant push', repository: event.payload.repository.full_name, before: event.payload.before, after: event.payload.after }); } });"
-  },
-  "enabled": true
+    "triggerSource": "import { defineGitHubTrigger } from '@sigvelo/nanite-trigger'; export default defineGitHubTrigger({ event: 'push', async handle(event, ctx) { if (event.payload.repository.full_name !== 'WebMCP-org/npm-packages') return ctx.noop('Different repository.'); if (event.payload.ref !== 'refs/heads/main') return ctx.noop('Not the main branch.'); const changed = event.payload.commits.flatMap((commit) => [...(commit.added ?? []), ...(commit.modified ?? []), ...(commit.removed ?? [])]); const files = changed.filter((file) => file.startsWith('packages/react-webmcp/')); if (files.length === 0) return ctx.noop('No React WebMCP package files changed.'); return ctx.dispatchSelf({ reason: 'React WebMCP package changed', repository: event.payload.repository.full_name, before: event.payload.before, after: event.payload.after, files: files.slice(0, 50) }); } });"
+  }
 }
 ```
 
-Manual Nanite:
+Manual `sigvelo_create_nanite` input:
 
 ```json
 {
@@ -84,21 +85,35 @@ Manual Nanite:
         }
       }
     }
-  },
-  "enabled": true
+  }
 }
 ```
 
-Schedule source shape:
+Scheduled `sigvelo_create_nanite` input:
 
 ```json
 {
-  "eventSource": {
-    "type": "scheduleEvery",
-    "intervalSeconds": 86400
-  },
-  "model": "openai/gpt-5.5",
-  "triggerSource": "export default { async handle(event, ctx) { return ctx.dispatchSelf({ reason: 'Daily scheduled check' }); } };"
+  "manifest": {
+    "id": "daily-repo-health-checker",
+    "name": "Daily Repo Health Checker",
+    "description": "Checks the Nanites repo once per day and reports whether maintenance is needed.",
+    "model": "openai/gpt-5.5",
+    "eventSource": {
+      "type": "scheduleEvery",
+      "intervalSeconds": 86400
+    },
+    "permissions": {
+      "github": {
+        "repositories": ["WebMCP-org/nanites"],
+        "appPermissions": {
+          "contents": "read",
+          "pull_requests": "read",
+          "actions": "read"
+        }
+      }
+    },
+    "triggerSource": "export default { async handle(_event, ctx) { return ctx.dispatchSelf({ reason: 'Daily scheduled check' }); } };"
+  }
 }
 ```
 
@@ -118,6 +133,7 @@ Do not include:
 
 - `trigger`
 - `inboundTrigger`
+- `enabled`
 - `capabilities`
 - gateway ids, BYOK aliases, provider API keys, or provider auth headers
 - `manager`
@@ -301,4 +317,5 @@ Start with:
 - `docs-syncer.push.nanite.json`: push-triggered docs syncer.
 - `pr-review.pull-request.nanite.json`: PR-triggered reviewer/guard.
 
-The examples are enabled so `sigvelo_create_nanite` can register them and `sigvelo_test_nanite_trigger` can exercise the real trigger path. Disable a Nanite only when you want it registered but intentionally skipped by trigger dispatch.
+These files are complete `sigvelo_create_nanite` inputs. Register one, then run
+`sigvelo_test_nanite_trigger` against it before creating the next Nanite.

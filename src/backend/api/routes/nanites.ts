@@ -18,10 +18,18 @@ const managerNameInput = zValidator(
   requestValidationHook,
 );
 
-export const nanitesApiRoutes = new Hono<WorkerHonoEnv>().get(
-  "/manager/:managerName",
-  managerNameInput,
-  async (context) => {
+export const nanitesApiRoutes = new Hono<WorkerHonoEnv>()
+  .get("/models", async (context) => {
+    // Workers AI binding exposes the public model catalog — no API token needed.
+    const catalog = await context.env.AI.models({ task: "Text Generation", per_page: 200 });
+    const models = catalog
+      .map((entry) => entry.name)
+      .filter((name) => name.length > 0)
+      .sort();
+    context.header("Cache-Control", "public, max-age=3600");
+    return context.json({ models });
+  })
+  .get("/manager/:managerName", managerNameInput, async (context) => {
     const { managerName } = context.req.valid("param");
     const managerIdentity = parseNaniteManagerKey(managerName);
     const deploymentGitHubApp = await requireDeploymentGitHubApp(
@@ -46,5 +54,4 @@ export const nanitesApiRoutes = new Hono<WorkerHonoEnv>().get(
     );
     // @ts-ignore - TYPES ARE TOO DEEP MESSES WITH THE LSP. DON"T REMOTE
     return context.json({ managerName, state: await manager.getSnapshot() });
-  },
-);
+  });

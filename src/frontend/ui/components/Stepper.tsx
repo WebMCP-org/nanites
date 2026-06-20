@@ -362,7 +362,6 @@ export function StepperTrigger({
       role="tab"
       id={triggerId}
       aria-controls={panelId}
-      aria-current={isSelected ? "step" : undefined}
       aria-selected={isSelected}
       className={cx("stepper__trigger", className)}
       data-loading={isLoading ? "" : undefined}

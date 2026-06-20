@@ -188,6 +188,8 @@ export function PromptInputTools({
 
 const MIN_TEXTAREA_HEIGHT_PX = 48;
 const MAX_TEXTAREA_HEIGHT_PX = 240;
+const supportsFieldSizing = () =>
+  typeof CSS !== "undefined" && CSS.supports("field-sizing", "content");
 
 export interface PromptInputTextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   /** Minimum height of the textarea in pixels. Defaults to 48. */
@@ -206,6 +208,7 @@ export function PromptInputTextarea({
   rows = 1,
   minHeight = MIN_TEXTAREA_HEIGHT_PX,
   maxHeight = MAX_TEXTAREA_HEIGHT_PX,
+  enterKeyHint = "send",
   onKeyDown,
   onInput,
   ref,
@@ -219,6 +222,11 @@ export function PromptInputTextarea({
   const resize = React.useCallback(() => {
     const el = innerRef.current;
     if (!el) return;
+    if (supportsFieldSizing()) {
+      el.style.height = "";
+      el.style.overflowY = "";
+      return;
+    }
     el.style.height = "auto";
     const next = Math.min(Math.max(el.scrollHeight, minHeight), maxHeight);
     el.style.height = `${next}px`;
@@ -248,8 +256,10 @@ export function PromptInputTextarea({
       ref={innerRef}
       data-prompt-input-textarea="true"
       className={cx("prompt-input__textarea", className)}
+      name="prompt"
       placeholder={placeholder}
       rows={rows}
+      enterKeyHint={enterKeyHint}
       onKeyDown={handleKeyDown}
       onInput={handleInput}
       style={{ minHeight, maxHeight, ...props.style }}

@@ -56,12 +56,7 @@ function LoginPage() {
 
   return (
     <main className="login-screen">
-      <NaniteScene
-        className="login-screen__nanite"
-        mode="solo"
-        title="Nanite putting on a work helmet"
-        variant="helmet"
-      />
+      <NaniteScene className="login-screen__nanite" mode="solo" variant="helmet" />
       <div className="login-screen__copy">
         <h1>Nanites</h1>
         <p>

@@ -23,9 +23,17 @@
 }
 
 .card--hover:focus-visible {
-  outline: none;
+  outline: 2px solid var(--sigvelo-focus-color);
+  outline-offset: 2px;
   border-color: var(--sigvelo-focus-color);
-  box-shadow:
-    0 0 0 2px var(--sigvelo-background-color),
-    0 0 0 4px var(--sigvelo-focus-color);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+
+  .card--hover:hover {
+    transform: none;
+  }
 }

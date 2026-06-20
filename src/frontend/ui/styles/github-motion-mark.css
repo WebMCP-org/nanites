@@ -3,8 +3,8 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  inline-size: 1.125em;
-  block-size: 1.125em;
+  inline-size: 1.625em;
+  block-size: 1.625em;
   color: currentColor;
   line-height: 0;
 }

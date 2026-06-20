@@ -94,7 +94,6 @@ export const LOG_EVENTS = {
 export const OTEL_ATTRS = {
   HTTP_REQUEST_METHOD: "http.request.method",
   HTTP_RESPONSE_STATUS_CODE: "http.response.status_code",
-  HTTP_RESPONSE_STATUS_CLASS: "http.response.status_class",
   HTTP_ROUTE: "http.route",
   URL_FULL: "url.full",
   URL_PATH: "url.path",
@@ -247,10 +246,6 @@ type StructuredLogProperties = Record<string, LogPropertyValue>;
 
 export function createWorkerRequestId(request: Request): string {
   return request.headers.get("cf-ray") ?? crypto.randomUUID();
-}
-
-export function getHttpStatusClass(status: number): string {
-  return `${Math.trunc(status / 100)}xx`;
 }
 
 export function getApiRequestLogEvent(status: number): string {

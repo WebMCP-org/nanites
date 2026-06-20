@@ -7,7 +7,7 @@
 
   display: grid;
   place-items: center;
-  height: 100dvh;
+  block-size: 100dvh;
   padding: clamp(0.75rem, 2vw, 1.75rem);
   overflow: hidden;
   background: var(--setup-screen-bg);
@@ -17,18 +17,18 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 64rem;
-  max-height: min(100%, 36rem);
-  min-width: 0;
+  inline-size: 100%;
+  max-inline-size: 64rem;
+  max-block-size: min(100%, 36rem);
+  min-inline-size: 0;
   padding: clamp(1rem, 3vw, 2.25rem);
   border: 1px solid color-mix(in oklab, var(--sigvelo-text-body), transparent 72%);
 }
 
 .setup-frame__corner {
   position: absolute;
-  width: 0.9rem;
-  height: 0.9rem;
+  inline-size: 0.9rem;
+  block-size: 0.9rem;
   color: color-mix(in oklab, var(--sigvelo-text-body), transparent 40%);
 }
 
@@ -42,13 +42,13 @@
 .setup-frame__corner::before {
   inset-block-start: calc(50% - 0.5px);
   inset-inline: 0;
-  height: 1px;
+  block-size: 1px;
 }
 
 .setup-frame__corner::after {
   inset-block: 0;
   inset-inline-start: calc(50% - 0.5px);
-  width: 1px;
+  inline-size: 1px;
 }
 
 .setup-frame__corner[data-corner="tl"] {
@@ -76,17 +76,24 @@
   flex: 1;
   gap: clamp(2rem, 6vw, 6rem);
   align-items: center;
-  min-height: 0;
+  min-block-size: 0;
 }
 
 .setup-frame__content {
+  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
+  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
+
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   gap: clamp(0.6rem, 1.8vh, 1.1rem);
-  min-width: 0;
-  max-height: 100%;
+  min-inline-size: 0;
+  max-block-size: 100%;
   overflow: hidden auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .setup-frame__scene {
@@ -102,12 +109,13 @@
 }
 
 .setup-frame__body h1 {
-  max-width: 24ch;
+  max-inline-size: 24ch;
   margin: 0;
   color: var(--sigvelo-text-body);
   font-size: clamp(1.6rem, 3.5vw, 2.75rem);
   line-height: 1.05;
   letter-spacing: 0;
+  text-wrap: balance;
 }
 
 .setup-step__title {
@@ -116,14 +124,16 @@
   font-size: clamp(1.05rem, 2.2vw, 1.4rem);
   font-weight: 700;
   line-height: 1.2;
+  text-wrap: balance;
 }
 
 .setup-step__note {
-  max-width: 56ch;
+  max-inline-size: 56ch;
   margin: 0;
   color: var(--sigvelo-text-muted);
   font-size: 0.9rem;
   line-height: 1.45;
+  text-wrap: pretty;
 }
 
 .setup-step__actions {
@@ -136,7 +146,7 @@
 .setup-status {
   display: grid;
   gap: 0.2rem;
-  min-height: 1.3rem;
+  min-block-size: 1.3rem;
 }
 
 .setup-status__line {
@@ -184,7 +194,7 @@
 
 .setup-progress__seg {
   flex: 1;
-  height: 0.2rem;
+  block-size: 0.2rem;
   border-radius: 999px;
 }
 
@@ -212,13 +222,14 @@
   display: grid;
   flex-shrink: 0;
   place-items: center;
-  width: 1.05rem;
-  height: 1.05rem;
+  inline-size: 1.05rem;
+  block-size: 1.05rem;
   border: 2px solid var(--sigvelo-primary-fill-mid);
   border-radius: 50%;
 }
 
-.setup-progress__state::after {
+.setup-progress__state span {
+  display: none;
   color: white;
   font-size: 0.62rem;
   font-weight: 800;
@@ -235,8 +246,8 @@
   border-color: var(--app-status-danger);
 }
 
-.setup-progress__state[data-state="fail"]::after {
-  content: "✕";
+.setup-progress__state[data-state="fail"] [data-state-icon="fail"] {
+  display: block;
 }
 
 .setup-progress__state[data-state="done"] {
@@ -244,11 +255,14 @@
   border-color: var(--sigvelo-success-fill-mid);
 }
 
-.setup-progress__state[data-state="done"]::after {
-  content: "✓";
+.setup-progress__state[data-state="done"] [data-state-icon="done"] {
+  display: block;
 }
 
 .setup-owner-toggle {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
   display: inline-flex;
   overflow: hidden;
   background: var(--sigvelo-background-color);
@@ -260,7 +274,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 2.25rem;
+  min-block-size: 2.25rem;
   padding: 0 0.85rem;
   color: var(--sigvelo-text-muted);
   font-size: 0.9rem;
@@ -279,9 +293,14 @@
   color: var(--sigvelo-text-body);
 }
 
+.setup-owner-toggle label:has(input:focus-visible) {
+  outline: var(--sigvelo-focus-ring);
+  outline-offset: 2px;
+}
+
 .setup-owner-input {
-  min-width: 11rem;
-  min-height: 2.5rem;
+  min-inline-size: 11rem;
+  min-block-size: 2.5rem;
   padding: 0 0.75rem;
   background: var(--sigvelo-background-color);
   border: 1px solid var(--sigvelo-neutral-stroke-soft);
@@ -295,7 +314,12 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 640px) {
+.setup-owner-input:user-invalid {
+  border-color: var(--app-status-danger);
+  box-shadow: inset 0 0 0 1px var(--app-status-danger);
+}
+
+@media (width <= 40rem) {
   .setup-screen {
     padding: 0.5rem;
   }
@@ -331,7 +355,7 @@
   .setup-step__actions .button,
   .setup-owner-input,
   .setup-owner-toggle {
-    width: 100%;
+    inline-size: 100%;
   }
 
   .setup-owner-toggle label {
@@ -349,11 +373,11 @@
   }
 
   .setup-frame__nav-action .button {
-    width: 100%;
+    inline-size: 100%;
   }
 }
 
-@media (max-height: 480px) {
+@media (height <= 30rem) {
   .setup-frame__scene {
     display: none;
   }

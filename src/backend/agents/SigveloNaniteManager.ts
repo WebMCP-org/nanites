@@ -137,7 +137,6 @@ export type NaniteSourceVersion = {
 export type ManagedNanite = {
   manifest: NaniteManifest;
   latestVersion: NaniteSourceVersion;
-  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -302,7 +301,6 @@ export type NaniteManagerState = {
 
 export type RegisterNaniteInput = {
   manifest: NaniteManifest;
-  enabled?: boolean;
   actor?: ObservabilityActor | null;
   requestId?: string;
 };
@@ -621,12 +619,11 @@ function isScheduledEventSource(
 /**
  * One-shot date/delay schedules must not be re-armed by maintenance — a
  * re-armed past date fires immediately. Everything else (cron strings,
- * intervals, disabled or non-schedule nanites needing stray rows cleared)
- * is safe to resync.
+ * intervals, or non-schedule nanites needing stray rows cleared) is safe to resync.
  */
 function isSafeToResyncSchedule(nanite: ManagedNanite): boolean {
   const eventSource = nanite.manifest.eventSource;
-  if (!isScheduledEventSource(eventSource) || !nanite.enabled) {
+  if (!isScheduledEventSource(eventSource)) {
     return true;
   }
 
@@ -721,7 +718,7 @@ function asSet<T extends string>(value: T | T[] | undefined): Set<T> | null {
 
 function summarizeTriggerRejection(evaluation: NaniteWebhookEvaluation | null): string | null {
   if (!evaluation) {
-    return "The Nanite event source filter did not match the fixture event. Check the manifest events, repositories, actions, branches, and enabled state.";
+    return "The Nanite event source filter did not match the fixture event. Check the manifest events, repositories, actions, and branches.";
   }
 
   if (evaluation.triggerError) {
@@ -745,6 +742,29 @@ function summarizeTriggerRejection(evaluation: NaniteWebhookEvaluation | null): 
   return null;
 }
 
+function stripLegacyNaniteEnabled(nanite: ManagedNanite): ManagedNanite {
+  if (!("enabled" in nanite)) {
+    return nanite;
+  }
+
+  const nextNanite = { ...nanite } as ManagedNanite & { enabled?: boolean };
+  delete nextNanite.enabled;
+  return nextNanite;
+}
+
+function stripLegacyManagerStateEnabled(state: NaniteManagerState): NaniteManagerState {
+  let changed = false;
+  const nanites = Object.fromEntries(
+    Object.entries(state.nanites).map(([naniteId, nanite]) => {
+      const nextNanite = stripLegacyNaniteEnabled(nanite);
+      changed ||= nextNanite !== nanite;
+      return [naniteId, nextNanite];
+    }),
+  );
+
+  return changed ? { ...state, nanites } : state;
+}
+
 // ---------------------------------------------------------------------------
 // Manager
 // ---------------------------------------------------------------------------
@@ -759,6 +779,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   };
 
   override async onStart(): Promise<void> {
+    const state = stripLegacyManagerStateEnabled(this.state);
+    if (state !== this.state) {
+      this.setState(state);
+    }
+
     await this.schedule(NANITE_MANAGER_MAINTENANCE_CRON, "maintainNanites", undefined, {
       idempotent: true,
     });
@@ -782,7 +807,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   }
 
   async getSnapshot(): Promise<NaniteManagerState> {
-    return this.state;
+    return stripLegacyManagerStateEnabled(this.state);
   }
 
   // -------------------------------------------------------------------------
@@ -824,7 +849,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     const nanite: ManagedNanite = {
       manifest,
       latestVersion: await createNaniteSourceVersion(manifest, registeredAt),
-      enabled: input.enabled ?? true,
       createdAt: existing?.createdAt ?? registeredAt,
       updatedAt: registeredAt,
     };
@@ -864,7 +888,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
           outcome: "success",
           requestId: input.requestId,
           metadata: {
-            enabled: nanite.enabled,
             eventSourceType: manifest.eventSource.type,
             latestVersionId: nanite.latestVersion.versionId,
           },
@@ -873,6 +896,34 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     );
 
     return nanite;
+  }
+
+  // Model is part of the manifest, so a switch from the Nanite card re-registers
+  // the manifest through the normal path (new version + audit). beforeTurn on the
+  // Nanite agent refreshes the manifest, so chat and runs both pick up the model.
+  @callable()
+  async setNaniteModel(input: {
+    naniteId: string;
+    modelId: string;
+    actor?: ObservabilityActor | null;
+  }): Promise<ManagedNanite> {
+    const model = input.modelId.trim();
+    if (!model) {
+      throw new AppError("requestValidationFailed", {
+        details: { reason: "Model id must not be empty." },
+      });
+    }
+    const existing = this.state.nanites[input.naniteId];
+    if (!existing) {
+      throw new AppError("naniteNotFound", { details: { naniteId: input.naniteId } });
+    }
+    if (existing.manifest.model === model) {
+      return existing;
+    }
+    return this.registerNanite({
+      manifest: { ...existing.manifest, model },
+      actor: input.actor,
+    });
   }
 
   @callable()
@@ -958,13 +1009,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
   async startRun(input: StartNaniteRunInput): Promise<NaniteRunRecord> {
     const nanite = this.requireNanite(input.naniteId);
-    if (!nanite.enabled) {
-      throw new AppError("naniteDisabled", {
-        details: { naniteId: input.naniteId },
-        message: `${APP_ERRORS.naniteDisabled.message}: ${input.naniteId}`,
-      });
-    }
-
     const triggerKey = buildTriggerKey(input.naniteId, input.trigger);
     const existingRun = this.findRunByTriggerKey(triggerKey);
     if (existingRun) {
@@ -1421,7 +1465,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     for (const nanite of Object.values(this.state.nanites)) {
       const naniteId = nanite.manifest.id;
       if (
-        !nanite.enabled ||
         (input.onlyNaniteId && naniteId !== input.onlyNaniteId) ||
         !githubEventSourceMatches(nanite, input.event)
       ) {

@@ -78,11 +78,12 @@ export function Button({
   size = "md",
   className,
   ref,
+  type = "button",
   ...props
 }: ButtonProps & { ref?: React.Ref<HTMLButtonElement> }) {
   const classes = ["button", `button--${variant}`, `button--${color}`, `button--${size}`, className]
     .filter(Boolean)
     .join(" ");
 
-  return <BaseButton ref={ref} className={classes} {...props} />;
+  return <BaseButton ref={ref} type={type} className={classes} {...props} />;
 }

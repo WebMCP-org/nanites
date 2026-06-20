@@ -116,7 +116,7 @@
 /* Sizes */
 
 .button--xs {
-  min-height: var(--sigvelo-form-control-height-xs);
+  min-block-size: var(--sigvelo-form-control-height-xs);
   padding-block: 0;
   padding-inline: 0.65rem;
   font-size: var(--sigvelo-form-control-font-size-xs);
@@ -124,7 +124,7 @@
 }
 
 .button--sm {
-  min-height: var(--sigvelo-form-control-height-sm);
+  min-block-size: var(--sigvelo-form-control-height-sm);
   padding-block: 0;
   padding-inline: 0.85rem;
   font-size: var(--sigvelo-form-control-font-size-sm);
@@ -132,30 +132,36 @@
 }
 
 .button--md {
-  min-height: var(--sigvelo-form-control-height-md);
+  min-block-size: var(--sigvelo-form-control-height-md);
   padding-block: 0;
   padding-inline: 1.25rem;
   font-size: var(--sigvelo-form-control-font-size-md);
 }
 
 .button--lg {
-  min-height: var(--sigvelo-form-control-height-lg);
+  min-block-size: var(--sigvelo-form-control-height-lg);
   padding-block: 0;
   padding-inline: 1.5rem;
   font-size: var(--sigvelo-form-control-font-size-lg);
 }
 
 .button--xl {
-  min-height: var(--sigvelo-form-control-height-xl);
+  min-block-size: var(--sigvelo-form-control-height-xl);
   padding-block: 0;
   padding-inline: 1.75rem;
   font-size: var(--sigvelo-form-control-font-size-xl);
 }
 
 .button--icon {
-  min-height: var(--sigvelo-form-control-height-md);
-  width: var(--sigvelo-form-control-height-md);
+  min-block-size: var(--sigvelo-form-control-height-md);
+  inline-size: var(--sigvelo-form-control-height-md);
   padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
 }
 
 @media (forced-colors: active) {

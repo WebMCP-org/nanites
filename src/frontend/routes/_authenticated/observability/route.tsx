@@ -438,7 +438,7 @@ function KpiStrip({ metrics }: { readonly metrics: readonly KpiMetric[] }) {
   });
 
   return (
-    <Card className="observability-summary" aria-label="Observability metrics">
+    <Card className="observability-summary">
       <div className="observability-summary__primary">
         <span className="observability-summary__eyebrow">Nanite usage</span>
         <strong>{primaryMetric ? formatKpi(primaryMetric) : formatNumber(0)}</strong>
@@ -605,7 +605,7 @@ function CostOverTimeChart({ points }: { readonly points: readonly CostPoint[] }
               dot
             />
           </TrendAreaChart>
-          <div className="observability-chart-stats" aria-label="Cost trend totals">
+          <div className="observability-chart-stats">
             <span>
               <strong>{formatUsdMicros(totals.estimatedCostUsdMicros)}</strong>
               <small>Total cost</small>
@@ -685,7 +685,7 @@ function UsageTrendChart({ points }: { readonly points: readonly RunTrendPoint[]
               stackId="runs"
             />
           </TrendAreaChart>
-          <div className="observability-chart-stats" aria-label="Run trend totals">
+          <div className="observability-chart-stats">
             <span>
               <strong>{formatNumber(totals.runs)}</strong>
               <small>Total runs</small>
@@ -744,7 +744,7 @@ function ImpactTrendChart({ points }: { readonly points: readonly ImpactTrendPoi
               dot
             />
           </TrendAreaChart>
-          <div className="observability-chart-stats" aria-label="Impact trend totals">
+          <div className="observability-chart-stats">
             <span>
               <strong>{formatNumber(totals.linesChanged)}</strong>
               <small>Lines changed</small>
@@ -855,7 +855,7 @@ function RunOutcomeChart({ points }: { readonly points: readonly RunOutcomePoint
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
-            <div className="observability-donut-total" aria-label={`${formatNumber(total)} runs`}>
+            <div className="observability-donut-total">
               <strong>{formatNumber(total)}</strong>
               <span>runs</span>
             </div>
@@ -932,6 +932,7 @@ function ObservabilityTabs({ search }: { readonly search: ObservabilitySearch })
           search={tabSearch(search, tab)}
           className="observability-tab"
           data-active={search.tab === tab || undefined}
+          aria-current={search.tab === tab ? "page" : undefined}
         >
           {tabLabels[tab]}
         </Link>
@@ -970,7 +971,9 @@ function GitHubIdentityPersonRow({ person }: { readonly person: GitHubIdentityPe
   return (
     <div className="observability-github-person">
       <Avatar.Root className="observability-github-avatar">
-        {person.avatarUrl ? <Avatar.Image src={person.avatarUrl} alt="" /> : null}
+        {person.avatarUrl ? (
+          <Avatar.Image src={person.avatarUrl} alt="" width={64} height={64} />
+        ) : null}
         <Avatar.Fallback>{person.fallback}</Avatar.Fallback>
       </Avatar.Root>
       <div>
@@ -1215,14 +1218,14 @@ function ObservabilityFilters({
   }));
 
   return (
-    <section className="observability-filters" aria-label="Observability filters">
+    <div className="observability-filters">
       <ObservabilityInstallationFilterSelect
         selectedInstallation={selectedInstallation}
         installations={installations}
         onChange={onInstallationChange}
       />
       <div className="observability-filter">
-        <span>Range</span>
+        <span id="observability-range-filter-label">Range</span>
         <Select
           value={search.range}
           items={rangeItems}
@@ -1232,7 +1235,7 @@ function ObservabilityFilters({
             }
           }}
         >
-          <SelectTrigger size="sm" aria-label="Range">
+          <SelectTrigger size="sm" aria-labelledby="observability-range-filter-label">
             <SelectValue />
           </SelectTrigger>
           <SelectPortal>
@@ -1292,6 +1295,7 @@ function ObservabilityFilters({
           color={search.live ? "primary" : "neutral"}
           size="sm"
           data-active={search.live || undefined}
+          aria-pressed={search.live}
           onClick={() => onChange({ live: !search.live })}
         >
           <ArrowClockwiseIcon size={15} aria-hidden="true" />
@@ -1308,7 +1312,7 @@ function ObservabilityFilters({
           Clear
         </Button>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -1372,18 +1376,23 @@ function ObservabilityTablePanel({
 }
 
 function ObservabilityDataTable<TRow extends { readonly id: string }>({
+  caption,
   rows,
   columns,
 }: {
+  readonly caption: string;
   readonly rows: readonly TRow[];
   readonly columns: readonly ObservabilityTableColumn<TRow>[];
 }) {
   return (
     <table>
+      <caption className="visually-hidden">{caption}</caption>
       <thead>
         <tr>
           {columns.map((column) => (
-            <th key={column.header}>{column.header}</th>
+            <th key={column.header} scope="col">
+              {column.header}
+            </th>
           ))}
         </tr>
       </thead>
@@ -1434,7 +1443,7 @@ function NaniteTable({ rows }: { readonly rows: readonly NaniteCatalogRow[] }) {
 
   return (
     <ObservabilityTablePanel title="Nanites" icon={<RobotIcon size={17} aria-hidden="true" />}>
-      <ObservabilityDataTable rows={rows} columns={columns} />
+      <ObservabilityDataTable caption="Nanites" rows={rows} columns={columns} />
     </ObservabilityTablePanel>
   );
 }
@@ -1477,6 +1486,7 @@ function RunTable({ rows }: { readonly rows: readonly RunFeedRow[] }) {
             rel="noreferrer"
           >
             Open
+            <span className="visually-hidden"> run result</span>
             <ArrowSquareOutIcon size={13} aria-hidden="true" />
           </a>
         ) : (
@@ -1488,7 +1498,7 @@ function RunTable({ rows }: { readonly rows: readonly RunFeedRow[] }) {
 
   return (
     <ObservabilityTablePanel title="Runs" icon={<GitBranchIcon size={17} aria-hidden="true" />}>
-      <ObservabilityDataTable rows={rows} columns={columns} />
+      <ObservabilityDataTable caption="Runs" rows={rows} columns={columns} />
     </ObservabilityTablePanel>
   );
 }
@@ -1505,7 +1515,7 @@ function AuditTable({ rows }: { readonly rows: readonly AuditFeedRow[] }) {
 
   return (
     <ObservabilityTablePanel title="Audit" icon={<TableIcon size={17} aria-hidden="true" />}>
-      <ObservabilityDataTable rows={rows} columns={columns} />
+      <ObservabilityDataTable caption="Audit" rows={rows} columns={columns} />
     </ObservabilityTablePanel>
   );
 }
@@ -1659,7 +1669,7 @@ function ObservabilityHeader({ search }: { readonly search: ObservabilitySearch 
         <h1>Observability</h1>
         <nav aria-label="Authenticated app">
           <Link to="/nanites">Nanites</Link>
-          <Link to="/observability" activeProps={{ "data-active": true }}>
+          <Link to="/observability" activeProps={{ "data-active": true, "aria-current": "page" }}>
             Observability
           </Link>
         </nav>
@@ -1718,7 +1728,7 @@ function SelectedEventDetail({
 }) {
   if (isPending) {
     return (
-      <Card className="observability-detail" aria-label="Selected event">
+      <Card className="observability-detail">
         <Button type="button" variant="outline" color="neutral" size="sm" onClick={onClose}>
           Close
         </Button>
@@ -1732,7 +1742,7 @@ function SelectedEventDetail({
   }
 
   return (
-    <Card className="observability-detail" aria-label="Selected event">
+    <Card className="observability-detail">
       <Button type="button" variant="outline" color="neutral" size="sm" onClick={onClose}>
         Close
       </Button>

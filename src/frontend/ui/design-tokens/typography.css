@@ -11,7 +11,7 @@
   --sigvelo-font-family-heading: var(--sigvelo-font-family);
   --sigvelo-font-family-code:
     SFMono-Regular, Consolas, Menlo, Monaco, "liberation mono", "Courier New", monospace;
-  --sigvelo-font-size: 16px;
+  --sigvelo-font-size: 1rem;
 
   /* Type scale */
   --sigvelo-font-size-xs: 0.75rem;
@@ -45,7 +45,7 @@
   --sigvelo-line-height-loose: 2;
 
   /* Letter spacing */
-  --sigvelo-letter-spacing-tight: -0.025em;
+  --sigvelo-letter-spacing-tight: 0;
   --sigvelo-letter-spacing-normal: 0;
   --sigvelo-letter-spacing-wide: 0.025em;
   --sigvelo-letter-spacing-wider: 0.05em;
