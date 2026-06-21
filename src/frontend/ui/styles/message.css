@@ -53,17 +53,6 @@
   margin-block-start: 0.5rem;
 }
 
-.message__content :where(pre) {
-  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
-  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
-
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-}
-
 .message__actions {
   display: inline-flex;
   align-items: center;

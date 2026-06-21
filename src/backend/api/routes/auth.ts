@@ -136,7 +136,7 @@ function buildGitHubInstallCallbackLoginUrl(request: Request): URL | null {
 
 export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
   .get(TEST_AUTH_MINT_SESSION_PATH, testAuthQueryInput, async (context) => {
-    if (context.env.ALLOW_TEST_AUTH !== "true") {
+    if (String(context.env.ALLOW_TEST_AUTH) !== "true") {
       return context.text("Not found", 404);
     }
 

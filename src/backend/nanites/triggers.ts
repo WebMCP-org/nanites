@@ -1,9 +1,6 @@
 import { createWorker } from "@cloudflare/worker-bundler";
 import { isRecord } from "#/shared/utils/values.ts";
-// import { InMemoryFileSystem, installDependencies } from "@cloudflare/worker-bundler";
-// import { createTypescriptLanguageService } from "@cloudflare/worker-bundler/typescript";
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
-// import type ts from "typescript";
 import { APP_ERRORS, AppError } from "#/backend/errors.ts";
 
 type TriggerDispatchInputScalar = string | number | boolean | null;
@@ -11,7 +8,7 @@ type TriggerDispatchInputValue = TriggerDispatchInputScalar | TriggerDispatchInp
 
 export type TriggerDispatchInput = Record<string, TriggerDispatchInputValue>;
 
-export type TriggerIntent =
+type TriggerIntent =
   | {
       type: "dispatch_self";
       input: TriggerDispatchInput;
@@ -21,8 +18,8 @@ export type TriggerIntent =
       reason: string;
     };
 
-export type TriggerDispatchIntent = Extract<TriggerIntent, { type: "dispatch_self" }>;
-export type TriggerNoopIntent = Extract<TriggerIntent, { type: "noop" }>;
+type TriggerDispatchIntent = Extract<TriggerIntent, { type: "dispatch_self" }>;
+type TriggerNoopIntent = Extract<TriggerIntent, { type: "noop" }>;
 
 type TriggerExecutionResult =
   | {
@@ -36,7 +33,6 @@ type TriggerExecutionResult =
 
 type TriggerFailurePhase =
   | "static"
-  // | "typecheck"
   | "bundle"
   | "load"
   | "execute"
@@ -53,7 +49,7 @@ type GeneratedTriggerValidationResult =
       error: string;
     };
 
-export type RunGeneratedTriggerInput = {
+type RunGeneratedTriggerInput = {
   loader: WorkerLoader;
   sourceCode: string;
   event: unknown;
@@ -65,12 +61,6 @@ const GENERATED_TRIGGER_ENTRYPOINT_PATH = "src/index.ts";
 const GENERATED_TRIGGER_SOURCE_PATH = "src/trigger.ts";
 const SIGVELO_TRIGGER_PACKAGE_NAME = "@sigvelo/nanite-trigger";
 const SIGVELO_TRIGGER_PACKAGE_PATH = "node_modules/@sigvelo/nanite-trigger";
-// const MAX_TYPECHECK_DIAGNOSTICS = 8;
-// const MAX_TYPECHECK_DIAGNOSTIC_CHARS = 500;
-// const OCTOKIT_WEBHOOKS_VERSION = "14.2.0";
-// const OCTOKIT_REST_METHODS_VERSION = "17.0.0";
-// const OCTOKIT_OPENAPI_WEBHOOKS_TYPES_VERSION = "12.1.0";
-// const OCTOKIT_OPENAPI_TYPES_VERSION = "27.0.0";
 
 const forbiddenStaticTriggerPatterns: Array<{ pattern: RegExp; reason: string }> = [
   {
@@ -288,141 +278,6 @@ function validateGeneratedTriggerSourceStatically({
 
   return { ok: true };
 }
-
-// type GeneratedTriggerTypeService = Awaited<ReturnType<typeof createTypescriptLanguageService>>;
-//
-// let generatedTriggerTypeServicePromise: Promise<GeneratedTriggerTypeService> | null = null;
-// let generatedTriggerTypecheckQueue: Promise<void> = Promise.resolve();
-//
-// function createGeneratedTriggerTypeProjectFiles(): Record<string, string> {
-//   return {
-//     "package.json": JSON.stringify({
-//       name: "sigvelo-generated-trigger-type-project",
-//       private: true,
-//       type: "module",
-//       dependencies: {
-//         "@octokit/openapi-types": OCTOKIT_OPENAPI_TYPES_VERSION,
-//         "@octokit/openapi-webhooks-types": OCTOKIT_OPENAPI_WEBHOOKS_TYPES_VERSION,
-//         "@octokit/plugin-rest-endpoint-methods": OCTOKIT_REST_METHODS_VERSION,
-//         "@octokit/webhooks": OCTOKIT_WEBHOOKS_VERSION,
-//       },
-//     }),
-//     "tsconfig.json": JSON.stringify({
-//       compilerOptions: {
-//         allowImportingTsExtensions: true,
-//         lib: ["ES2022", "WebWorker"],
-//         module: "ESNext",
-//         moduleResolution: "Bundler",
-//         noEmit: true,
-//         noImplicitAny: false,
-//         skipLibCheck: true,
-//         strict: true,
-//         target: "ES2022",
-//         types: [],
-//         verbatimModuleSyntax: true,
-//       },
-//     }),
-//     [GENERATED_TRIGGER_ENTRYPOINT_PATH]: triggerWorkerRuntimeSource,
-//     [GENERATED_TRIGGER_SOURCE_PATH]: "export default { handle() {} };",
-//     ...createSigveloTriggerPackageFiles(),
-//   };
-// }
-//
-// async function createGeneratedTriggerTypeService(): Promise<GeneratedTriggerTypeService> {
-//   const fileSystem = new InMemoryFileSystem(createGeneratedTriggerTypeProjectFiles());
-//   const installResult = await installDependencies(fileSystem);
-//   if (installResult.warnings.length > 0) {
-//     throw new Error(
-//       `Failed to prepare generated trigger Octokit types: ${installResult.warnings.join("; ")}`,
-//     );
-//   }
-//   return createTypescriptLanguageService({ fileSystem });
-// }
-//
-// function getGeneratedTriggerTypeService(): Promise<GeneratedTriggerTypeService> {
-//   generatedTriggerTypeServicePromise ??= createGeneratedTriggerTypeService().catch(
-//     (error: unknown) => {
-//       generatedTriggerTypeServicePromise = null;
-//       throw error;
-//     },
-//   );
-//   return generatedTriggerTypeServicePromise;
-// }
-//
-// function enqueueGeneratedTriggerTypecheck<T>(task: () => Promise<T>): Promise<T> {
-//   const run = generatedTriggerTypecheckQueue.then(task, task);
-//   generatedTriggerTypecheckQueue = run.then(
-//     () => undefined,
-//     () => undefined,
-//   );
-//   return run;
-// }
-//
-// function flattenDiagnosticMessage(message: ts.Diagnostic["messageText"]): string {
-//   if (typeof message === "string") {
-//     return message;
-//   }
-//   return [message.messageText, ...(message.next ?? []).map(flattenDiagnosticMessage)].join(" ");
-// }
-//
-// function formatDiagnosticLocation(diagnostic: ts.Diagnostic): string {
-//   if (!diagnostic.file || diagnostic.start === undefined) {
-//     return "generated trigger";
-//   }
-//   const position = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-//   return `${diagnostic.file.fileName}:${position.line + 1}:${position.character + 1}`;
-// }
-//
-// function formatTypecheckDiagnostics(diagnostics: readonly ts.Diagnostic[]): string {
-//   return diagnostics
-//     .slice(0, MAX_TYPECHECK_DIAGNOSTICS)
-//     .map((diagnostic) => {
-//       const message = flattenDiagnosticMessage(diagnostic.messageText).slice(
-//         0,
-//         MAX_TYPECHECK_DIAGNOSTIC_CHARS,
-//       );
-//       return `${formatDiagnosticLocation(diagnostic)} TS${diagnostic.code}: ${message}`;
-//     })
-//     .join(" | ");
-// }
-//
-// async function validateGeneratedTriggerSourceTypes(
-//   input: RunGeneratedTriggerInput,
-// ): Promise<GeneratedTriggerValidationResult> {
-//   return enqueueGeneratedTriggerTypecheck(async () => {
-//     try {
-//       const { fileSystem, languageService } = await getGeneratedTriggerTypeService();
-//       fileSystem.write(GENERATED_TRIGGER_SOURCE_PATH, input.sourceCode);
-//       const diagnostics = [
-//         ...languageService.getCompilerOptionsDiagnostics(),
-//         ...languageService.getSyntacticDiagnostics(GENERATED_TRIGGER_SOURCE_PATH),
-//         ...languageService.getSemanticDiagnostics(GENERATED_TRIGGER_SOURCE_PATH),
-//       ];
-//       if (diagnostics.length === 0) {
-//         return { ok: true };
-//       }
-//       return {
-//         ok: false,
-//         error: formatTriggerError({
-//           phase: "typecheck",
-//           error: formatTypecheckDiagnostics(diagnostics),
-//           cacheKey: input.cacheKey,
-//           sourceCode: input.sourceCode,
-//         }),
-//       };
-//     } catch (error) {
-//       return {
-//         ok: false,
-//         error: formatTriggerError({
-//           phase: "typecheck",
-//           error,
-//           cacheKey: input.cacheKey,
-//           sourceCode: input.sourceCode,
-//         }),
-//       };
-//     }
-//   });
-// }
 
 const triggerWorkerRuntimeSource = `
 import trigger from "./trigger.ts";
@@ -680,16 +535,7 @@ export async function validateGeneratedTriggerSource(
     return staticValidation;
   }
 
-  // Semantic type validation is disabled: it initializes a TypeScript LanguageService with the
-  // full Octokit type graph (openapi-types, openapi-webhooks-types, plugin-rest-endpoint-methods,
-  // webhooks) inside the Manager DO's isolate via installDependencies + createTypescriptLanguageService.
-  // This reliably exceeds the DO memory limit on every registerNanite call. The LOADER bundle step
-  // below catches syntax and import errors, which is sufficient for safety. Re-enable by moving
-  // validateGeneratedTriggerSourceTypes to a dedicated validation Worker outside the Manager DO.
-  // const typeValidation = await validateGeneratedTriggerSourceTypes(input);
-  // if (!typeValidation.ok) {
-  //   return typeValidation;
-  // }
+  // Full Octokit semantic typechecking exceeds Manager DO memory; bundling still catches syntax/import errors.
   const result = await requestGeneratedTriggerWorker(
     input,
     new Request("https://sigvelo-trigger.local/", {
@@ -776,14 +622,14 @@ export const githubIssuesFixtureIds = [
 ] as const;
 export type GitHubPullRequestFixtureId = (typeof githubPullRequestFixtureIds)[number];
 export type GitHubIssuesFixtureId = (typeof githubIssuesFixtureIds)[number];
-export type GitHubPullRequestFixtureOverrides = DeepPartial<
+type GitHubPullRequestFixtureOverrides = DeepPartial<
   EmitterWebhookEvent<GitHubPullRequestFixtureId>["payload"]
 >;
-export type GitHubIssuesFixtureOverrides = DeepPartial<
+type GitHubIssuesFixtureOverrides = DeepPartial<
   EmitterWebhookEvent<GitHubIssuesFixtureId>["payload"]
 >;
 
-export type GitHubPushFixtureOverrides = DeepPartial<EmitterWebhookEvent<"push">["payload"]>;
+type GitHubPushFixtureOverrides = DeepPartial<EmitterWebhookEvent<"push">["payload"]>;
 
 export type GitHubTriggerFixtureInput =
   | {
@@ -907,7 +753,7 @@ function buildGitHubIssuesFixture(input: {
         login: issue.user?.login ?? "fixture-author",
       },
     },
-  } satisfies GitHubIssuesFixtureOverrides;
+  };
 
   return {
     id: input.deliveryId,

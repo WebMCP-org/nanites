@@ -276,9 +276,13 @@ export class NaniteToolOutputArtifactStore {
       prefix: this.#runPrefix(scope),
       limit,
     });
-    return result.keys
-      .flatMap((key) => (key.metadata ? [key.metadata] : []))
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    const metadata: NaniteToolOutputArtifactMetadata[] = [];
+    for (const key of result.keys) {
+      if (key.metadata) {
+        metadata.push(key.metadata);
+      }
+    }
+    return metadata.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
   async #read(
@@ -311,7 +315,7 @@ export class NaniteToolOutputArtifactStore {
         read: {
           description:
             "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a slice. With pattern, grep-searches one artifact or all current-run artifacts.",
-          execute: async (args) => this.readToolInput(args),
+          execute: async (args: unknown) => this.readToolInput(args),
         },
       },
       types: [

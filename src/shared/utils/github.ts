@@ -8,19 +8,17 @@ import type { EmitterWebhookEvent, EmitterWebhookEventName } from "@octokit/webh
 import type { WebhookEvents } from "@octokit/webhooks/types";
 import { isRecord } from "#/shared/utils/values.ts";
 
-interface BuildGitHubAppInstallHrefOptions {
-  readonly appSlug?: string | null;
-  readonly state?: string | null;
-  readonly suggestedTargetId?: number | null;
-  readonly repositoryIds?: readonly number[];
-}
-
 export function buildGitHubAppInstallHref({
   appSlug,
   state,
   suggestedTargetId,
   repositoryIds = [],
-}: BuildGitHubAppInstallHrefOptions = {}): string {
+}: {
+  readonly appSlug?: string | null;
+  readonly state?: string | null;
+  readonly suggestedTargetId?: number | null;
+  readonly repositoryIds?: readonly number[];
+} = {}): string {
   const githubAppUrl = `https://github.com/apps/${appSlug ?? DEFAULT_GITHUB_APP_SLUG}`;
   const path = suggestedTargetId
     ? SIGVELO_GITHUB_APP_PERMISSIONS_PATH
@@ -64,14 +62,7 @@ type GitHubWebhookEventLike = EmitterWebhookEvent | GitHubWebhookEventSnapshot;
 
 export type GitHubWebhookEventName = WebhookEvents;
 
-const githubWebhookEventNameSet = new Set<string>(
-  emitterEventNames.filter((eventName) => !eventName.includes(".")),
-);
 const githubEmitterWebhookEventNameSet = new Set<string>(emitterEventNames);
-
-export function isGitHubWebhookEventName(value: string): value is GitHubWebhookEventName {
-  return githubWebhookEventNameSet.has(value);
-}
 
 function isGitHubEmitterWebhookEventName(value: string): value is EmitterWebhookEventName {
   return githubEmitterWebhookEventNameSet.has(value);

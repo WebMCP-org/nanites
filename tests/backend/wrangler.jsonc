@@ -9,6 +9,13 @@
       "binding": "LOADER",
     },
   ],
+  "workflows": [
+    {
+      "binding": "NANITE_RUN_WORKFLOW",
+      "name": "nanite-run-workflow",
+      "class_name": "NaniteRunWorkflow",
+    },
+  ],
   "vars": {
     "ALLOW_TEST_AUTH": "true",
     "NANITES_SHOW_SETUP": "true",
@@ -65,6 +72,10 @@
       {
         "class_name": "SigveloNaniteManager",
         "name": "SigveloNaniteManager",
+      },
+      {
+        "class_name": "SigveloNaniteAgent",
+        "name": "SigveloNaniteAgent",
       },
       {
         "class_name": "CodemodeRuntime",

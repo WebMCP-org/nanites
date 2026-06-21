@@ -43,7 +43,7 @@ Use these rules when changing Nanites:
   GitHub-owned data in Octokit/webhook shapes until a concrete non-GitHub boundary requires a
   projection. Do not create SigVelo DTOs that rename, subset, or normalize standard GitHub facts.
 - **Validate untrusted boundaries, then trust internal owners.** Validate MCP `create_nanite`
-  inputs, generated Nanite lifecycle tool calls, GitHub webhooks, external API responses, and browser
+  inputs, generated Nanite structured outputs, GitHub webhooks, external API responses, and browser
   route/search input. Do not make the manager re-parse state it owns, mirror TypeScript types with
   Zod, add `schemaVersion` fields before a migration exists, or accept caller-supplied timestamps
   and ids for manager-owned events.
@@ -105,7 +105,7 @@ A Nanite should own:
 - workspace-backed repo inspection and edits
 - MCP and skill attachments
 - change proposal pointer
-- lifecycle tools such as `complete`, `no_change`, `fail`, and `ask_manager`
+- structured Run output produced through the Run Workflow
 - child Nanite proposals when a vertical should split
 
 Do not use a custom `/live` tunnel for new UI paths. The SDK sub-agent route is the canonical live route.
@@ -381,7 +381,8 @@ Still missing or incomplete:
 
 - generated trigger handler registration UI and authoring skill examples
 - schedule intake through the same generated trigger handler path
-- lifecycle tools beyond the current completion, no-change, failure, and manager checkpoint tools
+- richer Workflow-backed Run outputs beyond the current completion, no-change, failure, and manager
+  checkpoint outcomes
 
 ## Release hardening target
 

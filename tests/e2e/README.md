@@ -34,7 +34,7 @@ The first real Nanites e2e test should stay narrow and vertical:
 1. Register one fixture Nanite through the real manager/control-plane boundary.
 2. Deliver one real signed GitHub webhook event through the real route.
 3. Observe exactly one visible run.
-4. Let the fixture Nanite reach one terminal state through the real lifecycle tool boundary.
+4. Let the fixture Nanite reach one terminal state through the real Workflow output boundary.
 5. Assert one durable product artifact: a run summary, check output, or live chat pointer.
 
 ## Research References

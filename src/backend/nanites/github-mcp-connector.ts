@@ -5,7 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
 
-export type GitHubMcpConnectorOptions = {
+type GitHubMcpConnectorOptions = {
   /**
    * Issues the per-connection request headers: a freshly scoped GitHub App
    * installation token plus the X-MCP tool-filter headers. Called once per

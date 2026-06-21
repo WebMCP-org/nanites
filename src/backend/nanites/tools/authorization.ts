@@ -18,14 +18,7 @@ type RuntimeRepositoryResolver<TInput> = (
   input: TInput,
   runtime: NaniteToolRuntime,
 ) => readonly string[] | Promise<readonly string[]>;
-type ReferencedNaniteRepositorySelection =
-  | {
-      type: "referenced_nanites";
-    }
-  | {
-      type: "all_nanites_when_unscoped";
-    };
-export type ReferencedNaniteToolInput = {
+type ReferencedNaniteToolInput = {
   readonly naniteId?: string;
   readonly runId?: string;
   readonly runIds?: readonly string[];
@@ -52,12 +45,12 @@ export type SigveloNaniteToolAuthorization<TInput = unknown> = {
 };
 
 export function resolveReferencedNaniteRepositoryFullNames(
-  selection: ReferencedNaniteRepositorySelection,
+  selection: "referenced_nanites" | "all_nanites_when_unscoped",
 ): RuntimeRepositoryResolver<ReferencedNaniteToolInput> {
   return async (input, runtime) => {
     const state = await runtime.manager.getSnapshot();
     const naniteIds = resolveInputNaniteIds(input, state);
-    if (naniteIds.size === 0 && selection.type === "all_nanites_when_unscoped") {
+    if (naniteIds.size === 0 && selection === "all_nanites_when_unscoped") {
       for (const naniteId of Object.keys(state.nanites)) {
         naniteIds.add(naniteId);
       }

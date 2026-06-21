@@ -60,7 +60,7 @@ export const inspectDebugTool = defineSigveloMcpTool({
   name: "sigvelo_debug_nanites",
   title: "Debug SigVelo Nanites",
   description:
-    "Inspects manager-owned Nanite state and, when requested, delegates to the child Think sub-agent for transcript and submission inspection.",
+    "Inspects manager-owned Nanite state, Workflow tracking, and optional child Think transcript/submission details.",
   inputSchema: inspectDebugToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite debug inspection output."),
   authorization: {
@@ -68,9 +68,7 @@ export const inspectDebugTool = defineSigveloMcpTool({
     repositoryPolicy: {
       type: "runtime",
       access: "read",
-      resolve: resolveReferencedNaniteRepositoryFullNames({
-        type: "all_nanites_when_unscoped",
-      }),
+      resolve: resolveReferencedNaniteRepositoryFullNames("all_nanites_when_unscoped"),
     },
   },
   annotations: {

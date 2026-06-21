@@ -31,11 +31,13 @@ flowchart LR
   Human["Human chat / MCP tools"] --> Nanite["Think Nanite<br/>durable sub-agent"]
   Manager --> Trigger["Generated trigger handler<br/>Worker Loader"]
   Trigger -->|"dispatch / noop"| Manager
-  Manager -->|"start run"| Nanite
+  Manager -->|"start run workflow"| Nanite
+  Nanite --> Workflow["Run Workflow<br/>ThinkWorkflow"]
+  Workflow --> Nanite
   Nanite --> Workspace["Workspace + Shell git<br/>files, diffs, branches"]
   Nanite --> GitHubMcp["Scoped GitHub MCP<br/>PRs, checks, search"]
-  Nanite --> Lifecycle["Lifecycle tools<br/>complete, no_change, fail, ask_manager"]
-  Lifecycle --> Manager
+  Workflow --> Result["Structured Run output<br/>complete, no_change, fail, ask_manager"]
+  Result --> Manager
   Manager --> Surface["GitHub feedback<br/>run link + native surfaces"]
   Nanite --> UI["UI connects directly<br/>useAgent + useAgentChat"]
 ```
@@ -43,7 +45,7 @@ flowchart LR
 There are three runtime planes:
 
 - **Installation control plane**: auth, registry, routing, capability grants, GitHub feedback.
-- **Nanite actor plane**: Think transcript, token stream, workspace, tool loop, lifecycle.
+- **Nanite actor plane**: Think transcript, token stream, workspace, tool loop, and structured Run output.
 - **Inbound trigger plane**: generated code for machine-originated events that emits manager intents.
 
 ## Core loop
@@ -60,11 +62,12 @@ sequenceDiagram
   Event->>Manager: GitHub webhook or schedule event
   Manager->>Trigger: run generated handler when trigger logic is custom
   Trigger-->>Manager: dispatch / noop intent
-  Manager->>Nanite: submit run prompt
+  Manager->>Nanite: start Run Workflow
+  Nanite->>Nanite: ThinkWorkflow submits run prompt
   UI->>Nanite: direct Agents SDK chat connection
   Nanite->>Nanite: stream tokens, call tools, work in Workspace
   Nanite->>GitHub: branch, PR, status reads through scoped tools
-  Nanite-->>Manager: lifecycle outcome
+  Nanite-->>Manager: structured Run outcome projection
   Manager-->>GitHub: update check / visible feedback
 ```
 
@@ -84,7 +87,7 @@ This is what makes the router valuable. The event logic can be arbitrarily progr
 
 ### Let the Nanite own the work
 
-The Nanite runtime should be a stable Think sub-agent. It owns the live transcript, token stream, current Run, workspace-backed investigation, Think memory, and lifecycle tools. The UI should connect to that sub-agent directly instead of reading copied transcript arrays or manager-owned chat history.
+The Nanite runtime should be a stable Think Agent. It owns the live transcript, token stream, workspace-backed investigation, Think memory, and tool graph. The Run Workflow owns durable Run orchestration and asks the Nanite for structured output. The UI should connect to the Nanite directly instead of reading copied transcript arrays or manager-owned chat history.
 
 Manager state should stay small: registry, run summaries, routing decisions, GitHub feedback pointers, policy, and lossy runtime projections for roster UI. The detailed execution record belongs to Think.
 
@@ -124,7 +127,7 @@ Trigger handlers are allowed to be clever. Nanites should stay focused. That spl
 
 Generated trigger code needs a real acceptance loop because it is dynamic code that wakes another agent. The manager `testNaniteTrigger` callable owns that loop, and MCP exposes it through the explicit `sigvelo_test_nanite_trigger` tool.
 
-It builds a realistic fixture event, runs the generated trigger, dispatches the real Think Nanite, waits for a lifecycle outcome, and returns structured `agentFeedback` from the Nanite to the coding agent that authored it. That proves three things at once:
+It builds a realistic fixture event, runs the generated trigger, dispatches the real ThinkWorkflow-backed Nanite Run, waits for a terminal structured output, and returns structured `agentFeedback` from the Nanite to the coding agent that authored it. That proves three things at once:
 
 - the generated trigger syntax and event handling work
 - the trigger wakes the real model through the manager
@@ -153,7 +156,7 @@ A Nanite definition should mostly describe:
 - soul: what it is trying to preserve and how it should make tradeoffs
 - stop conditions: what counts as done, no-change, failed, or waiting for the manager
 
-Capabilities should come from repo-local instructions, MCP servers, skills, Workspace/git tools, and runtime-owned lifecycle commands. Do not grow a giant SigVelo-specific tool manifest unless a real authorization boundary requires it.
+Capabilities should come from repo-local instructions, MCP servers, skills, Workspace/git tools, and Workflow-owned run outputs. Do not grow a giant SigVelo-specific tool manifest unless a real authorization boundary requires it.
 
 ### GitHub is the first vertical, not the whole ontology
 
@@ -246,8 +249,9 @@ chat or the explicit MCP start/test tools.
 
 ## What the Nanite receives
 
-The stable Think Nanite gets a Run prompt, direct Workspace tools, GitHub-aware git auth, optional
-GitHub MCP tools exposed inside the execute sandbox as `github.*`, and lifecycle tools.
+The stable Think Nanite gets a Run prompt from `NaniteRunWorkflow`, direct Workspace tools,
+GitHub-aware git auth, optional GitHub MCP tools exposed inside the execute sandbox as `github.*`,
+and a structured Workflow output schema.
 
 ```text
 Use Workspace git tools for repository changes and branch pushes.
@@ -257,8 +261,8 @@ When stacked PRs are useful:
 - the bottom branch targets the repo default branch
 - each higher branch targets the branch below it
 - each PR is small and independently reviewable
-- complete.outputUrl points at the best review entrypoint
-When finished, call exactly one lifecycle tool.
+- outputUrl points at the best review entrypoint
+When finished, return exactly one structured result: complete, no_change, fail, or ask_manager.
 ```
 
 The manager does not publish a hidden support lane for the Nanite. The Nanite chooses whether to
@@ -268,15 +272,15 @@ rather than a first-class SigVelo stack model.
 
 ## Source of truth
 
-| Concern                                      | Owner                     | Notes                                                    |
-| -------------------------------------------- | ------------------------- | -------------------------------------------------------- |
-| Registry, policy, routing, run summaries     | Installation manager      | Small durable state plus lossy runtime projections only. |
-| Transcript, streaming, tool turns, workspace | Think Nanite              | UI connects directly with Agents SDK hooks.              |
-| GitHub webhook or schedule predicates        | Generated trigger handler | Emits intents; manager validates and executes.           |
-| Repo edits and git operations                | Workspace + Shell git     | Uses scoped GitHub installation auth.                    |
-| PR/search/status operations                  | GitHub MCP via codemode   | `github.*` in execute; Nanite-scoped tool inventory.     |
-| Build, typecheck, test truth                 | GitHub CI                 | Prefer CI signals over a SigVelo process harness.        |
-| Final outcome                                | Lifecycle tools           | `complete`, `no_change`, `fail`, `ask_manager`.          |
+| Concern                                      | Owner                     | Notes                                                                 |
+| -------------------------------------------- | ------------------------- | --------------------------------------------------------------------- |
+| Registry, policy, routing, run summaries     | Installation manager      | Small durable state plus lossy runtime projections only.              |
+| Transcript, streaming, tool turns, workspace | Think Nanite              | UI connects directly with Agents SDK hooks.                           |
+| GitHub webhook or schedule predicates        | Generated trigger handler | Emits intents; manager validates and executes.                        |
+| Repo edits and git operations                | Workspace + Shell git     | Uses scoped GitHub installation auth.                                 |
+| PR/search/status operations                  | GitHub MCP via codemode   | `github.*` in execute; Nanite-scoped tool inventory.                  |
+| Build, typecheck, test truth                 | GitHub CI                 | Prefer CI signals over a SigVelo process harness.                     |
+| Final outcome                                | Run Workflow              | Structured output: `complete`, `no_change`, `fail`, or `ask_manager`. |
 
 ## Future path
 
@@ -287,7 +291,7 @@ primitives make generated Durable Object facets cleaner.
 The current product path is intentionally smaller:
 
 ```text
-generated trigger handler -> stable Think Nanite -> workspace/git/GitHub tools -> lifecycle outcome
+generated trigger handler -> stable Think Nanite -> workspace/git/GitHub tools -> Workflow output
 ```
 
 Do not build code around the generated-owner future until the stable path stops being enough.

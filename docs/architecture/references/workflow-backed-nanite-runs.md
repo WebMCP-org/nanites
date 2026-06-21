@@ -1,52 +1,114 @@
 # Workflow-Backed Nanite Runs
 
-> Status: target architecture for Nanite Run durability.
+> Status: implemented runtime contract.
 >
 > This is the implementation guide for aligning Nanite Runs with Cloudflare Agents, Think, and
 > Workflows primitives.
 
 ## Direction
 
-Every user-facing Nanite Run should be backed by exactly one Cloudflare Workflow instance. The Run
-id is the Workflow instance id.
+Every user-facing Nanite Run is one Cloudflare Workflow instance. The Run id is the Workflow
+instance id.
 
-That gives us one durable execution primitive instead of a manager-owned Run state machine plus a
-separate workflow id. The product can keep saying "Run"; internally, the durable runtime object is
-the Workflow instance.
+The Run Workflow extends `ThinkWorkflow`, not plain `AgentWorkflow`. The Workflow owns one durable
+parent Run prompt with `step.prompt()`. Think still owns the Nanite transcript, workspace, memory,
+tools, streaming, and child Nanite behavior. The Manager keeps auth, trigger intake, dedupe, and the
+product projection.
 
-Keep the current Think Nanite architecture. The Workflow starts the Nanite, waits for Nanite signals,
-records named step status, retries deterministic side effects, and handles long waits. The Think
-Nanite still owns the transcript, live stream, memory, workspace, tools, and sub-agent tree.
+The bespoke lifecycle harness is gone:
 
-Do not use Dynamic Workflows in the first implementation. Dynamic Workflows are useful later when a
-generated run plan needs to load Workflow code through Worker Loader. They are not needed to make a
-normal Nanite Run durable.
+- remove model-facing `complete`, `no_change`, `fail`, and `ask_manager` lifecycle tools
+- remove manager-driven `submitMessages()` dispatch for Runs
+- remove lifecycle continuation prompts and stale active-run repair as execution ownership
+- remove a separate `runId -> workflowId` layer
+- treat Think submissions as Workflow-owned attempts, not product Runs
+
+Dynamic Workflows are not part of this runtime. They become relevant when generated or
+tenant-authored Workflow source must be loaded through Worker Loader. Our first durability problem is
+not generated workflow code; it is making a normal Nanite Run durable by putting the parent run loop
+inside Cloudflare Workflows.
 
 ## Why
 
-The current Run model duplicates platform behavior. `SigveloNaniteManager` stores
-`NaniteRunRecord`, owns allowed state transitions, dispatches the Think Nanite directly, and later
-infers failure from stale manager state or a missing lifecycle tool call. That is fragile for the
-case we care about: a long-running agent task that may wait on the manager, retry publication, or
-resume after an isolate restart.
+The old Run model duplicated platform behavior. `SigveloNaniteManager` created a
+`NaniteRunRecord`, dispatches a Think submission directly, waits for model-facing lifecycle tools,
+tries to repair completed submissions that never called a lifecycle tool, and stores manager wait
+state as execution truth. That is exactly the kind of lifecycle harness Cloudflare Workflows and
+Think Workflows are meant to own.
 
-Cloudflare's own split matches the shape we need:
+Cloudflare's split matches our domain:
 
-- Agents are for long-lived identity, real-time communication, state, and user interaction.
-- Workflows are for durable execution, automatic retries, recovery, sleeps, and waiting for external
-  events.
-- `AgentWorkflow` bridges them so a Workflow can call back into its originating Agent and the Agent
-  can send events back to the Workflow.
+- Agents are durable identities with state, RPC, real-time client connection, tools, transcripts,
+  memory, and workspace.
+- Workflows are durable executions with named steps, retries, sleeps, and waits for external events.
+- `ThinkWorkflow.step.prompt()` submits a Think turn, waits for its terminal Workflow event, validates
+  typed output, and relies on Think's outbox/alarm delivery until the Workflow receives the result.
 
 For Nanites, that means:
 
-- The Manager remains the product authority and auth boundary.
-- The Think Nanite remains the worker.
-- The Run Workflow becomes the durable execution spine.
-- The Manager keeps a Run projection, not a second execution state machine.
+- Manager remains the product authority and auth boundary.
+- Think Nanite remains the worker and tool host.
+- Run Workflow becomes the execution spine.
+- Run projection becomes an index for UI, audit, cost, and history, not a second state machine.
 
-This deletes more than it adds. We should not build a custom `WorkflowRun` Durable Object,
-`RunManager`, `WorkflowTaskAgent`, or `runId -> workflowId` mapping table.
+This should delete more code than it adds. We should not introduce `WorkflowRun`, `RunManager`,
+`WorkflowTaskAgent`, lifecycle signal tables, or another product noun for one execution.
+
+## First-Party Source Facts
+
+These are the source-level constraints that drive the design.
+
+`ThinkWorkflow` lives in `@cloudflare/think/workflows` and extends `AgentWorkflow`. Its
+`step.prompt()` implementation:
+
+- accepts a prompt string and a Zod object schema
+- creates or finds an idempotent Think submission inside `step.do("<step>:submit")`
+- stores Workflow metadata on the submission, including workflow name, workflow id, step name, event
+  type, output schema, and prompt fingerprint
+- waits with `step.waitForEvent("<step>:wait")`
+- cancels the submission on timeout by default
+- throws typed prompt errors for `aborted`, `skipped`, `error`, timeout, and schema validation
+- validates the terminal output again with the original Zod schema before returning
+
+Think implements structured Workflow output by injecting a reserved `think_final_answer` tool into
+the turn. The model can use normal Nanite tools first, then calls the internal final-answer tool with
+schema-shaped arguments. Think strips that internal tool call/result from persisted conversation and
+stores a pending Workflow notification. Think drains the notification outbox with
+`sendWorkflowEvent()` and Durable Object alarms until delivery succeeds.
+
+`ThinkWorkflow` must be started from inside the Think Agent with `this.runWorkflow(...)`. Calling the
+Workflow binding directly does not include the Agent identity that `AgentWorkflow` needs to reconnect
+`this.agent` inside `run()`.
+
+`step.prompt()` requires a Zod object schema. A discriminated union output is still fine, but it must
+be wrapped in an object:
+
+```ts
+const naniteRunPromptOutputSchema = z.object({
+  result: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("complete"),
+      summary: z.string().min(1),
+      outputUrl: z.string().url().nullable(),
+      agentFeedback: agentFeedbackSchema.nullable(),
+    }),
+    z.object({
+      kind: z.literal("no_change"),
+      summary: z.string().min(1),
+      agentFeedback: agentFeedbackSchema.nullable(),
+    }),
+    z.object({
+      kind: z.literal("fail"),
+      summary: z.string().min(1),
+      agentFeedback: agentFeedbackSchema.nullable(),
+    }),
+    z.object({
+      kind: z.literal("ask_manager"),
+      request: z.string().min(1),
+    }),
+  ]),
+});
+```
 
 ## Vocabulary
 
@@ -54,17 +116,17 @@ Use these terms consistently:
 
 | Term               | Meaning                                                                                           |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
-| `Nanite`           | A stable Think Agent with identity, memory, tools, transcript, and workspace.                     |
+| `Nanite`           | A stable Think Agent with identity, memory, tools, transcript, workspace, and child Nanites.      |
 | `Manager`          | The installation Agent that owns auth, registry, trigger intake, policy, and product projections. |
-| `Run`              | The product/API noun for one Nanite execution. Implemented by one Cloudflare Workflow instance.   |
-| `Run Workflow`     | The Cloudflare Workflow class that backs a Run.                                                   |
-| `RunProjection`    | Manager/D1 summary keyed by `runId`, used for history, filters, audit, cost, and UI.              |
-| `Think submission` | A lower-level attempt inside a Run, not a Run.                                                    |
+| `Run`              | The product/API noun for one Nanite execution. Implemented by one Workflow instance.              |
+| `Run Workflow`     | The `ThinkWorkflow` class that backs a Run.                                                       |
+| `RunProjection`    | Manager summary keyed by `runId`, used for history, filters, audit, cost, and UI.                 |
+| `Think submission` | A Workflow prompt attempt inside a Run, not a Run.                                                |
 | `Trigger Worker`   | Generated Worker Loader code that decides `dispatch` or `noop`.                                   |
 | `Dynamic Workflow` | Later mechanism for loading generated Workflow source. Not a first-slice primitive.               |
 
-Product language can keep `Run`. Runtime docs and code should avoid inventing another product noun
-called `Workflow`.
+Product language can keep `Run`. Runtime docs and code should avoid inventing another noun called
+`WorkflowRun`.
 
 ## Target Flow
 
@@ -72,85 +134,33 @@ called `Workflow`.
 sequenceDiagram
   participant Event as GitHub, Schedule, or Human
   participant Manager as SigveloNaniteManager
-  participant Workflow as NaniteRunWorkflow
   participant Nanite as SigveloNaniteAgent
+  participant Workflow as NaniteRunWorkflow
+  participant Think as Think submission queue
   participant UI as Browser UI
 
   Event->>Manager: Trigger event
   Manager->>Manager: Create RunProjection with runId
-  Manager->>Workflow: runWorkflow("NANITE_RUN_WORKFLOW", params, { id: runId })
-  Workflow->>Manager: step.do("dispatch-nanite")
-  Manager->>Nanite: submitMessages(..., { submissionId: runId })
-  UI->>Nanite: Live stream through Agents SDK
-  Nanite-->>Manager: complete, no_change, fail, ask_manager, or cancel
-  Manager->>Manager: Write idempotent RunProjection signal
-  Manager-->>Workflow: sendWorkflowEvent("nanite-run-signal")
-  Workflow->>Workflow: waitForEvent, retry, sleep, or finish
-  Workflow->>Manager: step.do("project-final-result")
+  Manager->>Nanite: startRunWorkflowFromManager(runId, nanite, managerName)
+  Nanite->>Workflow: runWorkflow("NANITE_RUN_WORKFLOW", params, { id: runId })
+  Workflow->>Nanite: step.do("prepare-workspace")
+  Nanite->>Nanite: Clone or fetch manifest repositories into /repos/{owner}/{repo}
+  Workflow->>Think: step.prompt("run", prompt, output schema)
+  Think->>Nanite: Run full agentic turn with Nanite tools
+  UI->>Nanite: Live stream through Think/Agents SDK
+  Think-->>Workflow: Durable terminal prompt event
+  Workflow->>Workflow: Validate output discriminated union
+  Workflow->>Workflow: reportComplete(result)
+  Workflow->>Nanite: Agents SDK onWorkflowComplete(result)
+  Nanite->>Manager: recordWorkflowResult(...)
+  opt ask_manager answered later
+    Manager->>Manager: start new manual Run
+    Manager->>Nanite: startRunWorkflowFromManager(newRun)
+  end
 ```
 
-The important boundary is that the Nanite does the work and the Workflow coordinates the durable
-process around that work.
-
-## Cloudflare Constraints
-
-These are the platform facts the implementation should follow.
-
-### Workflows
-
-Cloudflare Workflows define a `WorkflowEntrypoint` with a `run(event, step)` method. `step.do`
-persists serializable step results, `step.sleep` and `step.sleepUntil` persist waits, and
-`step.waitForEvent` waits for an event sent to a Workflow instance.
-
-Create Workflow instances with a caller-provided id:
-
-```ts
-await env.MY_WORKFLOW.create({
-  id: runId,
-  params,
-});
-```
-
-`waitForEvent` event types may contain letters, digits, `_`, and `-`; do not use dotted event names.
-Use `nanite-run-signal`, not `nanite.run.signal`. The default wait timeout is 24 hours; set explicit
-timeouts for Nanite waits.
-
-Workflow event payloads are immutable. Store durable state by returning values from `step.do` or by
-writing the Manager projection from a durable step.
-
-### Agents and Workflows
-
-Use `AgentWorkflow` from `agents/workflows`, not a raw `WorkflowEntrypoint`, for the Run Workflow.
-The Agents SDK already provides:
-
-- `Agent.runWorkflow(workflowName, params, options)`
-- `Agent.sendWorkflowEvent(workflowName, instanceId, event)`
-- Workflow status helpers
-- durable `step.reportComplete`, `step.reportError`, `step.updateAgentState`,
-  `step.mergeAgentState`, and `step.resetAgentState`
-
-Non-durable callbacks can repeat on retry. Do not use non-durable broadcasts as Run truth.
-
-### Think Workflows
-
-`ThinkWorkflow.step.prompt()` is for a Workflow-owned process that needs a durable structured Think
-turn. It is not the foundation for the first Nanite Run migration.
-
-Use it later for narrow structured steps, such as triage or plan synthesis, when the Workflow owns
-the process and typed output matters more than live streaming. Keep normal Nanite work on
-`SigveloNaniteAgent.submitMessages()` so the existing transcript, workspace, tools, and UI stream
-remain intact.
-
-### Dynamic Workflows
-
-Dynamic Workflows combine a Worker Loader binding with a Workflow binding. `wrapWorkflowBinding`
-tags created Workflow instances with routing metadata. `createDynamicWorkflowEntrypoint` reloads the
-right Dynamic Worker when the Workflow resumes.
-
-Use this only when generated or tenant-authored code must define the Workflow steps. Metadata passed
-to `wrapWorkflowBinding` is persisted and readable through Workflow status, so it must contain only
-routing keys such as `installationId`, `workflowSourceId`, and `versionId`. Do not put tokens,
-secrets, prompts, repository content, or user data in it.
+The Workflow coordinates the durable process. The Nanite does the work. The Manager indexes the
+product facts.
 
 ## Ownership
 
@@ -161,16 +171,17 @@ secrets, prompts, repository content, or user data in it.
 - Nanite registry and manifest versions
 - GitHub installation and product authorization
 - trigger intake and trigger dedupe
-- `RunProjection` writes and queries
+- run projection writes and queries
+- manager-request resolution commands
 - audit, cost, and observability facts
-- the bridge from Nanite lifecycle tools to Workflow events
 
-The Manager should stop owning:
+The Manager stops owning:
 
-- the execution state machine for active Runs
-- retry and stale-run recovery that Workflows can express directly
+- active Run execution
+- lifecycle-tool interpretation
+- lifecycle-outcome repair that Workflows express directly
+- manager-driven resume via `submitMessages()`
 - a separate workflow identity layer
-- ad hoc waiting states such as `waiting_for_manager` as execution truth
 
 ### Think Nanite
 
@@ -178,23 +189,22 @@ The Manager should stop owning:
 
 - Think memory and transcript
 - live UI streaming
-- Workspace and git operations
+- workspace and git operations
 - GitHub MCP and code tools
 - sub-agent and sub-sub-agent behavior
-- lifecycle tools: `complete`, `no_change`, `fail`, `ask_manager`
+- SDK Workflow callbacks that project result/error facts through the Manager
 
-Lifecycle tools become signals into the Run Workflow. They no longer make Manager state the source
-of execution truth.
+The Nanite stops exposing lifecycle tools to the model. The structured output from
+`ThinkWorkflow.step.prompt()` replaces `complete`, `no_change`, `fail`, and `ask_manager`.
 
 ### Run Workflow
 
 `NaniteRunWorkflow` owns:
 
-- durable dispatch to the Think Nanite
-- waiting for Nanite signals
-- waiting for manager decisions
-- retry around deterministic side effects
-- final result reporting
+- durable prompt submission
+- durable workspace preparation before the prompt
+- typed output validation
+- structured result reporting through `reportComplete()`
 - named step status for debugging
 
 It must not own:
@@ -203,7 +213,7 @@ It must not own:
 - raw secrets
 - full transcripts
 - direct GitHub installation credentials
-- arbitrary generated authority that bypasses the Manager
+- generated authority that bypasses the Manager
 
 ## Run Projection
 
@@ -218,70 +228,59 @@ type RunProjection = {
   triggerType: "manual" | "github" | "schedule";
   actor: ObservabilityActor | null;
   model: NaniteRunModelSnapshot;
-  status: "active" | "waiting" | "complete" | "failed" | "canceled";
-  outcome: "complete" | "no_change" | "fail" | "canceled" | null;
-  waitingOn: "manager" | "external_event" | null;
+  status: "running" | "waiting_for_manager" | "complete" | "no_change" | "fail" | "canceled";
   summary: string | null;
   outputUrl: string | null;
-  agentFeedback: string | null;
+  agentFeedback: NaniteAgentFeedback | null;
+  managerRequest: ManagerRequest | null;
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
 };
 ```
 
-The UI can render this projection. Detailed execution status should come from Workflow status and
-step logs when the user opens a Run detail view.
+The UI can render this projection. Detailed execution status comes from Workflow status and step
+logs when the user opens a Run detail view. If Workflow status and projection disagree, Workflow is
+the execution truth and projection is the last indexed product fact.
 
-## Workflow Signals
+## Manager Requests
 
-Use one Workflow event type for Nanite-to-Workflow signals:
+`ask_manager` is no longer a model-facing tool. It is one member of the Workflow prompt output union.
 
-```ts
-const NANITE_RUN_SIGNAL_EVENT = "nanite-run-signal";
+When the output is `{ kind: "ask_manager" }`, the Workflow:
 
-type NaniteRunSignal =
-  | {
-      kind: "outcome";
-      signalId: string;
-      runId: string;
-      outcome: "complete" | "no_change" | "fail";
-      summary: string;
-      outputUrl: string | null;
-      agentFeedback: string | null;
-    }
-  | {
-      kind: "manager_request";
-      signalId: string;
-      runId: string;
-      requestId: string;
-      request: string;
-    }
-  | {
-      kind: "canceled";
-      signalId: string;
-      runId: string;
-      reason: string;
-    };
-```
+1. completes with `{ kind: "ask_manager" }`
+2. lets the Nanite's `onWorkflowComplete()` callback project the Manager request
 
-Use a separate event type for manager decisions:
+Manager-request resolution must not call `submitMessages()` directly. It also must not use
+`approveWorkflow()` or `rejectWorkflow()` for this path, because the Workflow has already completed.
+Rejecting the request records a normal terminal `fail` outcome on the original Run. Answering the
+request starts a new manual Run with the manager response in the trigger message.
 
-```ts
-const MANAGER_DECISION_EVENT = "manager-decision";
-```
+The current request shape should stay narrow: `request` only. Do not add `summary`,
+`requestedScopes`, parent run links, or speculative product metadata until a real manager UI
+requires it.
 
-Both names satisfy Cloudflare's event type constraints.
+## Sub-Sub-Agent Architecture
 
-Write the projection before sending the Workflow event. Include a unique `signalId` for each signal.
-That makes delivery idempotent and gives the Workflow a fallback if the Nanite produces a signal
-before the Workflow starts waiting.
+This works with the current sub-agent and sub-sub-agent model. The Workflow wraps the parent Run; it
+does not replace Think's tool system or the Nanite's ability to create/use child Nanites.
 
-## First Implementation
+The boundary is:
 
-### 1. Add the binding
+- Workflow owns the durable parent Run prompt.
+- Manager owns manager-request waits.
+- Think Nanite owns the agentic turn and tool graph.
+- Child Nanites remain tool-mediated work inside the parent prompt unless a future product feature
+  requires each child task to be its own durable Run Workflow.
 
-Add a Workflow binding to `wrangler.jsonc`:
+That gives us durability without making every internal delegation a product Run.
+
+## Runtime Contract
+
+### 1. Keep one static Workflow binding
+
+Keep a static Workflow binding:
 
 ```jsonc
 "workflows": [
@@ -301,98 +300,36 @@ vp exec wrangler types env.d.ts --include-runtime false --strict-vars false --co
 
 Do not add `@cloudflare/dynamic-workflows` for this slice.
 
-### 2. Add `NaniteRunWorkflow`
+### 2. `NaniteRunWorkflow` is a `ThinkWorkflow`
 
-Add a static Workflow class:
+`NaniteRunWorkflow` extends `ThinkWorkflow<SigveloNaniteAgent, NaniteRunWorkflowParams>`.
 
-```ts
-import { AgentWorkflow } from "agents/workflows";
+The run loop is:
 
-import type { AgentWorkflowEvent, AgentWorkflowStep } from "agents/workflows";
-import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager";
+1. prepare the workspace from manifest-scoped repository permissions
+2. prompt the Nanite for a structured result
+3. complete the Workflow with the structured result
+4. project the result from the Nanite's Workflow callback; manager responses start a new manual Run
 
-export type NaniteRunWorkflowParams = {
-  runId: string;
-  naniteId: string;
-};
+### 3. Start the Workflow through the Nanite
 
-export class NaniteRunWorkflow extends AgentWorkflow<
-  SigveloNaniteManager,
-  NaniteRunWorkflowParams
-> {
-  async run(
-    event: AgentWorkflowEvent<NaniteRunWorkflowParams>,
-    step: AgentWorkflowStep,
-  ): Promise<NaniteRunSignal> {
-    const { runId } = event.payload;
-
-    await step.do("dispatch-nanite", async () => {
-      await this.agent.dispatchRunToThinkAgent({ runId });
-    });
-
-    let afterSignalId: string | null = null;
-
-    while (true) {
-      const existing = await step.do("read-existing-run-signal", async () => {
-        return this.agent.getRunSignal({ runId, afterSignalId });
-      });
-
-      const signal =
-        existing ??
-        (
-          await step.waitForEvent<NaniteRunSignal>("wait-for-nanite-signal", {
-            type: NANITE_RUN_SIGNAL_EVENT,
-            timeout: "7 days",
-          })
-        ).payload;
-
-      afterSignalId = signal.signalId;
-
-      if (signal.kind === "manager_request") {
-        await step.do("project-manager-wait", async () => {
-          await this.agent.projectRunWaitingForManager(signal);
-        });
-
-        const decision = await step.waitForEvent("wait-for-manager-decision", {
-          type: MANAGER_DECISION_EVENT,
-          timeout: "7 days",
-        });
-
-        await step.do("resume-after-manager-decision", async () => {
-          await this.agent.resumeRunAfterManagerDecision({
-            runId,
-            decision: decision.payload,
-          });
-        });
-
-        continue;
-      }
-
-      await step.do("project-final-run-result", async () => {
-        await this.agent.projectFinalRunSignal(signal);
-      });
-
-      await step.reportComplete(signal);
-      return signal;
-    }
-  }
-}
-```
-
-### 3. Move Manager dispatch behind the Workflow
-
-Change the Manager path from:
+Manager dispatch uses Nanite-owned Workflow start:
 
 ```ts
-await this.dispatchRun({ runId });
+const agent = await this.subAgent(SigveloNaniteAgent, run.naniteId);
+await agent.startRunWorkflowFromManager({
+  managerName: this.name,
+  nanite,
+  run,
+});
 ```
 
-to:
+Inside `SigveloNaniteAgent.startRunWorkflowFromManager`, call:
 
 ```ts
 await this.runWorkflow(
   "NANITE_RUN_WORKFLOW",
-  { runId: run.runId, naniteId: run.naniteId },
+  { runId: run.runId, managerName: this.name },
   {
     id: run.runId,
     metadata: {
@@ -403,137 +340,67 @@ await this.runWorkflow(
 );
 ```
 
-Move the current direct sub-agent dispatch body into `dispatchRunToThinkAgent({ runId })`:
+This preserves the required Think Agent context for `ThinkWorkflow`.
 
-```ts
-const run = this.requireRunProjection(input.runId);
-const nanite = this.requireNanite(run.naniteId);
-const agent = await this.subAgent(SigveloNaniteAgent, run.naniteId);
+### 4. Lifecycle tools are structured output
 
-await agent.enqueueFromManager({ managerName: this.name, nanite, run });
-```
+`complete`, `no_change`, `fail`, and `ask_manager` are not model-facing tools in `getTools()`. The
+run prompt and system prompt tell the Nanite to finish by returning the requested structured result.
+The internal `think_final_answer` tool is reserved Cloudflare Think plumbing and should not appear in
+our product API.
 
-Keep `submissionId: run.runId` and the existing trigger idempotency key when calling
-`submitMessages`. A Think submission is the attempt under the Run, not the Run itself.
+There is no custom stop condition based on lifecycle tool calls. `ThinkWorkflow` stops the prompt
+when the internal final-answer tool is called.
 
-### 4. Replace lifecycle state writes with signals
+### 5. Project Workflow results from SDK callbacks
 
-`complete`, `no_change`, `fail`, `ask_manager`, and cancel should call the Manager. The Manager
-should:
+Do not add Workflow-only Nanite RPC shims. `NaniteRunWorkflow` should call `reportComplete(result)`
+and return. `SigveloNaniteAgent.onWorkflowComplete()` projects the structured result to the Manager.
+`SigveloNaniteAgent.onWorkflowError()` projects setup or prompt failures before structured output.
 
-1. validate that the Nanite owns the Run
-2. write or update the `RunProjection` idempotently
-3. record audit and cost facts
-4. send `NANITE_RUN_SIGNAL_EVENT` to the Run Workflow instance
-5. return the projection to the Nanite
+The Manager validates that the Run belongs to the Nanite before writing the projection.
 
-Example:
+### 6. Resolve manager requests by projecting or starting a Run
 
-```ts
-await this.projectFinalRunSignal(signal);
+`SigveloNaniteManager.resolveManagerRequest()` should validate the current projection and then:
 
-await this.sendWorkflowEvent("NANITE_RUN_WORKFLOW", signal.runId, {
-  type: NANITE_RUN_SIGNAL_EVENT,
-  payload: signal,
-});
-```
+- record a terminal `fail` on rejection
+- record the request Run as resolved and start a new manual Run on manager response
 
-If `sendWorkflowEvent` fails transiently after the projection write, retry the send. If it still
-fails, leave the projection signal available for `read-existing-run-signal`.
+It should not call the Nanite's `submitMessages()` path, and it should not use SDK approval helpers
+for this flow. The next prompt belongs to the new Run's Workflow.
 
-### 5. Model `ask_manager` as a wait
+### 7. Legacy lifecycle repair is absent
 
-`ask_manager` should not be a terminal Run state. It should write `status: "waiting"` and
-`waitingOn: "manager"` to the projection, then send a `manager_request` signal to the Workflow.
-The tool input stays `{ request: string }`; the manager wraps it with run id, request id, and
-timestamps. The detailed request contract lives in `../ask-manager-escalation-plan.md`.
+The runtime has no lifecycle continuation prompts, lifecycle watchdog scheduling, manager-driven
+`resumeFromManager`, or stale active-run repair. `recordRunFailureWithoutWorkflowOutput()` is only
+the error projection path for workflow-start failure, trigger failure, invalid callback output, or
+`onWorkflowError()`.
 
-The Workflow waits for `MANAGER_DECISION_EVENT`. After the Manager decision arrives, the Workflow
-durably resumes the Think Nanite with the decision. If the timeout expires, the Workflow should
-project a failed outcome with a timeout reason.
+Debug/maintenance APIs may inspect Think submissions or clear old SDK state. They do not decide Run
+outcomes.
 
-### 6. Keep cancellation explicit
+### 8. Keep Dynamic Workflows out
 
-Cancel should terminate or signal the Workflow, then abort the active Think submission if one exists.
-Projection status becomes `canceled`.
-
-The Manager can expose product commands such as cancel, pause, resume, and retry by calling the
-Agents SDK Workflow helpers. The UI should not mutate projection state directly.
-
-### 7. Remove the old state machine
-
-Once the Workflow-backed path passes integration tests, remove these as execution owners:
-
-- `allowedRunStatusTransitions`
-- manager-owned active Run lifecycle transitions
-- stale active-run repair that Workflows now cover
-- any future custom `WorkflowRun` Durable Object design
-
-Keep compatibility only where an existing UI query needs a projection. The app is pre-prod, so do
-not build a long-lived migration layer.
-
-### 8. Clean up bespoke runtime surface
-
-Treat cleanup as part of the Workflow-backed Run migration, not a follow-up project. Remove or
-tighten these surfaces as the new primitive lands:
-
-- remove optional per-run Workflow identity fields; `runId` is the Workflow instance id and
-  `NANITE_RUN_WORKFLOW` is a constant
-- collapse `complete`, `no_change`, `fail`, `ask_manager`, and cancel onto one signal-writing path
-- keep manual, scheduled, and trigger-created Runs on the same Workflow start path after dedupe
-- keep Dynamic Workflows out of `package.json`, `wrangler.jsonc`, and generated types until
-  generated Workflow source exists
-- treat Think submissions as attempts and expose them only in debugging views, not as product Runs
-- keep Workflow event names and payloads behind named constants and named signal types
-- run Fallow after the cutover to find now-unused files, exports, types, dependencies, and stale
-  suppressions
-
-Do not make renaming `NaniteRunRecord` a required migration step. The important cleanup is semantic:
-Manager-held Run data becomes a projection, whatever the local type is called during the cutover.
-
-## UI and Observability
-
-The Run list should read `RunProjection`. The Run detail should combine:
-
-- projection summary and outcome
-- Workflow status and step logs
-- Think transcript link or live stream
-- Think submission attempts for debugging
-- audit and cost facts
-
-If Workflow status and projection disagree, show the Workflow as execution truth and the projection
-as the last indexed product fact. Add a repair action that refreshes projection from Workflow status
-instead of letting the UI choose between two truths.
-
-## Dynamic Workflows Later
-
-Add Dynamic Workflows only after the static Run Workflow is working and we have a real need for
-generated Workflow source.
-
-The later shape should be:
-
-1. store generated Workflow source by `{ workflowSourceId, versionId }`
-2. keep the source available for the full Workflow retention window
-3. wrap the Workflow binding with routing metadata only
-4. load the source through Worker Loader on every resume
-5. expose only a narrow Manager API to generated code
-6. statically validate generated source before it can run
-
-Generated trigger handlers should remain Trigger Workers. They decide whether to dispatch a Run.
-They should not become Dynamic Workflows just because Dynamic Workflows exist.
+Do not add Dynamic Workflow dependencies, bindings, source ids, version ids, or routing metadata now.
+Generated trigger handlers remain Trigger Workers: they decide whether to dispatch a Run. Generated
+Workflow source is a later feature with a different problem statement.
 
 ## Checks
 
-The first implementation is complete when these checks pass:
+Runtime checks:
 
 - manual Run creates a Workflow with `instance.id === runId`
 - trigger dedupe returns the existing Run projection and does not create a second Workflow
-- lifecycle `complete`, `no_change`, and `fail` write one projection result and unblock the Workflow
-- `ask_manager` makes the Workflow wait and then resume after a manager decision
-- a Nanite signal written before `waitForEvent` is still observed through `read-existing-run-signal`
-- cancel terminates the Workflow and aborts active Think work
+- `complete`, `no_change`, and `fail` are structured Workflow outputs, not model-facing tools
+- `ask_manager` is a structured Workflow output and completes the Workflow after projecting the
+  Manager request
+- manager rejection produces a terminal `fail` projection without resuming the Workflow
+- manager response starts a new Workflow-backed manual Run
+- cancellation aborts active Think prompt work when possible and does not need to terminate a
+  completed Workflow
 - Run list reads projections
-- Run detail can show Workflow step status
+- Run detail can show Workflow status and step status
 - `vp exec wrangler types env.d.ts --include-runtime false --strict-vars false --config wrangler.jsonc`
   runs after binding changes
 - `vp check` and `vp test` pass
@@ -560,23 +427,20 @@ Cloudflare source:
 
 - Agents repository: <https://github.com/cloudflare/agents>
 - `Agent.runWorkflow`, `sendWorkflowEvent`, and Workflow helpers:
-  <https://github.com/cloudflare/agents/blob/1e571a507811612f0805b60d15c2776f65ee2ed4/packages/agents/src/index.ts>
+  <https://github.com/cloudflare/agents/blob/main/packages/agents/src/index.ts>
 - `AgentWorkflow` implementation:
-  <https://github.com/cloudflare/agents/blob/1e571a507811612f0805b60d15c2776f65ee2ed4/packages/agents/src/workflows.ts>
-- Think Workflow implementation:
-  <https://github.com/cloudflare/agents/blob/1e571a507811612f0805b60d15c2776f65ee2ed4/packages/think/src/workflows.ts>
-- Think workflow notification delivery:
-  <https://github.com/cloudflare/agents/blob/1e571a507811612f0805b60d15c2776f65ee2ed4/packages/think/src/think.ts>
+  <https://github.com/cloudflare/agents/blob/main/packages/agents/src/workflows.ts>
+- `ThinkWorkflow` implementation:
+  <https://github.com/cloudflare/agents/blob/main/packages/think/src/workflows.ts>
+- Think structured output and Workflow notification delivery:
+  <https://github.com/cloudflare/agents/blob/main/packages/think/src/think.ts>
 - Dynamic Workflows repository: <https://github.com/cloudflare/dynamic-workflows>
-- Dynamic Workflow binding wrapper:
-  <https://github.com/cloudflare/dynamic-workflows/blob/9726985af886698e85e90e3f044daf6dfcea2c1d/packages/dynamic-workflows/src/binding.ts>
-- Dynamic Workflow entrypoint:
-  <https://github.com/cloudflare/dynamic-workflows/blob/9726985af886698e85e90e3f044daf6dfcea2c1d/packages/dynamic-workflows/src/entrypoint.ts>
 
 Local Nanites baseline:
 
 - `src/backend/agents/SigveloNaniteManager.ts`
 - `src/backend/agents/SigveloNaniteAgent.ts`
+- `src/backend/agents/NaniteRunWorkflow.ts`
 - `wrangler.jsonc`
 - `docs/architecture/execution-architecture.md`
 - `docs/architecture/ask-manager-escalation-plan.md`

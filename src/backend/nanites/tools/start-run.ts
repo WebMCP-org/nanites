@@ -1,9 +1,6 @@
 import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
-import {
-  NANITE_MANUAL_RUN_TIMEOUT_MS,
-  type StartNaniteManualRunOutput,
-} from "#/backend/agents/SigveloNaniteManager.ts";
+import type { StartNaniteManualRunOutput } from "#/backend/agents/SigveloNaniteManager.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
@@ -16,8 +13,6 @@ const startNaniteRunToolInputSchema = z.object({
   naniteId: nonEmptyStringSchema,
   message: nonEmptyStringSchema,
   manualRequestId: nonEmptyStringSchema.optional(),
-  waitForTerminalOutcome: z.boolean().default(false),
-  timeoutMs: z.number().int().min(1_000).max(120_000).default(NANITE_MANUAL_RUN_TIMEOUT_MS),
 });
 
 export const startNaniteRunTool = defineSigveloMcpTool({
@@ -32,7 +27,7 @@ export const startNaniteRunTool = defineSigveloMcpTool({
     repositoryPolicy: {
       type: "runtime",
       access: "write",
-      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+      resolve: resolveReferencedNaniteRepositoryFullNames("referenced_nanites"),
     },
   },
   annotations: {
@@ -48,8 +43,6 @@ export const startNaniteRunTool = defineSigveloMcpTool({
       actorId: `github:${context.actor.githubUserId}`,
       actor: context.actor,
       manualRequestId: input.manualRequestId ?? context.requestId,
-      waitForTerminalOutcome: input.waitForTerminalOutcome,
-      timeoutMs: input.timeoutMs,
     });
   },
 } satisfies SigveloMcpToolDefinition<

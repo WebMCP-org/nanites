@@ -30,9 +30,7 @@ export const cancelRunsTool = defineSigveloMcpTool({
     repositoryPolicy: {
       type: "runtime",
       access: "write",
-      resolve: resolveReferencedNaniteRepositoryFullNames({
-        type: "all_nanites_when_unscoped",
-      }),
+      resolve: resolveReferencedNaniteRepositoryFullNames("all_nanites_when_unscoped"),
     },
   },
   annotations: {

@@ -14,6 +14,11 @@ import {
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import {
+  buildCloudflareVerifiedSetupState,
+  completedSetupLaunchState,
+  readSetupInstallNonce,
+} from "../helpers/setup-state.ts";
+import {
   CLOUDFLARE_SETUP_OAUTH_SCOPE,
   DEFAULT_GITHUB_APP_EVENTS,
   DEFAULT_GITHUB_APP_PERMISSIONS,
@@ -203,13 +208,7 @@ async function readRepositoryInstallState(
   setupAgent: SetupAgentTestRpc,
   origin = SETUP_ORIGIN,
 ): Promise<string> {
-  const setupState = await setupAgent.refresh({ origin });
-  const installUrl = setupState.githubApp.installUrl;
-  const installState = installUrl ? new URL(installUrl).searchParams.get("state") : null;
-  if (!installState) {
-    throw new Error("Expected setup Agent to expose a repository install nonce.");
-  }
-  return installState;
+  return readSetupInstallNonce(await setupAgent.refresh({ origin }));
 }
 
 async function buildClaimedGitHubSetupVerifyRequest({
@@ -356,31 +355,6 @@ function handleSuccessfulSetupVerificationGitHubRequest(request: Request): Respo
   }
 
   return null;
-}
-
-function buildCloudflareReadyReadiness(): NanitesSetupState["cloudflare"]["readiness"] {
-  return { status: "ready", checkedAt: new Date().toISOString(), items: [] };
-}
-
-function buildCloudflareVerifiedSetupState(): NanitesSetupState {
-  const initialState = createInitialSetupState();
-  return {
-    ...initialState,
-    currentStep: "github-app",
-    cloudflare: {
-      status: "verified",
-      authorizationUrl: null,
-      accountId: "test-account",
-      accountName: "Test Account",
-      scriptName: "sigvelo-agent-tests",
-      readiness: buildCloudflareReadyReadiness(),
-      error: null,
-    },
-    githubApp: {
-      ...initialState.githubApp,
-      status: "ready",
-    },
-  };
 }
 
 function buildCloudflareBlockedSetupState(detail: string): NanitesSetupState {
@@ -754,18 +728,9 @@ test("repository install survives setup Agent state reset through deployment met
 
   setupAgent.setState(createInitialSetupState());
 
-  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
-    setupComplete: true,
-    currentStep: "launch",
-    githubApp: {
-      status: "complete",
-      slug: "nanites-test",
-    },
-    repositories: {
-      status: "complete",
-      githubInstallationId: 42,
-    },
-  });
+  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject(
+    completedSetupLaunchState,
+  );
 });
 
 test("registering a different GitHub App is rejected", async () => {

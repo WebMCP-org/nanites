@@ -31,9 +31,6 @@ const defaultDeniedGitHubMcpTools = [
   "unstar_repository",
 ] as const;
 
-type GitHubAppPermissionName = "actions" | "issues" | "pull_requests";
-type GitHubAppPermissionLevel = "read" | "write";
-
 type NaniteRepositoryManifest = {
   permissions: {
     github?: {
@@ -50,22 +47,30 @@ type NaniteRepositoryManifest = {
       };
 };
 
-export type NaniteGitHubMcpAccess = {
+type NaniteGitHubMcpAccess = {
   toolsets: string[];
   deniedTools: string[];
   readonly: boolean;
 };
 
 function uniqueSorted(values: Iterable<string>): string[] {
-  return [...new Set([...values].map((value) => value.trim()).filter(Boolean))].sort();
+  const unique = new Set<string>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed) {
+      unique.add(trimmed);
+    }
+  }
+  return [...unique].sort();
 }
 
 export function resolveNaniteManifestRepositoryFullNames(
   manifest: NaniteRepositoryManifest,
 ): string[] {
-  const repositories = new Set(manifest.permissions.github?.repositories ?? []);
-  if (manifest.eventSource.type === "github") {
-    for (const repository of manifest.eventSource.repositories ?? []) {
+  const repositories = new Set(resolveNaniteGitHubPermissionRepositoryFullNames(manifest));
+  const eventSource = manifest.eventSource;
+  if (eventSource.type === "github" && "repositories" in eventSource) {
+    for (const repository of eventSource.repositories ?? []) {
       repositories.add(repository);
     }
   }
@@ -73,10 +78,16 @@ export function resolveNaniteManifestRepositoryFullNames(
   return uniqueSorted(repositories);
 }
 
+export function resolveNaniteGitHubPermissionRepositoryFullNames(
+  manifest: NaniteRepositoryManifest,
+): string[] {
+  return uniqueSorted(manifest.permissions.github?.repositories ?? []);
+}
+
 function grantsAtLeast(
   appPermissions: GitHubAppPermissions,
-  permission: GitHubAppPermissionName,
-  minimum: GitHubAppPermissionLevel,
+  permission: "actions" | "issues" | "pull_requests",
+  minimum: "read" | "write",
 ): boolean {
   const granted = appPermissions[permission];
   if (!granted) {
@@ -118,6 +129,9 @@ export function deriveNaniteGitHubMcpAccess(input: {
   return {
     toolsets: uniqueSorted(toolsets),
     deniedTools: uniqueSorted(deniedTools),
-    readonly: !Object.values(appPermissions).some((level) => level === "write"),
+    readonly: !(
+      grantsAtLeast(appPermissions, "issues", "write") ||
+      grantsAtLeast(appPermissions, "pull_requests", "write")
+    ),
   };
 }

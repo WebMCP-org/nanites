@@ -80,7 +80,7 @@ It owns runtime behavior that belongs to the Nanite:
 - live token streaming
 - workspace and file inspection
 - MCP attachments
-- lifecycle tools such as `complete`, `no_change`, `fail`, and `ask_manager`
+- structured Run output through `NaniteRunWorkflow`
 
 The tool registry never owns Nanite runtime state. It can ask the manager to delegate to a child Nanite for debug, transcript, submission, or workspace inspection.
 
@@ -496,7 +496,7 @@ MCP output should include both structured content and text content:
 4. Add frontend helper functions for browser workflows that need clearer UI-level names.
 5. Keep the UI on typed manager stubs unless a browser workflow needs a new composed manager callable.
 6. Update manager chat instructions and adapter code to call the same explicit tools.
-7. Keep lower-level manager primitives for webhooks, generated trigger dispatch, lifecycle tools, and child Nanite runtime callbacks.
+7. Keep lower-level manager primitives for webhooks, generated trigger dispatch, Workflow projection callbacks, and child Nanite runtime callbacks.
 8. Do not add compatibility tools while Nanites are pre-production; keep the surface explicit.
 
 ## Test plan

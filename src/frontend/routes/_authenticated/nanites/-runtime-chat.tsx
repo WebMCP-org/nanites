@@ -66,12 +66,6 @@ import type {
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import type { NaniteAgentState, SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 
-type PartialUIMessage = Partial<UIMessage> & {
-  readonly id?: unknown;
-  readonly role?: unknown;
-  readonly parts?: unknown;
-};
-
 type RuntimeConversationProps = {
   readonly agentMessages: readonly UIMessage[];
   readonly isRecovering?: boolean;
@@ -134,19 +128,22 @@ function normalizeMessages(value: unknown): UIMessage[] {
     return [];
   }
 
-  return value
-    .filter(
-      (message): message is PartialUIMessage => typeof message === "object" && message !== null,
-    )
-    .map((message, index) => ({
-      ...message,
-      id: typeof message.id === "string" ? message.id : `runtime-message-${index}`,
-      role:
-        message.role === "system" || message.role === "user" || message.role === "assistant"
-          ? message.role
-          : "assistant",
-      parts: Array.isArray(message.parts) ? message.parts : [],
-    })) as UIMessage[];
+  return value.flatMap((message, index) => {
+    if (!isRecord(message)) {
+      return [];
+    }
+
+    return [
+      {
+        id: typeof message.id === "string" ? message.id : `runtime-message-${index}`,
+        role:
+          message.role === "system" || message.role === "user" || message.role === "assistant"
+            ? message.role
+            : "assistant",
+        parts: Array.isArray(message.parts) ? message.parts : [],
+      } satisfies UIMessage,
+    ];
+  });
 }
 
 function getMessageText(message: UIMessage): string {
@@ -805,7 +802,9 @@ function ManagerRuntimeChatSession({
   emptyTitle,
   placeholder,
 }: {
-  readonly agent: ReturnType<typeof useAgent<SigveloManagerConversationAgent>>;
+  readonly agent: ReturnType<
+    typeof useAgent<SigveloManagerConversationAgent, ManagerConversationState>
+  >;
   readonly emptyDescription: string;
   readonly emptyTitle: string;
   readonly placeholder: string;

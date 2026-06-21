@@ -31,7 +31,7 @@ const chatIngressLogger = getLogger(LOGGING.NANITES_CATEGORY)
 // upstream Think messenger state implementation.
 export class ChatSdkStateAgent extends ThinkMessengerStateAgent {}
 
-export type GitHubManagerThreadType =
+type GitHubManagerThreadType =
   | NonNullable<Extract<GitHubRawMessage, { type: "issue_comment" }>["threadType"]>
   | "review_comment";
 
@@ -58,8 +58,6 @@ export type HandleManagerChatMessageInput = {
 
 type GitHubManagerChatThread = Thread<Record<string, unknown>, GitHubRawMessage>;
 type GitHubManagerChatMessage = Message<GitHubRawMessage>;
-type UnknownChatThread = Thread<Record<string, unknown>, unknown>;
-type UnknownChatMessage = Message<unknown>;
 
 type ChatIngressRuntimeState =
   | {
@@ -128,8 +126,8 @@ function isGitHubRawMessage(raw: unknown): raw is GitHubRawMessage {
 }
 
 function readGitHubManagerChatInput(
-  thread: UnknownChatThread,
-  message: UnknownChatMessage,
+  thread: Thread<Record<string, unknown>, unknown>,
+  message: Message<unknown>,
 ): {
   thread: GitHubManagerChatThread;
   message: GitHubManagerChatMessage;

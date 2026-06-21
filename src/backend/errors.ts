@@ -473,7 +473,7 @@ export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function parseAppIsoDate(value: string, fieldName: string): Date {
+function parseAppIsoDate(value: string, fieldName: string): Date {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new AppError("naniteInvalidTimestamp", {

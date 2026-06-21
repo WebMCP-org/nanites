@@ -51,7 +51,7 @@ export const testNaniteTriggerTool = defineSigveloMcpTool({
     repositoryPolicy: {
       type: "runtime",
       access: "write",
-      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+      resolve: resolveReferencedNaniteRepositoryFullNames("referenced_nanites"),
     },
   },
   annotations: {

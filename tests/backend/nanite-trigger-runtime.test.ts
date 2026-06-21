@@ -7,30 +7,55 @@ import {
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 import { buildGitHubTriggerFixture } from "#/backend/nanites/triggers.ts";
-import {
-  isTerminalNaniteRunStatus,
-  type NaniteRunRecord,
-  type SigveloNaniteManager,
+import type {
+  NaniteRunRecord,
+  SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
 import { getGitHubWebhookRepositoryFullName } from "#/shared/utils/github.ts";
+import {
+  waitForRunWorkflowStatus,
+  waitForTerminalRun,
+  withDetachedRpcResults,
+} from "../helpers/rpc-results.ts";
 
 beforeAll(async () => {
   await ensureD1BaselineSchema(env.DB);
 });
 
-function getManager() {
-  return getAgentByName(
-    env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-    `trigger-validation-${crypto.randomUUID()}`,
+type InstallationManager = Pick<
+  SigveloNaniteManager,
+  | "cancelRuns"
+  | "dispatchRun"
+  | "getSnapshot"
+  | "handleGitHubWebhook"
+  | "inspectNaniteDebug"
+  | "recordRunFailureWithoutWorkflowOutput"
+  | "recordRuntimeActivity"
+  | "recordWorkflowResult"
+  | "registerNanite"
+  | "resolveManagerRequest"
+  | "startNaniteManualRun"
+  | "startRun"
+  | "testNaniteTrigger"
+>;
+
+async function getManager(): Promise<InstallationManager> {
+  return withDetachedRpcResults(
+    (await getAgentByName(
+      env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
+      `trigger-validation-${crypto.randomUUID()}`,
+    )) as unknown as InstallationManager,
   );
 }
 
 async function getInstallationManager(
   githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1,
-) {
-  return getAgentByName(
-    env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-    `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
+): Promise<InstallationManager> {
+  return withDetachedRpcResults(
+    (await getAgentByName(
+      env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
+      `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
+    )) as unknown as InstallationManager,
   );
 }
 
@@ -106,9 +131,9 @@ export default {
 };
 `;
 
-type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
 const naniteModel = "deepseek/deepseek-v4-pro";
+const fixtureEnv = env as unknown as { NANITES_LLM_FIXTURE: string };
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,
@@ -338,7 +363,7 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
   const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
   const manager = await getInstallationManager(githubInstallationId);
   const naniteId = "issue-github-mcp-actions";
-  const originalFixture = env.NANITES_LLM_FIXTURE;
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
   const restoreGitHubApi = mockGitHubApi([
     {
       method: "POST",
@@ -441,7 +466,7 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
 
   try {
     await saveTestGitHubApp(env.DB);
-    env.NANITES_LLM_FIXTURE = "github_mcp_issue_actions";
+    fixtureEnv.NANITES_LLM_FIXTURE = "github_mcp_issue_actions";
     await manager.registerNanite({
       manifest: {
         id: naniteId,
@@ -473,11 +498,26 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
     });
     await manager.dispatchRun({ runId: run.runId });
 
-    const terminalRun = await waitForTerminalRun(manager, run.runId);
-    expect(terminalRun.status).toBe("no_change");
+    const terminalRun = await waitForTerminalRun(manager, { runId: run.runId });
+    if (terminalRun.status !== "no_change") {
+      throw new Error("Expected the GitHub MCP action run to finish with no_change.");
+    }
     expect(terminalRun.agentFeedback).toMatchObject({
       severity: "info",
       suggestions: ["issue_write_called=true", "add_issue_comment_called=true"],
+    });
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(workflow).toMatchObject({
+      runId: run.runId,
+      workflow: {
+        workflowId: run.runId,
+        workflowName: "NANITE_RUN_WORKFLOW",
+        status: "complete",
+        metadata: {
+          naniteId,
+          triggerType: "manual",
+        },
+      },
     });
 
     expect(fakeGitHub.toolCalls).toMatchObject([
@@ -507,23 +547,23 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
     expect(observedHeaders?.toolsets?.split(",").sort()).toEqual(["context", "issues"]);
     expect(observedHeaders?.excludedTools?.split(",")).not.toContain("issue_write");
   } finally {
-    env.NANITES_LLM_FIXTURE = originalFixture;
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
     globalThis.fetch = githubApiFetch;
     restoreGitHubApi();
   }
 });
 
-test("ask_manager lifecycle pauses the run with a request-only manager request", async () => {
+test("ask_manager workflow output pauses the run with a request-only manager request", async () => {
   const manager = await getInstallationManager();
-  const naniteId = "ask-manager-lifecycle";
-  const originalFixture = env.NANITES_LLM_FIXTURE;
+  const naniteId = "ask-manager-workflow-output";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
 
   try {
-    env.NANITES_LLM_FIXTURE = "ask_manager";
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
     await manager.registerNanite({
       manifest: {
         id: naniteId,
-        name: "Ask manager lifecycle",
+        name: "Ask manager workflow output",
         description: "Exercises manager escalation.",
         model: naniteModel,
         eventSource: {
@@ -556,9 +596,244 @@ test("ask_manager lifecycle pauses the run with a request-only manager request",
       state: "waiting_for_manager",
       runId: run.runId,
     });
+
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(workflow).toMatchObject({
+      runId: run.runId,
+      workflow: {
+        workflowId: run.runId,
+        workflowName: "NANITE_RUN_WORKFLOW",
+        status: "complete",
+        metadata: {
+          naniteId,
+          triggerType: "manual",
+        },
+      },
+    });
+
+    const cancellationReason = "Manager canceled the waiting test run.";
+    const cancellation = await manager.cancelRuns({
+      runIds: [run.runId],
+      reason: cancellationReason,
+    });
+    expect(cancellation.skippedRuns).toEqual([]);
+    expect(cancellation.canceledRuns).toHaveLength(1);
+    expect(cancellation.canceledRuns[0]).toMatchObject({
+      runId: run.runId,
+      status: "canceled",
+      summary: cancellationReason,
+    });
+
+    const canceledWorkflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(canceledWorkflow.workflow?.status).toBe("complete");
   } finally {
-    env.NANITES_LLM_FIXTURE = originalFixture;
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
   }
+});
+
+test("manual run projects ask_manager output through Workflow callbacks", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "ask-manager-manual-wait";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
+
+  try {
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Ask manager manual wait",
+        description: "Exercises manual wait outcome handling.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {},
+      },
+    });
+
+    const output = await manager.startNaniteManualRun({
+      naniteId,
+      actorId: "github:1",
+      message: "Open the documentation PR.",
+    });
+
+    expect(output.ok).toBe(true);
+    expect(output.runs).toHaveLength(1);
+    expect(output.runs[0].status).toBe("running");
+
+    const waitingRun = await waitForRunStatus(manager, output.runs[0].runId, "waiting_for_manager");
+    if (waitingRun.status !== "waiting_for_manager") {
+      throw new Error("Expected the Nanite run to wait for the manager.");
+    }
+    expect(waitingRun.managerRequest?.request).toContain("repository authority");
+  } finally {
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
+  }
+});
+
+test("manager rejection closes an ask_manager run without resuming its Workflow", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "ask-manager-reject";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
+
+  try {
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Ask manager reject",
+        description: "Exercises manager rejection.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {},
+      },
+    });
+
+    const run = await manager.startRun({
+      naniteId,
+      trigger: {
+        type: "manual",
+        requestId: crypto.randomUUID(),
+        actorId: "github:1",
+        message: "Open the documentation PR.",
+      },
+    });
+    await manager.dispatchRun({ runId: run.runId });
+
+    const waitingRun = await waitForRunStatus(manager, run.runId, "waiting_for_manager");
+    if (waitingRun.status !== "waiting_for_manager") {
+      throw new Error("Expected the Nanite run to wait for the manager.");
+    }
+    await waitForRunWorkflowStatus(manager, { runId: run.runId });
+
+    await manager.resolveManagerRequest({
+      kind: "reject",
+      runId: run.runId,
+      requestId: waitingRun.managerRequest.id,
+      summary: "Manager rejected the requested authority.",
+    });
+
+    const terminalRun = await waitForTerminalRun(manager, { runId: run.runId });
+    if (terminalRun.status !== "fail") {
+      throw new Error("Expected rejected manager request to fail the run.");
+    }
+    expect(terminalRun.summary).toBe("Manager rejected the requested authority.");
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(workflow.workflow?.status).toBe("complete");
+  } finally {
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
+  }
+});
+
+test("manager response starts a follow-up Workflow-backed run", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "ask-manager-resume";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
+
+  try {
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Ask manager resume",
+        description: "Exercises manager resume.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {},
+      },
+    });
+
+    const run = await manager.startRun({
+      naniteId,
+      trigger: {
+        type: "manual",
+        requestId: crypto.randomUUID(),
+        actorId: "github:1",
+        message: "Open the documentation PR.",
+      },
+    });
+    await manager.dispatchRun({ runId: run.runId });
+
+    const waitingRun = await waitForRunStatus(manager, run.runId, "waiting_for_manager");
+    if (waitingRun.status !== "waiting_for_manager") {
+      throw new Error("Expected the Nanite run to wait for the manager.");
+    }
+    await waitForRunWorkflowStatus(manager, { runId: run.runId });
+
+    fixtureEnv.NANITES_LLM_FIXTURE = "no_change";
+    const followUpRun = await manager.resolveManagerRequest({
+      kind: "resume",
+      runId: run.runId,
+      requestId: waitingRun.managerRequest.id,
+      message: "Repository authority has been granted. Continue the run.",
+    });
+
+    expect(followUpRun.runId).not.toBe(run.runId);
+    expect(followUpRun.trigger).toMatchObject({
+      type: "manual",
+      actorId: "github:1",
+    });
+
+    const resolvedRequestRun = await waitForTerminalRun(manager, { runId: run.runId });
+    if (resolvedRequestRun.status !== "no_change") {
+      throw new Error("Expected resolved manager request to close with no_change.");
+    }
+    expect(resolvedRequestRun.summary).toBe(
+      "Manager answered this request by starting a follow-up run.",
+    );
+
+    const terminalRun = await waitForTerminalRun(manager, { runId: followUpRun.runId });
+    if (terminalRun.status !== "no_change") {
+      throw new Error("Expected follow-up run to finish with no_change.");
+    }
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: followUpRun.runId });
+    expect(workflow.workflow?.status).toBe("complete");
+  } finally {
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
+  }
+});
+
+test("missing workflow structured output fails the run projection", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "missing-workflow-output";
+
+  await manager.registerNanite({
+    manifest: {
+      id: naniteId,
+      name: "Missing workflow output",
+      description: "Exercises workflow output failure projection.",
+      model: naniteModel,
+      eventSource: {
+        type: "manual",
+      },
+      permissions: {},
+    },
+  });
+
+  const run = await manager.startRun({
+    naniteId,
+    trigger: {
+      type: "manual",
+      requestId: crypto.randomUUID(),
+      actorId: "github:1",
+      message: "Inspect the trigger but omit a structured result.",
+    },
+  });
+
+  const terminalRun = await manager.recordRunFailureWithoutWorkflowOutput({
+    runId: run.runId,
+    error: "Nanite Run Workflow failed before reporting structured output: no workflow result",
+  });
+  if (terminalRun.status !== "fail") {
+    throw new Error("Expected missing Workflow output to fail the run.");
+  }
+  expect(terminalRun.summary).toContain(
+    "Nanite Run Workflow failed before reporting structured output",
+  );
 });
 
 test("terminal run activity ignores late Think submission activity reports", async () => {
@@ -587,13 +862,18 @@ test("terminal run activity ignores late Think submission activity reports", asy
       message: "Check whether anything changed.",
     },
   });
-  const terminalRun = await manager.completeRun({
+  const terminalRun = await manager.recordWorkflowResult({
     runId: run.runId,
-    status: "no_change",
-    summary: "Nothing changed.",
-    outputUrl: null,
-    agentFeedback: null,
+    naniteId,
+    result: {
+      kind: "no_change",
+      summary: "Nothing changed.",
+      agentFeedback: null,
+    },
   });
+  if (terminalRun.status !== "no_change") {
+    throw new Error("Expected direct Workflow result to finish with no_change.");
+  }
 
   const lateThinking = await manager.recordRuntimeActivity({
     naniteId,
@@ -620,22 +900,6 @@ test("terminal run activity ignores late Think submission activity reports", asy
   expect(snapshot.runs[run.runId]?.status).toBe("no_change");
   expect(snapshot.runtimeActivityByNanite[naniteId]).toEqual(lateThinking);
 });
-
-async function waitForTerminalRun(
-  manager: InstallationManager,
-  runId: string,
-): Promise<NaniteRunRecord> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const run = (await manager.getSnapshot()).runs[runId];
-    if (run && isTerminalNaniteRunStatus(run.status)) {
-      return run;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  throw new Error(`Run ${runId} did not reach a terminal status in time.`);
-}
 
 async function waitForRunStatus(
   manager: InstallationManager,
@@ -684,7 +948,7 @@ test("webhook dispatch dedupes runs by trigger idempotency key", async () => {
     throw new Error("Expected the first webhook delivery to create a run.");
   }
 
-  await waitForTerminalRun(manager, runId);
+  await waitForTerminalRun(manager, { runId });
 
   const secondEvaluations = await manager.handleGitHubWebhook({ event });
   expect(secondEvaluations).toHaveLength(1);

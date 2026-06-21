@@ -105,7 +105,7 @@ export const exploreWorkspaceTool = defineSigveloMcpTool({
     repositoryPolicy: {
       type: "runtime",
       access: "read",
-      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
+      resolve: resolveReferencedNaniteRepositoryFullNames("referenced_nanites"),
     },
   },
   annotations: {

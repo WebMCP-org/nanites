@@ -311,7 +311,8 @@ Owns:
 - current and recent Runs
 - workspace-backed investigation and edits
 - change proposal pointer
-- lifecycle tools such as complete, no-change, fail, ask-manager, and create-child-nanite
+- structured Run output through `NaniteRunWorkflow`
+- child Nanite proposal tools when a vertical should split
 
 Use Agents SDK sub-agent routing for browser access. The UI should connect directly to the Nanite sub-agent instead of reading a mirrored transcript from the manager.
 
@@ -464,14 +465,11 @@ That means the likely long-term direction is:
 
 ## Workflow Direction
 
-If some Nanites become:
+Nanite Runs are backed by the static `NaniteRunWorkflow` primitive. The Run id is the Workflow
+instance id, and the manager projection is the product index for UI, audit, and history.
 
-- long-running
-- retry-heavy
-- multi-step
-- approval-gated
-
-then Cloudflare Workflows may become the right execution primitive for Runs.
+Dynamic or generated Workflows remain a later decision for tenant-authored orchestration source. Do
+not add another Run lifecycle harness while the static Workflow primitive covers the normal Run path.
 
 That decision should be made later.
 

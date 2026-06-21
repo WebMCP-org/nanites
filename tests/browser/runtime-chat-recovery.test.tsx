@@ -35,7 +35,7 @@ function clickButton(label: string): void {
 function renderConversation(props: Parameters<typeof RuntimeConversation>[0]) {
   if (!host) {
     host = document.createElement("div");
-    document.body.append(host);
+    document.body.appendChild(host);
     root = createRoot(host);
   }
 

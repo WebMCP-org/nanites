@@ -42,6 +42,7 @@ import { createDbClient } from "#/backend/db/index.ts";
 import { resolveDeploymentGitHubApp } from "#/backend/github/apps.ts";
 import { SigveloManagerConversationAgent as BaseSigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { SigveloNaniteManager as BaseSigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
+import { NaniteRunWorkflow } from "#/backend/agents/NaniteRunWorkflow.ts";
 import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 import { NanitesSetupAgent as BaseNanitesSetupAgent } from "#/backend/agents/NanitesSetupAgent.ts";
 import { parseBoundedNumber } from "#/shared/utils/values.ts";
@@ -60,7 +61,7 @@ export class SigveloManagerConversationAgent extends BaseSigveloManagerConversat
 export class SigveloNaniteManager extends BaseSigveloNaniteManager {}
 export class NanitesSetupAgent extends BaseNanitesSetupAgent {}
 
-export { ChatSdkStateAgent, HostBridgeLoopback, SigveloNaniteAgent };
+export { ChatSdkStateAgent, HostBridgeLoopback, NaniteRunWorkflow, SigveloNaniteAgent };
 
 // The codemode execute tool runs inside a DO facet. Production workerd only
 // accepts a facet class through ctx.exports (a loopback namespace), so the
@@ -69,13 +70,14 @@ export { ChatSdkStateAgent, HostBridgeLoopback, SigveloNaniteAgent };
 export { CodemodeRuntime } from "@cloudflare/think/server-entry";
 
 function createServerSentryOptions(env: Env) {
+  const sentryEnvironment = String(env.SENTRY_ENVIRONMENT);
   const isLocalLikeEnvironment =
-    env.SENTRY_ENVIRONMENT === "local" || env.SENTRY_ENVIRONMENT === "development";
+    sentryEnvironment === "local" || sentryEnvironment === "development";
 
   return {
     dsn: env.SENTRY_DSN ?? "",
     enabled: Boolean(env.SENTRY_DSN),
-    environment: env.SENTRY_ENVIRONMENT,
+    environment: sentryEnvironment,
     tracesSampleRate: parseBoundedNumber(
       env.SENTRY_TRACES_SAMPLE_RATE,
       isLocalLikeEnvironment ? DEFAULT_LOCAL_TRACES_SAMPLE_RATE : DEFAULT_REMOTE_TRACES_SAMPLE_RATE,

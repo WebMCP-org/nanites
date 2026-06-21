@@ -142,22 +142,13 @@ type BrowserDeploymentGitHubApp = {
   readonly htmlUrl: string;
   readonly ownerLogin: string | null;
 };
-type ManagerStateResponse = {
-  managerName: string;
-  state: NaniteManagerState;
-};
-type JsonResponseLike = {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly statusText: string;
-  json(): Promise<unknown>;
-};
-
 async function logoutSession(): Promise<void> {
   await parseResponse(httpClient.api.auth.session.logout.$post());
 }
 
-async function fetchManagerState(managerName: string): Promise<ManagerStateResponse> {
+async function fetchManagerState(
+  managerName: string,
+): Promise<{ managerName: string; state: NaniteManagerState }> {
   const data = await readJsonResponse(
     httpClient.api.nanites.manager[":managerName"].$get({
       param: { managerName },
@@ -185,8 +176,13 @@ async function fetchNaniteModels(): Promise<string[]> {
   return data.models.filter((model): model is string => typeof model === "string");
 }
 
-async function readJsonResponse<TResponse extends JsonResponseLike>(
-  responsePromise: Promise<TResponse>,
+async function readJsonResponse(
+  responsePromise: Promise<{
+    readonly ok: boolean;
+    readonly status: number;
+    readonly statusText: string;
+    json(): Promise<unknown>;
+  }>,
 ): Promise<unknown> {
   const response = await responsePromise;
   if (!response.ok) {
@@ -1084,7 +1080,10 @@ function ModelSelect({
         value={selectedModel}
         items={modelItems}
         disabled={modelsLoading || currentModel === null || pendingModel !== null}
-        onValueChange={(next: string) => {
+        onValueChange={(next: unknown) => {
+          if (typeof next !== "string") {
+            return;
+          }
           if (next === selectedModel) {
             return;
           }
@@ -2328,10 +2327,9 @@ function NanitesRuntimeSurface({
         actorId: `github:${actor.id}`,
         requestId: crypto.randomUUID(),
         event,
-        waitForTerminalOutcome: false,
       })) as TestNaniteTriggerOutput;
       if (!output.ok) {
-        throw new Error(output.error ?? "Trigger test did not start a Nanite run.");
+        throw new Error(output.error);
       }
 
       return output;

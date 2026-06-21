@@ -671,17 +671,6 @@
   grid-column: 1 / -1;
 }
 
-.observability-table-wrap {
-  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
-  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
-
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-}
-
 .observability-table-panel table {
   inline-size: 100%;
   min-inline-size: 34rem;
