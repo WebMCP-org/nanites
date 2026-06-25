@@ -13,8 +13,6 @@ generated trigger code, Workers AI for model access, and a GitHub App for reposi
 
 ## Current setup status
 
-Implemented locally in this branch:
-
 - the default `wrangler.jsonc` no longer requires GitHub App or auth-cookie secrets for first
   deploy
 - the default `wrangler.jsonc` carries the public Worker script name as a non-secret setup hint, so
@@ -38,7 +36,7 @@ Implemented locally in this branch:
 - GitHub App Manifest setup derives callback, webhook, setup, and redirect URLs from the deployed
   origin
 - manifest conversion writes generated `AUTH_COOKIE_SECRET`, GitHub private key, client secret, and
-  webhook secret to customer-owned Worker Secrets in the local implementation
+  webhook secret to customer-owned Worker Secrets
 - after manifest conversion, `/setup` keeps the GitHub App step in a `secrets-propagating` state
   until the current Worker can read those generated secrets
 - while secrets are propagating, the setup Agent schedules current-Worker status checks through the
@@ -72,7 +70,7 @@ Implemented locally in this branch:
 - runtime GitHub OAuth, webhook verification, installation tokens, and Think messengers read through
   the deployment GitHub App config owner
 
-Still required before public zero-copy claims:
+Still required before claiming zero-copy setup is public-ready:
 
 - live-smoke GitHub manifest conversion on a deployed `NanitesSetupAgent` and prove the implemented
   Worker Secret write path succeeds through Cloudflare MCP `execute()` with the DCR-issued setup

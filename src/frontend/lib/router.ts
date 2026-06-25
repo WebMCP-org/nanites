@@ -12,6 +12,7 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: 30 * 24 * 60 * 60 * 1000,
+      retry: false,
       refetchOnMount: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,

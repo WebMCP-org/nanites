@@ -193,8 +193,8 @@ Confirmed by first-party docs and live probes:
     `token_endpoint_auth_method: "none"` and an arbitrary HTTPS redirect URI.
   - The resulting `client_id` rendered an authorization page at
     `https://mcp.cloudflare.com/authorize` for that redirect URI.
-  - A deployed setup Agent on `https://nanites-app.alexmnahas.workers.dev` regenerated its
-    Cloudflare MCP authorization URL after a stale unscoped auth URL and included
+  - A deployed setup Agent regenerated its Cloudflare MCP authorization URL after a stale unscoped
+    auth URL and included
     `scope=offline_access user:read account:read workers:read workers_scripts:write`.
   - Cloudflare's managed MCP authorization page currently does not preselect requested write
     scopes from either the OAuth `scope` parameter, repeated `scopes` query parameters,
@@ -226,11 +226,10 @@ Confirmed by first-party docs and live probes:
   - A follow-up deployed Nanites smoke on June 9, 2026 reached `cloudflare.status: "verified"`
     after browser authorization through the DCR client. The setup Agent received the Cloudflare MCP
     OAuth callback, exchanged the PKCE code, called MCP `execute()` to list memberships and Workers
-    scripts, and verified that account `ad0d45931959d888de55865d02260ef8` owns script
-    `nanites-app`.
-    The remaining Nanites-specific live smoke check is that the deployed Agent completes GitHub
-    manifest conversion and writes the generated Worker secrets with this setup-granted MCP token
-    after the user signs in to GitHub.
+    scripts, and verified that the selected account owns the deployed Worker script. The remaining
+    Nanites-specific live smoke check is that the deployed Agent completes GitHub manifest
+    conversion and writes the generated Worker secrets with this setup-granted MCP token after the
+    user signs in to GitHub.
 - Cloudflare's Agents SDK can own the Cloudflare MCP OAuth session for the setup flow. Cloudflare's
   [McpClient API](https://developers.cloudflare.com/agents/model-context-protocol/apis/client-api/)
   docs say `addMcpServer()` connects an Agent to an external MCP server, returns
@@ -256,12 +255,12 @@ Confirmed by first-party docs and live probes:
   [Agent class internals](https://developers.cloudflare.com/agents/runtime/lifecycle/agent-class/)
   docs also document lifecycle context through `getCurrentAgent()`, which lets the setup Agent read
   the callback request while handling the MCP OAuth callback.
-- The local `use-mcp-react` repo at `/Users/alexmnahas/contracting/use-mcp-react` already models
-  this MCP auth shape. It uses `@modelcontextprotocol/sdk`'s `OAuthClientProvider`, supports manual
-  `clientId`, DCR, and `clientMetadataUrl`, and its tests prove that when an authorization server
-  advertises `client_id_metadata_document_supported`, the hook sends the metadata URL as
-  `client_id` instead of registering dynamically. For Cloudflare's managed API MCP server today, DCR
-  is the live path because the server advertises DCR and not CIMD.
+- A `use-mcp-react` reference implementation already models this MCP auth shape. It uses
+  `@modelcontextprotocol/sdk`'s `OAuthClientProvider`, supports manual `clientId`, DCR, and
+  `clientMetadataUrl`, and its tests prove that when an authorization server advertises
+  `client_id_metadata_document_supported`, the hook sends the metadata URL as `client_id` instead
+  of registering dynamically. For Cloudflare's managed API MCP server today, DCR is the live path
+  because the server advertises DCR and not CIMD.
 - GitHub App creation can be click-through and customer-owned. GitHub's
   [Manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)
   says the creator follows a URL, names the app, and owns the resulting GitHub App; the manifest

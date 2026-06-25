@@ -15,13 +15,7 @@ provenance, and audit review.
 
 ## Reference Shape
 
-The closest local reference is the ClickHouse/TanStack Router analytics prototype at:
-
-```text
-/Users/alexmnahas/contracting/zuplo/mcp-gateway-analytics
-```
-
-Borrow these ideas:
+Borrow these product-dashboard patterns:
 
 - customer question first, storage second
 - URL-backed filters

@@ -7,7 +7,7 @@ import { Button } from "#/frontend/ui/components/Button.tsx";
 import { Card } from "#/frontend/ui/components/Card.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
 import { ArrowClockwiseIcon, ArrowUUpLeftIcon, ArrowRightIcon } from "@phosphor-icons/react";
-import { isAuthenticationRequiredError, readApiErrorMessage } from "#/frontend/lib/auth.ts";
+import { isAuthenticationRequiredError, readApiProblem } from "#/frontend/lib/api-errors.ts";
 import { resolveAuthReturnTo } from "#/shared/utils/auth.ts";
 
 interface StateAction {
@@ -20,9 +20,18 @@ interface StateAction {
 interface PageStateCardProps {
   readonly title: string;
   readonly description: string;
+  readonly metadata?: readonly PageStateMetadataItem[];
   readonly actions?: readonly StateAction[];
   readonly sceneVariant?: NaniteSceneVariant;
 }
+
+interface PageStateMetadataItem {
+  readonly label: string;
+  readonly value: string;
+}
+
+const emptyStateActions: readonly StateAction[] = [];
+const emptyStateMetadata: readonly PageStateMetadataItem[] = [];
 
 export function RoutePendingPage({
   title,
@@ -100,14 +109,18 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
     Sentry.captureException(error);
   }, [error]);
 
+  const problem = readApiProblem(error);
   const message =
-    readApiErrorMessage(error) ?? (error instanceof Error ? error.message : "Unknown error.");
+    problem?.detail ??
+    problem?.title ??
+    (error instanceof Error ? error.message : "Unknown error.");
 
   return (
     <PageStateCard
       sceneVariant="concerned"
-      title="Something failed to load."
+      title={problem?.title ?? "Something failed to load."}
       description={message}
+      metadata={readProblemMetadata(problem)}
       actions={[
         {
           label: "Try again",
@@ -147,7 +160,8 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
 function PageStateCard({
   title,
   description,
-  actions = [],
+  metadata = emptyStateMetadata,
+  actions = emptyStateActions,
   sceneVariant = "idle",
 }: PageStateCardProps) {
   return (
@@ -161,6 +175,16 @@ function PageStateCard({
                 <h1 className="app-page-title">{title}</h1>
                 <p className="app-page-description">{description}</p>
               </div>
+              {metadata.length > 0 ? (
+                <dl className="page-state-card__metadata">
+                  {metadata.map((item) => (
+                    <div className="page-state-card__metadata-item" key={item.label}>
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
               {actions.length > 0 ? (
                 <div className="app-action-row">
                   {actions.map((action) => (
@@ -183,6 +207,45 @@ function PageStateCard({
       </main>
     </div>
   );
+}
+
+function readProblemMetadata(
+  problem: ReturnType<typeof readApiProblem>,
+): readonly PageStateMetadataItem[] {
+  if (!problem) {
+    return [];
+  }
+
+  const details = problem.details ? Object.entries(problem.details) : [];
+  return [
+    ...details.map(([label, value]) => ({
+      label: formatMetadataLabel(label),
+      value: formatMetadataValue(value),
+    })),
+    ...(problem.status ? [{ label: "Status", value: String(problem.status) }] : []),
+    ...(problem.code ? [{ label: "Code", value: problem.code }] : []),
+    ...(problem.requestId ? [{ label: "Request ID", value: problem.requestId }] : []),
+  ];
+}
+
+function formatMetadataLabel(label: string): string {
+  return label.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
+}
+
+function formatMetadataValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(formatMetadataValue).join(", ");
+  }
+
+  if (value === null || value === undefined) {
+    return String(value);
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return JSON.stringify(value) ?? String(value);
 }
 
 function useResetQueryBoundary(

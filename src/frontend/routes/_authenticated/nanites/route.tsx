@@ -21,7 +21,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useLocation } from "@tanstack/react-router";
 import { useAgent } from "agents/react";
-import { DetailedError, parseResponse } from "hono/client";
+import { parseResponse } from "hono/client";
 import { z } from "zod";
 import { httpClient } from "#/frontend/lib/http-client.ts";
 import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
@@ -97,6 +97,7 @@ import {
   type CloudflareModelSelectorGroup,
 } from "#/frontend/ui/components/ModelSelector.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
+import { readApiProblem } from "#/frontend/lib/api-errors.ts";
 import {
   AUTH_SESSION_QUERY_KEY,
   buildReturnToPath,
@@ -170,7 +171,7 @@ async function logoutSession(): Promise<void> {
 async function fetchManagerState(
   managerName: string,
 ): Promise<{ managerName: string; state: NaniteManagerState }> {
-  const data = await readJsonResponse(
+  const data: unknown = await parseResponse(
     httpClient.api.nanites.manager[":managerName"].$get({
       param: { managerName },
     }),
@@ -256,30 +257,8 @@ function readNaniteModelCatalog(data: unknown): NaniteModelCatalog {
 }
 
 async function fetchNaniteModels(): Promise<NaniteModelCatalog> {
-  const data = await readJsonResponse(httpClient.api.nanites.models.$get());
+  const data = await parseResponse(httpClient.api.nanites.models.$get());
   return readNaniteModelCatalog(data);
-}
-
-async function readJsonResponse(
-  responsePromise: Promise<{
-    readonly ok: boolean;
-    readonly status: number;
-    readonly statusText: string;
-    json(): Promise<unknown>;
-  }>,
-): Promise<unknown> {
-  const response = await responsePromise;
-  if (!response.ok) {
-    throw new DetailedError(`${response.status} ${response.statusText}`, {
-      statusCode: response.status,
-      detail: {
-        data: await response.json().catch(() => undefined),
-        statusText: response.statusText,
-      },
-    });
-  }
-
-  return response.json();
 }
 
 const naniteMobileViews: readonly NaniteMobileView[] = ["nanites", "chat", "files", "summary"];
@@ -490,6 +469,11 @@ function getRunActivityLabel(
 }
 
 function getErrorMessage(error: unknown): string {
+  const problem = readApiProblem(error);
+  if (problem?.detail || problem?.title) {
+    return problem.detail ?? problem.title ?? "Something went wrong.";
+  }
+
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
@@ -1026,7 +1010,7 @@ function ModelSelect({
         setModelError(getErrorMessage(error));
       });
   };
-  const error = modelsError ? "Could not load available models. Try reloading." : modelError;
+  const error = modelsError ? getErrorMessage(modelsError) : modelError;
 
   return (
     <InfoSection title="Model" collapsible={false}>

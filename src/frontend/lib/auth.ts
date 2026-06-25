@@ -1,7 +1,7 @@
 import { AUTH_RETURN_TO_PARAM } from "#/shared/constants.ts";
 import type { QueryClient } from "@tanstack/react-query";
 import { redirect } from "@tanstack/react-router";
-import { DetailedError, parseResponse } from "hono/client";
+import { parseResponse } from "hono/client";
 import type { InferResponseType } from "hono/client";
 import { httpClient } from "#/frontend/lib/http-client.ts";
 import type { NanitesRouterContext } from "#/frontend/lib/router.ts";
@@ -68,54 +68,4 @@ export async function requireSession(
       normalizeAuthenticatedReturnToPath(returnTo),
     )}`,
   });
-}
-
-function readDetailedErrorData(error: unknown): unknown {
-  if (!(error instanceof DetailedError)) {
-    return undefined;
-  }
-
-  const detail = error.detail;
-  return typeof detail === "object" && detail !== null && "data" in detail
-    ? (detail as { data?: unknown }).data
-    : undefined;
-}
-
-function readErrorCode(error: unknown): unknown {
-  const data = readDetailedErrorData(error);
-  if (typeof data !== "object" || data === null || !("code" in data)) {
-    return undefined;
-  }
-
-  return (data as { code?: unknown }).code;
-}
-
-export function readApiErrorMessage(error: unknown): string | null {
-  const data = readDetailedErrorData(error);
-  if (typeof data !== "object" || data === null) {
-    return null;
-  }
-
-  if ("detail" in data && typeof (data as { detail?: unknown }).detail === "string") {
-    return (data as { detail: string }).detail;
-  }
-
-  if ("title" in data && typeof (data as { title?: unknown }).title === "string") {
-    return (data as { title: string }).title;
-  }
-
-  return null;
-}
-
-export function isAuthenticationRequiredError(error: unknown): boolean {
-  if (!(error instanceof DetailedError)) {
-    return false;
-  }
-
-  if (error.statusCode !== 401) {
-    return false;
-  }
-
-  const code = readErrorCode(error);
-  return code === undefined || code === "authentication_required";
 }
