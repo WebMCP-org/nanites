@@ -589,6 +589,22 @@ const cloudflareAiGatewaySetupSchema = z.object({
   zdr: z.boolean().nullish(),
 });
 
+const cloudflareApiErrorSchema = z
+  .object({
+    code: z.union([z.string(), z.number()]).optional(),
+    message: z.string().optional(),
+  })
+  .passthrough();
+
+const cloudflareApiEnvelopeSchema = z
+  .object({
+    success: z.boolean().optional(),
+    errors: z.array(cloudflareApiErrorSchema).optional(),
+    messages: z.array(z.unknown()).optional(),
+    result: z.unknown(),
+  })
+  .passthrough();
+
 const WORKERS_PAID_RATE_PLAN_IDS = new Set([
   "workers_paid",
   "partners_workers_ent",
@@ -622,6 +638,37 @@ function isWorkersPaidSubscription(subscription: CloudflareSubscription): boolea
     subscription.rate_plan?.is_contract === true &&
     (ratePlanId.includes("workers") || publicName.includes("workers"))
   );
+}
+
+function parseCloudflarePayload<T extends z.ZodType>(
+  schema: T,
+  value: unknown,
+  label: string,
+): z.output<T> {
+  const parsed = cloudflareApiEnvelopeSchema
+    .transform((envelope, context) => {
+      if (envelope.success === false) {
+        const detail = envelope.errors
+          ?.map(({ code, message }) => [code, message].filter(Boolean).join(": "))
+          .filter((message) => message.length > 0)
+          .join("; ");
+        context.addIssue({
+          code: "custom",
+          message: `${label} failed${detail ? `: ${detail}` : "."}`,
+        });
+        return z.NEVER;
+      }
+      return envelope.result;
+    })
+    .pipe(schema)
+    .or(schema)
+    .safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]?.message;
+    throw new Error(`${label} returned an unexpected response shape${issue ? `: ${issue}` : "."}`);
+  }
+
+  return parsed.data;
 }
 
 // ---------------------------------------------------------------------------
@@ -966,13 +1013,15 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       error: null,
     });
 
-    const memberships = z.array(cloudflareMembershipSchema).parse(
+    const memberships = parseCloudflarePayload(
+      z.array(cloudflareMembershipSchema),
       await this.executeCloudflareCode({
         code: `async () => {
   const response = await cloudflare.request({ method: "GET", path: "/memberships" });
   return response.result;
 }`,
       }),
+      "Cloudflare memberships lookup",
     );
 
     for (const { account } of memberships) {
@@ -1003,7 +1052,8 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   private async accountOwnsWorkerRoute(accountId: string, worker: WorkerRoute): Promise<boolean> {
     try {
       if (worker.workersDevSubdomain) {
-        const accountSubdomain = cloudflareAccountSubdomainSchema.parse(
+        const accountSubdomain = parseCloudflarePayload(
+          cloudflareAccountSubdomainSchema,
           await this.executeCloudflareCode({
             accountId,
             code: `async () => {
@@ -1014,12 +1064,14 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   return response.result;
 }`,
           }),
+          "Cloudflare workers.dev subdomain lookup",
         );
         if (accountSubdomain.subdomain.toLowerCase() !== worker.workersDevSubdomain) {
           return false;
         }
 
-        const scriptSubdomain = cloudflareScriptSubdomainSchema.parse(
+        const scriptSubdomain = parseCloudflarePayload(
+          cloudflareScriptSubdomainSchema,
           await this.executeCloudflareCode({
             accountId,
             code: `async () => {
@@ -1031,11 +1083,13 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   return response.result;
 }`,
           }),
+          "Cloudflare Worker script subdomain lookup",
         );
         return scriptSubdomain.enabled === true;
       }
 
-      const domains = z.array(cloudflareWorkerDomainSchema).parse(
+      const domains = parseCloudflarePayload(
+        z.array(cloudflareWorkerDomainSchema),
         await this.executeCloudflareCode({
           accountId,
           code: `async () => {
@@ -1049,6 +1103,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   return response.result;
 }`,
         }),
+        "Cloudflare Worker domain lookup",
       );
       return domains.some(
         (domain) =>
@@ -1141,7 +1196,8 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       required: true,
     };
     try {
-      const subscriptions = z.array(cloudflareSubscriptionSchema).parse(
+      const subscriptions = parseCloudflarePayload(
+        z.array(cloudflareSubscriptionSchema),
         await this.executeCloudflareCode({
           accountId,
           code: `async () => {
@@ -1152,6 +1208,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   return response.result;
 }`,
         }),
+        "Cloudflare subscriptions lookup",
       );
       const workersPaid = subscriptions.find(isWorkersPaidSubscription);
       if (workersPaid) {
@@ -1271,7 +1328,8 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     const gatewayDefaults = NANITES_AI_GATEWAY_REQUEST_DEFAULTS;
 
     try {
-      const gateway = cloudflareAiGatewaySetupSchema.parse(
+      const gateway = parseCloudflarePayload(
+        cloudflareAiGatewaySetupSchema,
         await this.executeCloudflareCode({
           accountId,
           code: `async () => {
@@ -1354,6 +1412,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   };
 }`,
         }),
+        "Cloudflare AI Gateway setup",
       );
       const configuredMaxAttempts = gateway.retry_max_attempts ?? gatewayDefaults.maxAttempts;
       const configuredRetryDelay = gateway.retry_delay ?? gatewayDefaults.retryDelayMs;

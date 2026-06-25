@@ -423,11 +423,12 @@ function readCloudflareMcpExecuteArgs(params: unknown): CloudflareMcpExecuteArgs
 async function runCloudflareMcpExecute(
   input: CloudflareMcpExecuteArgs,
   requests: CloudflareApiRequestRecord[],
+  readResult: (request: CloudflareApiRequestRecord) => unknown = readFakeCloudflareApiResult,
 ): Promise<unknown> {
   const cloudflare = {
     request: async (request: CloudflareApiRequestRecord) => {
       requests.push(request);
-      const result = readFakeCloudflareApiResult(request);
+      const result = readResult(request);
       return {
         success: true,
         status: 200,
@@ -559,6 +560,10 @@ function buildFakeCloudflareMcpFetch(
 function buildCloudflareVerificationMcpFetch(
   originalFetch: typeof fetch,
   cloudflareRequests: CloudflareApiRequestRecord[],
+  options: {
+    readonly readCloudflareApiResult?: (request: CloudflareApiRequestRecord) => unknown;
+    readonly wrapExecuteResult?: boolean;
+  } = {},
 ): typeof fetch {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
@@ -600,15 +605,19 @@ function buildCloudflareVerificationMcpFetch(
           ],
         });
       case "tools/call":
+        const executeResult = await runCloudflareMcpExecute(
+          readCloudflareMcpExecuteArgs(message.params),
+          cloudflareRequests,
+          options.readCloudflareApiResult,
+        );
         return respond({
           content: [
             {
               type: "text",
               text: JSON.stringify(
-                await runCloudflareMcpExecute(
-                  readCloudflareMcpExecuteArgs(message.params),
-                  cloudflareRequests,
-                ),
+                options.wrapExecuteResult
+                  ? { success: true, errors: [], messages: [], result: executeResult }
+                  : executeResult,
               ),
             },
           ],
@@ -1153,6 +1162,67 @@ test("Cloudflare setup provisions the configured AI Gateway", async () => {
   } finally {
     globalThis.fetch = originalFetch;
     Reflect.set(env, "AI", originalAiBinding);
+  }
+});
+
+test("Cloudflare setup accepts API envelope-shaped MCP execute results", async () => {
+  const setupAgent = await getSetupAgent();
+  const cloudflareRequests: CloudflareApiRequestRecord[] = [];
+  const originalFetch = globalThis.fetch;
+  const originalAiBinding = Reflect.get(env, "AI");
+  Reflect.set(env, "AI", {
+    models: async () => [],
+    run: async () => ({}),
+  });
+  globalThis.fetch = buildCloudflareVerificationMcpFetch(originalFetch, cloudflareRequests, {
+    wrapExecuteResult: true,
+  });
+
+  try {
+    const result = await setupAgent.connectCloudflare({ origin: SETUP_ORIGIN });
+
+    expect(result.authorizationUrl).toBeNull();
+    expect(result.state).toMatchObject({
+      currentStep: "github-app",
+      cloudflare: {
+        status: "verified",
+        accountId: "test-account",
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    Reflect.set(env, "AI", originalAiBinding);
+  }
+});
+
+test("Cloudflare setup does not leak raw Zod array errors for malformed MCP responses", async () => {
+  const cloudflareRequests: CloudflareApiRequestRecord[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = buildCloudflareVerificationMcpFetch(originalFetch, cloudflareRequests, {
+    readCloudflareApiResult: (request) =>
+      request.method === "GET" && request.path === "/memberships"
+        ? { unexpected: "shape" }
+        : readFakeCloudflareApiResult(request),
+  });
+
+  try {
+    const response = await nanitesHttpApp.request(
+      `${SETUP_ORIGIN}/api/setup/cloudflare`,
+      { method: "POST" },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { state: NanitesSetupState };
+    expect(body.state.cloudflare).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining(
+        "Cloudflare memberships lookup returned an unexpected response shape",
+      ),
+    });
+    expect(body.state.cloudflare.error).not.toContain('"expected": "array"');
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
