@@ -15,8 +15,8 @@ generated trigger code, Workers AI for model access, and a GitHub App for reposi
 
 - the default `wrangler.jsonc` no longer requires GitHub App or auth-cookie secrets for first
   deploy
-- the default `wrangler.jsonc` carries the public Worker script name as a non-secret setup hint, so
-  Cloudflare ownership verification works even when `/setup` is opened from a custom domain
+- the default `wrangler.jsonc` has no runtime vars, so Deploy to Cloudflare does not ask for setup
+  values before the app can generate them
 - `/setup` is the first-launch UI for missing deployment config
 - `/setup` is backed by `NanitesSetupAgent`, so the wizard state is Durable Object state streamed
   to React with the Agents SDK `useAgent()` hook
@@ -111,7 +111,7 @@ The intended public entrypoint is:
 
 The one-click deploy is the golden path. It creates the Worker from the public template, then the
 runtime setup UI finishes account verification, GitHub App creation, repository installation, and
-generated secret writes. Local operators can run the same deploy wrapper with Wrangler:
+generated secret writes. Local operators can run the same package deploy with Wrangler:
 
 ```bash
 vp check
@@ -120,27 +120,16 @@ vp build
 vp run deploy
 ```
 
-`vp run deploy` builds, deploys once with Wrangler auto-provisioning enabled, resolves the generated
-remote D1 database id, applies migrations for the default `DB` binding, then redeploys the Worker
-and assets. The deploy wrapper reads the D1 database name and migrations directory from
-`wrangler.jsonc`, then writes a temporary migration-only Wrangler config with the generated
-database id. It prefers the project-local `node_modules/.bin/vp` binary for build and Wrangler
-commands, so Workers Builds does not need a globally installed Vite+ CLI. This keeps the public
-`wrangler.jsonc` free of account-specific D1, R2, and KV ids.
+`vp run deploy` builds, deploys once with Wrangler auto-provisioning enabled, then applies the
+Drizzle migrations with `drizzle-kit migrate --config src/backend/db/drizzle.config.ts`. The remote
+migration step uses Drizzle's first-party D1 HTTP driver, so the build environment needs
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, and `CLOUDFLARE_API_TOKEN` with D1 edit access.
+These are build-time migration credentials, not Worker runtime vars.
 
 ### Workers Builds Git integration
 
 Cloudflare Workers Builds reads the root `wrangler.jsonc` when connecting the repository. Keep the
-root Worker name and setup hint aligned:
-
-```jsonc
-{
-  "name": "nanites-app-production",
-  "vars": {
-    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
-  },
-}
-```
+root Worker name stable at `nanites-app-production`.
 
 Wrangler v3.109.0 and newer may generate a follow-up PR after a build if the connected Worker name
 does not match the repository config. Accept the same value in both places instead of letting the
@@ -332,7 +321,7 @@ vp exec wrangler types env.d.ts --include-runtime false
 Apply remote D1 migrations manually only for named operator environments:
 
 ```bash
-vp exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+vp run db:migrate:remote
 ```
 
 Manual reuse of an existing GitHub App is not part of V1 setup. If a local or pre-production

@@ -15,7 +15,7 @@ export const clientConfigRoutes = new Hono<WorkerHonoEnv>().get("/", (context) =
   return context.json({
     sentry: {
       dsn: context.env.SENTRY_DSN ?? null,
-      environment: context.env.SENTRY_ENVIRONMENT ?? null,
+      environment: context.env.SENTRY_ENVIRONMENT ?? "production",
       tracesSampleRate: context.env.SENTRY_TRACES_SAMPLE_RATE ?? null,
     },
   });

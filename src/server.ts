@@ -66,14 +66,13 @@ export { HostBridgeLoopback, NaniteRunWorkflow, SigveloNaniteAgent, ThinkMesseng
 export { CodemodeRuntime } from "@cloudflare/think/server-entry";
 
 function createServerSentryOptions(env: Env) {
-  const sentryEnvironment = String(env.SENTRY_ENVIRONMENT);
-  const isLocalLikeEnvironment =
-    sentryEnvironment === "local" || sentryEnvironment === "development";
+  const environment = env.SENTRY_ENVIRONMENT ?? "production";
+  const isLocalLikeEnvironment = environment === "local" || environment === "development";
 
   return {
     dsn: env.SENTRY_DSN ?? "",
     enabled: Boolean(env.SENTRY_DSN),
-    environment: sentryEnvironment,
+    environment,
     tracesSampleRate: parseBoundedNumber(
       env.SENTRY_TRACES_SAMPLE_RATE,
       isLocalLikeEnvironment ? DEFAULT_LOCAL_TRACES_SAMPLE_RATE : DEFAULT_REMOTE_TRACES_SAMPLE_RATE,

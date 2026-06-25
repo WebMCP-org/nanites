@@ -67,14 +67,8 @@ vp exec wrangler whoami
 - KV namespace bound as `OAUTH_KV`
 - KV namespace bound as `TOOL_OUTPUTS`
 
-Create/update resources with Wrangler or Cloudflare MCP:
-
-```bash
-vp exec wrangler d1 create nanites-db
-vp exec wrangler r2 bucket create nanites-workspace-files
-vp exec wrangler kv namespace create OAUTH_KV
-vp exec wrangler kv namespace create TOOL_OUTPUTS
-```
+The default `wrangler.jsonc` leaves D1, R2, and KV resource ids/names empty so Wrangler can
+auto-provision them during deploy.
 
 `/setup` uses Cloudflare API MCP with Billing Read to confirm the selected account has an active
 Workers paid subscription. It also creates or configures the deployment AI Gateway
@@ -86,7 +80,7 @@ zero-config path does not depend on third-party provider credentials.
 Apply database migrations before relying on an environment:
 
 ```bash
-vp exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+vp run db:migrate:remote
 ```
 
 ## Local Runtime Secrets
@@ -112,8 +106,8 @@ vp exec wrangler secret put SENTRY_DSN --config wrangler.jsonc
 
 Setting the `SENTRY_DSN` secret enables both worker-side Sentry and browser-side Sentry — the
 frontend reads the DSN at runtime from `/api/client-config`, so no rebuild is needed. (A build-time
-`VITE_SENTRY_DSN` still takes precedence when set.) Keep non-sensitive runtime settings such as
-`SENTRY_ENVIRONMENT` and `SENTRY_TRACES_SAMPLE_RATE` in `wrangler.jsonc` vars.
+`VITE_SENTRY_DSN` still takes precedence when set.) The public template defaults to the production
+Sentry environment and a `0.1` trace sample rate when those optional runtime vars are absent.
 
 For local browser SDK or source-map upload settings, copy the Sentry/browser template only when you
 need it:
