@@ -101,11 +101,11 @@ If git operations were replaced with API calls, the entire `.git` directory beco
 
 ### @cloudflare/shell git wrapper
 
-| File                                                                              | What to look at                                                                                                               |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts`      | `createGit()` factory and git method wrappers. `clone()` accepts `depth` but not `onProgress` or `onMessage`.                 |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/fs-adapter.ts` | Adapts the Workspace filesystem to isomorphic-git's expected `fs` API. This is where file writes during clone go through.     |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/provider.ts`   | Git tool provider for MCP/shell integration - the tools the Nanite LLM calls.                                                 |
+| File                                                                              | What to look at                                                                                                           |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts`      | `createGit()` factory and git method wrappers. `clone()` accepts `depth` but not `onProgress` or `onMessage`.             |
+| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/fs-adapter.ts` | Adapts the Workspace filesystem to isomorphic-git's expected `fs` API. This is where file writes during clone go through. |
+| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/provider.ts`   | Git tool provider for MCP/shell integration - the tools the Nanite LLM calls.                                             |
 
 ### Workspace storage
 
@@ -116,11 +116,11 @@ If git operations were replaced with API calls, the entire `.git` directory beco
 
 ### Agents SDK observability
 
-| File                                                                                    | What to look at                                                            |
-| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/observability/index.ts` | Diagnostics channel definitions and `Observability` interface              |
-| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/observability/agent.ts` | Agent event types - what Workers Observability can show                    |
-| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/index.ts`               | `_emit()`, error hooks, destroy/abort, queue/schedule retry logic          |
+| File                                                                                    | What to look at                                                   |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/observability/index.ts` | Diagnostics channel definitions and `Observability` interface     |
+| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/observability/agent.ts` | Agent event types - what Workers Observability can show           |
+| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/index.ts`               | `_emit()`, error hooks, destroy/abort, queue/schedule retry logic |
 
 ### GitHub API integration (already exists)
 
