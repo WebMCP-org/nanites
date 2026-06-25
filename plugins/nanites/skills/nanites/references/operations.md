@@ -271,7 +271,7 @@ Required resources for deployment and self-hosting:
 - Worker Loader binding: `LOADER`
 - D1 database: `DB`
 - R2 bucket: `WORKSPACE_FILES`
-- KV namespaces: `OAUTH_KV`, `TOOL_OUTPUTS`
+- KV namespace: `OAUTH_KV`
 - Workers AI binding: `AI`
 - Browser binding: `BROWSER`
 
@@ -283,7 +283,6 @@ vp exec wrangler whoami
 vp exec wrangler d1 create nanites-db
 vp exec wrangler r2 bucket create nanites-workspace-files
 vp exec wrangler kv namespace create OAUTH_KV
-vp exec wrangler kv namespace create TOOL_OUTPUTS
 vp exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
 ```
 

@@ -1862,7 +1862,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
   private createToolOutputArtifactStore(): NaniteToolOutputArtifactStore {
     return new NaniteToolOutputArtifactStore({
-      kv: this.env.TOOL_OUTPUTS,
+      kv: this.env.OAUTH_KV,
       managerName: this.state.managerName,
       naniteId: this.state.naniteId,
       naniteName: this.name,

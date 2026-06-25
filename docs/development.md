@@ -64,8 +64,7 @@ vp exec wrangler whoami
 - Browser binding: `BROWSER`
 - D1 database bound as `DB`
 - R2 bucket bound as `WORKSPACE_FILES`
-- KV namespace bound as `OAUTH_KV`
-- KV namespace bound as `TOOL_OUTPUTS`
+- KV namespace bound as `OAUTH_KV` for OAuth state and prefixed tool-output artifacts
 
 The default `wrangler.jsonc` leaves D1, R2, and KV resource ids/names empty so Wrangler can
 auto-provision them during deploy.

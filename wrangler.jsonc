@@ -73,9 +73,6 @@
     {
       "binding": "OAUTH_KV",
     },
-    {
-      "binding": "TOOL_OUTPUTS",
-    },
   ],
   "durable_objects": {
     "bindings": [
