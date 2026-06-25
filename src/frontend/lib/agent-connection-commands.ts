@@ -12,7 +12,7 @@ const NANITES_MCP_NAME = "nanites";
 const NANITES_PLUGIN_MARKETPLACE = "WebMCP-org/nanites";
 const CLAUDE_CODE_PLUGIN_REF = "nanites@nanites";
 
-export function buildNanitesMcpUrl(origin: string): string {
+function buildNanitesMcpUrl(origin: string): string {
   return `${origin.replace(/\/$/, "")}/mcp`;
 }
 

@@ -1,19 +1,14 @@
+import { DEFAULT_AUTH_RETURN_TO_PATH } from "#/shared/constants.ts";
 import { type ReactNode, useEffect } from "react";
 import * as Sentry from "@sentry/react";
-import { useQueryClient, useQueryErrorResetBoundary } from "@tanstack/react-query";
+import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, Navigate, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { Card } from "#/frontend/ui/components/Card.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
 import { ArrowClockwiseIcon, ArrowUUpLeftIcon, ArrowRightIcon } from "@phosphor-icons/react";
-import {
-  getInstallationAuthErrorDetails,
-  invalidateAuthQueries,
-  isAuthenticationRequiredError,
-  readApiErrorMessage,
-  type InstallationAuthErrorDetails,
-} from "#/frontend/lib/auth.ts";
-import { DEFAULT_AUTH_RETURN_TO_PATH, resolveAuthReturnTo } from "#/auth.ts";
+import { isAuthenticationRequiredError, readApiProblem } from "#/frontend/lib/api-errors.ts";
+import { resolveAuthReturnTo } from "#/shared/utils/auth.ts";
 
 interface StateAction {
   readonly label: string;
@@ -25,25 +20,39 @@ interface StateAction {
 interface PageStateCardProps {
   readonly title: string;
   readonly description: string;
+  readonly metadata?: readonly PageStateMetadataItem[];
   readonly actions?: readonly StateAction[];
   readonly sceneVariant?: NaniteSceneVariant;
 }
 
+interface PageStateMetadataItem {
+  readonly label: string;
+  readonly value: string;
+}
+
+const emptyStateActions: readonly StateAction[] = [];
+const emptyStateMetadata: readonly PageStateMetadataItem[] = [];
+
 export function RoutePendingPage({
-  title = "Loading Nanites.",
-  description = "Nanites are preparing the next screen and syncing the required data.",
+  title,
+  description,
 }: {
   readonly title?: string;
   readonly description?: string;
 } = {}) {
+  const loadingText = title?.trim() || description?.trim() || null;
+
   // ponytail: card-less, centered loader shared by routes and the chat Suspense fallback.
   return (
     <div className="page-loading">
       <NaniteScene className="page-loading__nanite" mode="solo" variant="working" />
-      <div className="page-loading__copy">
-        <h1 className="app-page-title">{title}</h1>
-        <p className="app-page-description">{description}</p>
-      </div>
+      {loadingText ? (
+        <div className="page-loading__copy">
+          <p className="app-page-description">{loadingText}</p>
+        </div>
+      ) : (
+        <span className="visually-hidden">Loading</span>
+      )}
     </div>
   );
 }
@@ -77,11 +86,6 @@ export function RouteErrorBoundary(props: ErrorComponentProps) {
     return <AuthRedirectBoundary />;
   }
 
-  const installationError = getInstallationAuthErrorDetails(props.error);
-  if (installationError) {
-    return <InstallationRouteErrorPage installationError={installationError} {...props} />;
-  }
-
   return <GenericRouteErrorPage {...props} />;
 }
 
@@ -105,14 +109,18 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
     Sentry.captureException(error);
   }, [error]);
 
+  const problem = readApiProblem(error);
   const message =
-    readApiErrorMessage(error) ?? (error instanceof Error ? error.message : "Unknown error.");
+    problem?.detail ??
+    problem?.title ??
+    (error instanceof Error ? error.message : "Unknown error.");
 
   return (
     <PageStateCard
       sceneVariant="concerned"
-      title="Something failed to load."
+      title={problem?.title ?? "Something failed to load."}
       description={message}
+      metadata={readProblemMetadata(problem)}
       actions={[
         {
           label: "Try again",
@@ -149,61 +157,11 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
   );
 }
 
-function InstallationRouteErrorPage({
-  installationError,
-  reset,
-}: ErrorComponentProps & {
-  readonly installationError: InstallationAuthErrorDetails;
-}) {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const queryErrorResetBoundary = useQueryErrorResetBoundary();
-
-  useResetQueryBoundary(queryErrorResetBoundary);
-
-  const title =
-    installationError.code === "active_installation_required"
-      ? "Choose an installation to continue."
-      : "This installation is no longer available.";
-  const description =
-    installationError.code === "active_installation_required"
-      ? "Nanites needs an active GitHub installation before loading the workspace. Pick one to continue."
-      : "GitHub access for this installation changed, so Nanites can no longer use it. Pick another installation or reinstall the Nanites GitHub App.";
-
-  return (
-    <PageStateCard
-      sceneVariant="working"
-      title={title}
-      description={description}
-      actions={[
-        {
-          label: "Reload installations",
-          onClick: () => {
-            queryErrorResetBoundary.reset();
-            reset();
-            void invalidateAuthQueries(queryClient).then(() => router.navigate({ to: "/nanites" }));
-          },
-          icon: <ArrowClockwiseIcon size={14} />,
-        },
-        {
-          label: "Back to Nanites",
-          onClick: () => {
-            queryErrorResetBoundary.reset();
-            reset();
-            void router.navigate({ to: "/nanites" });
-          },
-          icon: <ArrowUUpLeftIcon size={14} />,
-          variant: "outline",
-        },
-      ]}
-    />
-  );
-}
-
 function PageStateCard({
   title,
   description,
-  actions = [],
+  metadata = emptyStateMetadata,
+  actions = emptyStateActions,
   sceneVariant = "idle",
 }: PageStateCardProps) {
   return (
@@ -217,6 +175,16 @@ function PageStateCard({
                 <h1 className="app-page-title">{title}</h1>
                 <p className="app-page-description">{description}</p>
               </div>
+              {metadata.length > 0 ? (
+                <dl className="page-state-card__metadata">
+                  {metadata.map((item) => (
+                    <div className="page-state-card__metadata-item" key={item.label}>
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
               {actions.length > 0 ? (
                 <div className="app-action-row">
                   {actions.map((action) => (
@@ -239,6 +207,45 @@ function PageStateCard({
       </main>
     </div>
   );
+}
+
+function readProblemMetadata(
+  problem: ReturnType<typeof readApiProblem>,
+): readonly PageStateMetadataItem[] {
+  if (!problem) {
+    return [];
+  }
+
+  const details = problem.details ? Object.entries(problem.details) : [];
+  return [
+    ...details.map(([label, value]) => ({
+      label: formatMetadataLabel(label),
+      value: formatMetadataValue(value),
+    })),
+    ...(problem.status ? [{ label: "Status", value: String(problem.status) }] : []),
+    ...(problem.code ? [{ label: "Code", value: problem.code }] : []),
+    ...(problem.requestId ? [{ label: "Request ID", value: problem.requestId }] : []),
+  ];
+}
+
+function formatMetadataLabel(label: string): string {
+  return label.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
+}
+
+function formatMetadataValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(formatMetadataValue).join(", ");
+  }
+
+  if (value === null || value === undefined) {
+    return String(value);
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return JSON.stringify(value) ?? String(value);
 }
 
 function useResetQueryBoundary(

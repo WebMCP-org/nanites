@@ -22,7 +22,7 @@ The target path is:
    own generated secrets.
 4. Create a customer-owned GitHub App through a GitHub App Manifest.
 5. Install that GitHub App on selected repositories.
-6. Sign in with that GitHub App and use the existing installation-scoped Nanites runtime.
+6. Sign in with that GitHub App and use the one-deployment-installation Nanites runtime.
 
 There is no hosted SigVelo SaaS path in this plan.
 
@@ -193,8 +193,8 @@ Confirmed by first-party docs and live probes:
     `token_endpoint_auth_method: "none"` and an arbitrary HTTPS redirect URI.
   - The resulting `client_id` rendered an authorization page at
     `https://mcp.cloudflare.com/authorize` for that redirect URI.
-  - A deployed setup Agent on `https://nanites-app.alexmnahas.workers.dev` regenerated its
-    Cloudflare MCP authorization URL after a stale unscoped auth URL and included
+  - A deployed setup Agent regenerated its Cloudflare MCP authorization URL after a stale unscoped
+    auth URL and included
     `scope=offline_access user:read account:read workers:read workers_scripts:write`.
   - Cloudflare's managed MCP authorization page currently does not preselect requested write
     scopes from either the OAuth `scope` parameter, repeated `scopes` query parameters,
@@ -226,11 +226,10 @@ Confirmed by first-party docs and live probes:
   - A follow-up deployed Nanites smoke on June 9, 2026 reached `cloudflare.status: "verified"`
     after browser authorization through the DCR client. The setup Agent received the Cloudflare MCP
     OAuth callback, exchanged the PKCE code, called MCP `execute()` to list memberships and Workers
-    scripts, and verified that account `ad0d45931959d888de55865d02260ef8` owns script
-    `nanites-app`.
-    The remaining Nanites-specific live smoke check is that the deployed Agent completes GitHub
-    manifest conversion and writes the generated Worker secrets with this setup-granted MCP token
-    after the user signs in to GitHub.
+    scripts, and verified that the selected account owns the deployed Worker script. The remaining
+    Nanites-specific live smoke check is that the deployed Agent completes GitHub manifest
+    conversion and writes the generated Worker secrets with this setup-granted MCP token after the
+    user signs in to GitHub.
 - Cloudflare's Agents SDK can own the Cloudflare MCP OAuth session for the setup flow. Cloudflare's
   [McpClient API](https://developers.cloudflare.com/agents/model-context-protocol/apis/client-api/)
   docs say `addMcpServer()` connects an Agent to an external MCP server, returns
@@ -256,12 +255,12 @@ Confirmed by first-party docs and live probes:
   [Agent class internals](https://developers.cloudflare.com/agents/runtime/lifecycle/agent-class/)
   docs also document lifecycle context through `getCurrentAgent()`, which lets the setup Agent read
   the callback request while handling the MCP OAuth callback.
-- The local `use-mcp-react` repo at `/Users/alexmnahas/contracting/use-mcp-react` already models
-  this MCP auth shape. It uses `@modelcontextprotocol/sdk`'s `OAuthClientProvider`, supports manual
-  `clientId`, DCR, and `clientMetadataUrl`, and its tests prove that when an authorization server
-  advertises `client_id_metadata_document_supported`, the hook sends the metadata URL as
-  `client_id` instead of registering dynamically. For Cloudflare's managed API MCP server today, DCR
-  is the live path because the server advertises DCR and not CIMD.
+- A `use-mcp-react` reference implementation already models this MCP auth shape. It uses
+  `@modelcontextprotocol/sdk`'s `OAuthClientProvider`, supports manual `clientId`, DCR, and
+  `clientMetadataUrl`, and its tests prove that when an authorization server advertises
+  `client_id_metadata_document_supported`, the hook sends the metadata URL as `client_id` instead
+  of registering dynamically. For Cloudflare's managed API MCP server today, DCR is the live path
+  because the server advertises DCR and not CIMD.
 - GitHub App creation can be click-through and customer-owned. GitHub's
   [Manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)
   says the creator follows a URL, names the app, and owns the resulting GitHub App; the manifest
@@ -321,7 +320,7 @@ Implementation checks before a public claim:
   without provisioning Cloudflare resources. The V1 product constraint is one Nanites deployment
   per Cloudflare account, so the public template keeps one fixed default resource set for the
   top-level self-host path and the setup flow configures the single selected account. V1 is not an
-  idempotent multi-install installer for one account: it does not try to namespace, duplicate, or
+  idempotent multi-deployment installer for one account: it does not try to namespace, duplicate, or
   reconcile multiple Nanites deployments in the same Cloudflare account. It also assumes the
   default-named resources are fresh, or were originally created by this Nanites template's migration
   history; arbitrary legacy resources with the same names are outside the zero-config path. Treat
@@ -599,11 +598,10 @@ path. Launch remains locked until GitHub returns a positive star check.
   installation token issuance.
 - [src/backend/api/routes/github.ts](../../src/backend/api/routes/github.ts) verifies GitHub webhook
   signatures with `GITHUB_WEBHOOK_SECRET` and dispatches events to the installation manager.
-- [src/github.ts](../../src/github.ts) hardcodes the `sigvelo` GitHub App install URL.
 - [src/backend/auth/index.ts](../../src/backend/auth/index.ts) builds the callback URL from the current
   request origin, which is useful for self-hosted origins.
-- [src/backend/agents/SigveloChatIngress.ts](../../src/backend/agents/SigveloChatIngress.ts) also reads
-  app id, private key, and webhook secret from `Env`.
+- [src/backend/agents/SigveloManagerConversationAgent.ts](../../src/backend/agents/SigveloManagerConversationAgent.ts)
+  creates the GitHub manager messenger from deployment GitHub App config.
 
 ## Target Setup Flow
 
@@ -701,36 +699,68 @@ Example manifest shape:
     "active": true
   },
   "default_permissions": {
+    "actions": "write",
+    "checks": "write",
     "contents": "write",
-    "pull_requests": "write",
-    "actions": "read",
+    "deployments": "write",
+    "environments": "write",
     "issues": "write",
-    "starring": "write"
+    "metadata": "read",
+    "pages": "write",
+    "pull_requests": "write",
+    "repository_hooks": "write",
+    "repository_projects": "write",
+    "secrets": "write",
+    "starring": "write",
+    "statuses": "write",
+    "workflows": "write"
   },
   "default_events": [
-    "push",
-    "pull_request",
+    "check_run",
+    "check_suite",
+    "commit_comment",
+    "create",
+    "delete",
+    "deployment",
+    "deployment_status",
+    "fork",
     "issue_comment",
+    "issues",
+    "label",
+    "milestone",
+    "public",
+    "pull_request",
+    "pull_request_review",
     "pull_request_review_comment",
+    "pull_request_review_thread",
+    "push",
+    "release",
+    "repository",
+    "repository_dispatch",
+    "star",
+    "status",
+    "watch",
+    "workflow_dispatch",
+    "workflow_job",
     "workflow_run"
   ]
 }
 ```
 
-The first PR should keep this permission set conservative and aligned with current runtime usage:
+The generated app asks for a broad repository-maintenance ceiling aligned with the current runtime:
 
-- `contents: write` for workspace-backed branch/file changes and git pushes
-- `pull_requests: write` for PR creation and updates
-- `actions: read` for workflow/check investigation
-- `issues: write` for issue and PR comment surfaces
-- `starring: write` for the required upstream star verification gate
+- code and branch work: `contents`, `pull_requests`, `workflows`
+- review and CI work: `actions`, `checks`, `statuses`
+- repo operations: `deployments`, `environments`, `pages`, `repository_hooks`,
+  `repository_projects`, `secrets`
+- intake and feedback: `issues`, `metadata`, `starring`
 
-Do not request `checks: write`, `deployments: write`, repository administration, organization
-administration, or workflow write permissions until a runtime feature actually needs them.
+Do not request repository administration, organization administration, security-events, members, or
+enterprise permissions in the zero-config path.
 
 Do not request OAuth on install in the first implementation slice. Let GitHub return to Nanites'
-setup URL after installation, then run the normal Nanites GitHub OAuth flow and visible-installation
-check.
+setup URL after installation, then run the normal Nanites GitHub OAuth flow and deployment
+installation verification check.
 
 ### 4. Manifest Conversion
 
@@ -765,8 +795,8 @@ https://github.com/apps/<stored-app-slug>/installations/new
 
 When GitHub redirects back to the setup URL after installation, Nanites must not trust the
 `installation_id` query parameter by itself. The app should ask the user to sign in through the new
-GitHub App OAuth flow, list visible installations through the user token, and select only
-installations GitHub says that user can see.
+GitHub App OAuth flow, list visible installations through the user token, and record the returned
+deployment installation only if GitHub says that user can see it.
 
 That matches the existing browser auth model.
 
@@ -1000,7 +1030,7 @@ If those bindings remain unreadable after the propagation window, the setup Agen
 setup as stalled and retryable so the user can rerun the manifest flow with a fresh state value.
 Readable GitHub App config unlocks GitHub App installation, but it does not complete setup by
 itself. The setup Agent keeps launch locked until the GitHub setup URL returns and Nanites verifies
-the installed GitHub App installation against the signed-in user's visible installations.
+the returned deployment GitHub App installation against the signed-in user's visible installations.
 
 ### Slice 4: Runtime Rewire
 
@@ -1015,11 +1045,8 @@ Replace direct reads of GitHub app values from `Env` with the deployment app con
   - `completeGitHubOAuthCallback`
 - [src/backend/api/routes/github.ts](../../src/backend/api/routes/github.ts)
   - webhook signature verification
-- [src/backend/agents/SigveloChatIngress.ts](../../src/backend/agents/SigveloChatIngress.ts)
-  - Chat SDK GitHub ingress auth
-- [src/github.ts](../../src/github.ts)
-  - remove hardcoded `sigvelo` GitHub App slug
-  - build install links from stored app metadata
+- [src/backend/agents/SigveloManagerConversationAgent.ts](../../src/backend/agents/SigveloManagerConversationAgent.ts)
+  - GitHub manager messenger auth from deployment GitHub App config
 - [src/frontend/routes/\_authenticated/nanites/route.tsx](../../src/frontend/routes/_authenticated/nanites/route.tsx)
   - show setup-required state instead of linking to the SigVelo app when config is missing
 

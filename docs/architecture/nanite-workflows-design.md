@@ -1,8 +1,13 @@
 # NaniteWorkflows: Feature Design
 
-> Status: future design note. This is not part of the current release baseline or the
-> self-hosting path in `docs/self-hosting.md`; it records a possible post-release workflow
-> runtime.
+> Status: superseded design note. This is not part of the current release baseline or the
+> self-hosting path in `docs/self-hosting.md`.
+>
+> Do not implement the custom `WorkflowRun` Durable Object, `WorkflowTaskAgent`, or phase/task
+> runtime from this note unless Cloudflare Workflows prove insufficient. The current direction is:
+> a user-facing Nanite Run is backed by one Cloudflare Workflow instance; the Manager keeps only a
+> thin Run projection; Dynamic Workflows are a later source-loading mechanism for generated run
+> plans. See `docs/architecture/references/workflow-backed-nanite-runs.md`.
 
 ## Overview
 
@@ -605,7 +610,7 @@ export { z } from "zod";
 significant (both use Think, both use Workspace), but the differences are deep enough that a
 separate class is cleaner:
 
-- `WorkflowTaskAgent` has no manifest, no trigger, no schedule sync, no `ask_human` tool,
+- `WorkflowTaskAgent` has no manifest, no trigger, no schedule sync, no `ask_manager` tool,
   no lifecycle watchdog.
 - `WorkflowTaskAgent` reports to `WorkflowRun` via `complete(result)` rather than to the
   Manager via `completeRun`.

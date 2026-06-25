@@ -43,7 +43,7 @@ Use these rules when changing Nanites:
   GitHub-owned data in Octokit/webhook shapes until a concrete non-GitHub boundary requires a
   projection. Do not create SigVelo DTOs that rename, subset, or normalize standard GitHub facts.
 - **Validate untrusted boundaries, then trust internal owners.** Validate MCP `create_nanite`
-  inputs, generated Nanite lifecycle tool calls, GitHub webhooks, external API responses, and browser
+  inputs, generated Nanite structured outputs, GitHub webhooks, external API responses, and browser
   route/search input. Do not make the manager re-parse state it owns, mirror TypeScript types with
   Zod, add `schemaVersion` fields before a migration exists, or accept caller-supplied timestamps
   and ids for manager-owned events.
@@ -51,7 +51,7 @@ Use these rules when changing Nanites:
   scoped GitHub repositories, GitHub App grants, Cloudflare resources, and network policy. Do not ask
   the authoring model for MCP tiers or tool allowlists; derive runtime tool inventory from the
   granted permissions.
-- **Keep the work model small.** A Run is `running`, `waiting_for_human`, `complete`,
+- **Keep the work model small.** A Run is `running`, `waiting_for_manager`, `complete`,
   `no_change`, `fail`, or `canceled`. The Think transcript is the detailed execution record.
   Manager state is a lookup and summary index, not a phase machine.
 - **Let e2e tests earn modules.** Do not add `runtime.ts`, `github.ts`, `testing.ts`, packages, or
@@ -105,7 +105,7 @@ A Nanite should own:
 - workspace-backed repo inspection and edits
 - MCP and skill attachments
 - change proposal pointer
-- lifecycle tools such as `complete`, `no_change`, `fail`, and `ask_human`
+- structured Run output produced through the Run Workflow
 - child Nanite proposals when a vertical should split
 
 Do not use a custom `/live` tunnel for new UI paths. The SDK sub-agent route is the canonical live route.
@@ -366,7 +366,7 @@ Release baseline:
   runtime path
 - [src/backend/agents/SigveloNaniteManager.ts](/src/backend/agents/SigveloNaniteManager.ts)
   owns the installation manager state machine: registered Nanites, source versions, runs,
-  trigger dedupe, human requests, and terminal transitions
+  trigger dedupe, manager requests, and terminal transitions
 - [src/backend/nanites/triggers.ts](/src/backend/nanites/triggers.ts)
   loads per-Nanite generated inbound trigger source through Worker Loader and returns JSON intents
   for the manager to validate
@@ -381,7 +381,8 @@ Still missing or incomplete:
 
 - generated trigger handler registration UI and authoring skill examples
 - schedule intake through the same generated trigger handler path
-- lifecycle tools beyond the current completion, no-change, failure, and human checkpoint tools
+- richer Workflow-backed Run outputs beyond the current completion, no-change, failure, and manager
+  checkpoint outcomes
 
 ## Release hardening target
 
@@ -393,7 +394,7 @@ Deliver:
 - production smoke coverage for chat-first Nanite surfaces
 - production smoke coverage for manual run, generated trigger, and GitHub MCP paths
 - GitHub feedback surfaces that consistently point at the live chat instead of narrating internal phases
-- final outcome handling for success, failure, no-change, and human checkpoint
+- final outcome handling for success, failure, no-change, and manager checkpoint
 - generated trigger handler examples and fixtures for arbitrary event routing
 - removal or demotion of stale phase-heavy state from product-facing surfaces
 
@@ -413,30 +414,20 @@ Do not try to solve every future runtime problem in the same pass.
 - [src/backend/db/schema.ts](/src/backend/db/schema.ts)
 - [src/frontend/routes/\_authenticated/nanites/route.tsx](/src/frontend/routes/_authenticated/nanites/route.tsx)
 
-### Sibling working repos
+### External reference themes
 
-`../char-ai-saas` gives the best current reference for control-plane versus client-execution boundaries:
-
-- `../char-ai-saas/apps/char-ai-saas/worker/chat/thread-manager.ts`
-- `../char-ai-saas/apps/char-ai-saas/worker/chat/thread-agent/chat-orchestrator.ts`
-- `../char-ai-saas/apps/char-ai-saas/src/embed/agent/hooks/useThreadRuntime.tsx`
-- `../char-ai-saas/packages/shared-types/src/agent-contracts.ts`
-
-`../npm-packages` gives the best current reference for browser-side WebMCP instrumentation and verification:
-
-- `../npm-packages/packages/webmcp-polyfill/src/index.ts`
-- `../npm-packages/packages/webmcp-ts-sdk/src/browser-server.ts`
-- `../npm-packages/packages/react-webmcp/src/useWebMCP.ts`
-- `../npm-packages/packages/webmcp-local-relay/src/bridgeServer.ts`
-- `../npm-packages/packages/webmcp-local-relay/src/browser/widgetRuntime.ts`
-- `../npm-packages/packages/codemode/src/webmcp.ts`
-- `../npm-packages/packages/chrome-devtools-mcp/src/tools/webmcp.ts`
+- Cloudflare Agents, Think, Workspace, Shell, Codemode, Worker Loader, Workflows, and Durable
+  Objects provide the runtime primitives.
+- Control-plane and client-tool execution references inform the manager/Nanite split, RPC
+  boundaries, tool authorization, and approval UX.
+- Browser WebMCP references inform instrumentation, registration cleanup, relay behavior, and
+  preview verification.
 
 ### Local first-party source mirrors
 
-- [opensrc/repos/github.com/cloudflare/agents/docs/workspace.md](/opensrc/repos/github.com/cloudflare/agents/docs/workspace.md)
-- [opensrc/repos/github.com/cloudflare/agents/docs/codemode.md](/opensrc/repos/github.com/cloudflare/agents/docs/codemode.md)
-- [opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts](/opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts)
+- `opensrc/repos/github.com/cloudflare/agents/docs/workspace.md`
+- `opensrc/repos/github.com/cloudflare/agents/docs/codemode.md`
+- `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts`
 
 ## Other needed inputs
 

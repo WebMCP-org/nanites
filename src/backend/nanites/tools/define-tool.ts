@@ -3,21 +3,18 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { getAgentByName } from "agents";
 import { tool, type FlexibleSchema, type ToolExecutionOptions } from "ai";
 import { z } from "zod";
-import { describeError } from "#/backend/errors.ts";
+import { SUPPORTED_MCP_SCOPES } from "#/shared/constants.ts";
+import { APP_ERRORS, AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import type { ObservabilityActor } from "#/backend/observability/recorders.ts";
-import {
-  authorizeSigveloNaniteToolRepositories,
-  authorizeSigveloNaniteToolScope,
-  type SigveloNaniteToolAuthorization,
-} from "#/backend/nanites/tools/authorization.ts";
-import { buildNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
 export type SigveloNaniteToolSurface = "mcp" | "manager_chat";
+type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
 
-export type NaniteToolContext = {
+type NaniteToolContext = {
   surface: SigveloNaniteToolSurface;
   actor: ObservabilityActor;
   githubAppId: SigveloMcpAuthProps["githubAppId"];
@@ -26,11 +23,23 @@ export type NaniteToolContext = {
   requestId: string;
 };
 
+type NaniteToolManager = Pick<
+  SigveloNaniteManager,
+  | "cancelRuns"
+  | "deprovisionNanite"
+  | "exploreNaniteWorkspace"
+  | "inspectNaniteDebug"
+  | "registerNanite"
+  | "resetNaniteDebug"
+  | "startNaniteManualRun"
+  | "testNaniteTrigger"
+>;
+
 export type NaniteToolRuntime = {
   context: NaniteToolContext;
   auth: SigveloMcpAuthProps;
   env: Env;
-  manager: DurableObjectStub<SigveloNaniteManager>;
+  manager: NaniteToolManager;
 };
 
 export type SigveloMcpToolDefinition<TInputSchema extends z.ZodType, TOutput extends object> = {
@@ -39,14 +48,14 @@ export type SigveloMcpToolDefinition<TInputSchema extends z.ZodType, TOutput ext
   description: string;
   inputSchema: TInputSchema;
   outputSchema: z.ZodType;
-  authorization: SigveloNaniteToolAuthorization<z.output<TInputSchema>>;
+  requiredScope: SigveloMcpScope;
   annotations?: ToolAnnotations;
   _meta?: Record<string, unknown>;
   execute(input: z.output<TInputSchema>, runtime: NaniteToolRuntime): Promise<TOutput>;
 };
 
 export type AnySigveloMcpToolDefinition = Omit<
-  SigveloMcpToolDefinition<z.ZodTypeAny, object>,
+  SigveloMcpToolDefinition<z.ZodType, object>,
   "execute"
 > & {
   execute(input: unknown, runtime: NaniteToolRuntime): Promise<object>;
@@ -73,7 +82,7 @@ type SigveloNaniteToolInvocation = {
   surface: SigveloNaniteToolSurface;
   requestId?: string;
 };
-type PreparedSigveloNaniteToolInvocation = Omit<SigveloNaniteToolInvocation, "requestId"> & {
+type PreparedSigveloNaniteToolInvocation = SigveloNaniteToolInvocation & {
   requestId: string;
 };
 type SigveloNaniteToolTelemetryInput = {
@@ -113,10 +122,10 @@ async function resolveAuthorizedNaniteToolRuntime(
     },
     auth: input.props,
     env: input.env,
-    manager: await getAgentByName<Env, SigveloNaniteManager>(
+    manager: (await getAgentByName<Env, SigveloNaniteManager>(
       input.env.SigveloNaniteManager,
       managerName,
-    ),
+    )) as unknown as NaniteToolManager,
   };
 }
 
@@ -127,13 +136,27 @@ function redactInternalToolOutput(output: object): object {
     return output;
   }
 
-  const publicOutput: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(output)) {
-    if (key !== "managerName") {
-      publicOutput[key] = value;
-    }
-  }
+  const publicOutput = { ...(output as Record<string, unknown>) };
+  delete publicOutput.managerName;
   return publicOutput;
+}
+
+function authorizeSigveloNaniteToolScope(input: {
+  definition: AnySigveloMcpToolDefinition;
+  auth: SigveloMcpAuthProps;
+}): void {
+  if (input.auth.scopes.includes(input.definition.requiredScope)) {
+    return;
+  }
+
+  throw new AppError("mcpTokenScopeUnavailable", {
+    details: {
+      toolName: input.definition.name,
+      requiredScope: input.definition.requiredScope,
+      grantedScopes: input.auth.scopes,
+    },
+    message: `${APP_ERRORS.mcpTokenScopeUnavailable.message}: ${input.definition.requiredScope}`,
+  });
 }
 
 function createToolTelemetryContext(input: SigveloNaniteToolTelemetryInput) {
@@ -176,15 +199,6 @@ export async function executeSigveloNaniteTool(input: {
       definition: input.definition,
       auth: invocation.props,
     });
-    const repositoryPolicy = input.definition.authorization.repositoryPolicy;
-    if (repositoryPolicy.type === "input") {
-      authorizeSigveloNaniteToolRepositories({
-        auth: invocation.props,
-        surface: invocation.surface,
-        access: repositoryPolicy.access,
-        repositoryFullNames: repositoryPolicy.resolve(toolInput),
-      });
-    }
 
     naniteToolLogger.info(
       LOG_EVENTS.SIGVELO_TOOL_CALL_STARTED,
@@ -197,20 +211,7 @@ export async function executeSigveloNaniteTool(input: {
       invocation,
       runtime,
     };
-    const telemetry = createToolTelemetryContext({
-      definition: input.definition,
-      invocation,
-      runtime,
-    });
-
-    if (repositoryPolicy.type === "runtime") {
-      authorizeSigveloNaniteToolRepositories({
-        auth: invocation.props,
-        surface: invocation.surface,
-        access: repositoryPolicy.access,
-        repositoryFullNames: await repositoryPolicy.resolve(toolInput, runtime),
-      });
-    }
+    const telemetry = createToolTelemetryContext(telemetryInput);
 
     const output = await input.definition.execute(toolInput, runtime);
     naniteToolLogger.info(LOG_EVENTS.SIGVELO_TOOL_CALL_FINISHED, {

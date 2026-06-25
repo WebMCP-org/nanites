@@ -7,7 +7,7 @@ import {
 } from "@logtape/logtape";
 import { redactByField } from "@logtape/redaction";
 import { subscribe, type ChannelEventMap, type ObservabilityEvent } from "agents/observability";
-import { isRecord } from "#/utils.ts";
+import { isRecord } from "#/shared/utils/values.ts";
 
 /**
  * Logger categories and runtime values for the agent app and its DB package so
@@ -56,18 +56,17 @@ export const LOG_EVENTS = {
   OBSERVABILITY_FACT_RECORD_FAILED: "observability.fact.record_failed",
   NANITE_AGENT_RUN_ACCEPTED: "nanite.agent.run.accepted",
   NANITE_AGENT_RUN_SUBMITTED: "nanite.agent.run.submitted",
-  NANITE_CHAT_ERROR: "nanite.chat.error",
   NANITE_CHAT_RESPONSE: "nanite.chat.response",
   NANITE_DEPROVISIONED: "nanite.deprovisioned",
   NANITE_MANAGER_MAINTENANCE_COMPLETED: "nanite.manager.maintenance.completed",
   NANITE_RUN_COMPLETED: "nanite.run.completed",
+  NANITE_MANIFEST_REFRESH_FAILED: "nanite.manifest.refresh.failed",
   NANITE_RUN_CREATED: "nanite.run.created",
   NANITE_RUN_DEDUPED: "nanite.run.deduped",
   NANITE_RUN_DISPATCH_FAILED: "nanite.run.dispatch.failed",
   NANITE_RUN_DISPATCH_STARTED: "nanite.run.dispatch.started",
   NANITE_RUN_DISPATCH_SUCCEEDED: "nanite.run.dispatch.succeeded",
   NANITE_RUNTIME_ACTIVITY_RECORDED: "nanite.runtime_activity.recorded",
-  NANITE_SUBMISSION_STATUS: "nanite.submission.status",
   NANITE_TOOL_CALL_FINISHED: "nanite.tool_call.finished",
   NANITE_TOOL_OUTPUT_TRUNCATED: "nanite.tool_output.truncated",
   NANITE_TRIGGER_EVALUATED: "nanite.trigger.evaluated",

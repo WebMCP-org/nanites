@@ -1,31 +1,20 @@
+import {
+  DEFAULT_DEV_TRACES_SAMPLE_RATE,
+  DEFAULT_PROD_TRACES_SAMPLE_RATE,
+  DEFAULT_REPLAY_SESSION_SAMPLE_RATE,
+  DEFAULT_REPLAY_ON_ERROR_SAMPLE_RATE,
+  SAMPLING_RATE_MIN,
+  SAMPLING_RATE_MAX,
+} from "#/shared/constants.ts";
 import * as Sentry from "@sentry/react";
 import { router } from "#/frontend/lib/router.ts";
-
-const DEFAULT_DEV_TRACES_SAMPLE_RATE = 1;
-const DEFAULT_PROD_TRACES_SAMPLE_RATE = 0.1;
-const DEFAULT_REPLAY_SESSION_SAMPLE_RATE = 0.1;
-const DEFAULT_REPLAY_ON_ERROR_SAMPLE_RATE = 1;
-const SAMPLING_RATE_MIN = 0;
-const SAMPLING_RATE_MAX = 1;
+import { parseBoundedNumber } from "#/shared/utils/values.ts";
 
 type ClientSentryConfig = {
   dsn: string;
   environment: string | undefined;
   tracesSampleRate: string | undefined;
 };
-
-function parseSamplingRate(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < SAMPLING_RATE_MIN || parsed > SAMPLING_RATE_MAX) {
-    return fallback;
-  }
-
-  return parsed;
-}
 
 function getTracePropagationTargets(): Array<string | RegExp> {
   if (typeof window === "undefined") {
@@ -47,18 +36,24 @@ function initSentry(config: ClientSentryConfig): void {
         blockAllMedia: true,
       }),
     ],
-    tracesSampleRate: parseSamplingRate(
+    tracesSampleRate: parseBoundedNumber(
       config.tracesSampleRate,
       import.meta.env.DEV ? DEFAULT_DEV_TRACES_SAMPLE_RATE : DEFAULT_PROD_TRACES_SAMPLE_RATE,
+      SAMPLING_RATE_MIN,
+      SAMPLING_RATE_MAX,
     ),
     tracePropagationTargets: getTracePropagationTargets(),
-    replaysSessionSampleRate: parseSamplingRate(
+    replaysSessionSampleRate: parseBoundedNumber(
       import.meta.env.VITE_SENTRY_REPLAY_SESSION_SAMPLE_RATE,
       DEFAULT_REPLAY_SESSION_SAMPLE_RATE,
+      SAMPLING_RATE_MIN,
+      SAMPLING_RATE_MAX,
     ),
-    replaysOnErrorSampleRate: parseSamplingRate(
+    replaysOnErrorSampleRate: parseBoundedNumber(
       import.meta.env.VITE_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE,
       DEFAULT_REPLAY_ON_ERROR_SAMPLE_RATE,
+      SAMPLING_RATE_MIN,
+      SAMPLING_RATE_MAX,
     ),
   });
 }

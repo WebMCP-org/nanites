@@ -14,8 +14,11 @@ Use these first instead:
 Implementation-reading aids in this directory include:
 
 - `explain-nanites-imports.md` for historical old-prototype import-map and ownership-model context
+- `workflow-backed-nanite-runs.md` for Cloudflare Workflow-backed Nanite Runs and later generated
+  Dynamic Workflow plans
 - `long-term-composability.md` for the builder direction, Session alignment, and rewrite guardrails
-- `lifecycle-watchdog-primitives.md` for Cloudflare Agents, Durable Object, and Think primitives that can support a Nanite stale-run watchdog
+- `lifecycle-watchdog-primitives.md` for historical notes on the stale-run watchdog design that
+  ThinkWorkflow replaces for active Run orchestration
 - `mcp-agent-auth.md` for agent-facing MCP auth notes covering client credentials, private key JWT,
   CIMD, and the ID-JAG enterprise-managed auth watchlist
 - `run-model-handoff.md` for archived run-model cleanup context, state machine notes, UI copy, and invariants

@@ -1,108 +1,87 @@
 import { createDbClient } from "#/backend/db/index.ts";
-import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import { AppError } from "#/backend/errors.ts";
-import { isGitHubAuthenticationFailure, listVisibleInstallations } from "#/backend/github/index.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
-import { buildNaniteManagerKey, type NaniteManagerKey } from "#/nanites.ts";
-import {
-  appendExpiredAuthCookies,
-  clearRevokedSessionSelectionIfNeeded,
-  readSessionInstallationSnapshots,
-  requireGitHubUserToken,
-  requireSession,
-  type SessionInstallationSnapshot,
-} from "#/backend/auth/session.ts";
-import type { GitHubUserToken } from "#/backend/github/index.ts";
+import { buildNaniteManagerKey, type NaniteManagerKey } from "#/shared/utils/nanites.ts";
+import { and, eq } from "drizzle-orm";
+import { accountInstallations, accountRepositories, accounts } from "#/backend/db/schema.ts";
+import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
 
-export type BrowserInstallationScope = {
+type DeploymentGitHubInstallationAccount = {
+  readonly id: number;
+  readonly login: string;
+  readonly type: string;
+  readonly avatar_url: string | null;
+};
+
+export type DeploymentGitHubInstallation = {
   readonly githubAppId: number;
   readonly githubInstallationId: number;
-  readonly account: SessionInstallationSnapshot["account"];
-  readonly githubUserToken: GitHubUserToken;
+  readonly account: DeploymentGitHubInstallationAccount;
+  readonly repositories: readonly GitHubInstallationRepository[];
   readonly managerName: NaniteManagerKey;
 };
 
-type RequireBrowserInstallationScopeInput = {
-  readonly githubInstallationId: number | null;
-  readonly responseHeaders?: Headers | undefined;
-};
-
-export async function listBrowserVisibleInstallationSnapshots(
-  request: Request,
+export async function requireDeploymentGitHubInstallation(
   env: Env,
-  options?: {
-    readonly responseHeaders?: Headers | undefined;
-  },
-): Promise<{
-  readonly session: Awaited<ReturnType<typeof requireSession>>;
-  readonly githubUserToken: Awaited<ReturnType<typeof requireGitHubUserToken>>;
-  readonly installations: SessionInstallationSnapshot[];
-}> {
-  const session = await requireSession(request, env);
-  const githubUserToken = await requireGitHubUserToken(request, env, {
-    responseHeaders: options?.responseHeaders,
-  });
+): Promise<DeploymentGitHubInstallation> {
   const db = createDbClient(env.DB);
   const deploymentGitHubApp = await requireDeploymentGitHubApp(db, env);
-
-  try {
-    const installations = readSessionInstallationSnapshots(
-      await listVisibleInstallations(githubUserToken.accessToken),
-      deploymentGitHubApp.appId,
+  const rows = await db
+    .select({
+      githubAppId: accountInstallations.githubAppId,
+      githubInstallationId: accountInstallations.githubInstallationId,
+      accountId: accounts.githubAccountId,
+      accountLogin: accounts.githubAccountLogin,
+      accountType: accounts.githubAccountType,
+      accountAvatarUrl: accounts.githubAccountAvatarUrl,
+    })
+    .from(accountInstallations)
+    .innerJoin(accounts, eq(accountInstallations.accountId, accounts.id))
+    .where(
+      and(
+        eq(accountInstallations.githubAppId, deploymentGitHubApp.appId),
+        eq(accountInstallations.status, "active"),
+      ),
     );
-    await recordVisibleInstallationSnapshots(db, installations);
-    await clearRevokedSessionSelectionIfNeeded({
-      req: request,
-      env,
-      session,
-      resHeaders: options?.responseHeaders,
-      sessionInstallationSnapshots: installations,
-    });
 
-    return { session, githubUserToken, installations };
-  } catch (error) {
-    if (isGitHubAuthenticationFailure(error)) {
-      appendExpiredAuthCookies(request, options?.responseHeaders);
-      throw new AppError("authenticationRequired", { cause: error });
-    }
-
-    throw error;
+  if (rows.length === 0) {
+    throw new AppError("deploymentGitHubInstallationRequired");
   }
-}
-
-export async function requireBrowserInstallationScope(
-  request: Request,
-  env: Env,
-  input: RequireBrowserInstallationScopeInput,
-): Promise<BrowserInstallationScope> {
-  if (input.githubInstallationId === null) {
-    throw new AppError("activeInstallationRequired");
-  }
-
-  const { githubUserToken, installations } = await listBrowserVisibleInstallationSnapshots(
-    request,
-    env,
-    {
-      responseHeaders: input.responseHeaders,
-    },
-  );
-  const installation =
-    installations.find((candidate) => candidate.id === input.githubInstallationId) ?? null;
-
-  if (!installation) {
-    throw new AppError("installationAccessRevoked", {
-      details: { githubInstallationId: input.githubInstallationId },
+  if (rows.length > 1) {
+    throw new AppError("deploymentGitHubInstallationConflict", {
+      details: {
+        githubInstallationIds: rows.map((row) => row.githubInstallationId),
+      },
     });
   }
+
+  const installation = rows[0];
+  const repositories = await db
+    .select({
+      githubRepository: accountRepositories.githubRepository,
+    })
+    .from(accountRepositories)
+    .where(
+      and(
+        eq(accountRepositories.githubAppId, installation.githubAppId),
+        eq(accountRepositories.githubInstallationId, installation.githubInstallationId),
+      ),
+    );
+  const managerName = buildNaniteManagerKey({
+    githubAppId: installation.githubAppId,
+    githubInstallationId: installation.githubInstallationId,
+  });
 
   return {
     githubAppId: installation.githubAppId,
-    githubInstallationId: installation.id,
-    account: installation.account,
-    githubUserToken,
-    managerName: buildNaniteManagerKey({
-      githubAppId: installation.githubAppId,
-      githubInstallationId: installation.id,
-    }),
+    githubInstallationId: installation.githubInstallationId,
+    account: {
+      id: installation.accountId,
+      login: installation.accountLogin,
+      type: installation.accountType,
+      avatar_url: installation.accountAvatarUrl,
+    },
+    repositories: repositories.map((row) => row.githubRepository),
+    managerName,
   };
 }

@@ -1,3 +1,4 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import {
   naniteDebugIncludeSections,
@@ -11,8 +12,6 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
-import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const naniteRunStatusSchema = z.enum(naniteRunStatuses);
 const naniteActivitySchema = z.enum(naniteRuntimeActivityStates);
@@ -60,19 +59,10 @@ export const inspectDebugTool = defineSigveloMcpTool({
   name: "sigvelo_debug_nanites",
   title: "Debug SigVelo Nanites",
   description:
-    "Inspects manager-owned Nanite state and, when requested, delegates to the child Think sub-agent for transcript and submission inspection.",
+    "Inspects manager-owned Nanite state, Workflow tracking, and optional child Think transcript/submission details.",
   inputSchema: inspectDebugToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite debug inspection output."),
-  authorization: {
-    requiredScope: MCP_SCOPES.read,
-    repositoryPolicy: {
-      type: "runtime",
-      access: "read",
-      resolve: resolveReferencedNaniteRepositoryFullNames({
-        type: "all_nanites_when_unscoped",
-      }),
-    },
-  },
+  requiredScope: MCP_SCOPES.read,
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,

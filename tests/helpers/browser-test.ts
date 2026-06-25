@@ -1,12 +1,7 @@
-import { page } from "vite-plus/test/browser/context";
 import { expect, test as baseTest } from "vite-plus/test";
 import { browserWorker } from "./msw-browser-worker.ts";
 
-type BrowserFixtures = {
-  worker: typeof browserWorker;
-};
-
-export const test = baseTest.extend<BrowserFixtures>({
+export const test = baseTest.extend<{ worker: typeof browserWorker }>({
   worker: [
     // Oxlint warns on empty patterns, but Vitest fixtures require object destructuring here.
     // oxlint-disable-next-line no-empty-pattern
@@ -17,4 +12,4 @@ export const test = baseTest.extend<BrowserFixtures>({
   ],
 });
 
-export { expect, page };
+export { expect };

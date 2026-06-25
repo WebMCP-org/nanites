@@ -2,7 +2,7 @@ import "./observability.css";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, Navigate, createFileRoute, stripSearchParams } from "@tanstack/react-router";
+import { Link, createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import {
   ActivityIcon,
   ArrowClockwiseIcon,
@@ -31,8 +31,13 @@ import {
   YAxis,
 } from "recharts";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
-import type { BrowserNanitesContext, SessionInstallationSnapshot } from "#/frontend/lib/auth.ts";
-import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
+import { GitHubInstallRequiredState } from "#/frontend/routes/_authenticated/-github-install-required-state.tsx";
+import {
+  AUTH_SESSION_QUERY_KEY,
+  fetchOptionalSession,
+  type BrowserNanitesContext,
+  type SessionInstallationSnapshot,
+} from "#/frontend/lib/auth.ts";
 import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
 import { Badge, type BadgeColor } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
@@ -60,11 +65,7 @@ import {
   observabilitySearchSchema,
   type ObservabilitySearch,
 } from "./-search.ts";
-import {
-  ObservabilityInstallationFilterSelect,
-  ObservabilityValueFilterSelect,
-} from "./-filter-select.tsx";
-import { ObservabilityInstallationRequiredState } from "./-installation-required-state.tsx";
+import { ObservabilityValueFilterSelect } from "./-filter-select.tsx";
 import type {
   AuditFeedRow,
   CostPoint,
@@ -242,10 +243,12 @@ function installationIdentityPerson(
 
   return {
     eyebrow: "Installation",
-    title: login ?? "No installation selected",
+    title: login ?? "No installation connected",
     fallback: avatarFallback(login),
     avatarUrl: withAvatarSize(installation?.account.avatar_url, 64),
-    detail: installation ? `#${installation.id}` : "Choose a GitHub installation",
+    detail: installation
+      ? `#${installation.githubInstallationId}`
+      : "Complete setup to connect GitHub",
   };
 }
 
@@ -286,7 +289,7 @@ function outcomeBadgeColor(value: string | null): BadgeColor {
     case "fail":
     case "denied":
       return "destructive";
-    case "waiting_for_human":
+    case "waiting_for_manager":
     case "running":
       return "warning";
     default:
@@ -303,7 +306,7 @@ function outcomeColor(value: string, index: number): string {
     case "fail":
     case "denied":
       return "var(--sigvelo-destructive-fill-mid)";
-    case "waiting_for_human":
+    case "waiting_for_manager":
     case "running":
       return "var(--sigvelo-warning-fill-mid)";
     default:
@@ -797,13 +800,14 @@ function MetricBarList({
             return (
               <li key={point.key} data-selected={selectedKey === point.key || undefined}>
                 {onSelect ? (
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    color="neutral"
                     className="observability-bar-list__button"
                     onClick={() => onSelect(point)}
                   >
                     {label}
-                  </button>
+                  </Button>
                 ) : (
                   label
                 )}
@@ -943,12 +947,12 @@ function ObservabilityTabs({ search }: { readonly search: ObservabilitySearch })
 
 function GitHubIdentityPanel({
   session,
-  selectedInstallation,
+  activeInstallation,
   creator,
   onSelectCreator,
 }: {
   readonly session: BrowserNanitesContext | null | undefined;
-  readonly selectedInstallation: SessionInstallationSnapshot | null;
+  readonly activeInstallation: SessionInstallationSnapshot | null;
   readonly creator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
@@ -957,7 +961,7 @@ function GitHubIdentityPanel({
   return (
     <Card className="observability-github-panel">
       <GitHubIdentityPersonRow person={actorIdentityPerson(session)} />
-      <GitHubIdentityPersonRow person={installationIdentityPerson(selectedInstallation)} />
+      <GitHubIdentityPersonRow person={installationIdentityPerson(activeInstallation)} />
       <GitHubIdentityActions
         actorLogin={actorLogin}
         creator={creator}
@@ -1200,16 +1204,10 @@ function EventRail({
 function ObservabilityFilters({
   search,
   options,
-  selectedInstallation,
-  installations,
-  onInstallationChange,
   onChange,
 }: {
   readonly search: ObservabilitySearch;
   readonly options: ObservabilityDashboardFilterOptions;
-  readonly selectedInstallation: SessionInstallationSnapshot | null;
-  readonly installations: readonly SessionInstallationSnapshot[];
-  readonly onInstallationChange: (installationId: number) => void;
   readonly onChange: (patch: SearchPatch) => void;
 }) {
   const rangeItems = OBSERVABILITY_SEARCH_RANGES.map((range) => ({
@@ -1219,11 +1217,6 @@ function ObservabilityFilters({
 
   return (
     <div className="observability-filters">
-      <ObservabilityInstallationFilterSelect
-        selectedInstallation={selectedInstallation}
-        installations={installations}
-        onChange={onInstallationChange}
-      />
       <div className="observability-filter">
         <span id="observability-range-filter-label">Range</span>
         <Select
@@ -1524,14 +1517,14 @@ function Dashboard({
   data,
   search,
   session,
-  selectedInstallation,
+  activeInstallation,
   onSearchChange,
   onSelectEvent,
 }: {
   readonly data: ObservabilityDashboardData;
   readonly search: ObservabilitySearch;
   readonly session: BrowserNanitesContext | null | undefined;
-  readonly selectedInstallation: SessionInstallationSnapshot | null;
+  readonly activeInstallation: SessionInstallationSnapshot | null;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
@@ -1553,7 +1546,7 @@ function Dashboard({
         <>
           <GitHubIdentityPanel
             session={session}
-            selectedInstallation={selectedInstallation}
+            activeInstallation={activeInstallation}
             creator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1575,7 +1568,7 @@ function Dashboard({
         <>
           <GitHubIdentityPanel
             session={session}
-            selectedInstallation={selectedInstallation}
+            activeInstallation={activeInstallation}
             creator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1689,7 +1682,7 @@ function ObservabilityDashboardState({
   isPending,
   search,
   session,
-  selectedInstallation,
+  activeInstallation,
   onSearchChange,
   onSelectEvent,
 }: {
@@ -1697,7 +1690,7 @@ function ObservabilityDashboardState({
   readonly isPending: boolean;
   readonly search: ObservabilitySearch;
   readonly session: BrowserNanitesContext | null | undefined;
-  readonly selectedInstallation: SessionInstallationSnapshot | null;
+  readonly activeInstallation: SessionInstallationSnapshot | null;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
@@ -1710,7 +1703,7 @@ function ObservabilityDashboardState({
       data={data}
       search={search}
       session={session}
-      selectedInstallation={selectedInstallation}
+      activeInstallation={activeInstallation}
       onSearchChange={onSearchChange}
       onSelectEvent={onSelectEvent}
     />
@@ -1753,15 +1746,13 @@ function SelectedEventDetail({
 
 function useObservabilityDashboardQueries({
   scopedSearch,
-  selectedInstallation,
-  shouldCanonicalizeInstallation,
+  activeInstallation,
 }: {
   readonly scopedSearch: ObservabilitySearch;
-  readonly selectedInstallation: SessionInstallationSnapshot | null;
-  readonly shouldCanonicalizeInstallation: boolean;
+  readonly activeInstallation: SessionInstallationSnapshot | null;
 }) {
   const selectedEventId = scopedSearch.selectedEvent;
-  const dataEnabled = selectedInstallation !== null && !shouldCanonicalizeInstallation;
+  const dataEnabled = activeInstallation !== null;
   const { data: dashboard, isPending: isDashboardPending } = useQuery({
     queryKey: observabilityDashboardQueryKey(scopedSearch),
     queryFn: () => fetchObservabilityDashboard(scopedSearch),
@@ -1790,21 +1781,17 @@ function useObservabilityDashboardQueries({
 function ObservabilityRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { session, visibleInstallations, installationSelection, isPending } =
-    useBrowserInstallationSelection(search.installationId);
-  const selectedInstallation = installationSelection.installation;
-  const selectedInstallationId = selectedInstallation?.id;
-  const shouldCanonicalizeInstallation = installationSelection.canonicalInstallationId !== null;
-  const scopedSearch = useMemo(
-    () => ({ ...search, installationId: selectedInstallationId ?? search.installationId }),
-    [search, selectedInstallationId],
-  );
+  const { data: session, isPending } = useQuery({
+    queryKey: AUTH_SESSION_QUERY_KEY,
+    queryFn: fetchOptionalSession,
+  });
+  const activeInstallation = session?.activeInstallation ?? null;
+  const scopedSearch = search;
   const selectedEventId = scopedSearch.selectedEvent;
   const { dashboard, isDashboardPending, selectedEvent, isSelectedEventPending } =
     useObservabilityDashboardQueries({
       scopedSearch,
-      selectedInstallation,
-      shouldCanonicalizeInstallation,
+      activeInstallation,
     });
   const setSearch = (patch: SearchPatch) => {
     void navigate({
@@ -1812,55 +1799,13 @@ function ObservabilityRoute() {
       replace: true,
     });
   };
-  const selectInstallation = (installationId: number) => {
-    void navigate({
-      search: (previous) => ({
-        ...previous,
-        installationId,
-        repository: undefined,
-        naniteId: undefined,
-        creator: undefined,
-        outcome: undefined,
-        surface: undefined,
-        search: undefined,
-        selectedEvent: undefined,
-        cursor: undefined,
-      }),
-    });
-  };
 
   if (isPending) {
     return <RoutePendingPage />;
   }
 
-  if (installationSelection.canonicalInstallationId !== null) {
-    return (
-      <Navigate
-        to="/observability"
-        search={{ ...search, installationId: installationSelection.canonicalInstallationId }}
-        replace
-      />
-    );
-  }
-
-  if (!selectedInstallation) {
-    return (
-      <main className="observability-shell">
-        <ObservabilityHeader search={scopedSearch} />
-        <ObservabilityFilters
-          search={scopedSearch}
-          options={emptyFilterOptions}
-          selectedInstallation={null}
-          installations={visibleInstallations}
-          onInstallationChange={selectInstallation}
-          onChange={setSearch}
-        />
-        <ObservabilityInstallationRequiredState
-          installations={visibleInstallations}
-          onSelectInstallation={selectInstallation}
-        />
-      </main>
-    );
+  if (!activeInstallation) {
+    return <GitHubInstallRequiredState githubApp={session?.githubApp ?? null} />;
   }
 
   return (
@@ -1869,9 +1814,6 @@ function ObservabilityRoute() {
       <ObservabilityFilters
         search={scopedSearch}
         options={dashboard?.filterOptions ?? emptyFilterOptions}
-        selectedInstallation={selectedInstallation}
-        installations={visibleInstallations}
-        onInstallationChange={selectInstallation}
         onChange={setSearch}
       />
       <ObservabilityTabs search={scopedSearch} />
@@ -1881,7 +1823,7 @@ function ObservabilityRoute() {
         isPending={isDashboardPending}
         search={scopedSearch}
         session={session}
-        selectedInstallation={selectedInstallation}
+        activeInstallation={activeInstallation}
         onSearchChange={setSearch}
         onSelectEvent={(eventId) => setSearch({ selectedEvent: eventId })}
       />

@@ -145,7 +145,7 @@ SigVelo-owned facts stay SigVelo-shaped.
 
 Examples:
 
-- selected installation in a browser session
+- deployment installation selection
 - session expiration
 - Nanite identity, scope, soul, and stop conditions
 - Run lifecycle, status, phase, conclusion, and outcome
@@ -205,7 +205,7 @@ If a schema intentionally narrows a GitHub object, name it after the boundary:
 
 ```ts
 browserInstallationRepositorySchema;
-sessionInstallationSnapshotSchema;
+deploymentInstallationSnapshotSchema;
 ```
 
 Do not name it as if it replaced the Octokit source type. Add a short comment in the same file

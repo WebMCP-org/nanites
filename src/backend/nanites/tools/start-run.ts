@@ -1,23 +1,17 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
-import {
-  NANITE_MANUAL_RUN_TIMEOUT_MS,
-  type StartNaniteManualRunOutput,
-} from "#/backend/agents/SigveloNaniteManager.ts";
+import type { StartNaniteManualRunOutput } from "#/backend/agents/SigveloNaniteManager.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
-import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const startNaniteRunToolInputSchema = z.object({
   naniteId: nonEmptyStringSchema,
   message: nonEmptyStringSchema,
   manualRequestId: nonEmptyStringSchema.optional(),
-  waitForTerminalOutcome: z.boolean().default(false),
-  timeoutMs: z.number().int().min(1_000).max(120_000).default(NANITE_MANUAL_RUN_TIMEOUT_MS),
 });
 
 export const startNaniteRunTool = defineSigveloMcpTool({
@@ -27,14 +21,7 @@ export const startNaniteRunTool = defineSigveloMcpTool({
     "Starts a direct manual run for one registered Nanite and dispatches it through the real Nanite manager path.",
   inputSchema: startNaniteRunToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite manual run start result."),
-  authorization: {
-    requiredScope: MCP_SCOPES.write,
-    repositoryPolicy: {
-      type: "runtime",
-      access: "write",
-      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
-    },
-  },
+  requiredScope: MCP_SCOPES.write,
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -48,8 +35,6 @@ export const startNaniteRunTool = defineSigveloMcpTool({
       actorId: `github:${context.actor.githubUserId}`,
       actor: context.actor,
       manualRequestId: input.manualRequestId ?? context.requestId,
-      waitForTerminalOutcome: input.waitForTerminalOutcome,
-      timeoutMs: input.timeoutMs,
     });
   },
 } satisfies SigveloMcpToolDefinition<

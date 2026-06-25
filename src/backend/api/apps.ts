@@ -1,3 +1,4 @@
+import { NANITES_SETUP_AGENT_NAME, NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/shared/constants.ts";
 import { honoLogger, type HonoContext } from "@logtape/hono";
 import { Hono, type Context } from "hono";
 import { requestId, type RequestIdVariables } from "hono/request-id";
@@ -12,7 +13,6 @@ import { mcpOAuthRoutes } from "#/backend/api/routes/mcp.ts";
 import { nanitesApiRoutes } from "#/backend/api/routes/nanites.ts";
 import { observabilityApiRoutes } from "#/backend/api/routes/observability.ts";
 import { setupRoutes } from "#/backend/api/routes/setup.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 import {
   createWorkerRequestId,
   getApiRequestLogEvent,
@@ -22,12 +22,10 @@ import {
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { GitHubUserToken } from "#/backend/github/index.ts";
 import type { NanitesSession } from "#/backend/auth/session.ts";
-import type { NaniteManagerIdentity } from "#/nanites.ts";
 
 export type WorkerHonoEnv = {
   Bindings: Env;
   Variables: RequestIdVariables & {
-    activeGithubInstallation: NaniteManagerIdentity;
     browserSession: NanitesSession;
     githubUserToken: GitHubUserToken;
     mcpAuthRequest: AuthRequest;

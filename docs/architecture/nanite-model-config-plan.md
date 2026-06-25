@@ -34,7 +34,7 @@ Example:
 
 ```json
 {
-  "model": "@cf/zai-org/glm-4.7-flash"
+  "model": "@cf/zai-org/glm-5.2"
 }
 ```
 

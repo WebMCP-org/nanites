@@ -1,5 +1,6 @@
+import { MANAGER_CONVERSATION_AGENT_NAME } from "#/shared/constants.ts";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
-import { isRecord } from "#/utils.ts";
+import { isRecord } from "#/shared/utils/values.ts";
 import { getToolName, isToolUIPart } from "ai";
 import type { UIMessage } from "ai";
 import { useAgent } from "agents/react";
@@ -25,6 +26,7 @@ import {
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
@@ -41,13 +43,6 @@ import {
   ToolInput,
   ToolOutput,
 } from "#/frontend/ui/components/Tool.tsx";
-import {
-  Tooltip,
-  TooltipPopup,
-  TooltipPortal,
-  TooltipPositioner,
-  TooltipTrigger,
-} from "#/frontend/ui/components/Tooltip.tsx";
 import { formatStructuredCodeDisplay } from "#/frontend/ui/code-display/structured-code.ts";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import {
@@ -64,13 +59,6 @@ import type {
   SigveloManagerConversationAgent,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import type { NaniteAgentState, SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
-import { MANAGER_CONVERSATION_AGENT_NAME } from "#/nanites.ts";
-
-type PartialUIMessage = Partial<UIMessage> & {
-  readonly id?: unknown;
-  readonly role?: unknown;
-  readonly parts?: unknown;
-};
 
 type RuntimeConversationProps = {
   readonly agentMessages: readonly UIMessage[];
@@ -134,19 +122,22 @@ function normalizeMessages(value: unknown): UIMessage[] {
     return [];
   }
 
-  return value
-    .filter(
-      (message): message is PartialUIMessage => typeof message === "object" && message !== null,
-    )
-    .map((message, index) => ({
-      ...message,
-      id: typeof message.id === "string" ? message.id : `runtime-message-${index}`,
-      role:
-        message.role === "system" || message.role === "user" || message.role === "assistant"
-          ? message.role
-          : "assistant",
-      parts: Array.isArray(message.parts) ? message.parts : [],
-    })) as UIMessage[];
+  return value.flatMap((message, index) => {
+    if (!isRecord(message)) {
+      return [];
+    }
+
+    return [
+      {
+        id: typeof message.id === "string" ? message.id : `runtime-message-${index}`,
+        role:
+          message.role === "system" || message.role === "user" || message.role === "assistant"
+            ? message.role
+            : "assistant",
+        parts: Array.isArray(message.parts) ? message.parts : [],
+      } satisfies UIMessage,
+    ];
+  });
 }
 
 function getMessageText(message: UIMessage): string {
@@ -179,7 +170,7 @@ function getErrorText(error: unknown): string {
   return "The Nanite chat hit an error.";
 }
 
-type NaniteLifecycleToolName = "complete" | "no_change" | "fail" | "ask_human";
+type NaniteLifecycleToolName = "complete" | "no_change" | "fail" | "ask_manager";
 type NaniteLifecycleToolTone = "success" | "neutral" | "danger" | "warning" | "active";
 
 type NaniteLifecycleOutcome = {
@@ -188,10 +179,9 @@ type NaniteLifecycleOutcome = {
   readonly tone: NaniteLifecycleToolTone;
   readonly summary: string | null;
   readonly outputUrl: string | null;
-  readonly requestedScopes: readonly string[];
 };
 
-const naniteLifecycleToolNames = new Set<string>(["complete", "no_change", "fail", "ask_human"]);
+const naniteLifecycleToolNames = new Set<string>(["complete", "no_change", "fail", "ask_manager"]);
 
 function isNaniteLifecycleToolName(toolName: string): toolName is NaniteLifecycleToolName {
   return naniteLifecycleToolNames.has(toolName);
@@ -201,11 +191,6 @@ function getStringField(value: unknown, field: string): string | null {
   if (!isRecord(value)) return null;
   const candidate = value[field];
   return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : null;
-}
-
-function getStringArrayField(value: unknown, field: string): readonly string[] {
-  if (!isRecord(value) || !Array.isArray(value[field])) return [];
-  return value[field].filter((entry): entry is string => typeof entry === "string");
 }
 
 function getLifecycleBaseOutcome(toolName: NaniteLifecycleToolName): {
@@ -232,10 +217,10 @@ function getLifecycleBaseOutcome(toolName: NaniteLifecycleToolName): {
         statusLabel: "Failed",
         tone: "danger",
       };
-    case "ask_human":
+    case "ask_manager":
       return {
-        title: "Human decision needed",
-        statusLabel: "Needs human",
+        title: "Manager input needed",
+        statusLabel: "Needs manager",
         tone: "warning",
       };
   }
@@ -258,7 +243,6 @@ function getNaniteLifecycleOutcome(
     statusLabel: isActive ? "Reporting" : base.statusLabel,
     summary: getLifecycleSummary(part),
     outputUrl: getStringField(part.output, "outputUrl") ?? getStringField(part.input, "outputUrl"),
-    requestedScopes: getLifecycleRequestedScopes(part),
   };
 }
 
@@ -272,17 +256,12 @@ function getLifecycleSummary(part: {
     return summary;
   }
 
-  return part.state === "output-available" ? "The Nanite reported this outcome." : null;
-}
+  const request = getStringField(part.output, "request") ?? getStringField(part.input, "request");
+  if (request) {
+    return request;
+  }
 
-function getLifecycleRequestedScopes(part: {
-  readonly input?: unknown;
-  readonly output?: unknown;
-}): readonly string[] {
-  const outputScopes = getStringArrayField(part.output, "requestedScopes");
-  return outputScopes.length > 0
-    ? outputScopes
-    : getStringArrayField(part.input, "requestedScopes");
+  return part.state === "output-available" ? "The Nanite reported this outcome." : null;
 }
 
 function NaniteLifecycleIcon({ tone }: { readonly tone: NaniteLifecycleToolTone }) {
@@ -321,13 +300,6 @@ function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteLifecycl
           >
             Open change proposal
           </a>
-        ) : null}
-        {outcome.requestedScopes.length > 0 ? (
-          <ul className="nanite-lifecycle-tool__scopes">
-            {outcome.requestedScopes.map((scope) => (
-              <li key={scope}>{scope}</li>
-            ))}
-          </ul>
         ) : null}
       </div>
     </section>
@@ -663,26 +635,14 @@ export function RuntimeConversation({
               data-empty={onClearConversation ? undefined : "true"}
             >
               {onClearConversation ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className="nanites-workspace__chat-tool-button"
-                        aria-label="Reset chat"
-                        disabled={isBusy}
-                        onClick={onClearConversation}
-                      >
-                        <TrashIcon size={14} aria-hidden="true" />
-                      </button>
-                    }
-                  />
-                  <TooltipPortal>
-                    <TooltipPositioner side="top" sideOffset={6}>
-                      <TooltipPopup>Reset chat</TooltipPopup>
-                    </TooltipPositioner>
-                  </TooltipPortal>
-                </Tooltip>
+                <PromptInputButton
+                  className="nanites-workspace__chat-tool-button"
+                  tooltip={{ content: "Reset chat", side: "top" }}
+                  disabled={isBusy}
+                  onClick={onClearConversation}
+                >
+                  <TrashIcon size={14} aria-hidden="true" />
+                </PromptInputButton>
               ) : null}
             </PromptInputTools>
             <span id="nanite-chat-prompt-label" className="visually-hidden">
@@ -710,7 +670,7 @@ export function RuntimeConversation({
   );
 }
 
-// Suspense fallback shown while a sub-agent connection resolves. Delegates to the
+// Suspense fallback shown while a Nanite agent connection resolves. Delegates to the
 // shared centered loading screen so the chat matches the rest of the app.
 export function NaniteRuntimeChatLoading({
   description = "The conversation is getting ready. You can stay here while the runtime connects.",
@@ -756,6 +716,10 @@ function isConnectedManagerConversationState(
 }
 
 export function NaniteRuntimeChatConnector({ agent }: { readonly agent: NaniteAgentInstance }) {
+  if (!agent.identified) {
+    return <NaniteRuntimeChatLoading />;
+  }
+
   return <NaniteRuntimeChatSession agent={agent} />;
 }
 
@@ -824,7 +788,9 @@ function ManagerRuntimeChatSession({
   emptyTitle,
   placeholder,
 }: {
-  readonly agent: ReturnType<typeof useAgent<SigveloManagerConversationAgent>>;
+  readonly agent: ReturnType<
+    typeof useAgent<SigveloManagerConversationAgent, ManagerConversationState>
+  >;
   readonly emptyDescription: string;
   readonly emptyTitle: string;
   readonly placeholder: string;

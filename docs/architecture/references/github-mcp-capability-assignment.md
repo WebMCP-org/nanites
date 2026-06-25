@@ -209,7 +209,7 @@ state or a one-PR manager harness.
 
 ## Source notes
 
-- Official GitHub MCP source: `/Users/alexmnahas/.opensrc/repos/github.com/github/github-mcp-server/main`
+- Official GitHub MCP source: `opensrc/repos/github.com/github/github-mcp-server/main`
 - GitHub MCP remote server docs: `docs/remote-server.md`
 - GitHub MCP scope filtering docs: `docs/scope-filtering.md`
 - GitHub MCP HTTP inventory filtering source: `pkg/http/handler.go`

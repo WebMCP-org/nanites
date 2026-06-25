@@ -34,9 +34,10 @@ Nanites are named, durable collaborators for GitHub maintenance. Each Nanite own
 a docs page family, package area, smoke path, CI guard, release lane, or other recurring workflow
 that should stay legible and reviewable.
 
-Install the GitHub App once, then create many small maintainers. SigVelo routes GitHub events,
-schedules, chat, and MCP tool calls to the right Nanite. The Nanite investigates, edits, tests,
-opens reviewable GitHub work, and records a lifecycle outcome.
+Install the deployment GitHub App once, then create many small maintainers under that installation.
+SigVelo routes GitHub events, schedules, manager chat, and MCP tool calls through the deployment
+manager. The Nanite investigates, edits, tests, opens reviewable GitHub work, and records a
+lifecycle outcome.
 
 ## Why Nanites
 

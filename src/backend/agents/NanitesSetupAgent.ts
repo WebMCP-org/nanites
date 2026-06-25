@@ -1,7 +1,13 @@
+import {
+  GITHUB_OAUTH_CALLBACK_PATH,
+  GITHUB_WEBHOOK_PATH,
+  NANITES_SETUP_AGENT_NAME,
+  NANITES_SETUP_AGENT_INSTANCE_NAME,
+  DEFAULT_SIGVELO_AGENT_MODEL_ID,
+} from "#/shared/constants.ts";
 import { Agent, DurableObjectOAuthClientProvider, getCurrentAgent } from "agents";
 import type { MCPClientOAuthResult } from "agents/mcp/client";
 import type { RestEndpointMethodTypes } from "@octokit/plugin-rest-endpoint-methods";
-import type { EmitterWebhookEventName } from "@octokit/webhooks";
 import { getLogger } from "@logtape/logtape";
 import { generateCookie } from "hono/cookie";
 import { z } from "zod";
@@ -22,14 +28,11 @@ import {
 } from "#/backend/github/index.ts";
 import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
 import {
-  DEFAULT_SIGVELO_AGENT_MODEL_ID,
   NANITES_AI_GATEWAY_ID,
   NANITES_AI_GATEWAY_REQUEST_DEFAULTS,
 } from "#/backend/nanites/language-model.ts";
 import { LOGGING } from "#/backend/logging.ts";
-import { GITHUB_WEBHOOK_PATH, buildGitHubAppInstallHref } from "#/github.ts";
-import { GITHUB_OAUTH_CALLBACK_PATH } from "#/auth.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
+import { buildGitHubAppInstallHref, type GitHubWebhookEventName } from "#/shared/utils/github.ts";
 
 const setupLogger = getLogger(LOGGING.NANITES_CATEGORY).getChild("setup");
 
@@ -37,7 +40,7 @@ const setupLogger = getLogger(LOGGING.NANITES_CATEGORY).getChild("setup");
 // Constants
 // ---------------------------------------------------------------------------
 
-const SETUP_STATE_VERSION = 3;
+const SETUP_STATE_VERSION = 5;
 
 const CLOUDFLARE_MCP_SERVER_ID = "cloudflare-api";
 const CLOUDFLARE_MCP_SERVER_NAME = "Cloudflare API";
@@ -56,7 +59,7 @@ const SETUP_CLAIM_TTL_MS = 60 * 60 * 1_000;
 const MANIFEST_NONCE_STORAGE_KEY = "nanites:setup:manifest";
 const MANIFEST_NONCE_TTL_MS = 60 * 60 * 1_000;
 const INSTALL_NONCE_STORAGE_KEY = "nanites:setup:install-nonce";
-const SELECTED_INSTALLATION_STORAGE_KEY = "nanites:setup:selected-installation";
+const CONNECTED_INSTALLATION_STORAGE_KEY = "nanites:setup:connected-installation";
 const SETUP_TOKEN_BYTE_LENGTH = 32;
 const AUTH_COOKIE_SECRET_BYTE_LENGTH = 48;
 
@@ -88,10 +91,6 @@ export const GITHUB_APP_MANIFEST_DESCRIPTION =
 type GitHubAppManifestPermissions = NonNullable<
   RestEndpointMethodTypes["apps"]["createInstallationAccessToken"]["parameters"]["permissions"]
 >;
-
-// Manifests take top-level webhook event names, not the `event.action`
-// variants the emitter also names.
-type GitHubAppManifestEvent = Exclude<EmitterWebhookEventName, `${string}.${string}`>;
 
 export const DEFAULT_GITHUB_APP_PERMISSIONS = {
   actions: "write",
@@ -146,7 +145,7 @@ export const DEFAULT_GITHUB_APP_EVENTS = [
   "workflow_dispatch",
   "workflow_job",
   "workflow_run",
-] as const satisfies readonly GitHubAppManifestEvent[];
+] as const satisfies readonly GitHubWebhookEventName[];
 
 // ---------------------------------------------------------------------------
 // Public state
@@ -203,6 +202,7 @@ export type NanitesSetupState = {
   readonly repositories: {
     readonly status: "locked" | "ready" | "complete";
     readonly githubInstallationId: number | null;
+    readonly repositoryFullName: string | null;
     readonly error: string | null;
   };
   readonly upstreamStar: {
@@ -238,6 +238,7 @@ export function createInitialSetupState(): NanitesSetupState {
     repositories: {
       status: "locked",
       githubInstallationId: null,
+      repositoryFullName: null,
       error: null,
     },
     upstreamStar: {
@@ -276,8 +277,6 @@ export type ConnectCloudflareResult = {
 export type StartGitHubAppInput = {
   readonly origin: string;
   readonly claimToken: string;
-  readonly ownerType: "user" | "organization";
-  readonly ownerLogin?: string | null;
 };
 
 export type StartGitHubAppResult =
@@ -318,8 +317,9 @@ export type CompleteGitHubAppManifestResult =
     };
 
 export type RecordRepositoryInstallInput = {
-  readonly claimToken: string;
+  readonly claimToken: string | null;
   readonly githubInstallationId: number;
+  readonly repositoryFullName: string;
   readonly installState: string | null;
   readonly runtimeConfigReadable?: boolean;
 };
@@ -365,10 +365,12 @@ const storedSetupTokenSchema = z.object({
   expiresAt: z.string().min(1),
 });
 
-const selectedInstallationSchema = z.object({
+const connectedInstallationSchema = z.object({
   githubAppId: z.number().int().positive(),
   githubInstallationId: z.number().int().positive(),
+  repositoryFullName: z.string().trim().min(1),
 });
+type ConnectedInstallation = z.infer<typeof connectedInstallationSchema>;
 
 const manifestNonceSchema = z.object({
   state: z.string().min(1),
@@ -675,6 +677,9 @@ function deriveCurrentStep(state: NanitesSetupState): SetupStep {
   if (state.setupComplete) {
     return "launch";
   }
+  if (state.repositories.status === "complete") {
+    return "launch";
+  }
   if (state.githubApp.status === "complete") {
     return "repositories";
   }
@@ -741,13 +746,17 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
 
     let githubApp: NanitesSetupState["githubApp"];
     let repositories: NanitesSetupState["repositories"];
+    let connectedInstallation: ConnectedInstallation | null = null;
     if (metadata) {
       const installNonce = await this.ensureInstallNonce();
-      const selectedInstallation = await this.readSelectedInstallation();
+      const storedInstallation = await this.readConnectedInstallation();
+      connectedInstallation =
+        storedInstallation?.githubAppId === metadata.appId ? storedInstallation : null;
+      if (storedInstallation && !connectedInstallation) {
+        await this.ctx.storage.delete(CONNECTED_INSTALLATION_STORAGE_KEY);
+      }
       const installedId =
-        selectedInstallation && selectedInstallation.githubAppId === metadata.appId
-          ? selectedInstallation.githubInstallationId
-          : null;
+        connectedInstallation !== null ? connectedInstallation.githubInstallationId : null;
       githubApp = {
         status: runtimeConfigReadable
           ? "complete"
@@ -765,12 +774,16 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
       repositories = {
         status: !runtimeConfigReadable ? "locked" : installedId !== null ? "complete" : "ready",
         githubInstallationId: runtimeConfigReadable ? installedId : null,
+        repositoryFullName:
+          runtimeConfigReadable && connectedInstallation
+            ? connectedInstallation.repositoryFullName
+            : null,
         error: installedId !== null ? null : this.state.repositories.error,
       };
     } else {
       // No registered apps (e.g. a wiped deployment): any recorded selection
       // points at an app row that no longer exists.
-      await this.ctx.storage.delete(SELECTED_INSTALLATION_STORAGE_KEY);
+      await this.ctx.storage.delete(CONNECTED_INSTALLATION_STORAGE_KEY);
       githubApp = {
         status:
           this.state.githubApp.status === "writing-secrets"
@@ -786,7 +799,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         orphanedAppUrl: this.state.githubApp.orphanedAppUrl,
         error: this.state.githubApp.error,
       };
-      repositories = { status: "locked", githubInstallationId: null, error: null };
+      repositories = {
+        status: "locked",
+        githubInstallationId: null,
+        repositoryFullName: null,
+        error: null,
+      };
     }
 
     const next = finalizeSetupState({
@@ -1405,16 +1423,6 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if ((await readDeploymentGitHubAppMetadata(createDbClient(this.env.DB))) !== null) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
-    const action =
-      input.ownerType === "user"
-        ? "https://github.com/settings/apps/new"
-        : input.ownerLogin?.trim()
-          ? `https://github.com/organizations/${encodeURIComponent(input.ownerLogin.trim())}/settings/apps/new`
-          : null;
-    if (!action) {
-      return { ok: false, errorKind: "invalidSetupState" };
-    }
-
     const manifestState = randomToken(SETUP_TOKEN_BYTE_LENGTH);
     await this.ctx.storage.put(MANIFEST_NONCE_STORAGE_KEY, {
       state: manifestState,
@@ -1431,7 +1439,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
 
     return {
       ok: true,
-      action,
+      action: "https://github.com/settings/apps/new",
       manifest: buildGitHubAppManifest(new URL(input.origin).origin, manifestState),
       state: manifestState,
     };
@@ -1508,6 +1516,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
         appId: githubApp.id,
         slug: appSlug,
         htmlUrl: githubApp.html_url,
+        setupOrigin: input.origin,
         ownerLogin: owner && "login" in owner ? owner.login : null,
         ownerType: owner && "type" in owner ? owner.type : null,
         clientId: requireManifestString(githubApp, "client_id"),
@@ -1592,7 +1601,7 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
   async recordRepositoryInstall(
     input: RecordRepositoryInstallInput,
   ): Promise<RecordRepositoryInstallResult> {
-    if (!(await this.verifySetupClaim(input.claimToken))) {
+    if (!(await this.verifySetupClaim(input.claimToken)) && input.runtimeConfigReadable !== true) {
       return { ok: false, errorKind: "setupClaimRequired" };
     }
 
@@ -1612,16 +1621,23 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     if (current.githubApp.appId === null) {
       return { ok: false, errorKind: "invalidSetupState" };
     }
-    await this.ctx.storage.put(SELECTED_INSTALLATION_STORAGE_KEY, {
+    const repositoryFullName = input.repositoryFullName.trim();
+    if (!repositoryFullName) {
+      return { ok: false, errorKind: "invalidSetupState" };
+    }
+
+    await this.ctx.storage.put(CONNECTED_INSTALLATION_STORAGE_KEY, {
       githubAppId: current.githubApp.appId,
       githubInstallationId: input.githubInstallationId,
-    } satisfies z.infer<typeof selectedInstallationSchema>);
+      repositoryFullName,
+    } satisfies ConnectedInstallation);
     const next = finalizeSetupState({
       ...this.state,
       setupComplete: true,
       repositories: {
         status: "complete",
         githubInstallationId: input.githubInstallationId,
+        repositoryFullName,
         error: null,
       },
     });
@@ -1635,16 +1651,16 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     readonly reason: GitHubInstallationRepairReason;
   }): Promise<NanitesSetupState> {
     const current = await this.refresh();
-    const selectedInstallation = await this.readSelectedInstallation();
+    const connectedInstallation = await this.readConnectedInstallation();
     if (
-      selectedInstallation?.githubAppId !== input.githubAppId ||
-      selectedInstallation.githubInstallationId !== input.githubInstallationId ||
+      connectedInstallation?.githubAppId !== input.githubAppId ||
+      connectedInstallation.githubInstallationId !== input.githubInstallationId ||
       current.repositories.githubInstallationId !== input.githubInstallationId
     ) {
       return current;
     }
 
-    await this.ctx.storage.delete(SELECTED_INSTALLATION_STORAGE_KEY);
+    await this.ctx.storage.delete(CONNECTED_INSTALLATION_STORAGE_KEY);
     await this.ctx.storage.put(INSTALL_NONCE_STORAGE_KEY, randomToken(SETUP_TOKEN_BYTE_LENGTH));
     this.setState({
       ...this.state,
@@ -1656,12 +1672,12 @@ export class NanitesSetupAgent extends Agent<Env, NanitesSetupState> {
     return await this.refresh();
   }
 
-  private async readSelectedInstallation(): Promise<z.infer<
-    typeof selectedInstallationSchema
-  > | null> {
-    const stored = selectedInstallationSchema.safeParse(
-      await this.ctx.storage.get(SELECTED_INSTALLATION_STORAGE_KEY),
-    );
+  private async readConnectedInstallation(): Promise<ConnectedInstallation | null> {
+    const raw = await this.ctx.storage.get(CONNECTED_INSTALLATION_STORAGE_KEY);
+    const stored = connectedInstallationSchema.safeParse(raw);
+    if (!stored.success && raw !== undefined) {
+      await this.ctx.storage.delete(CONNECTED_INSTALLATION_STORAGE_KEY);
+    }
     return stored.success ? stored.data : null;
   }
 

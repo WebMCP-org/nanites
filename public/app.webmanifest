@@ -3,6 +3,8 @@
   "name": "Nanites",
   "short_name": "Nanites",
   "description": "Small durable agents for GitHub repository maintenance.",
+  "lang": "en-US",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -10,7 +12,14 @@
   "background_color": "#f5f7fa",
   "theme_color": "#f5f7fa",
   "categories": ["productivity", "utilities", "business"],
+  "prefer_related_applications": false,
   "icons": [
+    {
+      "src": "/icons/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icons/nanites-icon-192.png",
       "sizes": "192x192",
@@ -46,7 +55,7 @@
     {
       "name": "Open Nanites",
       "short_name": "Nanites",
-      "description": "Open the Nanites roster for the active installation.",
+      "description": "Open the Nanites roster for the deployment installation.",
       "url": "/nanites",
       "icons": [
         {

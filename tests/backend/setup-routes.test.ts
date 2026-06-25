@@ -1,3 +1,4 @@
+import { NANITES_SETUP_AGENT_NAME, NANITES_SETUP_AGENT_INSTANCE_NAME } from "#/shared/constants.ts";
 import { createExecutionContext, env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
@@ -12,6 +13,11 @@ import {
   resetGitHubAppTables,
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
+import {
+  buildCloudflareVerifiedSetupState,
+  repositoryInstalledSetupState,
+  readSetupInstallNonce,
+} from "../helpers/setup-state.ts";
 import {
   CLOUDFLARE_SETUP_OAUTH_SCOPE,
   DEFAULT_GITHUB_APP_EVENTS,
@@ -31,7 +37,6 @@ import {
 } from "#/backend/auth/session.ts";
 import { beforeEach } from "vite-plus/test";
 import worker from "#/server.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
 
 const GITHUB_UPSTREAM_STAR_URL = "https://api.github.com/user/starred/WebMCP-org/nanites";
 const SETUP_CLAIM_COOKIE_NAME = "nanites_setup_claim";
@@ -168,9 +173,6 @@ async function buildAuthenticatedSetupCookieHeader(request: Request): Promise<st
 
   const session = nanitesSessionSchema.parse({
     githubViewer: { id: 1, login: "alice" },
-    activeGithubAppId: null,
-    activeGithubInstallationId: null,
-    sessionInstallationSnapshot: null,
     expiresAt,
   });
   const githubUserToken = githubUserTokenSchema.parse({
@@ -203,13 +205,7 @@ async function readRepositoryInstallState(
   setupAgent: SetupAgentTestRpc,
   origin = SETUP_ORIGIN,
 ): Promise<string> {
-  const setupState = await setupAgent.refresh({ origin });
-  const installUrl = setupState.githubApp.installUrl;
-  const installState = installUrl ? new URL(installUrl).searchParams.get("state") : null;
-  if (!installState) {
-    throw new Error("Expected setup Agent to expose a repository install nonce.");
-  }
-  return installState;
+  return readSetupInstallNonce(await setupAgent.refresh({ origin }));
 }
 
 async function buildClaimedGitHubSetupVerifyRequest({
@@ -240,7 +236,6 @@ async function startClaimedGitHubApp(setupAgent: SetupAgentTestRpc): Promise<{
   const setupClaim = await issueSetupClaim(setupAgent);
   const result = await setupAgent.startGitHubApp({
     origin: SETUP_ORIGIN,
-    ownerType: "user",
     claimToken: setupClaim.token,
   });
   if (!result.ok) {
@@ -311,6 +306,10 @@ function isInstallationRepositoriesRequest(
   return isGitHubListRequest(request, `/user/installations/${githubInstallationId}/repositories`);
 }
 
+function isAppInstallationRepositoriesRequest(request: Request): boolean {
+  return isGitHubListRequest(request, "/installation/repositories");
+}
+
 function isInstallationTokenRequest(request: Request, githubInstallationId: number): boolean {
   return (
     request.method === "POST" &&
@@ -351,36 +350,14 @@ function handleSuccessfulSetupVerificationGitHubRequest(request: Request): Respo
   if (isInstallationRepositoriesRequest(request, 42)) {
     return Response.json({ repositories: [buildVisibleRepository()] });
   }
+  if (isAppInstallationRepositoriesRequest(request)) {
+    return Response.json({ repositories: [buildVisibleRepository()] });
+  }
   if (isInstallationTokenRequest(request, 42)) {
     return buildInstallationTokenResponse();
   }
 
   return null;
-}
-
-function buildCloudflareReadyReadiness(): NanitesSetupState["cloudflare"]["readiness"] {
-  return { status: "ready", checkedAt: new Date().toISOString(), items: [] };
-}
-
-function buildCloudflareVerifiedSetupState(): NanitesSetupState {
-  const initialState = createInitialSetupState();
-  return {
-    ...initialState,
-    currentStep: "github-app",
-    cloudflare: {
-      status: "verified",
-      authorizationUrl: null,
-      accountId: "test-account",
-      accountName: "Test Account",
-      scriptName: "sigvelo-agent-tests",
-      readiness: buildCloudflareReadyReadiness(),
-      error: null,
-    },
-    githubApp: {
-      ...initialState.githubApp,
-      status: "ready",
-    },
-  };
 }
 
 function buildCloudflareBlockedSetupState(detail: string): NanitesSetupState {
@@ -720,6 +697,7 @@ test("repository install completes setup with the upstream star left optional", 
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: setupClaim.token,
       installState: await readRepositoryInstallState(setupAgent),
     }),
@@ -740,6 +718,31 @@ test("repository install completes setup with the upstream star left optional", 
   });
 });
 
+test("repository install rejects a missing repository name", async () => {
+  await saveGeneratedGitHubAppMetadata();
+
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+  const setupClaim = await issueSetupClaim(setupAgent);
+
+  await expect(
+    setupAgent.recordRepositoryInstall({
+      githubInstallationId: 42,
+      repositoryFullName: " ",
+      claimToken: setupClaim.token,
+      installState: await readRepositoryInstallState(setupAgent),
+    }),
+  ).resolves.toEqual({ ok: false, errorKind: "invalidSetupState" });
+
+  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
+    repositories: {
+      status: "ready",
+      githubInstallationId: null,
+      repositoryFullName: null,
+    },
+  });
+});
+
 test("repository install survives setup Agent state reset through deployment metadata", async () => {
   await saveGeneratedGitHubAppMetadata();
 
@@ -748,24 +751,16 @@ test("repository install survives setup Agent state reset through deployment met
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
+    repositoryFullName: "WebMCP-org/nanites",
     claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
 
   setupAgent.setState(createInitialSetupState());
 
-  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
-    setupComplete: true,
-    currentStep: "launch",
-    githubApp: {
-      status: "complete",
-      slug: "nanites-test",
-    },
-    repositories: {
-      status: "complete",
-      githubInstallationId: 42,
-    },
-  });
+  await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject(
+    repositoryInstalledSetupState,
+  );
 });
 
 test("registering a different GitHub App is rejected", async () => {
@@ -780,6 +775,7 @@ test("registering a different GitHub App is rejected", async () => {
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
+    repositoryFullName: "WebMCP-org/nanites",
     claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
@@ -979,7 +975,6 @@ test("deployment GitHub App config does not mint a replacement when generated se
     await expect(
       setupAgent.startGitHubApp({
         origin: SETUP_ORIGIN,
-        ownerType: "user",
         claimToken: setupClaim.token,
       }),
     ).resolves.toMatchObject({
@@ -1155,8 +1150,6 @@ test("GitHub App creation route requires the setup claim", async () => {
     `${SETUP_ORIGIN}/api/setup/github-app`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ownerType: "user" }),
     },
     env,
   );
@@ -1177,10 +1170,8 @@ test("GitHub App creation route returns the manifest form for the claimed browse
     {
       method: "POST",
       headers: {
-        "content-type": "application/json",
         Cookie: setupClaim.cookieHeader,
       },
-      body: JSON.stringify({ ownerType: "user" }),
     },
     env,
   );
@@ -1204,22 +1195,20 @@ test("GitHub App creation route returns the manifest form for the claimed browse
   expect(body.manifest).not.toHaveProperty("badge_url");
 });
 
-test("GitHub App start returns a first-party manifest form target after Cloudflare proof", async () => {
+test("GitHub App start returns a manifest form target after Cloudflare proof", async () => {
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await issueSetupClaim(setupAgent);
 
   const result = await setupAgent.startGitHubApp({
     origin: SETUP_ORIGIN,
-    ownerType: "organization",
-    ownerLogin: " WebMCP-org ",
     claimToken: setupClaim.token,
   });
 
   if (!result.ok) {
     throw new Error(`Expected GitHub App start to succeed, got ${result.errorKind}.`);
   }
-  expect(result.action).toBe("https://github.com/organizations/WebMCP-org/settings/apps/new");
+  expect(result.action).toBe("https://github.com/settings/apps/new");
   expect(result.state).toMatch(/^[A-Za-z0-9_-]+$/);
   expect(result.manifest).toMatchObject({
     name: expect.stringMatching(/^Nanites sigvelo-agent-tests [a-z0-9]{1,4}$/),
@@ -1250,7 +1239,6 @@ test("GitHub App start requires a setup claim and ready Cloudflare readiness", a
   await expect(
     setupAgent.startGitHubApp({
       origin: SETUP_ORIGIN,
-      ownerType: "user",
       claimToken: "not-the-claimed-browser",
     }),
   ).resolves.toEqual({ ok: false, errorKind: "setupClaimRequired" });
@@ -1261,7 +1249,6 @@ test("GitHub App start requires a setup claim and ready Cloudflare readiness", a
   await expect(
     setupAgent.startGitHubApp({
       origin: SETUP_ORIGIN,
-      ownerType: "user",
       claimToken: setupClaim.token,
     }),
   ).resolves.toEqual({ ok: false, errorKind: "cloudflareReadinessRequired" });
@@ -1314,7 +1301,6 @@ test("GitHub App start ignores informational Cloudflare readiness warnings", asy
   await expect(
     setupAgent.startGitHubApp({
       origin: SETUP_ORIGIN,
-      ownerType: "user",
       claimToken: setupClaim.token,
     }),
   ).resolves.toMatchObject({
@@ -1329,7 +1315,6 @@ test("GitHub App start rotates the manifest nonce after an abandoned GitHub form
 
   const retried = await setupAgent.startGitHubApp({
     origin: SETUP_ORIGIN,
-    ownerType: "user",
     claimToken: setupClaim.token,
   });
 
@@ -1449,7 +1434,6 @@ test("GitHub manifest setup failure leaves the setup Agent retryable", async () 
     await expect(
       setupAgent.startGitHubApp({
         origin: SETUP_ORIGIN,
-        ownerType: "user",
         claimToken: setupClaim.token,
       }),
     ).resolves.toMatchObject({
@@ -1558,7 +1542,6 @@ test("GitHub manifest callback redirects to the install URL once the deployment 
     await connectFakeCloudflareMcpServer(setupAgent);
     const started = await setupAgent.startGitHubApp({
       origin: SETUP_ORIGIN,
-      ownerType: "user",
       claimToken: setupClaim.token,
     });
     if (!started.ok) {
@@ -1617,7 +1600,6 @@ test("GitHub manifest callback returns to setup while generated secrets propagat
     await connectFakeCloudflareMcpServer(setupAgent);
     const started = await setupAgent.startGitHubApp({
       origin: SETUP_ORIGIN,
-      ownerType: "user",
       claimToken: setupClaim.token,
     });
     if (!started.ok) {
@@ -1655,6 +1637,7 @@ test("repository install waits for readable runtime GitHub App config", async ()
     await expect(
       setupAgent.recordRepositoryInstall({
         githubInstallationId: 42,
+        repositoryFullName: "WebMCP-org/nanites",
         claimToken: setupClaim.token,
         installState,
       }),
@@ -1773,17 +1756,34 @@ test("GitHub setup URL sends the claimed installation id through OAuth for verif
   );
 });
 
-test("GitHub setup URL requires the setup claim", async () => {
+test("GitHub setup URL without the setup claim returns to installer recovery", async () => {
   const response = await nanitesHttpApp.request(
     `${SETUP_ORIGIN}/setup/github/installed?installation_id=42&setup_action=install`,
     {},
     env,
   );
 
-  expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toMatchObject({
-    code: "setup_claim_required",
-  });
+  expect(response.status).toBe(302);
+  const location = readRedirectLocation(response);
+  expect(location.pathname).toBe("/setup");
+  expect(location.searchParams.get("setup_error")).toBe("setup_claim_required");
+});
+
+test("GitHub setup URL without the setup claim can recover after app config exists", async () => {
+  await saveGeneratedGitHubAppMetadata();
+
+  const response = await nanitesHttpApp.request(
+    `${SETUP_ORIGIN}/setup/github/installed?installation_id=42&setup_action=install&state=test-install-state`,
+    {},
+    env,
+  );
+
+  expect(response.status).toBe(302);
+  const location = readRedirectLocation(response);
+  expect(location.pathname).toBe("/auth/github/login");
+  expect(location.searchParams.get("returnTo")).toBe(
+    "/setup/github/verify?installation_id=42&state=test-install-state",
+  );
 });
 
 test("GitHub setup URL requires GitHub's returned installation id", async () => {
@@ -1911,7 +1911,7 @@ test("GitHub setup verification activates only GitHub-visible installations", as
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/setup");
-    expect(response.headers.get("Set-Cookie")).toContain("nanites_session=");
+    expect(response.headers.get("Set-Cookie")).toBeNull();
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2007,22 +2007,46 @@ test("GitHub setup verification proves the app can mint an installation token", 
   }
 });
 
-test("GitHub setup verification requires the setup claim", async () => {
+test("GitHub setup verification recovers without the setup claim after app config exists", async () => {
   await saveGeneratedGitHubAppMetadata();
-  const request = new Request(`${SETUP_ORIGIN}/setup/github/verify?installation_id=42`);
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(buildCloudflareVerifiedSetupState());
+  const request = await buildClaimedGitHubSetupVerifyRequest({ setupAgent });
   const cookieHeader = await buildAuthenticatedSetupCookieHeader(request);
-  const response = await nanitesHttpApp.request(
-    request,
-    {
-      headers: { Cookie: cookieHeader },
-    },
-    env,
-  );
+  const originalFetch = globalThis.fetch;
 
-  expect(response.status).toBe(403);
-  await expect(response.json()).resolves.toMatchObject({
-    code: "setup_claim_required",
-  });
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const githubRequest = input instanceof Request ? input : new Request(input, init);
+    const githubResponse = handleSuccessfulSetupVerificationGitHubRequest(githubRequest);
+    if (githubResponse) {
+      return githubResponse;
+    }
+
+    return originalFetch(input, init);
+  };
+
+  try {
+    const response = await nanitesHttpApp.request(
+      request,
+      {
+        headers: { Cookie: cookieHeader },
+      },
+      env,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/setup");
+    await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject({
+      currentStep: "launch",
+      repositories: {
+        status: "complete",
+        githubInstallationId: 42,
+        repositoryFullName: "WebMCP-org/nanites",
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("upstream star verification requires GitHub sign-in", async () => {
@@ -2042,6 +2066,7 @@ test("upstream star verification records the confirmed star", async () => {
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
+    repositoryFullName: "WebMCP-org/nanites",
     claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
@@ -2088,6 +2113,7 @@ test("upstream star verification keeps setup complete when GitHub does not confi
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
+    repositoryFullName: "WebMCP-org/nanites",
     claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
@@ -2134,6 +2160,7 @@ test("upstream star action stars through the signed-in GitHub user token", async
   const setupClaim = await issueSetupClaim(setupAgent);
   await setupAgent.recordRepositoryInstall({
     githubInstallationId: 42,
+    repositoryFullName: "WebMCP-org/nanites",
     claimToken: setupClaim.token,
     installState: await readRepositoryInstallState(setupAgent),
   });
@@ -2210,7 +2237,6 @@ test("GitHub setup verification rejects spoofed installation ids", async () => {
       code: "setup_installation_verification_failed",
       githubInstallationId: 42,
       reason: "installation_not_visible",
-      visibleInstallationIds: ["77"],
     });
   } finally {
     globalThis.fetch = originalFetch;

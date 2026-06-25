@@ -1,0 +1,10 @@
+:where(.message__content pre, .observability-table-wrap) {
+  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
+  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
+
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}

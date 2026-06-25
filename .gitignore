@@ -7,6 +7,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Lockfiles are release inputs.
+!pnpm-lock.yaml
+!skills-lock.json
+
 node_modules
 dist
 dist-ssr

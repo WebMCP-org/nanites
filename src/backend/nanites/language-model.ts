@@ -1,16 +1,14 @@
+import { DEFAULT_SIGVELO_AGENT_MODEL_ID } from "#/shared/constants.ts";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
-import { DEFAULT_SIGVELO_AGENT_MODEL_ID } from "#/nanites.ts";
+import type { NaniteRunWorkflowResult } from "#/backend/agents/NaniteRunWorkflow.ts";
 
 // AI Gateway policy. Not an env var on purpose: self-hosters own this repo, so to
 // change it you edit the constant and redeploy — your Cloudflare account holds the
 // resulting gateway config. The setup flow provisions the gateway with these values.
-// The default model id lives in #/nanites.ts so the browser can share it.
-export { DEFAULT_SIGVELO_AGENT_MODEL_ID };
+// The default model id lives in #/shared/constants.ts so the browser can share it.
 export const NANITES_AI_GATEWAY_ID = "sigvelo-nanites";
-
-export type NanitesAiGatewayBackoff = "constant" | "linear" | "exponential";
 
 export const NANITES_AI_GATEWAY_REQUEST_DEFAULTS = {
   maxAttempts: 5,
@@ -20,21 +18,19 @@ export const NANITES_AI_GATEWAY_REQUEST_DEFAULTS = {
 } as const satisfies {
   maxAttempts: number;
   retryDelayMs: number;
-  backoff: NanitesAiGatewayBackoff;
+  backoff: "constant" | "linear" | "exponential";
   zdr: boolean;
 };
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 
-interface PromptCachedWorkersAIModelInput {
+function createPromptCachedWorkersAIModel(input: {
   binding: WorkersAIBinding;
   model: string;
   sessionAffinity: string;
   gatewayId?: string;
   gatewayMetadata?: Record<string, string>;
-}
-
-function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput) {
+}) {
   // Workers AI maps sessionAffinity to the x-session-affinity header so
   // repeated turns for the same durable agent instance can reuse prefix-cache state.
   return createWorkersAI({ binding: input.binding })(input.model, {
@@ -51,25 +47,20 @@ function createPromptCachedWorkersAIModel(input: PromptCachedWorkersAIModelInput
   });
 }
 
-interface SigveloAgentLanguageModelInput {
+type SigveloAgentLanguageModelInput = {
   env: Env;
   sessionAffinity: string;
   gatewayMetadata?: Record<string, string>;
   /** Override the default agent model (e.g. a user-picked model from the dropdown). */
   modelId?: string;
-}
-
-interface NaniteRunLanguageModelInput extends SigveloAgentLanguageModelInput {
-  modelId: string;
-  gatewayId: string;
-}
+};
 
 function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel | null {
   const testFixture = String(input.env.NANITES_LLM_FIXTURE);
   if (
     testFixture === "complete" ||
     testFixture === "no_change" ||
-    testFixture === "ask_human" ||
+    testFixture === "ask_manager" ||
     testFixture === "no_lifecycle" ||
     testFixture === "github_mcp_issue_actions" ||
     testFixture === "tool_output_budget"
@@ -79,9 +70,11 @@ function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel |
       const body = JSON.parse(requestBody) as {
         messages?: Array<{ role?: string }>;
         model?: string;
+        tools?: Array<{ function?: { name?: string } }>;
       };
       const model = body.model ?? "gpt-4o-mini";
       const messages = body.messages ?? [];
+      const finalAnswerToolName = findThinkFinalAnswerToolName(body.tools);
       let chunks: OpenAIChatChunk[];
 
       if (testFixture === "github_mcp_issue_actions") {
@@ -121,10 +114,11 @@ function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel |
             content: "I called the scoped GitHub MCP issue tools and can finish.",
             finishReason: "tool_calls",
             model,
-            toolCall: {
+            toolCall: buildFinalToolCall({
+              finalAnswerToolName,
               id: "call_github_mcp_issue_actions_no_change",
-              name: "no_change",
-              arguments: JSON.stringify({
+              result: {
+                kind: "no_change",
                 summary: "Called scoped GitHub MCP issue tools.",
                 agentFeedback: {
                   severity: calledBoth ? "info" : "error",
@@ -136,30 +130,33 @@ function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel |
                     `add_issue_comment_called=${String(sawIssueComment)}`,
                   ],
                 },
-              }),
-            },
+              },
+            }),
           });
         }
       } else if (testFixture === "tool_output_budget") {
-        chunks = buildToolOutputBudgetFixtureChunks(messages, model);
+        chunks = buildToolOutputBudgetFixtureChunks(messages, model, finalAnswerToolName);
       } else {
         const hasToolResult = countToolResultsAfterLatestUser(messages) > 0;
-        const toolCall = testFixture === "no_lifecycle" ? null : buildFixtureToolCall(testFixture);
+        const toolCall =
+          testFixture === "no_lifecycle"
+            ? null
+            : buildFixtureToolCall(testFixture, finalAnswerToolName);
         chunks = hasToolResult
           ? buildTextChunks({
               content:
-                "The host accepted my lifecycle tool call and linked the transcript to the run.",
+                "The host accepted my structured run output and linked the transcript to the run.",
               finishReason: "stop",
               model,
             })
           : toolCall === null
             ? buildTextChunks({
-                content: "I inspected the trigger but did not call a lifecycle tool.",
+                content: "I inspected the trigger but did not produce a structured run output.",
                 finishReason: "stop",
                 model,
               })
             : buildToolCallChunks({
-                content: "I accepted the trigger and can finish through the host lifecycle tool.",
+                content: "I accepted the trigger and can finish through the host run output.",
                 finishReason: "tool_calls",
                 model,
                 toolCall,
@@ -211,7 +208,10 @@ export function createSigveloAgentLanguageModel(
 }
 
 export async function createNaniteRunLanguageModel(
-  input: NaniteRunLanguageModelInput,
+  input: SigveloAgentLanguageModelInput & {
+    modelId: string;
+    gatewayId: string;
+  },
 ): Promise<LanguageModel> {
   const testLanguageModel = createConfiguredTestLanguageModel(input);
   if (testLanguageModel) {
@@ -230,7 +230,7 @@ export async function createNaniteRunLanguageModel(
 type NaniteLlmFixture =
   | "complete"
   | "no_change"
-  | "ask_human"
+  | "ask_manager"
   | "no_lifecycle"
   | "github_mcp_issue_actions"
   | "tool_output_budget";
@@ -238,10 +238,11 @@ type NaniteLlmFixture =
 function buildToolOutputBudgetFixtureChunks(
   messages: readonly { role?: string }[],
   model: string,
+  finalAnswerToolName: string | null,
 ): OpenAIChatChunk[] {
   if (JSON.stringify(messages).includes("call_budget_no_change")) {
     return buildTextChunks({
-      content: "The host accepted my no_change lifecycle tool call after the output-budget probe.",
+      content: "The host accepted my no_change run output after the output-budget probe.",
       finishReason: "stop",
       model,
     });
@@ -293,19 +294,21 @@ function buildToolOutputBudgetFixtureChunks(
         "The large output came back as a bounded artifact notice and was grep-readable through the artifact tool, so I can finish.",
       finishReason: "tool_calls",
       model,
-      toolCall: {
+      toolCall: buildFinalToolCall({
+        finalAnswerToolName,
         id: "call_budget_no_change",
-        name: "no_change",
-        arguments: JSON.stringify({
+        result: {
+          kind: "no_change",
           summary:
             "Verified large tool output was capped inline and preserved as a current-run KV artifact.",
-        }),
-      },
+          agentFeedback: null,
+        },
+      }),
     });
   }
 
   return buildTextChunks({
-    content: "The host accepted my no_change lifecycle tool call after the output-budget probe.",
+    content: "The host accepted my no_change run output after the output-budget probe.",
     finishReason: "stop",
     model,
   });
@@ -330,32 +333,39 @@ function countToolResultsAfterLatestUser(messages: readonly { role?: string }[])
   return currentTurnMessages.filter((message) => message.role === "tool").length;
 }
 
-function buildFixtureToolCall(fixture: Exclude<NaniteLlmFixture, "no_lifecycle">): {
+function buildFixtureToolCall(
+  fixture: Exclude<NaniteLlmFixture, "no_lifecycle">,
+  finalAnswerToolName: string | null,
+): {
   name: string;
   arguments: string;
 } {
   if (fixture === "no_change") {
-    return {
-      name: "no_change",
-      arguments: JSON.stringify({
+    return buildFinalToolCall({
+      finalAnswerToolName,
+      result: {
+        kind: "no_change",
         summary: "Docs sync inspected the trigger and found no documentation changes needed.",
-      }),
-    };
+        agentFeedback: null,
+      },
+    });
   }
 
-  if (fixture === "ask_human") {
-    return {
-      name: "ask_human",
-      arguments: JSON.stringify({
-        summary: "Need contents:write before opening the documentation PR.",
-        requestedScopes: ["contents:write"],
-      }),
-    };
+  if (fixture === "ask_manager") {
+    return buildFinalToolCall({
+      finalAnswerToolName,
+      result: {
+        kind: "ask_manager",
+        request:
+          "I tried to open the documentation PR, but the current run does not have enough repository authority. Please update my access so I can continue.",
+      },
+    });
   }
 
-  return {
-    name: "complete",
-    arguments: JSON.stringify({
+  return buildFinalToolCall({
+    finalAnswerToolName,
+    result: {
+      kind: "complete",
       summary: "Docs sync completed through the mocked provider layer.",
       outputUrl: "https://example.com/runs/docs-syncer",
       agentFeedback: {
@@ -363,9 +373,54 @@ function buildFixtureToolCall(fixture: Exclude<NaniteLlmFixture, "no_lifecycle">
         message: "The trigger reached the Nanite model with usable runtime context.",
         suggestions: ["Keep repository, pull number, and head SHA in trigger input."],
       },
-    }),
+    },
+  });
+}
+
+function buildFinalToolCall(input: {
+  finalAnswerToolName: string | null;
+  id?: string;
+  result: NaniteRunWorkflowResult;
+}): {
+  id?: string;
+  name: string;
+  arguments: string;
+} {
+  if (!input.finalAnswerToolName) {
+    throw new Error("Think final-answer tool is required for Nanite run fixtures.");
+  }
+
+  return {
+    id: input.id,
+    name: input.finalAnswerToolName,
+    arguments: JSON.stringify({ result: input.result }),
   };
 }
+
+function findThinkFinalAnswerToolName(
+  tools: Array<{ function?: { name?: string } }> | undefined,
+): string | null {
+  return (
+    tools?.find((candidate) => candidate.function?.name?.startsWith("think_final_answer"))?.function
+      ?.name ?? null
+  );
+}
+
+type OpenAIToolCallDelta = {
+  index: number;
+  id?: string;
+  type?: "function";
+  function: {
+    name?: string;
+    arguments: string;
+  };
+};
+
+type OpenAIChatDelta =
+  | Record<string, never>
+  | { role: "assistant"; content: string }
+  | { content: string }
+  | { tool_calls: OpenAIToolCallDelta[] };
 
 type OpenAIChatChunk = {
   id: string;
@@ -374,7 +429,7 @@ type OpenAIChatChunk = {
   model: string;
   choices: Array<{
     index: number;
-    delta: Record<string, unknown>;
+    delta: OpenAIChatDelta;
     logprobs: null;
     finish_reason: string | null;
   }>;
@@ -428,7 +483,7 @@ function buildToolCallChunks(input: {
 
 function createChunk(
   model: string,
-  delta: Record<string, unknown>,
+  delta: OpenAIChatDelta,
   finishReason: string | null = null,
 ): OpenAIChatChunk {
   return {

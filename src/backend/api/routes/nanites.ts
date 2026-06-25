@@ -3,12 +3,9 @@ import { getAgentByName } from "agents";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
-import { createDbClient } from "#/backend/db/index.ts";
-import { requireBrowserInstallationScope } from "#/backend/auth/installations.ts";
-import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
+import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
-import { parseNaniteManagerKey } from "#/nanites.ts";
 
 const managerNameInput = zValidator(
   "param",
@@ -18,35 +15,58 @@ const managerNameInput = zValidator(
   requestValidationHook,
 );
 
+const MODEL_CATALOG_PAGE_SIZE = 100;
+const MODEL_CATALOG_MAX_PAGES = 20;
+
+function buildThirdPartyModelsUrl(accountId: string): string {
+  return `https://dash.cloudflare.com/${encodeURIComponent(accountId)}/ai/models?providers=third-party`;
+}
+
+async function listTextGenerationModelCatalog(
+  ai: Env["AI"],
+): Promise<Awaited<ReturnType<Env["AI"]["models"]>>> {
+  const models: Awaited<ReturnType<Env["AI"]["models"]>> = [];
+
+  // ponytail: page cap prevents a bad catalog response from spinning forever; raise if the
+  // text-generation catalog grows past 2,000 models.
+  for (let page = 1; page <= MODEL_CATALOG_MAX_PAGES; page += 1) {
+    const catalog = await ai.models({
+      task: "Text Generation",
+      per_page: MODEL_CATALOG_PAGE_SIZE,
+      page,
+    });
+
+    models.push(...catalog);
+
+    if (catalog.length < MODEL_CATALOG_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return models;
+}
+
 export const nanitesApiRoutes = new Hono<WorkerHonoEnv>()
   .get("/models", async (context) => {
-    // Workers AI binding exposes the public model catalog — no API token needed.
-    const catalog = await context.env.AI.models({ task: "Text Generation", per_page: 200 });
-    const models = catalog
-      .map((entry) => entry.name)
-      .filter((name) => name.length > 0)
-      .sort();
+    // Workers AI binding exposes hosted Workers AI models; proxied AI Gateway models are not
+    // returned by this API.
+    const models = await listTextGenerationModelCatalog(context.env.AI);
     context.header("Cache-Control", "public, max-age=3600");
-    return context.json({ models });
+    return context.json({
+      models,
+      thirdPartyModelsUrl: buildThirdPartyModelsUrl(context.env.CLOUDFLARE_ACCOUNT_ID),
+    });
   })
   .get("/manager/:managerName", managerNameInput, async (context) => {
     const { managerName } = context.req.valid("param");
-    const managerIdentity = parseNaniteManagerKey(managerName);
-    const deploymentGitHubApp = await requireDeploymentGitHubApp(
-      createDbClient(context.env.DB),
-      context.env,
-    );
-
-    if (!managerIdentity || managerIdentity.githubAppId !== deploymentGitHubApp.appId) {
+    const deploymentInstallation = await requireDeploymentGitHubInstallation(context.env);
+    if (managerName !== deploymentInstallation.managerName) {
       throw new AppError("agentAuthorizationForbidden", {
-        details: { reason: "Nanite manager does not belong to the deployment GitHub App." },
+        details: {
+          reason: "Nanite manager does not belong to the deployment GitHub App installation.",
+        },
       });
     }
-
-    await requireBrowserInstallationScope(context.req.raw, context.env, {
-      githubInstallationId: managerIdentity.githubInstallationId,
-      responseHeaders: context.res.headers,
-    });
 
     const manager = await getAgentByName<Env, SigveloNaniteManager>(
       context.env.SigveloNaniteManager,

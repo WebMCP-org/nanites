@@ -1,17 +1,19 @@
+import { MCP_SCOPES, DEFAULT_SIGVELO_AGENT_MODEL_ID } from "#/shared/constants.ts";
 import { Think, Workspace, skills } from "@cloudflare/think";
-import type {
-  Session,
-  ThinkSubmissionInspection,
-  ThinkSubmissionStatus,
-  TurnConfig,
-} from "@cloudflare/think";
+import type { ChatOptions, Session, StreamCallback, TurnConfig } from "@cloudflare/think";
+import {
+  chatSdkMessenger,
+  defaultConversationName,
+  defineMessengers,
+  type MessengerContext,
+  type ThinkMessengers,
+} from "@cloudflare/think/messengers";
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
-import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
 import { GitHubMcpConnector } from "#/backend/nanites/github-mcp-connector.ts";
 import nanitesSkills from "agents:skills/../../../plugins/nanites/skills";
-import { callable, getAgentByName, getCurrentAgent } from "agents";
+import { callable, getCurrentAgent } from "agents";
 import type { Connection, ConnectionContext } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
 import { AppError } from "#/backend/errors.ts";
@@ -20,23 +22,19 @@ import {
   type GitHubInstallationRepository,
   listReposAccessibleToInstallation,
 } from "#/backend/github/index.ts";
-import {
-  getGitHubManagerChatThreadType,
-  type HandleManagerChatMessageInput,
-  type SigveloChatIngress,
-} from "#/backend/agents/SigveloChatIngress.ts";
+import { createGitHubAdapter } from "@chat-adapter/github";
 import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
 import type { SigveloMcpAuthProps } from "#/backend/mcp/index.ts";
-import {
-  createSigveloAgentLanguageModel,
-  DEFAULT_SIGVELO_AGENT_MODEL_ID,
-} from "#/backend/nanites/language-model.ts";
+import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-model.ts";
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
-import { buildNaniteManagerKey, parseNaniteManagerKey } from "#/nanites.ts";
+import { buildNaniteManagerKey, parseNaniteManagerKey } from "#/shared/utils/nanites.ts";
+import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
+import { buildGitHubAppSecretBindings, readConfiguredSecret } from "#/backend/github/apps.ts";
+import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
 
 const SIGVELO_MANAGER_CHAT_CLIENT_ID = "sigvelo-github-manager-chat";
-const STALE_MANAGER_SUBMISSION_AGE_MS = 120_000;
+const GITHUB_MANAGER_MESSENGER_ID = "github";
+const GITHUB_MANAGER_MESSENGER_SEPARATOR = ":messenger:github:";
 const NANITES_AUTHORING_REPOSITORY = "WebMCP-org/nanites";
 const NANITES_AUTHORING_REPOSITORY_URL = `https://github.com/${NANITES_AUTHORING_REPOSITORY}`;
 const NANITES_AUTHORING_CHECKOUT_DIR = "/repos/WebMCP-org/nanites";
@@ -46,51 +44,13 @@ const NANITES_AUTHORING_REFERENCE_PATHS = [
   "docs/development.md",
   "plugins/nanites/skills/nanites/SKILL.md",
   "plugins/nanites/skills/nanites/references/authoring.md",
+  "plugins/nanites/skills/nanites/references/codemode-runtime.md",
   "plugins/nanites/skills/nanites/references/operations.md",
   "plugins/nanites/commands/create-nanite.md",
   "plugins/nanites/commands/write-nanite-trigger.md",
   "plugins/nanites/commands/test-nanite.md",
   "plugins/nanites/assets/examples/",
 ] as const;
-
-const TERMINAL_SUBMISSION_STATUSES = new Set<ThinkSubmissionStatus>([
-  "completed",
-  "aborted",
-  "skipped",
-  "error",
-]);
-
-type ManagerGitHubMessageAcceptance = {
-  accepted: boolean;
-  status: ThinkSubmissionStatus;
-  submissionId: string;
-  userMessageId: string;
-};
-
-type ManagerGitHubReplyStatus =
-  | {
-      status: "ready";
-      text: string;
-    }
-  | {
-      error: string;
-      status: "failed";
-      submissionStatus: ThinkSubmissionStatus | "missing";
-    }
-  | {
-      status: "pending";
-      submissionStatus: ThinkSubmissionStatus | "pending_reply";
-    };
-
-export type ManagerReplyPublication = {
-  conversationName: string;
-  githubAppId: number;
-  startedAt: number;
-  statusMessageId: string;
-  submissionId: string;
-  threadId: string;
-  userMessageId: string;
-};
 
 type DisconnectedManagerConversationState = {
   status: "disconnected";
@@ -117,9 +77,6 @@ export type ManagerConversationState =
   | ConnectedManagerConversationState;
 
 type BrowserInstallationConnectionAuth = {
-  readonly accountLogin: string;
-  readonly githubAppId: number;
-  readonly githubInstallationId: number;
   readonly githubLogin: string;
   readonly githubUserId: number;
 };
@@ -127,6 +84,71 @@ type BrowserInstallationConnectionAuth = {
 type ManagerConversationConnectionState = {
   readonly browserInstallationAuth?: BrowserInstallationConnectionAuth;
 };
+
+type GitHubManagerMessengerRoot = {
+  readonly managerName: string;
+  readonly githubAppId: number;
+  readonly githubInstallationId: number;
+  readonly githubAppSlug: string;
+};
+
+export function buildGitHubManagerMessengerName(input: {
+  readonly managerName: string;
+  readonly githubAppSlug: string;
+}): string {
+  return `${input.managerName}${GITHUB_MANAGER_MESSENGER_SEPARATOR}${encodeURIComponent(
+    input.githubAppSlug,
+  )}`;
+}
+
+function parseGitHubManagerMessengerRoot(name: string): GitHubManagerMessengerRoot | null {
+  const separatorIndex = name.indexOf(GITHUB_MANAGER_MESSENGER_SEPARATOR);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const managerName = name.slice(0, separatorIndex);
+  const identity = parseNaniteManagerKey(managerName);
+  if (!identity) {
+    return null;
+  }
+
+  const rawSlug = name.slice(separatorIndex + GITHUB_MANAGER_MESSENGER_SEPARATOR.length);
+  let githubAppSlug: string;
+  try {
+    githubAppSlug = decodeURIComponent(rawSlug);
+  } catch {
+    return null;
+  }
+  if (!githubAppSlug.trim()) {
+    return null;
+  }
+
+  return {
+    managerName,
+    githubAppId: identity.githubAppId,
+    githubInstallationId: identity.githubInstallationId,
+    githubAppSlug,
+  };
+}
+
+function readMessengerRootFromAgentPath(input: {
+  readonly name: string;
+  readonly parentPath: readonly { readonly name: string }[];
+}): GitHubManagerMessengerRoot | null {
+  const rootName = input.parentPath[0]?.name ?? input.name;
+  return parseGitHubManagerMessengerRoot(rootName);
+}
+
+function requireMessengerSecret(env: Env, bindingName: string): string {
+  const value = readConfiguredSecret(env, bindingName);
+  if (!value) {
+    throw new AppError("deploymentGitHubAppSetupRequired", {
+      details: { bindingName },
+    });
+  }
+  return value;
+}
 
 export class SigveloManagerConversationAgent extends Think<Env, ManagerConversationState> {
   initialState: ManagerConversationState = {
@@ -208,6 +230,38 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     });
   }
 
+  override getMessengers(): ThinkMessengers {
+    const messengerRoot = parseGitHubManagerMessengerRoot(this.name);
+    if (!messengerRoot) {
+      return defineMessengers({});
+    }
+
+    const bindings = buildGitHubAppSecretBindings(messengerRoot.githubAppId);
+    const github = createGitHubAdapter({
+      appId: String(messengerRoot.githubAppId),
+      installationId: messengerRoot.githubInstallationId,
+      privateKey: normalizeGitHubAppPrivateKeyToPkcs8(
+        requireMessengerSecret(this.env, bindings.privateKeyBinding),
+      ),
+      webhookSecret: requireMessengerSecret(this.env, bindings.webhookSecretBinding),
+      userName: messengerRoot.githubAppSlug,
+    });
+
+    return defineMessengers({
+      [GITHUB_MANAGER_MESSENGER_ID]: chatSdkMessenger({
+        adapter: github,
+        provider: "github",
+        userName: messengerRoot.githubAppSlug,
+        verifyWebhook: false,
+        respondTo: ["mention", "subscribed-thread"],
+        conversation: (event) => ({
+          target: "subagent",
+          name: defaultConversationName(event),
+        }),
+      }),
+    });
+  }
+
   override getTools(): ToolSet {
     const workspaceTools = createWorkspaceTools(this.workspace);
     const githubMcpConnector = this.createGitHubMcpConnector();
@@ -222,15 +276,13 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     return {
       ...workspaceTools,
       ...sigveloTools,
-      execute: createExecuteTool({
-        ctx: this.ctx,
+      execute: createExecuteTool(this, {
         tools: workspaceTools,
-        state: createWorkspaceStateBackend(this.workspace),
         connectors: [
           new ToolProviderConnector(this.ctx, this.createGitToolProvider()),
           ...(githubMcpConnector ? [githubMcpConnector] : []),
         ],
-        loader: this.env.LOADER,
+        browser: undefined,
       }),
     };
   }
@@ -248,14 +300,37 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
 
   @callable()
   async connectBrowserInstallation(): Promise<{ connected: true }> {
-    const connection = createSigveloToolAuthPropsFromBrowser(this.name);
-    await this.ensureGitHubMcpConnected(connection.props, connection.accountLogin);
+    const auth = requireBrowserInstallationConnectionAuth();
+    const deploymentInstallation = await requireDeploymentGitHubInstallation(this.env);
+    requireBrowserConversationTarget(this.name, {
+      managerName: deploymentInstallation.managerName,
+      githubUserId: auth.githubUserId,
+    });
+
+    await this.ensureGitHubMcpConnected(
+      {
+        authKind: "mcp",
+        githubUserId: auth.githubUserId,
+        githubLogin: auth.githubLogin,
+        githubAppId: deploymentInstallation.githubAppId,
+        githubInstallationId: deploymentInstallation.githubInstallationId,
+        clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
+        scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
+        authorizedAt: new Date().toISOString(),
+      },
+      deploymentInstallation.account.login,
+    );
     return { connected: true };
   }
 
-  async connectSigveloTools(input: HandleManagerChatMessageInput): Promise<void> {
-    const props = createSigveloToolAuthProps(input);
-    await this.ensureGitHubMcpConnected(props, getRepositoryOwner(input.surface.raw.repository));
+  override async chatWithMessengerContext(
+    userMessage: string | UIMessage,
+    callback: StreamCallback,
+    context: MessengerContext,
+    options?: ChatOptions,
+  ): Promise<void> {
+    await this.connectMessengerInstallation(context);
+    await super.chatWithMessengerContext(userMessage, callback, context, options);
   }
 
   private async ensureGitHubMcpConnected(props: SigveloMcpAuthProps, accountLogin: string) {
@@ -278,6 +353,41 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       connectedAt: new Date().toISOString(),
       model: this.state.model,
     });
+  }
+
+  private async connectMessengerInstallation(context: MessengerContext): Promise<void> {
+    const messengerRoot = readMessengerRootFromAgentPath({
+      name: this.name,
+      parentPath: this.parentPath,
+    });
+    if (!messengerRoot || context.provider !== "github") {
+      return;
+    }
+
+    const author = context.message?.author ?? context.author;
+    const githubUserId = Number(author?.userId);
+    if (!Number.isInteger(githubUserId) || githubUserId <= 0 || !author?.userName) {
+      throw new AppError("authenticationRequired");
+    }
+
+    const deploymentInstallation = await requireDeploymentGitHubInstallation(this.env);
+    if (deploymentInstallation.managerName !== messengerRoot.managerName) {
+      throw new AppError("managerConversationInstallationMismatch");
+    }
+
+    await this.ensureGitHubMcpConnected(
+      {
+        authKind: "mcp",
+        githubUserId,
+        githubLogin: author.userName,
+        githubAppId: deploymentInstallation.githubAppId,
+        githubInstallationId: deploymentInstallation.githubInstallationId,
+        clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
+        scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
+        authorizedAt: new Date().toISOString(),
+      },
+      deploymentInstallation.account.login,
+    );
   }
 
   /**
@@ -318,20 +428,16 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     }
 
     return [
-      `Selected GitHub account: ${context.githubAccountLogin}`,
-      `Selected GitHub installation id: ${context.githubInstallationId}`,
+      `Connected GitHub account: ${context.githubAccountLogin}`,
+      `Connected GitHub installation id: ${context.githubInstallationId}`,
       `Connected at: ${context.connectedAt}`,
       "",
       "Accessible repositories in this installation:",
       ...context.repositories.map((repository) => `- ${repository.full_name}`).sort(),
       "",
-      "Operating rule: assume user references such as 'my org', 'this org', 'the package repo', and 'the docs repo' refer to this selected installation unless they explicitly name another account.",
+      "Operating rule: assume user references such as 'my org', 'this org', 'the package repo', and 'the docs repo' refer to this deployment installation unless they explicitly name another account.",
       "When a request does not name a repository (for example 'create a demo Nanite'), choose from the accessible repositories above — never from the chat user's personal account.",
     ].join("\n");
-  }
-
-  async hasManagerSubmission(submissionId: string): Promise<boolean> {
-    return (await this.inspectSubmission(submissionId)) !== null;
   }
 
   @callable()
@@ -342,100 +448,6 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       clearedMessages: true,
       deletedSubmissions,
     };
-  }
-
-  async answerGitHubMessage(
-    input: HandleManagerChatMessageInput,
-    publication: ManagerReplyPublication,
-  ): Promise<ManagerGitHubMessageAcceptance> {
-    await this.connectSigveloTools(input);
-    await this.cancelStaleManagerSubmissions();
-    const message = toManagerConversationMessage(input);
-    const submission = await this.submitMessages([message], {
-      submissionId: message.id,
-      idempotencyKey: message.id,
-      metadata: {
-        surface: input.surface.type,
-        repository: input.surface.raw.repository.full_name,
-        threadId: input.surface.threadId,
-        messageId: input.surface.messageId,
-        githubReplyPublication: publication,
-      },
-    });
-
-    return {
-      accepted: submission.accepted,
-      status: submission.status,
-      submissionId: submission.submissionId,
-      userMessageId: message.id,
-    };
-  }
-
-  async readGitHubReplyForSubmission(input: {
-    submissionId: string;
-    userMessageId: string;
-  }): Promise<ManagerGitHubReplyStatus> {
-    const submission = await this.inspectSubmission(input.submissionId);
-    if (!submission) {
-      return {
-        status: "failed",
-        submissionStatus: "missing",
-        error: "Manager submission was not found.",
-      };
-    }
-
-    if (!TERMINAL_SUBMISSION_STATUSES.has(submission.status)) {
-      return { status: "pending", submissionStatus: submission.status };
-    }
-
-    if (submission.status !== "completed") {
-      return {
-        status: "failed",
-        submissionStatus: submission.status,
-        error: submission.error ?? `Manager submission ended with status ${submission.status}.`,
-      };
-    }
-
-    const text = extractAssistantReplyAfter(await this.getMessages(), input.userMessageId);
-    return text
-      ? { status: "ready", text }
-      : { status: "pending", submissionStatus: "pending_reply" };
-  }
-
-  protected override async onSubmissionStatus(
-    submission: ThinkSubmissionInspection,
-  ): Promise<void> {
-    if (!TERMINAL_SUBMISSION_STATUSES.has(submission.status)) {
-      return;
-    }
-
-    const publication = parseGitHubReplyPublication(submission.metadata?.githubReplyPublication);
-    if (!publication) {
-      return;
-    }
-
-    const ingress = await getAgentByName<Env, SigveloChatIngress>(
-      this.env.SigveloChatIngress,
-      "default",
-    );
-    await ingress.publishManagerReply(publication);
-  }
-
-  private async cancelStaleManagerSubmissions(now = Date.now()): Promise<void> {
-    const activeSubmissions = await this.listSubmissions({
-      status: ["pending", "running"],
-      limit: 50,
-    });
-    await Promise.all(
-      activeSubmissions
-        .filter((submission) => now - submission.createdAt >= STALE_MANAGER_SUBMISSION_AGE_MS)
-        .map((submission) =>
-          this.cancelSubmission(
-            submission.submissionId,
-            "Canceled stale manager conversation turn before accepting a newer GitHub message.",
-          ),
-        ),
-    );
   }
 
   private createGitToolProvider() {
@@ -466,64 +478,12 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
   }
 }
 
-function createSigveloToolAuthProps(input: HandleManagerChatMessageInput): SigveloMcpAuthProps {
-  const installationId = input.installationId;
-  requireSelectedGitHubAccount(getRepositoryOwner(input.surface.raw.repository));
-  if (!Number.isInteger(installationId) || installationId <= 0) {
-    throw new AppError("managerConversationInstallationRequired");
-  }
-
-  return {
-    authKind: "mcp",
-    githubUserId: Number(input.author.userId),
-    githubLogin: input.author.userName,
-    githubAppId: input.githubAppId,
-    githubInstallationId: installationId,
-    clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
-    scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
-    visibleRepositories: [],
-    authorizedAt: new Date().toISOString(),
-  } satisfies SigveloMcpAuthProps;
-}
-
-function createSigveloToolAuthPropsFromBrowser(conversationName: string): {
-  accountLogin: string;
-  props: SigveloMcpAuthProps;
-} {
-  const auth = requireBrowserInstallationConnectionAuth();
-  requireBrowserConversationTarget(conversationName, {
-    githubAppId: auth.githubAppId,
-    githubInstallationId: auth.githubInstallationId,
-    githubUserId: auth.githubUserId,
-  });
-
-  const props = {
-    authKind: "mcp",
-    githubUserId: auth.githubUserId,
-    githubLogin: auth.githubLogin,
-    githubAppId: auth.githubAppId,
-    githubInstallationId: auth.githubInstallationId,
-    clientId: SIGVELO_MANAGER_CHAT_CLIENT_ID,
-    scopes: [MCP_SCOPES.read, MCP_SCOPES.write],
-    visibleRepositories: [],
-    authorizedAt: new Date().toISOString(),
-  } satisfies SigveloMcpAuthProps;
-
-  return {
-    accountLogin: requireSelectedGitHubAccount(auth.accountLogin),
-    props,
-  };
-}
-
 function readBrowserInstallationAuthFromHeaders(
   headers: Headers,
 ): BrowserInstallationConnectionAuth {
   return {
-    githubAppId: readPositiveManagerHeader(headers, "x-nanites-active-github-app-id"),
-    githubInstallationId: readPositiveManagerHeader(headers, "x-nanites-active-installation-id"),
     githubUserId: readPositiveActorHeader(headers, "x-nanites-github-user-id"),
     githubLogin: readRequiredActorHeader(headers, "x-nanites-github-login"),
-    accountLogin: headers.get("x-nanites-installation-account-login") ?? "",
   };
 }
 
@@ -536,14 +496,6 @@ function requireBrowserInstallationConnectionAuth(): BrowserInstallationConnecti
   }
 
   return auth;
-}
-
-function readPositiveManagerHeader(headers: Headers, name: string): number {
-  const value = Number(headers.get(name));
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new AppError("managerConversationInstallationRequired");
-  }
-  return value;
 }
 
 function readPositiveActorHeader(headers: Headers, name: string): number {
@@ -565,72 +517,33 @@ function readRequiredActorHeader(headers: Headers, name: string): string {
 function requireBrowserConversationTarget(
   conversationName: string,
   expected: {
-    readonly githubAppId: number;
-    readonly githubInstallationId: number;
+    readonly managerName: string;
     readonly githubUserId: number;
   },
 ): void {
-  const target = parseBrowserConversationTarget(conversationName);
-  const managerName = buildNaniteManagerKey(expected);
-
-  if (
-    target.managerName !== managerName ||
-    target.identity.githubAppId !== expected.githubAppId ||
-    target.identity.githubInstallationId !== expected.githubInstallationId ||
-    target.actorId !== expected.githubUserId
-  ) {
+  if (conversationName !== `${expected.managerName}:manager:${expected.githubUserId}`) {
     throw new AppError("managerConversationInstallationMismatch");
   }
-}
-
-function parseBrowserConversationTarget(conversationName: string) {
-  const actorSeparator = ":manager:";
-  const separatorIndex = conversationName.lastIndexOf(actorSeparator);
-  if (separatorIndex <= 0) {
-    throw new AppError("managerConversationInstallationMismatch");
-  }
-
-  const managerName = conversationName.slice(0, separatorIndex);
-  const actorId = Number(conversationName.slice(separatorIndex + actorSeparator.length));
-  const identity = parseNaniteManagerKey(managerName);
-  if (!identity || !Number.isInteger(actorId)) {
-    throw new AppError("managerConversationInstallationMismatch");
-  }
-
-  return { actorId, identity, managerName };
-}
-
-function requireSelectedGitHubAccount(accountLogin: string): string {
-  const trimmed = accountLogin.trim();
-  if (!trimmed) {
-    throw new AppError("managerConversationAccountRequired");
-  }
-
-  return trimmed;
-}
-
-function getRepositoryOwner(
-  repository: HandleManagerChatMessageInput["surface"]["raw"]["repository"],
-): string {
-  return requireSelectedGitHubAccount(repository.owner.login);
 }
 
 function buildManagerSystemPrompt(): string {
   return [
     "You are the SigVelo Installation Manager.",
     "Use the loaded nanites skill as the source of truth for Nanite authoring, trigger, permission, testing, and debugging rules.",
-    "Use manager_installation_context as selected GitHub installation grounding. Treat that selected installation/account as the user's current org unless they explicitly ask to switch.",
+    "Use manager_installation_context as the deployment GitHub installation grounding. Treat that installation/account as the user's current org unless they explicitly ask to switch.",
     "The signed-in human's personal login (githubLogin from sigvelo_whoami) identifies who you are talking to, not where you work. Never search, target, or create Nanites against that personal account or its repositories unless the user explicitly asks; pick repositories from the accessible repository list in manager_installation_context.",
-    "You have broad GitHub access for the selected installation, exposed inside execute as github.* and bounded by the GitHub App installation and accessible repository list. Discover github.* methods with codemode.search/codemode.describe.",
+    "You have broad GitHub access for the deployment installation, exposed inside execute as github.* and bounded by the GitHub App installation and accessible repository list. Use direct github.* calls for common PR, issue, check, workflow, and metadata tasks; use codemode.search/codemode.describe only when the method shape is unfamiliar.",
     "Use SigVelo manager tools for control-plane work: inspect Nanites, create or update one Nanite at a time, deprovision one Nanite, start manual runs, cancel runs, and inspect Nanite workspaces.",
     "Use github.* tools inside execute to investigate repositories, repo instructions, branches, commits, pull requests, issues, and workflow/check state before creating or updating Nanites. You may create pull requests only when that is the user's explicit request or the coherent review surface for the manager's work.",
+    "For a Modern Web Guidance Nanite request, do not assume a target URL, repository, or cadence. Inspect accessible repositories, ask for missing public/preview URLs and whether it should run manually, on release, or on a schedule, then create a normal Nanite. Set runtimeConfig.browser only when browser evidence is part of the requested work, and runtimeConfig.skillUrls only when the Nanite needs linked skill instructions.",
     "Use built-in workspace tools for repository file review and git work. execute runs Worker-compatible JavaScript, not Node.js: require(), child_process, shell subprocesses, and shell git are unavailable. Use state.*, git.*, and github.* APIs directly.",
+    'Common execute shapes: `await git.status({ dir })`, `await state.readFile({ path })`, `await github.list_pull_requests({ owner, repo, state: "open" })`.',
     "SigVelo manager tools are not exposed as top-level JavaScript functions inside execute. Call explicit SigVelo tools from the Think tool list instead, one Nanite at a time.",
     "For repository file contents, repo-local instructions, and Nanite authoring references, prefer the durable workspace checkout over github.* so evidence stays inspectable in the manager workspace.",
     `Use nanites_authoring_sources to refresh and inspect ${NANITES_AUTHORING_REPOSITORY} in the manager workspace before creating or updating Nanites.`,
     "If the authoring repo refresh fails because of access, network, or a dirty checkout, continue from the best available evidence and mention the limitation briefly.",
-    "Resolve phrases like 'my org', 'this org', 'the package repo', or 'the docs repo' against the selected installation account and accessible repository list before asking for names.",
-    "Do not ask which GitHub org to use when the selected installation account is known. Ask only if the user's target is genuinely outside the selected installation or multiple matching repos remain after inspection.",
+    "Resolve phrases like 'my org', 'this org', 'the package repo', or 'the docs repo' against the deployment installation account and accessible repository list before asking for names.",
+    "Do not ask which GitHub org to use when the deployment installation account is known. Ask only if the user's target is genuinely outside that installation or multiple matching repos remain after inspection.",
     "Humans should not need to know exact Nanite ids. If a request is ambiguous, inspect the roster first and choose a sensible Nanite or explain the options.",
     "Keep replies concise and use Markdown.",
     "Do not mirror hidden tool logs or full Think transcripts unless the human explicitly asks for diagnostic detail.",
@@ -654,74 +567,4 @@ function formatNanitesAuthoringSources(): string {
       (path) => `- ${NANITES_AUTHORING_CHECKOUT_DIR}/${path}`,
     ),
   ].join("\n");
-}
-
-function toManagerConversationMessage(input: HandleManagerChatMessageInput): UIMessage {
-  const raw = input.surface.raw;
-  return {
-    id: `github:${input.surface.messageId}`,
-    role: "user",
-    parts: [
-      {
-        type: "text",
-        text: [
-          `GitHub author: @${input.author.userName}`,
-          `Repository: ${raw.repository.full_name}`,
-          `Thread: ${getGitHubManagerChatThreadType(raw)} #${raw.prNumber}`,
-          "",
-          input.text,
-        ].join("\n"),
-      },
-    ],
-  };
-}
-
-function extractAssistantReplyAfter(messages: UIMessage[], userMessageId: string): string | null {
-  const userMessageIndex = messages.findIndex((message) => message.id === userMessageId);
-  const candidateMessages =
-    userMessageIndex >= 0 ? messages.slice(userMessageIndex + 1) : messages.slice();
-  const assistantMessage = candidateMessages
-    .slice()
-    .reverse()
-    .find((message) => message.role === "assistant");
-  return assistantMessage ? extractUiMessageText(assistantMessage).trim() || null : null;
-}
-
-function extractUiMessageText(message: UIMessage): string {
-  return message.parts
-    .flatMap((part) => {
-      if (part.type === "text") {
-        return [part.text];
-      }
-      return [];
-    })
-    .join("");
-}
-
-function parseGitHubReplyPublication(value: unknown): ManagerReplyPublication | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const publication = value as Record<string, unknown>;
-  if (
-    typeof publication.conversationName !== "string" ||
-    typeof publication.githubAppId !== "number" ||
-    typeof publication.startedAt !== "number" ||
-    typeof publication.statusMessageId !== "string" ||
-    typeof publication.submissionId !== "string" ||
-    typeof publication.threadId !== "string" ||
-    typeof publication.userMessageId !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    conversationName: publication.conversationName,
-    githubAppId: publication.githubAppId,
-    startedAt: publication.startedAt,
-    statusMessageId: publication.statusMessageId,
-    submissionId: publication.submissionId,
-    threadId: publication.threadId,
-    userMessageId: publication.userMessageId,
-  };
 }

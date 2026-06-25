@@ -1,14 +1,13 @@
+import { MCP_SCOPES } from "#/shared/constants.ts";
 import { emitterEventNames } from "@octokit/webhooks";
 import { z } from "zod";
 import type { ManagedNanite } from "#/backend/agents/SigveloNaniteManager.ts";
-import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/github-mcp-capabilities.ts";
 import {
   createObjectOutputSchema,
   defineSigveloMcpTool,
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
-import { MCP_SCOPES } from "#/mcp.ts";
 
 const naniteManualEventSourceSpecSchema = z.object({
   type: z.literal("manual"),
@@ -86,9 +85,31 @@ const naniteManifestSchema = z.union([
     .strict(),
 ]);
 
+const naniteRuntimeConfigSchema = z
+  .object({
+    browser: z
+      .object({
+        enabled: z.boolean(),
+        targetUrl: z.string().url(),
+        evidenceRequired: z.boolean(),
+      })
+      .strict()
+      .optional()
+      .describe(
+        "Browser verification config. When enabled, the Nanite runtime drives a headless browser against targetUrl; evidenceRequired forces the run to capture verification evidence.",
+      ),
+    skillUrls: z
+      .array(nonEmptyStringSchema)
+      .min(1)
+      .optional()
+      .describe("GitHub skill source URLs or shorthand sources to load into the Nanite runtime."),
+  })
+  .strict();
+
 const createNaniteToolInputSchema = z
   .object({
     manifest: naniteManifestSchema,
+    runtimeConfig: naniteRuntimeConfigSchema.optional(),
   })
   .strict()
   .describe("Create or update a stable Nanite through the authorized installation-scoped manager.");
@@ -99,14 +120,7 @@ export const createNaniteTool = defineSigveloMcpTool({
   description: "Registers a stable Nanite spec with the authorized installation-scoped manager.",
   inputSchema: createNaniteToolInputSchema,
   outputSchema: createObjectOutputSchema("Registered SigVelo Nanite record."),
-  authorization: {
-    requiredScope: MCP_SCOPES.write,
-    repositoryPolicy: {
-      type: "input",
-      access: "write",
-      resolve: (input) => resolveNaniteManifestRepositoryFullNames(input.manifest),
-    },
-  },
+  requiredScope: MCP_SCOPES.write,
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -116,6 +130,7 @@ export const createNaniteTool = defineSigveloMcpTool({
   async execute(input, { context, manager }) {
     return manager.registerNanite({
       manifest: input.manifest,
+      runtimeConfig: input.runtimeConfig,
       actor: context.actor,
       requestId: context.requestId,
     });

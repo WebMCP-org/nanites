@@ -48,6 +48,14 @@ interface SelectOptionProps extends Omit<BaseSelect.Item.Props, "className"> {
   className?: string;
 }
 
+interface SelectGroupProps extends Omit<BaseSelect.Group.Props, "className"> {
+  className?: string;
+}
+
+interface SelectGroupLabelProps extends Omit<BaseSelect.GroupLabel.Props, "className"> {
+  className?: string;
+}
+
 /**
  * A select component for choosing from a list of options.
  *
@@ -131,10 +139,13 @@ export function SelectTrigger({
   ref,
   ...props
 }: SelectTriggerProps & { ref?: React.Ref<HTMLButtonElement> }) {
-  const classes = ["select__trigger", size !== "md" && `select__trigger--${size}`, className]
-    .filter(Boolean)
-    .join(" ");
-  return <BaseSelect.Trigger ref={ref} className={classes} {...props} />;
+  return (
+    <BaseSelect.Trigger
+      ref={ref}
+      className={cx("select__trigger", size !== "md" && `select__trigger--${size}`, className)}
+      {...props}
+    />
+  );
 }
 
 export function SelectValue({
@@ -225,4 +236,22 @@ export function SelectOption({
       {children}
     </BaseSelect.Item>
   );
+}
+
+export function SelectGroup({
+  className = "",
+  ref,
+  ...props
+}: SelectGroupProps & { ref?: React.Ref<HTMLDivElement> }) {
+  const classes = cx("select__option-group", className);
+  return <BaseSelect.Group ref={ref} className={classes} {...props} />;
+}
+
+export function SelectGroupLabel({
+  className = "",
+  ref,
+  ...props
+}: SelectGroupLabelProps & { ref?: React.Ref<HTMLDivElement> }) {
+  const classes = cx("select__group-label", className);
+  return <BaseSelect.GroupLabel ref={ref} className={classes} {...props} />;
 }

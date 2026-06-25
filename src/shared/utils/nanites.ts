@@ -1,24 +1,4 @@
-/** Agents SDK class name used by browser clients for the repo-scoped Nanites manager. */
-export const NANITE_MANAGER_NAME = "sigvelo-nanite-manager";
-
-/** Agents SDK class name used by browser clients for installation manager chat. */
-export const MANAGER_CONVERSATION_AGENT_NAME = "sigvelo-manager-conversation-agent";
-
-/** Agents SDK sub-agent class name used by browser clients for stable Nanite chat. */
-export const NANITE_AGENT_NAME = "sigvelo-nanite-agent";
-
-/** Agents SDK class name used by the first-launch setup wizard. */
-export const NANITES_SETUP_AGENT_NAME = "nanites-setup-agent";
-
-/** Single deployment-scoped setup wizard instance. */
-export const NANITES_SETUP_AGENT_INSTANCE_NAME = "default";
-
-/**
- * Default model for SigVelo agents. Shared (not server-only) so the browser can
- * show it as the manager's effective model when conversation state predates the
- * `model` field — getModel() falls back to this same value.
- */
-export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/zai-org/glm-4.7-flash";
+import { NANITE_MANAGER_KEY_PATTERN } from "#/shared/constants.ts";
 
 /**
  * Manager Durable Objects are keyed by the (GitHub App, installation) pair.
@@ -32,7 +12,7 @@ export type NaniteManagerIdentity = {
   readonly githubInstallationId: number;
 };
 
-const NANITE_MANAGER_KEY_PATTERN = /^app:(\d+):installation:(\d+)$/;
+export type NaniteAgentName = `${NaniteManagerKey}:nanite:${string}`;
 
 export function buildNaniteManagerKey(identity: NaniteManagerIdentity): NaniteManagerKey {
   return `app:${identity.githubAppId}:installation:${identity.githubInstallationId}`;
@@ -56,4 +36,29 @@ export function parseNaniteManagerKey(managerName: string): NaniteManagerIdentit
   }
 
   return { githubAppId, githubInstallationId };
+}
+
+export function buildNaniteAgentName(input: {
+  readonly managerName: NaniteManagerKey;
+  readonly naniteId: string;
+}): NaniteAgentName {
+  return `${input.managerName}:nanite:${input.naniteId}`;
+}
+
+export function parseNaniteAgentName(
+  agentName: string,
+): { readonly managerName: NaniteManagerKey; readonly naniteId: string } | null {
+  const separator = ":nanite:";
+  const separatorIndex = agentName.indexOf(separator);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const managerName = agentName.slice(0, separatorIndex);
+  const naniteId = agentName.slice(separatorIndex + separator.length);
+  if (!naniteId || !parseNaniteManagerKey(managerName)) {
+    return null;
+  }
+
+  return { managerName: managerName as NaniteManagerKey, naniteId };
 }

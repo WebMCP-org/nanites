@@ -1,4 +1,5 @@
 import * as React from "react";
+import { cx } from "./_internal/class-names.js";
 
 export type BadgeVariant = "normal" | "outline";
 export type BadgeColor = "neutral" | "primary" | "success" | "destructive" | "warning";
@@ -41,18 +42,18 @@ export function Badge({
   ref,
   ...props
 }: BadgeProps & { ref?: React.Ref<HTMLSpanElement> }) {
-  const classes = [
-    "badge",
-    `badge--${variant}`,
-    `badge--${color}`,
-    size !== "md" && `badge--${size}`,
-    className,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
   return (
-    <span ref={ref} className={classes} {...props}>
+    <span
+      ref={ref}
+      className={cx(
+        "badge",
+        `badge--${variant}`,
+        `badge--${color}`,
+        size !== "md" && `badge--${size}`,
+        className,
+      )}
+      {...props}
+    >
       {children}
     </span>
   );

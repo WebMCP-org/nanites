@@ -259,66 +259,6 @@
   display: block;
 }
 
-.setup-owner-toggle {
-  min-inline-size: 0;
-  margin: 0;
-  padding: 0;
-  display: inline-flex;
-  overflow: hidden;
-  background: var(--sigvelo-background-color);
-  border: 1px solid var(--sigvelo-neutral-stroke-soft);
-  border-radius: 999px;
-}
-
-.setup-owner-toggle label {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-block-size: 2.25rem;
-  padding: 0 0.85rem;
-  color: var(--sigvelo-text-muted);
-  font-size: 0.9rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.setup-owner-toggle input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.setup-owner-toggle label:has(input:checked) {
-  background: var(--sigvelo-neutral-fill-softer);
-  color: var(--sigvelo-text-body);
-}
-
-.setup-owner-toggle label:has(input:focus-visible) {
-  outline: var(--sigvelo-focus-ring);
-  outline-offset: 2px;
-}
-
-.setup-owner-input {
-  min-inline-size: 11rem;
-  min-block-size: 2.5rem;
-  padding: 0 0.75rem;
-  background: var(--sigvelo-background-color);
-  border: 1px solid var(--sigvelo-neutral-stroke-soft);
-  border-radius: 0.5rem;
-  color: var(--sigvelo-text-body);
-  font: inherit;
-}
-
-.setup-owner-input:focus-visible {
-  outline: var(--sigvelo-focus-ring);
-  outline-offset: 2px;
-}
-
-.setup-owner-input:user-invalid {
-  border-color: var(--app-status-danger);
-  box-shadow: inset 0 0 0 1px var(--app-status-danger);
-}
-
 @media (width <= 40rem) {
   .setup-screen {
     padding: 0.5rem;
@@ -352,15 +292,8 @@
     font-size: 1.5rem;
   }
 
-  .setup-step__actions .button,
-  .setup-owner-input,
-  .setup-owner-toggle {
+  .setup-step__actions .button {
     inline-size: 100%;
-  }
-
-  .setup-owner-toggle label {
-    flex: 1;
-    justify-content: center;
   }
 
   .setup-frame__nav {

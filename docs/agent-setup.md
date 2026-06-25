@@ -19,7 +19,7 @@ The plugin payload lives in `plugins/nanites`:
 | -------------------------------------------- | ---------------------------------------------------------------------- |
 | `plugins/nanites/skills/nanites`             | Canonical Nanites skill and references.                                |
 | `plugins/nanites/commands`                   | Command prompts for common Nanite tasks.                               |
-| `plugins/nanites/assets/examples`            | Example Nanite manifests and fixtures.                                 |
+| `plugins/nanites/assets/examples`            | Example Nanite manifests.                                              |
 | `plugins/nanites/.mcp.example.json`          | Example MCP config for a deployment and optional operator MCP servers. |
 | `plugins/nanites/.codex-plugin/plugin.json`  | Codex plugin manifest.                                                 |
 | `plugins/nanites/.claude-plugin/plugin.json` | Claude Code plugin manifest.                                           |

@@ -14,7 +14,6 @@ export const observabilitySearchSchema = z.object({
   range: z.enum(OBSERVABILITY_SEARCH_RANGES).default("7d"),
   tab: z.enum(OBSERVABILITY_SEARCH_TABS).default("overview"),
   environment: z.string().optional(),
-  installationId: z.coerce.number().int().positive().optional(),
   repository: z.string().optional(),
   naniteId: z.string().optional(),
   creator: z.string().optional(),

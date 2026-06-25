@@ -1,34 +1,18 @@
+import { GITHUB_OAUTH_LOGIN_PATH, AUTH_RETURN_TO_PARAM } from "#/shared/constants.ts";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { GithubMotionMark } from "#/frontend/ui/components/GithubMotionMark.tsx";
 import { NaniteScene } from "#/frontend/ui/components/NaniteScene.tsx";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { loadSession } from "#/frontend/lib/auth.ts";
 import { httpClient } from "#/frontend/lib/http-client.ts";
+import { isLocalSetupOrigin } from "#/frontend/lib/setup-origin.ts";
 import { parseResponse } from "hono/client";
 import { WrenchIcon } from "@phosphor-icons/react";
 import {
-  AUTH_RETURN_TO_PARAM,
-  GITHUB_OAUTH_LOGIN_PATH,
   normalizeAuthenticatedReturnToPath,
   readRequestedReturnTo,
   resolveAuthReturnTo,
-} from "#/auth.ts";
-
-function isLocalSetupOrigin(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const hostname = window.location.hostname.toLowerCase();
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0" ||
-    hostname === "::1" ||
-    hostname === "[::1]" ||
-    hostname.endsWith(".localhost")
-  );
-}
+} from "#/shared/utils/auth.ts";
 
 export const Route = createFileRoute("/")({
   loader: async ({ context, location }) => {

@@ -17,7 +17,6 @@ import {
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 
-const GITHUB_API_ORIGIN = "https://api.github.com";
 const TEST_INSTALLATION_ID = 42;
 const TEST_REPOSITORY_ID = 987;
 const TEST_REPOSITORY = "WebMCP-org/nanites";
@@ -36,37 +35,6 @@ beforeEach(async () => {
   await saveTestGitHubApp(env.DB);
 });
 
-function isGitHubApiRequest(request: Request, pathname: string): boolean {
-  const url = new URL(request.url);
-  return url.origin === GITHUB_API_ORIGIN && url.pathname === pathname;
-}
-
-function isGitHubListRequest(request: Request, pathname: string): boolean {
-  if (!isGitHubApiRequest(request, pathname)) {
-    return false;
-  }
-
-  const url = new URL(request.url);
-  return (
-    request.method === "GET" &&
-    url.searchParams.get("per_page") === "100" &&
-    (url.searchParams.get("page") === null || url.searchParams.get("page") === "1")
-  );
-}
-
-function buildVisibleInstallation() {
-  return {
-    id: TEST_INSTALLATION_ID,
-    account: {
-      id: 456,
-      login: "WebMCP-org",
-      type: "Organization",
-      avatar_url: null,
-    },
-    suspended_at: null,
-  };
-}
-
 function buildVisibleRepository(input: { id?: number; fullName?: string } = {}) {
   const fullName = input.fullName ?? TEST_REPOSITORY;
   const [, name = "nanites"] = fullName.split("/", 2);
@@ -84,23 +52,9 @@ function buildVisibleRepository(input: { id?: number; fullName?: string } = {}) 
   };
 }
 
-function buildVisibleRepositories(count: number) {
-  return [
-    buildVisibleRepository(),
-    ...Array.from({ length: count - 1 }, (_, index) =>
-      buildVisibleRepository({
-        id: TEST_REPOSITORY_ID + index + 1,
-        fullName: `WebMCP-org/extra-${index + 1}`,
-      }),
-    ),
-  ];
-}
-
 async function buildCookieHeader(request: Request): Promise<string> {
   return buildTestBrowserAuthCookieHeader(env, request, {
     githubViewer: { id: 1, login: "alice" },
-    activeGithubInstallationId: TEST_INSTALLATION_ID,
-    sessionInstallationSnapshot: null,
   });
 }
 
@@ -126,6 +80,33 @@ async function seedObservabilityRows(): Promise<void> {
       githubInstallationId: TEST_INSTALLATION_ID,
       status: "active",
     })
+    .run();
+  await env.DB.prepare(
+    `INSERT INTO account_repositories (
+      id,
+      account_id,
+      github_app_id,
+      github_installation_id,
+      github_repository_id,
+      github_repository,
+      first_seen_at,
+      last_seen_at,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      "repository-1",
+      TEST_ACCOUNT_ID,
+      TEST_GITHUB_APP_ID,
+      TEST_INSTALLATION_ID,
+      TEST_REPOSITORY_ID,
+      JSON.stringify(buildVisibleRepository()),
+      now.getTime(),
+      now.getTime(),
+      now.getTime(),
+      now.getTime(),
+    )
     .run();
   await db
     .insert(naniteCatalog)
@@ -231,76 +212,41 @@ async function seedObservabilityRows(): Promise<void> {
 
 test("observability dashboard composes the page after resolving GitHub scope once", async () => {
   await seedObservabilityRows();
-  const originalFetch = globalThis.fetch;
-  const visibleInstallationRequests: string[] = [];
-  const repositoryRequests: string[] = [];
-
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = input instanceof Request ? input : new Request(input, init);
-
-    if (isGitHubListRequest(request, "/user/installations")) {
-      visibleInstallationRequests.push(request.url);
-      return Response.json({
-        total_count: 1,
-        installations: [buildVisibleInstallation()],
-      });
-    }
-
-    if (isGitHubListRequest(request, `/user/installations/${TEST_INSTALLATION_ID}/repositories`)) {
-      repositoryRequests.push(request.url);
-      return Response.json({
-        total_count: 70,
-        repositories: buildVisibleRepositories(70),
-      });
-    }
-
-    return originalFetch(input, init);
+  const request = new Request("http://localhost:5173/api/observability/dashboard?range=7d");
+  const response = await nanitesHttpApp.request(
+    request,
+    {
+      headers: {
+        Cookie: await buildCookieHeader(request),
+      },
+    },
+    env,
+  );
+  const responseBody = await response.json();
+  const body = responseBody as {
+    overview: { kpis: readonly { key: string; value: number }[] };
+    nanites: readonly { naniteId: string }[];
+    runs: readonly { runKey: string }[];
+    audit: readonly { eventName: string }[];
+    filterOptions: {
+      repositories: readonly string[];
+      nanites: readonly string[];
+      creators: readonly string[];
+      outcomes: readonly string[];
+      surfaces: readonly string[];
+    };
   };
 
-  try {
-    const request = new Request(
-      `http://localhost:5173/api/observability/dashboard?range=7d&installationId=${TEST_INSTALLATION_ID}`,
-    );
-    const response = await nanitesHttpApp.request(
-      request,
-      {
-        headers: {
-          Cookie: await buildCookieHeader(request),
-        },
-      },
-      env,
-    );
-    const responseBody = await response.json();
-    const body = responseBody as {
-      overview: { kpis: readonly { key: string; value: number }[] };
-      nanites: readonly { naniteId: string }[];
-      runs: readonly { runKey: string }[];
-      audit: readonly { eventName: string }[];
-      filterOptions: {
-        repositories: readonly string[];
-        nanites: readonly string[];
-        creators: readonly string[];
-        outcomes: readonly string[];
-        surfaces: readonly string[];
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.nanites).toEqual([expect.objectContaining({ naniteId: "docs-syncer" })]);
-    expect(body.runs).toEqual([expect.objectContaining({ runKey: "run-1" })]);
-    expect(body.audit).toEqual([expect.objectContaining({ eventName: "nanite.run.completed" })]);
-    expect(body.filterOptions.repositories).toHaveLength(70);
-    expect(body.filterOptions.repositories).toContain(TEST_REPOSITORY);
-    expect(body.filterOptions).toMatchObject({
-      nanites: ["docs-syncer"],
-      creators: ["alice"],
-      outcomes: ["success"],
-      surfaces: ["browser"],
-    });
-    expect(body.overview.kpis.find((kpi) => kpi.key === "runs")?.value).toBe(1);
-    expect(visibleInstallationRequests).toHaveLength(1);
-    expect(repositoryRequests).toHaveLength(1);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  expect(response.status).toBe(200);
+  expect(body.nanites).toEqual([expect.objectContaining({ naniteId: "docs-syncer" })]);
+  expect(body.runs).toEqual([expect.objectContaining({ runKey: "run-1" })]);
+  expect(body.audit).toEqual([expect.objectContaining({ eventName: "nanite.run.completed" })]);
+  expect(body.filterOptions.repositories).toEqual([TEST_REPOSITORY]);
+  expect(body.filterOptions).toMatchObject({
+    nanites: ["docs-syncer"],
+    creators: ["alice"],
+    outcomes: ["success"],
+    surfaces: ["browser"],
+  });
+  expect(body.overview.kpis.find((kpi) => kpi.key === "runs")?.value).toBe(1);
 });

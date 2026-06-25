@@ -1,13 +1,12 @@
+import { MCP_ROUTE, MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/shared/constants.ts";
 import { createMcpHandler } from "agents/mcp";
 import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
-import { sigveloMcpVisibleRepositorySchema } from "#/backend/mcp/auth-props.ts";
 import { executeSigveloNaniteTool } from "#/backend/nanites/tools/define-tool.ts";
 import { naniteTools } from "#/backend/nanites/tools/index.ts";
-import { MCP_ROUTE, MCP_SCOPES, SUPPORTED_MCP_SCOPES } from "#/mcp.ts";
 
 type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
 type McpExecutionContext = ExecutionContext & {
@@ -25,7 +24,6 @@ export const sigveloMcpAuthPropsSchema = z.object({
   githubInstallationId: z.number().int().positive(),
   clientId: z.string().min(1),
   scopes: z.array(z.enum(SUPPORTED_MCP_SCOPES)),
-  visibleRepositories: z.array(sigveloMcpVisibleRepositorySchema),
   authorizedAt: z.string().datetime({ offset: true }),
 });
 
@@ -141,7 +139,7 @@ export const nanitesMcpApiHandler = {
     // false rather than promise notifications that can never arrive.
     const server = new McpServer(
       { name: "sigvelo-nanites", version: "0.1.0" },
-      { capabilities: { tools: { listChanged: false } } },
+      { capabilities: { tools: {} } },
     );
     registerSigveloNaniteTools(server, {
       env,

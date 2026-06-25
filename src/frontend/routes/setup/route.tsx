@@ -1,4 +1,10 @@
 import "./setup.css";
+import {
+  GITHUB_OAUTH_LOGIN_PATH,
+  AUTH_RETURN_TO_PARAM,
+  NANITES_SETUP_AGENT_NAME,
+  NANITES_SETUP_AGENT_INSTANCE_NAME,
+} from "#/shared/constants.ts";
 import { useState, type ReactNode } from "react";
 import { useAgent } from "agents/react";
 import { createFileRoute, redirect } from "@tanstack/react-router";
@@ -15,8 +21,7 @@ import { Button } from "#/frontend/ui/components/Button.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
 import { AgentConnectionPanel } from "#/frontend/ui/components/AgentConnection.tsx";
 import { httpClient } from "#/frontend/lib/http-client.ts";
-import { NANITES_SETUP_AGENT_INSTANCE_NAME, NANITES_SETUP_AGENT_NAME } from "#/nanites.ts";
-import { AUTH_RETURN_TO_PARAM, GITHUB_OAUTH_LOGIN_PATH } from "#/auth.ts";
+import { isLocalSetupOrigin } from "#/frontend/lib/setup-origin.ts";
 import type {
   GitHubAppManifest,
   NanitesSetupAgent,
@@ -234,19 +239,10 @@ function buildGitHubLoginUrl(returnTo = "/nanites"): string {
   return loginUrl.toString();
 }
 
-function isLocalSetupOrigin(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const hostname = window.location.hostname.toLowerCase();
+function setupClaimRecoveryRequested(): boolean {
   return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0" ||
-    hostname === "::1" ||
-    hostname === "[::1]" ||
-    hostname.endsWith(".localhost")
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("setup_error") === "setup_claim_required"
   );
 }
 
@@ -267,14 +263,13 @@ async function postSetupAction<T>(path: string, body?: unknown): Promise<T> {
 }
 
 function SetupPage() {
+  const claimRecoveryRequested = setupClaimRecoveryRequested();
   const setupAgent = useAgent<NanitesSetupAgent, NanitesSetupState>({
     agent: NANITES_SETUP_AGENT_NAME,
     name: NANITES_SETUP_AGENT_INSTANCE_NAME,
   });
   const status = setupAgent.state;
   const [viewOverride, setViewOverride] = useState<number | null>(null);
-  const [ownerType, setOwnerType] = useState<"user" | "organization">("user");
-  const [ownerLogin, setOwnerLogin] = useState("");
   const [cloudflareActionError, setCloudflareActionError] = useState<string | null>(null);
   const [cloudflareActionPending, setCloudflareActionPending] = useState(false);
   const [githubActionError, setGithubActionError] = useState<string | null>(null);
@@ -285,7 +280,7 @@ function SetupPage() {
   if (!status) {
     return (
       <SetupFrame progressIndex={0} viewIndex={0} indicatorState="working">
-        <h2 className="setup-step__title">Connect a Cloudflare account to this Worker project</h2>
+        <h2 className="setup-step__title">Loading setup state</h2>
         <StepStatus runningLabel="Connecting to Nanites setup…" errors={[]} />
       </SetupFrame>
     );
@@ -295,7 +290,6 @@ function SetupPage() {
   const viewedStepIndex =
     viewOverride === null ? progressIndex : Math.min(viewOverride, progressIndex);
   const viewingCompletedStep = viewedStepIndex < progressIndex;
-  const trimmedOwnerLogin = ownerLogin.trim();
   const cloudflareVerified = status.cloudflare.status === "verified";
   // "authenticating" waits on the user finishing Cloudflare's consent screen —
   // unbounded, and the consent tab can be lost — so the connect button stays
@@ -308,9 +302,13 @@ function SetupPage() {
     status.githubApp.status === "writing-secrets" || status.githubApp.status === "propagating";
   const githubAppCanCreate =
     status.githubApp.status === "ready" || status.githubApp.status === "stalled";
-  const githubOwnerReady = ownerType === "user" || trimmedOwnerLogin.length > 0;
   const repositoriesComplete = status.repositories.status === "complete";
   const setupComplete = status.setupComplete;
+  const setupClaimRecoveryMessage = claimRecoveryRequested
+    ? repositoriesComplete
+      ? "Your repository selection is saved. Continue to launch Nanites."
+      : "This browser lost its setup claim. Reconnect Cloudflare, then pick repositories again."
+    : null;
 
   function showSetupStep(value: number): void {
     setViewOverride(value >= progressIndex ? null : Math.max(value, 0));
@@ -338,10 +336,7 @@ function SetupPage() {
       action: string;
       manifest: GitHubAppManifest;
       state: string;
-    }>("/api/setup/github-app", {
-      ownerType,
-      ownerLogin: ownerType === "organization" ? trimmedOwnerLogin : null,
-    });
+    }>("/api/setup/github-app");
     postGitHubManifest(result);
   }
 
@@ -379,6 +374,7 @@ function SetupPage() {
       .map((item) => item.detail);
     stepErrors = [
       ...(cloudflareActionError ? [cloudflareActionError] : []),
+      ...(setupClaimRecoveryMessage ? [setupClaimRecoveryMessage] : []),
       ...(status.cloudflare.error && !blockedDetails.includes(status.cloudflare.error)
         ? [status.cloudflare.error]
         : []),
@@ -429,6 +425,7 @@ function SetupPage() {
     stepWorking = githubAppFinishing;
     stepErrors = [
       ...(githubActionError ? [githubActionError] : []),
+      ...(setupClaimRecoveryMessage ? [setupClaimRecoveryMessage] : []),
       ...(status.githubApp.error ? [status.githubApp.error] : []),
       ...(status.githubApp.orphanedAppUrl
         ? [
@@ -445,7 +442,7 @@ function SetupPage() {
       primaryAction = (
         <Button
           color="primary"
-          disabled={!githubAppCanCreate || !githubOwnerReady}
+          disabled={!githubAppCanCreate}
           onClick={() => {
             void createGitHubApp().catch(() => {
               setGithubActionError(
@@ -470,67 +467,6 @@ function SetupPage() {
           </a>{" "}
           in GitHub App settings under Display information.
         </p>
-        {githubAppFinishing ? null : (
-          <div className="setup-step__actions">
-            <fieldset className="setup-owner-toggle">
-              <legend className="visually-hidden">GitHub App owner</legend>
-              <label htmlFor="setup-owner-user">
-                <input
-                  id="setup-owner-user"
-                  checked={ownerType === "user"}
-                  aria-labelledby="setup-owner-user-label"
-                  name="ownerType"
-                  type="radio"
-                  value="user"
-                  onChange={() => {
-                    setOwnerType("user");
-                  }}
-                />
-                <span id="setup-owner-user-label">Personal</span>
-              </label>
-              <label htmlFor="setup-owner-organization">
-                <input
-                  id="setup-owner-organization"
-                  checked={ownerType === "organization"}
-                  aria-labelledby="setup-owner-organization-label"
-                  name="ownerType"
-                  type="radio"
-                  value="organization"
-                  onChange={() => {
-                    setOwnerType("organization");
-                  }}
-                />
-                <span id="setup-owner-organization-label">Organization</span>
-              </label>
-            </fieldset>
-            {ownerType === "organization" ? (
-              <>
-                <label
-                  id="setup-owner-login-label"
-                  className="visually-hidden"
-                  htmlFor="setup-owner-login"
-                >
-                  GitHub organization
-                </label>
-                <input
-                  id="setup-owner-login"
-                  className="setup-owner-input"
-                  aria-labelledby="setup-owner-login-label"
-                  autoComplete="organization"
-                  enterKeyHint="next"
-                  name="ownerLogin"
-                  value={ownerLogin}
-                  placeholder="organization"
-                  required
-                  type="text"
-                  onChange={(event) => {
-                    setOwnerLogin(event.target.value);
-                  }}
-                />
-              </>
-            ) : null}
-          </div>
-        )}
         <StepStatus
           runningLabel={githubAppFinishing ? "Finishing setup…" : undefined}
           errors={stepErrors}
@@ -538,7 +474,10 @@ function SetupPage() {
       </>
     );
   } else if (viewedStepIndex === 2) {
-    stepErrors = status.repositories.error ? [status.repositories.error] : [];
+    stepErrors = [
+      ...(setupClaimRecoveryMessage ? [setupClaimRecoveryMessage] : []),
+      ...(status.repositories.error ? [status.repositories.error] : []),
+    ];
     primaryAction = (
       <Button
         color="primary"
@@ -558,7 +497,7 @@ function SetupPage() {
         <h2 className="setup-step__title">Pick repositories for Nanites to maintain</h2>
         <p className="setup-step__note">
           Install {status.githubApp.slug ?? "the deployment GitHub App"} wherever Nanites can
-          maintain code. GitHub will only show installations visible to the signed-in user.
+          maintain code. This deployment will use that single GitHub installation.
         </p>
         <StepStatus errors={stepErrors} />
       </>
@@ -608,6 +547,7 @@ function SetupPage() {
       </>
     );
   } else {
+    stepErrors = [];
     primaryAction = (
       <Button
         color="primary"
@@ -627,7 +567,7 @@ function SetupPage() {
           Setup is complete. Install the agent-facing pieces, then start Nanites.
         </p>
         <AgentConnectionPanel className="setup-agent-connect" headingLevel={3} section={false} />
-        <StepStatus errors={[]} />
+        <StepStatus errors={stepErrors} />
       </>
     );
   }

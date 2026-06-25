@@ -32,7 +32,7 @@ The current repo already points toward the right testing doctrine:
 - browser tests run in Vitest Browser Mode with Playwright
 - backend tests run in the Workers runtime with `@cloudflare/vitest-pool-workers`
 - browser tests use MSW only at the HTTP boundary
-- shared route constants live in app code under owner modules such as `src/mcp.ts` and `src/github.ts`
+- shared route constants live in app code under owner modules such as `src/shared/constants.ts`
 - synthetic GitHub payloads and GitHub API fixtures stay provider-shaped before tests inject them
 
 This is the correct direction for this app.
@@ -176,7 +176,8 @@ Disallowed:
 Current implementation in this repo:
 
 - `tests/backend/vitest.config.ts`
-- `tests/backend/chat-sdk-ingress.test.ts`
+- `tests/backend/browser-auth-routes.test.ts`
+- `tests/backend/nanite-trigger-runtime.test.ts`
 - `tests/helpers/github-api-mock.ts`
 
 The standard for this lane is: send a real request in, then prove a real downstream outcome.
@@ -219,7 +220,7 @@ The repo currently has the following durable foundation in place:
 - fail-fast MSW browser worker lifecycle management in Browser Mode setup
 - a real route-tree browser harness over the app dashboard
 - app-owned route constants
-- Octokit-shaped GitHub webhook fixture builders
+- raw GitHub webhook test events validated at the manager boundary
 - Octokit-shaped mocked GitHub REST responses
 - a signed backend webhook test that warms real manager state
 
@@ -229,8 +230,8 @@ Representative files:
 - `tests/browser/vitest.config.ts`
 - `tests/backend/vitest.config.ts`
 - `tests/helpers/browser-msw-setup.ts`
-- `tests/backend/chat-sdk-ingress.test.ts`
-- `src/github.ts`
+- `tests/backend/nanite-trigger-runtime.test.ts`
+- `tests/e2e/github-webhook.e2e.test.ts`
 
 ## What still needs to happen
 

@@ -34,32 +34,24 @@ The first real Nanites e2e test should stay narrow and vertical:
 1. Register one fixture Nanite through the real manager/control-plane boundary.
 2. Deliver one real signed GitHub webhook event through the real route.
 3. Observe exactly one visible run.
-4. Let the fixture Nanite reach one terminal state through the real lifecycle tool boundary.
+4. Let the fixture Nanite reach one terminal state through the real Workflow output boundary.
 5. Assert one durable product artifact: a run summary, check output, or live chat pointer.
 
 ## Research References
 
-The current reference shape is `WebMCP-org/WebMCP`:
+Use system-test references that start real services, drive real browser/app paths, and assert
+observable product behavior. Nanites should be stricter about GitHub and Cloudflare: do not
+substitute those surfaces when they are the behavior under test.
 
-- `/Users/alexmnahas/personalRepos/WebMCP-org/WebMCP/docs/ops/testing-and-release.md`
-- `/Users/alexmnahas/personalRepos/WebMCP-org/WebMCP/playwright.system.config.ts`
-- `/Users/alexmnahas/personalRepos/WebMCP-org/WebMCP/scripts/run-system-e2e-stack.mjs`
-- `/Users/alexmnahas/personalRepos/WebMCP-org/WebMCP/tests/system/mcp-b-system-real-browser.spec.ts`
-- `/Users/alexmnahas/personalRepos/WebMCP-org/WebMCP/tests/playwright/extension-context.ts`
+Cloudflare Agents SDK e2e references are useful for real Worker, Durable Object, WebSocket/RPC,
+dynamic Worker, and process-restart patterns. Do not copy model/provider mocks into Nanites e2e
+unless the explicit LLM shim is the behavior boundary being controlled.
 
-That repo's system lane starts real services, drives a real browser/extension/app path, and asserts
-observable product behavior. Nanites should copy that boundary discipline, but should be stricter
-about not substituting GitHub or Cloudflare surfaces when those surfaces are the behavior under test.
+Relevant local mirrors:
 
-The Cloudflare Agents SDK e2e references are useful for runtime boundaries:
-
-- `/opensrc/repos/github.com/cloudflare/agents/packages/think/src/e2e-tests`
-- `/opensrc/repos/github.com/cloudflare/agents/packages/agents/src/e2e-tests`
-- `/opensrc/repos/github.com/cloudflare/agents/packages/codemode/e2e`
-
-Use them for real Worker, Durable Object, WebSocket/RPC, dynamic Worker, and process-restart
-patterns. Do not copy their model/provider mocks into Nanites e2e unless the explicit LLM shim is
-the behavior boundary being controlled.
+- `opensrc/repos/github.com/cloudflare/agents/packages/think/src/e2e-tests`
+- `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/e2e-tests`
+- `opensrc/repos/github.com/cloudflare/agents/packages/codemode/e2e`
 
 ## Commands
 
