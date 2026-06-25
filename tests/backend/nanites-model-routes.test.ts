@@ -76,3 +76,17 @@ test("GET /api/nanites/models paginates and returns the model catalog", async ()
     { page: 2, per_page: 100, task: "Text Generation" },
   ]);
 });
+
+test("GET /api/nanites/models omits the third-party models URL without an account id", async () => {
+  const calls: { page?: number; per_page?: number; task?: string }[] = [];
+  const testEnv = envWithModelPages({ 1: [] }, calls);
+  Reflect.deleteProperty(testEnv, "CLOUDFLARE_ACCOUNT_ID");
+
+  const response = await nanitesHttpApp.fetch(
+    new Request("https://nanites.test/api/nanites/models"),
+    testEnv,
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.not.toHaveProperty("thirdPartyModelsUrl");
+});

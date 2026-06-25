@@ -38,6 +38,7 @@ test-results
 .vite/
 .vite-hooks/_/
 .wrangler/
+.wrangler.d1-migrations.jsonc
 /.mcp.json
 /plugins/*/.mcp.json
 !plugins/*/.mcp.example.json

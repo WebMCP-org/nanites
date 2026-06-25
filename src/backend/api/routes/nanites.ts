@@ -18,7 +18,11 @@ const managerNameInput = zValidator(
 const MODEL_CATALOG_PAGE_SIZE = 100;
 const MODEL_CATALOG_MAX_PAGES = 20;
 
-function buildThirdPartyModelsUrl(accountId: string): string {
+function buildThirdPartyModelsUrl(accountId: string | undefined): string | undefined {
+  if (!accountId) {
+    return undefined;
+  }
+
   return `https://dash.cloudflare.com/${encodeURIComponent(accountId)}/ai/models?providers=third-party`;
 }
 

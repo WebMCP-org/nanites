@@ -139,8 +139,8 @@ Confirmed by first-party docs and live probes:
   docs define the build/deploy command model and say deploy defaults to `npx wrangler deploy`;
   deploy-button docs say custom `build` and `deploy` package scripts are detected and can run D1
   migrations. Nanites' root `deploy` script builds, deploys once with Wrangler auto-provisioning,
-  then runs `drizzle-kit migrate` through Drizzle's D1 HTTP driver. This avoids a Nanites-owned D1
-  id resolver and keeps the public Wrangler template free of generated account ids.
+  then applies Drizzle-generated SQL through `wrangler d1 migrations apply`. A tiny helper resolves
+  the auto-provisioned D1 id when the public Wrangler template has not been patched with one.
 - The first deploy can avoid runtime secrets. Cloudflare's
   [Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/) docs say
   `secrets.required` makes deploy fail when required secrets are missing; deploy-button docs say
@@ -941,7 +941,7 @@ cases unblocked.
 - Add `NanitesSetupAgent` as Cloudflare MCP OAuth setup owner. In the zero-copy path, let the
   Agents SDK MCP client handle Cloudflare API MCP DCR, PKCE, callback state, and token storage.
 - `package.json` deploy scripts own the public deploy directly. `deploy` builds, deploys once with
-  Wrangler auto-provisioning, then runs Drizzle's D1 HTTP migrator:
+  Wrangler auto-provisioning, then applies Drizzle-generated SQL with Wrangler:
 
 ```json
 {
@@ -952,14 +952,15 @@ cases unblocked.
 }
 ```
 
-- The remote migration script is Drizzle:
+- The remote migration script is Wrangler:
 
   ```bash
-  vp exec drizzle-kit migrate --config src/backend/db/drizzle.config.ts
+  node scripts/apply-d1-migrations.mjs
   ```
 
-  That config uses Drizzle's `d1-http` driver with `CLOUDFLARE_ACCOUNT_ID`,
-  `CLOUDFLARE_DATABASE_ID`, and `CLOUDFLARE_API_TOKEN`.
+  The helper writes a temporary root-level Wrangler config with `database_id` filled in, then runs
+  `wrangler d1 migrations apply DB --remote`. It uses `CLOUDFLARE_DATABASE_ID` when present, or
+  resolves `nanites-db` with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`.
 
 - The package scripts use `vp exec wrangler` so Workers Builds only needs the normal dependency
   install step, not a globally installed Vite+ CLI.

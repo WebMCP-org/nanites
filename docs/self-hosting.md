@@ -121,10 +121,10 @@ vp run deploy
 ```
 
 `vp run deploy` builds, deploys once with Wrangler auto-provisioning enabled, then applies the
-Drizzle migrations with `drizzle-kit migrate --config src/backend/db/drizzle.config.ts`. The remote
-migration step uses Drizzle's first-party D1 HTTP driver, so the build environment needs
-`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, and `CLOUDFLARE_API_TOKEN` with D1 edit access.
-These are build-time migration credentials, not Worker runtime vars.
+generated SQL migrations with `wrangler d1 migrations apply DB --remote`. If the public template has
+not been patched with a D1 `database_id`, the migration helper resolves the auto-provisioned
+`nanites-db` from Cloudflare using `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. You can also
+set `CLOUDFLARE_DATABASE_ID` explicitly.
 
 ### Workers Builds Git integration
 
