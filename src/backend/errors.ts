@@ -63,18 +63,6 @@ export const APP_ERRORS = {
     status: 401,
     message: "Authentication required.",
   },
-  activeInstallationRequired: {
-    code: "active_installation_required",
-    status: 403,
-    message: "Active GitHub installation required.",
-    publicDetailKeys: ["githubInstallationId"],
-  },
-  installationAccessRevoked: {
-    code: "installation_access_revoked",
-    status: 403,
-    message: "GitHub installation access was revoked.",
-    publicDetailKeys: ["githubInstallationId"],
-  },
   githubOAuthCallbackFailed: {
     code: "github_oauth_callback_failed",
     status: 400,
@@ -107,6 +95,17 @@ export const APP_ERRORS = {
     status: 500,
     message: "This deployment has more than one active GitHub App configured.",
     publicDetailKeys: ["githubAppIds"],
+  },
+  deploymentGitHubInstallationRequired: {
+    code: "deployment_github_installation_required",
+    status: 403,
+    message: "Nanites setup must connect one GitHub App installation before this action can run.",
+  },
+  deploymentGitHubInstallationConflict: {
+    code: "deployment_github_installation_conflict",
+    status: 500,
+    message: "This deployment has more than one active GitHub App installation configured.",
+    publicDetailKeys: ["githubInstallationIds"],
   },
   githubAppNotFound: {
     code: "github_app_not_found",
@@ -163,7 +162,7 @@ export const APP_ERRORS = {
     code: "setup_installation_verification_failed",
     status: 403,
     message: "GitHub did not confirm access to the installed Nanites GitHub App.",
-    publicDetailKeys: ["githubInstallationId", "reason", "visibleInstallationIds", "githubError"],
+    publicDetailKeys: ["githubInstallationId", "reason", "githubError"],
   },
   upstreamStarVerificationFailed: {
     code: "upstream_star_verification_failed",
@@ -176,46 +175,21 @@ export const APP_ERRORS = {
     status: 500,
     message: "GitHub Nanite runtime token requires at least one repository.",
   },
-  githubWebhookChatIngressFailed: {
-    code: "github_webhook_chat_ingress_failed",
+  githubWebhookMessengerFailed: {
+    code: "github_webhook_messenger_failed",
     status: 500,
-    message: "GitHub chat ingress failed.",
+    message: "GitHub messenger delivery failed.",
   },
   githubWebhookInstallationRequired: {
     code: "github_webhook_installation_required",
     status: 400,
     message: "GitHub webhook installation id required.",
   },
-  chatIngressNotFound: {
-    code: "chat_ingress_not_found",
-    status: 404,
-    message: "SigVelo chat ingress route not found.",
-  },
-  chatIngressUnavailable: {
-    code: "chat_ingress_unavailable",
-    status: 500,
-    message: "SigVelo chat ingress is not configured.",
-  },
-  chatIngressInvalidGitHubMessage: {
-    code: "chat_ingress_invalid_github_message",
-    status: 400,
-    message: "Chat SDK callback did not include a GitHub raw message.",
-  },
-  chatIngressInstallationRequired: {
-    code: "chat_ingress_installation_required",
-    status: 400,
-    message: "GitHub thread is missing a valid installation id.",
-  },
   agentAuthorizationForbidden: {
     code: "agent_authorization_forbidden",
     status: 403,
     message: "Agent authorization forbidden.",
     publicDetailKeys: ["reason"],
-  },
-  naniteSubAgentNotFound: {
-    code: "nanite_sub_agent_not_found",
-    status: 404,
-    message: "Nanite sub-agent not found.",
   },
   naniteNotFound: {
     code: "nanite_not_found",
@@ -251,6 +225,12 @@ export const APP_ERRORS = {
     message: "Generated trigger validation failed.",
     publicDetailKeys: ["reason"],
   },
+  invalidNaniteTriggerTestEvent: {
+    code: "invalid_nanite_trigger_test_event",
+    status: 400,
+    message: "Invalid Nanite trigger test event.",
+    publicDetailKeys: ["reason"],
+  },
   naniteRuntimeActivityMismatch: {
     code: "nanite_runtime_activity_mismatch",
     status: 400,
@@ -267,12 +247,6 @@ export const APP_ERRORS = {
     code: "nanite_invalid_timestamp",
     status: 500,
     message: "Nanite timestamp must be a valid ISO date.",
-    publicDetailKeys: ["fieldName"],
-  },
-  naniteInvalidNonNegativeNumber: {
-    code: "nanite_invalid_non_negative_number",
-    status: 500,
-    message: "Nanite numeric value must be non-negative.",
     publicDetailKeys: ["fieldName"],
   },
   naniteAgentManagerRequired: {
@@ -296,11 +270,6 @@ export const APP_ERRORS = {
     code: "nanite_agent_github_mcp_installation_required",
     status: 403,
     message: "GitHub MCP capability requires an installation-scoped Nanite manager.",
-  },
-  naniteAgentActiveRunRequired: {
-    code: "nanite_agent_active_run_required",
-    status: 500,
-    message: "SigveloNaniteAgent has no active run.",
   },
   nanitesModelSelectionInvalid: {
     code: "nanites_model_selection_invalid",
@@ -341,20 +310,10 @@ export const APP_ERRORS = {
     status: 500,
     message: "Tool output artifacts require an active Nanite run.",
   },
-  managerConversationInstallationRequired: {
-    code: "manager_conversation_installation_required",
-    status: 400,
-    message: "Manager conversation requires a valid GitHub installation id.",
-  },
   managerConversationInstallationMismatch: {
     code: "manager_conversation_installation_mismatch",
     status: 403,
     message: "Manager conversation installation does not match the selected manager.",
-  },
-  managerConversationAccountRequired: {
-    code: "manager_conversation_account_required",
-    status: 400,
-    message: "Manager conversation requires a selected GitHub account.",
   },
   naniteManagerNotFound: {
     code: "nanite_manager_not_found",
@@ -388,11 +347,6 @@ export const APP_ERRORS = {
     code: "invalid_mcp_authorization_consent",
     status: 400,
     message: "Invalid or expired MCP authorization consent.",
-  },
-  mcpSelectedInstallationUnavailable: {
-    code: "mcp_selected_installation_unavailable",
-    status: 403,
-    message: "Selected GitHub installation is no longer available.",
   },
   unsupportedMcpScope: {
     code: "unsupported_mcp_scope",
@@ -794,8 +748,7 @@ function handleMcpAuthorizeError(error: AppError, context: ErrorHandlerContext):
   if (
     error.kind !== "invalidMcpAuthorizationRequest" &&
     error.kind !== "mcpAuthorizationInstallationRequired" &&
-    error.kind !== "invalidMcpAuthorizationConsent" &&
-    error.kind !== "mcpSelectedInstallationUnavailable"
+    error.kind !== "invalidMcpAuthorizationConsent"
   ) {
     return null;
   }

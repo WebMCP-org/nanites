@@ -3,7 +3,7 @@ import {
   type NanitesSetupState,
 } from "#/backend/agents/NanitesSetupAgent.ts";
 
-export const completedSetupLaunchState = {
+export const repositoryInstalledSetupState = {
   setupComplete: true,
   currentStep: "launch",
   githubApp: {
@@ -13,6 +13,7 @@ export const completedSetupLaunchState = {
   repositories: {
     status: "complete",
     githubInstallationId: 42,
+    repositoryFullName: "WebMCP-org/nanites",
   },
 } as const;
 

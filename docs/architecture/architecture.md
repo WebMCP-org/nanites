@@ -233,13 +233,13 @@ Meanings:
 The long-term user story should feel like:
 
 1. User signs in with GitHub.
-2. User selects an accessible installation.
-3. User sees the Nanites configured for that installation.
+2. The deployment has one connected GitHub App installation.
+3. User sees the Nanites configured for that deployment installation.
 4. User can filter or group them by repo, package, docs area, or responsibility.
 5. User sees recent work, status, and schedule/trigger info.
 6. User can understand what each Nanite does and how it is triggered.
 
-That means the main runtime surface is installation-centric, not PR-centric.
+That means the main runtime surface is deployment-installation-centric, not PR-centric.
 
 PRs are one trigger among several.
 
@@ -247,11 +247,12 @@ PRs are one trigger among several.
 
 ### Auth boundary
 
-Use `githubInstallationId` as the authorization boundary.
+Use the deployment `githubInstallationId` as the authorization boundary.
 
 ### Product surface boundary
 
-Use installation as the primary runtime surface. Repos are important filters and scope targets, not required manager layers.
+Use the deployment installation as the primary runtime surface. Repos are important filters and
+scope targets, not required manager layers.
 
 ### Behavior boundary
 
@@ -447,7 +448,7 @@ It means the system should model change-proposal continuity explicitly once Nani
 Current implementation direction:
 
 - Nanite definitions are authored in code
-- repository scope is derived from the repositories visible to the active installation
+- repository scope is derived from the repositories visible to the deployment installation
 - do not add D1-backed Nanite configuration until users can actually author or edit it
 
 Do not carry a compatibility layer for repo-file config while the product is still code-authored.

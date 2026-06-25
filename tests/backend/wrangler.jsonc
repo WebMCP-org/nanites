@@ -55,15 +55,11 @@
   ],
   "durable_objects": {
     "bindings": [
-      {
-        "class_name": "SigveloChatIngress",
-        "name": "SigveloChatIngress",
-      },
       // Test-harness-only binding: production only needs to export this class,
       // but vitest-pool-workers needs it here for sub-agent resolution.
       {
-        "class_name": "ChatSdkStateAgent",
-        "name": "ChatSdkStateAgent",
+        "class_name": "ThinkMessengerStateAgent",
+        "name": "ThinkMessengerStateAgent",
       },
       {
         "class_name": "SigveloManagerConversationAgent",
@@ -90,7 +86,7 @@
   "migrations": [
     {
       "new_sqlite_classes": [
-        "SigveloChatIngress",
+        "ThinkMessengerStateAgent",
         "SigveloManagerConversationAgent",
         "SigveloNaniteManager",
         "SigveloNaniteAgent",

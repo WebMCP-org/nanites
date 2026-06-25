@@ -89,10 +89,6 @@
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "SigveloChatIngress",
-        "name": "SigveloChatIngress",
-      },
-      {
         "class_name": "SigveloManagerConversationAgent",
         "name": "SigveloManagerConversationAgent",
       },
@@ -113,7 +109,6 @@
   "migrations": [
     {
       "new_sqlite_classes": [
-        "SigveloChatIngress",
         "SigveloManagerConversationAgent",
         "SigveloNaniteManager",
         "NanitesSetupAgent",
@@ -123,6 +118,10 @@
     {
       "new_sqlite_classes": ["SigveloNaniteAgent"],
       "tag": "v2-nanite-agent-workflows",
+    },
+    {
+      "deleted_classes": ["SigveloChatIngress"],
+      "tag": "v3-delete-chat-ingress",
     },
   ],
   "observability": {

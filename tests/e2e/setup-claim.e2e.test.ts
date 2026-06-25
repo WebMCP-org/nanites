@@ -37,6 +37,7 @@ test("repository install requires the issued setup claim and install nonce", asy
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: "",
       installState,
     }),
@@ -46,6 +47,7 @@ test("repository install requires the issued setup claim and install nonce", asy
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: "not-the-claimed-browser",
       installState,
     }),
@@ -53,6 +55,7 @@ test("repository install requires the issued setup claim and install nonce", asy
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: claim.token,
       installState: "not-the-issued-install-nonce",
     }),
@@ -61,6 +64,7 @@ test("repository install requires the issued setup claim and install nonce", asy
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: claim.token,
       installState,
     }),

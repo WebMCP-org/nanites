@@ -141,6 +141,16 @@
   scrollbar-width: thin;
 }
 
+.tool__section > :not(.tool__section-label):has(.code-block__container) {
+  max-block-size: none;
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+
+.tool__code-block .code-block__container {
+  max-block-size: 20rem;
+}
+
 .tool__section-label {
   font-size: 0.6875rem;
   font-weight: var(--sigvelo-font-weight-semibold);

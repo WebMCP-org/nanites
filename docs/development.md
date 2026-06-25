@@ -2,7 +2,7 @@
 
 The repository root is the Cloudflare Worker app that runs SigVelo.
 
-It owns GitHub auth, installation selection, Nanite manager Durable Objects, Think sub-agents, generated trigger execution, the SigVelo MCP server, product UI, admin views, and observability.
+It owns GitHub auth, deployment installation resolution, Nanite manager Durable Objects, Think sub-agents, generated trigger execution, the SigVelo MCP server, product UI, admin views, and observability.
 
 ## Runtime Shape
 
@@ -80,7 +80,7 @@ vp exec wrangler kv namespace create TOOL_OUTPUTS
 Workers paid subscription. It also creates or configures the deployment AI Gateway
 (`sigvelo-nanites`) with the retry/ZDR policy from `NANITES_AI_GATEWAY_REQUEST_DEFAULTS` in
 `src/backend/nanites/language-model.ts` — edit those constants and redeploy to change them. The
-default model is `@cf/zai-org/glm-4.7-flash` through the Worker `AI` binding and AI Gateway, so the
+default model is `@cf/zai-org/glm-5.2` through the Worker `AI` binding and AI Gateway, so the
 zero-config path does not depend on third-party provider credentials.
 
 Apply database migrations before relying on an environment:
@@ -146,8 +146,9 @@ Agent-assisted first-time setup (once per developer):
    settings under **Display information**. GitHub App manifests cannot set badges.
 7. Install the app on at least one repository. A coding agent can open the install URL, but the
    human should choose the GitHub account, repository scope, and final install approval.
-8. Sign in at `http://localhost:5173` and activate the installation. The sign-in step uses the
-   generated GitHub App OAuth flow, so browser login or consent prompts remain human checkpoints.
+8. Sign in at `http://localhost:5173`. The runtime uses the local deployment installation recorded
+   by `/setup/local`; there is no separate installation picker. The sign-in step uses the generated
+   GitHub App OAuth flow, so browser login or consent prompts remain human checkpoints.
 
 What a coding agent can do locally:
 
@@ -192,16 +193,16 @@ The app exposes the model control plane at:
 
 Core tools:
 
-| Tool                               | Purpose                                                            |
-| ---------------------------------- | ------------------------------------------------------------------ |
-| `sigvelo_whoami`                   | Verify actor, installation, client, and scopes.                    |
-| `sigvelo_create_nanite`            | Create or update a Nanite manifest.                                |
-| `sigvelo_deprovision_nanite`       | Delete one Nanite and its run history.                             |
-| `sigvelo_start_nanite_run`         | Start a manual Nanite run.                                         |
-| `sigvelo_cancel_nanite_runs`       | Cancel pending or running Nanite runs.                             |
-| `sigvelo_test_nanite_trigger`      | Build a fixture event, test a trigger, and dispatch accepted runs. |
-| `sigvelo_debug_nanites`            | Inspect manager state and optional Think transcript/submissions.   |
-| `sigvelo_explore_nanite_workspace` | Inspect child-owned workspace files.                               |
+| Tool                               | Purpose                                                          |
+| ---------------------------------- | ---------------------------------------------------------------- |
+| `sigvelo_whoami`                   | Verify actor, installation, client, and scopes.                  |
+| `sigvelo_create_nanite`            | Create or update a Nanite manifest.                              |
+| `sigvelo_deprovision_nanite`       | Delete one Nanite and its run history.                           |
+| `sigvelo_start_nanite_run`         | Start a manual Nanite run.                                       |
+| `sigvelo_cancel_nanite_runs`       | Cancel pending or running Nanite runs.                           |
+| `sigvelo_test_nanite_trigger`      | Test a raw GitHub event and dispatch accepted runs.              |
+| `sigvelo_debug_nanites`            | Inspect manager state and optional Think transcript/submissions. |
+| `sigvelo_explore_nanite_workspace` | Inspect child-owned workspace files.                             |
 
 MCP tool calls are already bound to the authorized GitHub installation. Do not pass a manager name.
 For `sigvelo_create_nanite`, keep the manifest to id, name, description, `eventSource`,
@@ -215,9 +216,9 @@ try to call SigVelo tools from inside `execute`; `execute` is Worker-compatible 
 workspace and git provider work, and it does not expose SigVelo control-plane tools as top-level
 functions.
 
-For `sigvelo_test_nanite_trigger`, fixture overrides may use provider-shaped nested objects such as
-`{ "repository": { "full_name": "WebMCP-org/npm-packages" } }` or dotted keys such as
-`{ "repository.full_name": "WebMCP-org/npm-packages" }`.
+For `sigvelo_test_nanite_trigger`, send a GitHub webhook-shaped event object with `id`, base
+`name`, and `payload`. `payload.installation.id` must match the installation returned by
+`sigvelo_whoami`; action-specific behavior belongs in `payload.action`.
 
 Minimal MCP config:
 

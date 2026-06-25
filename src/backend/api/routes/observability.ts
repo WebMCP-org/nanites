@@ -2,9 +2,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
-import { requireBrowserInstallationScope } from "#/backend/auth/installations.ts";
+import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
-import { listInstallationRepositories } from "#/backend/github/index.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import {
   OBSERVABILITY_RANGES,
@@ -25,7 +24,6 @@ const observabilityQueryInput = zValidator(
   z.object({
     range: z.enum(OBSERVABILITY_RANGES).default("7d"),
     environment: z.string().min(1).optional(),
-    installationId: z.coerce.number().int().positive().optional(),
     repository: z.string().min(1).optional(),
     naniteId: z.string().min(1).optional(),
     creator: z.string().min(1).optional(),
@@ -65,18 +63,11 @@ async function resolveObservabilityScope(
   context: WorkerContext,
   filters: ObservabilityFilters,
 ): Promise<ObservabilityVisibilityScope> {
-  const installationScope = await requireBrowserInstallationScope(context.req.raw, context.env, {
-    githubInstallationId: filters.installationId ?? null,
-    responseHeaders: context.res.headers,
-  });
-
-  const repositories = await listInstallationRepositories(
-    installationScope.githubUserToken.accessToken,
-    installationScope.githubInstallationId,
-    { env: context.env, githubAppId: installationScope.githubAppId },
+  const installationScope = await requireDeploymentGitHubInstallation(context.env);
+  const visibleRepositoryFullNames = installationScope.repositories.map(
+    (repository) => repository.full_name,
   );
-  const visibleRepositoryFullNames = repositories.map((repository) => repository.full_name);
-  const visibleRepositoryIds = repositories.map((repository) => repository.id);
+  const visibleRepositoryIds = installationScope.repositories.map((repository) => repository.id);
 
   if (filters.repository && !visibleRepositoryFullNames.includes(filters.repository)) {
     throw new AppError("naniteRepositoryScopeForbidden", {

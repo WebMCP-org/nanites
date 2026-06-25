@@ -1,6 +1,6 @@
 # Zero-Config Self-Hosting Edge Cases
 
-Last checked: June 10, 2026.
+Last checked: June 25, 2026.
 
 This investigation defines how the setup flow should behave when the happy path is interrupted,
 replayed, or pointed at pre-existing Cloudflare/GitHub state.
@@ -69,8 +69,8 @@ The current branch implements this setup split:
 - The generated secret values live in Worker secret bindings:
   `AUTH_COOKIE_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_CLIENT_SECRET`, and
   `GITHUB_WEBHOOK_SECRET`.
-- Setup completes only after Nanites can read the generated runtime config and verify the selected
-  GitHub installation through the signed-in user's visible installations.
+- Setup completes only after Nanites can read the generated runtime config and verify the returned
+  deployment GitHub installation through the signed-in user's visible installations.
 
 That makes the setup Agent the source of truth for wizard state. React should render Agent state
 and call Agent RPC methods; it should not keep a parallel setup state machine.
@@ -110,8 +110,8 @@ and call Agent RPC methods; it should not keep a parallel setup state machine.
 | Attacker spoofs an `installation_id` query param                                       | Do not trust it. Verify that the signed-in user can see that installation through GitHub's user-installations API.                                                                       | Covered. `/setup/github/verify` lists visible installations and matches the requested id.                                                               | Good enough for V1.                                                                                                                                          |
 | Signed-in GitHub user cannot see the installation                                      | Reject setup verification and return to repository step.                                                                                                                                 | Current route throws `setupInstallationVerificationFailed`.                                                                                             | Improve UI to make the fix clear: sign in as a user with access or reinstall app.                                                                            |
 | User installs the app on no repositories                                               | Setup should not launch until at least one repository is visible for the installation.                                                                                                   | Implemented. Setup verification lists installation repositories and rejects empty access before recording setup state.                                  | Good enough for V1.                                                                                                                                          |
-| App installation permissions are changed later                                         | Runtime GitHub calls can fail with 403 or missing events. The UI should surface "reinstall/update GitHub App permissions."                                                               | Signed `installation.new_permissions_accepted` webhooks move completed setup back to repository repair for the selected installation.                   | Add broader runtime readiness checks when runtime GitHub calls fail outside webhook paths.                                                                   |
-| App installation is suspended/uninstalled later                                        | Runtime should clear the active installation or prompt reinstall when GitHub no longer lists it.                                                                                         | Signed `installation.deleted`, `installation.suspend`, and `installation_repositories.removed` webhooks move completed setup back to repository repair. | Dashboard copy can still improve, but V1 has a durable setup repair transition.                                                                              |
+| App installation permissions are changed later                                         | Runtime GitHub calls can fail with 403 or missing events. The UI should surface "reinstall/update GitHub App permissions."                                                               | Signed `installation.new_permissions_accepted` webhooks move completed setup back to repository repair for the deployment installation.                 | Add broader runtime readiness checks when runtime GitHub calls fail outside webhook paths.                                                                   |
+| App installation is suspended/uninstalled later                                        | Runtime should prompt reinstall when GitHub no longer lists the deployment installation.                                                                                                 | Signed `installation.deleted`, `installation.suspend`, and `installation_repositories.removed` webhooks move completed setup back to repository repair. | Dashboard copy can still improve, but V1 has a durable setup repair transition.                                                                              |
 | Manual fallback env config exists                                                      | Do not treat env-only GitHub App ids as setup-complete. `/setup` owns GitHub App creation and verification, and install verification requires the setup claim.                           | Implemented. Env-only app config and no-claim install verification paths have been deleted.                                                             | Good enough for V1.                                                                                                                                          |
 | Local dev `.dev.vars` exists with placeholder values                                   | Do not treat placeholders as valid config.                                                                                                                                               | `readConfiguredSecret()` rejects values starting with `replace-with-`.                                                                                  | Good enough for V1.                                                                                                                                          |
 | Deploy-button build/provisioning fails before `/setup` exists                          | The user is still in Cloudflare's deploy/build flow. Nanites cannot repair a Worker that did not deploy.                                                                                 | Not app-handled.                                                                                                                                        | Keep `vp run deploy:validate` and deploy-button smoke steps in docs.                                                                                         |
@@ -162,9 +162,9 @@ Four focused review passes found additional edge cases that should feed the next
 - Later `setup_action=update` callbacks after generated setup route through the same setup
   verification path without requiring the original setup claim.
 - App uninstall, suspension, app deletion, repository-removal, and new-permission-accepted webhooks
-  now move the selected installation back to repository repair. `github_app_authorization`
+  now move the deployment installation back to repository repair. `github_app_authorization`
   revocation remains session/user-token repair rather than installation repair because the webhook
-  does not identify one selected installation.
+  does not identify a deployment installation.
 - Manual app reuse can appear configured without proving that callback URLs, setup URL, webhook URL,
   permissions, or events match the current Worker. Keep manual reuse advanced, and add a validation
   checklist before treating it as healthy.
@@ -173,7 +173,7 @@ Four focused review passes found additional edge cases that should feed the next
 
 ### State recovery and partial setup
 
-- The selected installation id is now persisted in deployment GitHub App metadata. If setup Agent
+- The deployment installation id is now persisted in deployment GitHub App metadata. If setup Agent
   state is reset while D1 metadata and Worker secrets survive, refresh restores the repository step
   to complete and leaves the upstream star/launch gates to be re-verified from current browser
   state.

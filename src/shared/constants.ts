@@ -159,7 +159,7 @@ export const NANITE_MANAGER_NAME = "sigvelo-nanite-manager";
 export const MANAGER_CONVERSATION_AGENT_NAME = "sigvelo-manager-conversation-agent";
 
 /**
- * Agents SDK sub-agent class name used by browser clients for stable Nanite chat.
+ * Agents SDK class name used by browser clients for stable Nanite chat.
  */
 export const NANITE_AGENT_NAME = "sigvelo-nanite-agent";
 
@@ -177,7 +177,7 @@ export const NANITES_SETUP_AGENT_INSTANCE_NAME = "default";
  * Default model for SigVelo agents. Shared with the browser so the UI can show the same fallback
  * model used by getModel() when conversation state predates the `model` field.
  */
-export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/zai-org/glm-4.7-flash";
+export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/zai-org/glm-5.2";
 
 /**
  * Canonical manager Durable Object key pattern. Captures GitHub App id and installation id from

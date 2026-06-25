@@ -8,20 +8,6 @@
       "when": 1781218590396,
       "tag": "0000_baseline",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1781369034472,
-      "tag": "0001_lovely_jazinda",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1781369646349,
-      "tag": "0002_purple_morlun",
-      "breakpoints": true
     }
   ]
 }

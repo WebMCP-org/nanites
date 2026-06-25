@@ -12,11 +12,12 @@ import type {
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createExtensionTools } from "@cloudflare/think/tools/extensions";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
-import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import type { FileInfo } from "@cloudflare/shell";
 import type { ToolProvider } from "@cloudflare/codemode";
+import type { SkillSource } from "agents/skills";
 import type { WorkflowInfo, WorkflowStatus } from "agents/workflows";
 import { GitHubMcpConnector } from "#/backend/nanites/github-mcp-connector.ts";
+import { createNaniteWorkspaceSkillSource } from "#/backend/nanites/linked-skills.ts";
 import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
 import { getLogger } from "@logtape/logtape";
 import { callable, getAgentByName } from "agents";
@@ -54,6 +55,7 @@ import {
   type NaniteManifest,
   type NaniteManagerState,
   type NaniteRunRecord,
+  type NaniteRuntimeConfig,
   type NaniteRuntimeActivityState,
   type NaniteScheduledEventSourceSpec,
   type NaniteScheduleWhen,
@@ -96,6 +98,7 @@ export type NaniteAgentState = {
   naniteId: string | null;
   managerName: string | null;
   manifest: NaniteManifest | null;
+  runtimeConfig: NaniteRuntimeConfig | null;
   activeRunId: string | null;
   trigger: NaniteTriggerEvent | null;
   updatedAt: string | null;
@@ -107,6 +110,7 @@ function createInitialNaniteAgentState(): NaniteAgentState {
     naniteId: null,
     managerName: null,
     manifest: null,
+    runtimeConfig: null,
     activeRunId: null,
     trigger: null,
     updatedAt: null,
@@ -488,6 +492,7 @@ function formatGitHubAppPermissions(permissions: GitHubAppPermissions | undefine
 
 function buildNaniteTaskContext(input: {
   manifest: NaniteManifest | null;
+  runtimeConfig: NaniteRuntimeConfig | null;
   trigger: NaniteTriggerEvent | null;
 }): string {
   const manifestContext = input.manifest
@@ -521,9 +526,19 @@ function buildNaniteTaskContext(input: {
     "",
     manifestContext,
     "",
+    "Runtime configuration:",
+    input.runtimeConfig ? JSON.stringify(input.runtimeConfig, null, 2) : "No runtime config.",
+    "",
     "Active run trigger payload:",
     input.trigger ? formatTrigger(input.trigger) : "No active run trigger has been attached yet.",
   ].join("\n");
+}
+
+function browserRuntimeConfig(
+  runtimeConfig: NaniteRuntimeConfig | null,
+): NaniteRuntimeConfig["browser"] | null {
+  const browser = runtimeConfig?.browser;
+  return browser?.enabled === true ? browser : null;
 }
 
 function getTriggerTestInstruction(trigger: NaniteTriggerEvent): string | null {
@@ -572,6 +587,19 @@ function buildRunPrompt(
   const testInstructionMessage = testInstruction
     ? `\n\nTrigger acceptance test instruction:\n${testInstruction}`
     : "";
+  const browser = browserRuntimeConfig(input.nanite.runtimeConfig ?? null);
+  const browserInstruction = browser
+    ? [
+        "",
+        "Browser Run capability:",
+        `Target URL: ${browser.targetUrl}`,
+        "Use cdp.* inside execute for browser evidence: screenshot, console/network summary, WebMCP status, and focused accessibility or performance observations.",
+        "When you click a link or control, verify a postcondition before claiming success: URL/path/hash, title/h1, DOM state, scroll position, or focus changed as expected.",
+        browser.evidenceRequired
+          ? "Do not return complete or no_change for this browser-audit run until the evidence is captured or explain the missing evidence with ask_manager/fail."
+          : "Browser evidence is optional for this run.",
+      ].join("\n")
+    : "";
 
   return [
     `Start Nanite work attempt ${input.run.runId}.`,
@@ -587,6 +615,7 @@ function buildRunPrompt(
     "",
     "Workspace checkout preparation:",
     formatWorkspacePreparation(input.workspaceCheckouts),
+    browserInstruction,
     "",
     "First classify the task's execution plane: GitHub API/MCP, workspace files/git, trigger/routing, or human/product decision.",
     "Use the workspace, git, MCP, and code execution tools as needed for the chosen execution plane.",
@@ -597,10 +626,11 @@ function buildRunPrompt(
     "Use Workspace git tools for repository changes and branch pushes.",
     "Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata, reading PR details, reading check or workflow status, commenting on issues, and filing scoped follow-up issues.",
     "Do not use GitHub MCP file-write tools unless this Nanite was explicitly granted them. Do not merge pull requests unless this Nanite was explicitly granted merge authority.",
-    "For GitHub changes, manage branches and pull requests yourself with git, gh, or Octokit instead of expecting SigVelo to publish a support lane for you.",
+    "For GitHub changes, manage branches with git.* and pull requests with github.* instead of expecting SigVelo to publish a support lane for you.",
+    "Before work that may open a PR, run a small github.* pull request lookup through execute; if GitHub MCP is unavailable, ask the manager before changing files.",
     "Reuse an existing open PR when that is the coherent review surface for your responsibility.",
     "When stacked PRs are useful: the bottom branch targets the repo default branch, each higher branch targets the branch below it, every PR stays small and independently reviewable, and every PR description includes stack ordering.",
-    "Use gh stack only when it is available. Otherwise use plain git branches and gh pr create --base <previous-branch>.",
+    "For stacked PRs, use plain git branches and create each PR with github.* against the correct base branch.",
     "Never push directly to a default branch.",
     ...naniteGitSafetyInstructions,
     "When the work is complete, set outputUrl to the most useful result URL in the structured result: the primary PR, top PR, stack entrypoint, or another explicit output URL. If no URL exists, make the summary self-contained.",
@@ -616,7 +646,8 @@ function buildNaniteSystemPrompt(): string {
     "Use nanite_task_context for the current manifest, repository scope, permission grants, generated trigger source, and active trigger payload.",
     "Use the smallest execution plane that can satisfy the run: github.* tools inside execute for pull requests, checks, issue comments, scoped issue filing, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; manager request for missing authority or product decisions.",
     "Do not use github.* tools to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
-    "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Discover github.* methods with codemode.search/codemode.describe. It is not a shell and cannot use require(), child_process, or subprocess commands.",
+    "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Use direct provider calls for common methods; use codemode.search/codemode.describe only when the method shape is unfamiliar. It is not a shell and cannot use require(), child_process, or subprocess commands.",
+    'Common execute shapes: `await git.status({ dir })`, `await state.readFile({ path })`, `await github.list_pull_requests({ owner, repo, state: "open" })`.',
     "Use artifact_read for saved SigVelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
     "Keep GitHub-facing output concise. Keep detailed investigation in this transcript.",
     "",
@@ -653,6 +684,25 @@ type ParentManagerRpc = {
   }) => Promise<NaniteRunRecord>;
   recordRuntimeActivity: (input: RecordNaniteRuntimeActivityInput) => Promise<unknown>;
 };
+
+/**
+ * Classifies a repository-checkout error as an infra/auth failure (fail the run) versus a repo
+ * that is legitimately unavailable (advisory). git/isomorphic-git surface most failures as plain
+ * Error with no typed taxonomy, so structural checks (AppError) are preferred and message checks
+ * are the fallback for the auth signals git emits.
+ */
+function isInfraCheckoutFailure(error: unknown): boolean {
+  if (error instanceof AppError) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  // git-auth raises this sentinel when an in-scope repo could not be issued an installation token.
+  if (message.includes("outside this Nanite's git scope")) {
+    return true;
+  }
+  // GitHub auth rejection (bad/expired/forbidden installation token), mirroring git-auth's own check.
+  return /\b(?:401|403)\b/.test(message) && /unauthori[sz]ed|forbidden/i.test(message);
+}
 
 export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   initialState: NaniteAgentState = createInitialNaniteAgentState();
@@ -695,6 +745,16 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return buildNaniteSystemPrompt();
   }
 
+  override getSkills(): SkillSource[] {
+    return [
+      createNaniteWorkspaceSkillSource({
+        workspace: this.workspace,
+        sourceUrls: () => this.state.runtimeConfig?.skillUrls ?? [],
+        beforeRefresh: () => this.refreshManifestFromManager(),
+      }),
+    ];
+  }
+
   override configureSession(session: Session): Session {
     return session
       .withContext("nanite_identity", {
@@ -712,6 +772,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           get: async () =>
             buildNaniteTaskContext({
               manifest: this.state.manifest,
+              runtimeConfig: this.state.runtimeConfig,
               trigger: this.state.trigger,
             }),
         },
@@ -727,6 +788,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     const workspaceTools = createWorkspaceTools(this.workspace);
     const artifactStore = this.createToolOutputArtifactStore();
     const githubMcpConnector = this.createGitHubMcpConnector();
+    const browser = browserRuntimeConfig(this.state.runtimeConfig);
     const extensionTools = this.extensionManager
       ? {
           ...createExtensionTools({ manager: this.extensionManager }),
@@ -736,16 +798,15 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return {
       ...workspaceTools,
-      execute: createExecuteTool({
-        ctx: this.ctx,
+      execute: createExecuteTool(this, {
         tools: workspaceTools,
-        state: createWorkspaceStateBackend(this.workspace),
         connectors: [
           new ToolProviderConnector(this.ctx, this.createGitToolProvider()),
           new ToolProviderConnector(this.ctx, artifactStore.provider()),
           ...(githubMcpConnector ? [githubMcpConnector] : []),
         ],
-        loader: this.env.LOADER,
+        browser: browser ? this.env.BROWSER : undefined,
+        session: browser ? { mode: "dynamic" as const } : undefined,
       }),
       ...extensionTools,
       artifact_read: tool({
@@ -929,6 +990,10 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           metadata: {
             naniteId: input.run.naniteId,
             triggerType: input.run.trigger.type,
+            // Durable model snapshot: a Workflow can outlive the manager's capped run history,
+            // so getTurnModel falls back to this when the run record has been evicted.
+            modelId: input.run.model.effectiveModelId,
+            gatewayId: input.run.model.effectiveGatewayId,
           },
         },
       );
@@ -983,6 +1048,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         try {
           return await this.prepareRepositoryCheckout(repository);
         } catch (error) {
+          // Infra/auth failures (token issuance, missing installation, auth rejection) hard-fail
+          // the run: a degraded workspace makes the model narrate an infra outage as if it were a
+          // normal result. A repo that is legitimately unavailable (deleted/renamed/404) stays
+          // advisory so the model can still proceed and explain the gap.
+          if (isInfraCheckoutFailure(error)) {
+            throw error;
+          }
           return {
             repository,
             dir: null,
@@ -1363,6 +1435,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       naniteId: input.nanite.manifest.id,
       managerName: input.managerName,
       manifest: input.nanite.manifest,
+      runtimeConfig: input.nanite.runtimeConfig ?? null,
       activeRunId: input.run.runId,
       trigger: input.run.trigger,
       updatedAt: acceptedAt,
@@ -1463,12 +1536,28 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return (await manager.getSnapshot()).runs[runId] ?? null;
   }
 
-  private syncIdentityFromManager(input: { managerName: string; nanite: ManagedNanite }): void {
+  /**
+   * Recover the run's model from the durable Workflow metadata captured at dispatch.
+   * Used as a fallback when the manager has evicted the run record but the Workflow
+   * (timeout: 7 days) is still running. Returns null if the workflow or fields are absent.
+   */
+  private readWorkflowRunModel(runId: string): { modelId: string; gatewayId: string } | null {
+    const metadata = this.getWorkflow(runId)?.metadata;
+    const modelId = metadata?.modelId;
+    const gatewayId = metadata?.gatewayId;
+    if (typeof modelId !== "string" || typeof gatewayId !== "string") {
+      return null;
+    }
+    return { modelId, gatewayId };
+  }
+
+  syncIdentityFromManager(input: { managerName: string; nanite: ManagedNanite }): void {
     this.setState({
       ...this.state,
       naniteId: input.nanite.manifest.id,
       managerName: input.managerName,
       manifest: input.nanite.manifest,
+      runtimeConfig: input.nanite.runtimeConfig ?? null,
       updatedAt: nowIso(),
     });
   }
@@ -1476,8 +1565,14 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   private async refreshManifestFromManager(): Promise<void> {
     const manager = await this.parentManager();
     const snapshot = await manager.getSnapshot();
-    const manifest = snapshot.nanites[this.state.naniteId ?? this.name]?.manifest ?? null;
-    if (!manifest || JSON.stringify(manifest) === JSON.stringify(this.state.manifest)) {
+    const nanite = snapshot.nanites[this.state.naniteId ?? this.name] ?? null;
+    const manifest = nanite?.manifest ?? null;
+    const runtimeConfig = nanite?.runtimeConfig ?? null;
+    if (
+      !manifest ||
+      (JSON.stringify(manifest) === JSON.stringify(this.state.manifest) &&
+        JSON.stringify(runtimeConfig) === JSON.stringify(this.state.runtimeConfig))
+    ) {
       return;
     }
 
@@ -1486,6 +1581,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       naniteId: manifest.id,
       managerName: this.requireManagerName(),
       manifest,
+      runtimeConfig,
       updatedAt: nowIso(),
     });
   }
@@ -1522,7 +1618,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
   private async getTurnModel(runId: string | null): Promise<LanguageModel> {
     const run = await this.readRun(runId);
-    if (runId && !run) {
+    // A Workflow can outlive the manager's capped run history (MAX_RUNS_IN_STATE). When the run
+    // record has been evicted, recover the model from the durable workflow metadata captured at
+    // dispatch instead of throwing and killing the in-flight turn.
+    const workflowModel = runId && !run ? this.readWorkflowRunModel(runId) : null;
+    if (runId && !run && !workflowModel) {
       throw new AppError("naniteRunNotFound", {
         details: { runId },
         message: `Nanite run ${runId} was not found.`,
@@ -1530,7 +1630,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     }
 
     const runModel = run?.model;
-    const modelId = runModel?.effectiveModelId ?? this.state.manifest?.model;
+    const modelId =
+      runModel?.effectiveModelId ?? workflowModel?.modelId ?? this.state.manifest?.model;
     if (!modelId) {
       throw new AppError("nanitesModelSelectionInvalid", {
         details: {
@@ -1545,7 +1646,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(run),
       modelId,
-      gatewayId: runModel?.effectiveGatewayId ?? NANITES_AI_GATEWAY_ID,
+      gatewayId: runModel?.effectiveGatewayId ?? workflowModel?.gatewayId ?? NANITES_AI_GATEWAY_ID,
     });
   }
 

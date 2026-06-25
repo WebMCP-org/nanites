@@ -6,12 +6,15 @@ import {
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
-import { buildGitHubTriggerFixture } from "#/backend/nanites/triggers.ts";
 import type {
   NaniteRunRecord,
   SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
-import { getGitHubWebhookRepositoryFullName } from "#/shared/utils/github.ts";
+import {
+  MAX_GITHUB_TRIGGER_TEST_EVENT_BYTES,
+  getGitHubWebhookRepositoryFullName,
+  type GitHubWebhookEventSnapshot,
+} from "#/shared/utils/github.ts";
 import {
   waitForRunWorkflowStatus,
   waitForTerminalRun,
@@ -57,6 +60,10 @@ async function getInstallationManager(
       `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
     )) as unknown as InstallationManager,
   );
+}
+
+function randomInstallationId(): number {
+  return Math.floor(Math.random() * 1_000_000) + 1;
 }
 
 const packageDocsTriggerSource = `
@@ -159,8 +166,11 @@ async function registerPackageDocsSyncer(
 }
 
 const npmPackagesRepositoryOverride = {
+  id: 101,
   full_name: "WebMCP-org/npm-packages",
   name: "npm-packages",
+  default_branch: "main",
+  private: true,
   owner: { login: "WebMCP-org" },
 };
 
@@ -171,25 +181,79 @@ const packageDocsChangedCommit = {
   removed: [],
 };
 
+function pushTestEvent(input: {
+  installationId: number;
+  deliveryId?: string;
+  repository?: typeof npmPackagesRepositoryOverride;
+  ref?: string;
+  after?: string;
+  commits?: Array<typeof packageDocsChangedCommit>;
+}): GitHubWebhookEventSnapshot {
+  const after = input.after ?? "test000000000001";
+  return {
+    id: input.deliveryId ?? `delivery-${crypto.randomUUID()}`,
+    name: "push",
+    payload: {
+      ref: input.ref ?? "refs/heads/main",
+      before: "0000000000000000000000000000000000000000",
+      after,
+      repository: input.repository ?? npmPackagesRepositoryOverride,
+      installation: { id: input.installationId },
+      commits: input.commits ?? [
+        {
+          id: after,
+          added: [],
+          modified: ["README.md"],
+          removed: [],
+        },
+      ],
+    },
+  };
+}
+
+function issueTestEvent(input: {
+  installationId: number;
+  action?: string;
+}): GitHubWebhookEventSnapshot {
+  return {
+    id: `delivery-${crypto.randomUUID()}`,
+    name: "issues",
+    payload: {
+      action: input.action ?? "opened",
+      repository: npmPackagesRepositoryOverride,
+      installation: { id: input.installationId },
+      issue: {
+        number: 84,
+        html_url: "https://github.com/WebMCP-org/npm-packages/issues/84",
+        title: "Issue triage test",
+        body: "Issue body.",
+        state: "open",
+        labels: [],
+        user: {
+          login: "test-author",
+        },
+      },
+    },
+  };
+}
+
 function testPackageDocsTrigger(
   manager: InstallationManager,
   input: {
     naniteId: string;
+    installationId: number;
     commits?: Array<typeof packageDocsChangedCommit>;
   },
 ) {
   return manager.testNaniteTrigger({
     naniteId: input.naniteId,
     actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "push",
-      overrides: {
-        repository: npmPackagesRepositoryOverride,
-        ref: "refs/heads/main",
-        ...(input.commits ? { commits: input.commits } : {}),
-      },
-    },
+    event: pushTestEvent({
+      installationId: input.installationId,
+      repository: npmPackagesRepositoryOverride,
+      ref: "refs/heads/main",
+      ...(input.commits ? { commits: input.commits } : {}),
+    }),
     waitForTerminalOutcome: true,
     timeoutMs: 10_000,
   });
@@ -199,7 +263,6 @@ function expectAcceptedTriggerRun(output: TriggerTestOutput, naniteId: string) {
   expect(output.ok).toBe(true);
   expect(output.runs).toHaveLength(1);
   expect(output.acceptance).toMatchObject({
-    fixtureBuilt: true,
     triggerAcceptedEvent: true,
     runCreated: true,
     modelDispatched: true,
@@ -244,8 +307,9 @@ export default {
   });
 });
 
-test("trigger tests return generated noop reasons when fixtures do not dispatch", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests return generated noop reasons when raw events do not dispatch", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
 
   await registerPackageDocsSyncer(manager, {
     id: "package-docs-syncer",
@@ -255,12 +319,12 @@ test("trigger tests return generated noop reasons when fixtures do not dispatch"
 
   const output = await testPackageDocsTrigger(manager, {
     naniteId: "package-docs-syncer",
+    installationId: githubInstallationId,
   });
 
   expect(output.ok).toBe(false);
   expect(output.runs).toHaveLength(0);
   expect(output.acceptance).toMatchObject({
-    fixtureBuilt: true,
     triggerAcceptedEvent: false,
     runCreated: false,
     modelDispatched: false,
@@ -270,8 +334,9 @@ test("trigger tests return generated noop reasons when fixtures do not dispatch"
   expect(output.error).toBe(output.acceptance.triggerRejectionReason);
 });
 
-test("trigger tests dispatch when fixture overrides satisfy generated filters", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests dispatch when raw events satisfy generated filters", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
 
   await registerPackageDocsSyncer(manager, {
     id: "package-docs-syncer",
@@ -281,14 +346,16 @@ test("trigger tests dispatch when fixture overrides satisfy generated filters", 
 
   const output = await testPackageDocsTrigger(manager, {
     naniteId: "package-docs-syncer",
+    installationId: githubInstallationId,
     commits: [packageDocsChangedCommit],
   });
 
   expectAcceptedTriggerRun(output, "package-docs-syncer");
 });
 
-test("trigger tests apply fixture repository overrides before generated filters run", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests pass raw repository payloads through generated filters", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
 
   await registerPackageDocsSyncer(manager, {
     id: "package-docs-syncer-repository-overrides",
@@ -299,32 +366,26 @@ test("trigger tests apply fixture repository overrides before generated filters 
   const output = await manager.testNaniteTrigger({
     naniteId: "package-docs-syncer-repository-overrides",
     actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "push",
-      overrides: {
-        repository: {
-          full_name: "WebMCP-org/npm-packages",
-          name: "npm-packages",
-          owner: {
-            login: "WebMCP-org",
-          },
-        },
-        ref: "refs/heads/main",
-        commits: [packageDocsChangedCommit],
-      },
-    },
+    event: pushTestEvent({
+      installationId: githubInstallationId,
+      repository: npmPackagesRepositoryOverride,
+      ref: "refs/heads/main",
+      commits: [packageDocsChangedCommit],
+    }),
     waitForTerminalOutcome: true,
     timeoutMs: 10_000,
   });
 
-  expect(output.ok).toBe(true);
+  if (!output.ok) {
+    throw new Error(output.error);
+  }
   expect(getGitHubWebhookRepositoryFullName(output.event)).toBe("WebMCP-org/npm-packages");
   expectAcceptedTriggerRun(output, "package-docs-syncer-repository-overrides");
 });
 
-test("trigger tests dispatch issue fixtures through generated filters", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests dispatch issue events through generated filters", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
   const naniteId = "issue-triage-nanite";
 
   await manager.registerNanite({
@@ -346,17 +407,88 @@ test("trigger tests dispatch issue fixtures through generated filters", async ()
   const output = await manager.testNaniteTrigger({
     naniteId,
     actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "issues.opened",
-    },
+    event: issueTestEvent({ installationId: githubInstallationId, action: "opened" }),
     waitForTerminalOutcome: true,
     timeoutMs: 10_000,
   });
 
+  if (!output.ok) {
+    throw new Error(output.error);
+  }
   expectAcceptedTriggerRun(output, naniteId);
   expect(output.event.name).toBe("issues");
   expect(output.event.payload.action).toBe("opened");
+});
+
+test("trigger tests reject invalid raw events before generated triggers run", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
+  const naniteId = "invalid-raw-event-nanite";
+
+  await registerPackageDocsSyncer(manager, {
+    id: naniteId,
+    name: "Invalid raw event Nanite",
+    triggerSource: packageDocsTriggerSource,
+  });
+
+  const baseEvent = pushTestEvent({ installationId: githubInstallationId });
+  const { installation: _installation, ...payloadWithoutInstallation } = baseEvent.payload;
+  const invalidCases: Array<{ name: string; event: unknown; reason: string }> = [
+    {
+      name: "unknown event",
+      event: { ...baseEvent, name: "not_a_real_event" },
+      reason: "event.name must be a base GitHub webhook event name",
+    },
+    {
+      name: "non-object payload",
+      event: { ...baseEvent, payload: [] },
+      reason: "event.payload must be an object.",
+    },
+    {
+      name: "missing installation",
+      event: { ...baseEvent, payload: payloadWithoutInstallation },
+      reason: "event.payload.installation.id must be a positive integer.",
+    },
+    {
+      name: "mismatched installation",
+      event: {
+        ...baseEvent,
+        payload: {
+          ...baseEvent.payload,
+          installation: { id: githubInstallationId + 1 },
+        },
+      },
+      reason: `event.payload.installation.id must match manager installation ${githubInstallationId}`,
+    },
+    {
+      name: "oversized payload",
+      event: {
+        ...baseEvent,
+        payload: {
+          ...baseEvent.payload,
+          oversized: "x".repeat(MAX_GITHUB_TRIGGER_TEST_EVENT_BYTES),
+        },
+      },
+      reason: `event must serialize to ${MAX_GITHUB_TRIGGER_TEST_EVENT_BYTES} bytes or less`,
+    },
+  ];
+
+  for (const invalidCase of invalidCases) {
+    const output = await manager.testNaniteTrigger({
+      naniteId,
+      actorId: "github:1",
+      event: invalidCase.event,
+      waitForTerminalOutcome: false,
+      timeoutMs: 1_000,
+    });
+
+    expect(output.ok, invalidCase.name).toBe(false);
+    expect(output.event, invalidCase.name).toBeNull();
+    expect(output.error, invalidCase.name).toContain(invalidCase.reason);
+    expect(output.acceptance.triggerRejectionReason, invalidCase.name).toContain(
+      invalidCase.reason,
+    );
+  }
 });
 
 test("issues write Nanites can file issues and comment through GitHub MCP inside execute", async () => {
@@ -927,16 +1059,13 @@ test("webhook dispatch dedupes runs by trigger idempotency key", async () => {
     triggerSource: packageDocsTriggerSource,
   });
 
-  const event = buildGitHubTriggerFixture({
-    fixture: "push",
+  const event: GitHubWebhookEventSnapshot = pushTestEvent({
     deliveryId: "delivery-dedupe-1",
     installationId: 555,
-    overrides: {
-      repository: npmPackagesRepositoryOverride,
-      ref: "refs/heads/main",
-      after: "test000000000002",
-      commits: [packageDocsChangedCommit],
-    },
+    repository: npmPackagesRepositoryOverride,
+    ref: "refs/heads/main",
+    after: "test000000000002",
+    commits: [packageDocsChangedCommit],
   });
 
   const firstEvaluations = await manager.handleGitHubWebhook({ event });

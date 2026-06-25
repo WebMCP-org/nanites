@@ -33,10 +33,6 @@ import {
   LOGGING,
   OTEL_ATTRS,
 } from "#/backend/logging.ts";
-import {
-  ChatSdkStateAgent,
-  SigveloChatIngress as BaseSigveloChatIngress,
-} from "#/backend/agents/SigveloChatIngress.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { resolveDeploymentGitHubApp } from "#/backend/github/apps.ts";
@@ -46,6 +42,7 @@ import { NaniteRunWorkflow } from "#/backend/agents/NaniteRunWorkflow.ts";
 import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 import { NanitesSetupAgent as BaseNanitesSetupAgent } from "#/backend/agents/NanitesSetupAgent.ts";
 import { parseBoundedNumber } from "#/shared/utils/values.ts";
+import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 
 configureAgentLogging("info");
 
@@ -56,12 +53,11 @@ const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-prote
 
 // Keep Sentry at the Worker boundary. Agents/Think already manages the Durable Object
 // WebSocket context, and Sentry's DO wrapper rewraps waitUntil recursively on those routes.
-export class SigveloChatIngress extends BaseSigveloChatIngress {}
 export class SigveloManagerConversationAgent extends BaseSigveloManagerConversationAgent {}
 export class SigveloNaniteManager extends BaseSigveloNaniteManager {}
 export class NanitesSetupAgent extends BaseNanitesSetupAgent {}
 
-export { ChatSdkStateAgent, HostBridgeLoopback, NaniteRunWorkflow, SigveloNaniteAgent };
+export { HostBridgeLoopback, NaniteRunWorkflow, SigveloNaniteAgent, ThinkMessengerStateAgent };
 
 // The codemode execute tool runs inside a DO facet. Production workerd only
 // accepts a facet class through ctx.exports (a loopback namespace), so the

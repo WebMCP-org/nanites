@@ -7,32 +7,12 @@ import { httpClient } from "#/frontend/lib/http-client.ts";
 import type { NanitesRouterContext } from "#/frontend/lib/router.ts";
 import { normalizeAuthenticatedReturnToPath, normalizeReturnToPath } from "#/shared/utils/auth.ts";
 
-type InstallationAuthErrorResponse =
-  | {
-      code: "active_installation_required";
-    }
-  | {
-      code: "installation_access_revoked";
-      githubInstallationId: number;
-    };
-
 export type OptionalBrowserNanitesContext = InferResponseType<
   typeof httpClient.api.auth.session.optional.$get,
   200
 >;
 export type BrowserNanitesContext = NonNullable<OptionalBrowserNanitesContext>;
 export type SessionInstallationSnapshot = NonNullable<BrowserNanitesContext["activeInstallation"]>;
-export type VisibleInstallationsResponse = {
-  readonly installations: readonly SessionInstallationSnapshot[];
-};
-export type BrowserInstallationSelection = {
-  readonly installation: SessionInstallationSnapshot | null;
-  readonly canonicalInstallationId: number | null;
-};
-export type InstallationAuthErrorDetails = Extract<
-  InstallationAuthErrorResponse,
-  { code: "active_installation_required" | "installation_access_revoked" }
->;
 
 export interface BrowserLocationLike {
   readonly pathname: string;
@@ -42,8 +22,6 @@ export interface BrowserLocationLike {
 
 const AUTH_QUERY_KEY = ["auth"] as const;
 export const AUTH_SESSION_QUERY_KEY = ["auth", "session"] as const;
-export const VISIBLE_INSTALLATIONS_QUERY_KEY = ["auth", "installations", "visible"] as const;
-export const EMPTY_VISIBLE_INSTALLATIONS: readonly SessionInstallationSnapshot[] = [];
 
 export function buildReturnToPath(location: BrowserLocationLike): string {
   const search = typeof location.search === "string" ? location.search : "";
@@ -59,58 +37,6 @@ export async function invalidateAuthQueries(queryClient: QueryClient): Promise<v
 
 export async function fetchOptionalSession(): Promise<OptionalBrowserNanitesContext> {
   return parseResponse(httpClient.api.auth.session.optional.$get());
-}
-
-export async function fetchVisibleInstallations(): Promise<VisibleInstallationsResponse> {
-  const response = await parseResponse(httpClient.api.auth.installations.visible.$get());
-  return { installations: response.installations };
-}
-
-export function resolveBrowserInstallationSelection({
-  session,
-  installations,
-  requestedInstallationId,
-}: {
-  readonly session: BrowserNanitesContext | null | undefined;
-  readonly installations: readonly SessionInstallationSnapshot[];
-  readonly requestedInstallationId: number | null | undefined;
-}): BrowserInstallationSelection {
-  if (!session) {
-    return { installation: null, canonicalInstallationId: null };
-  }
-
-  const requestedId = requestedInstallationId ?? null;
-  const installation = chooseBrowserInstallation({
-    installations,
-    requestedId,
-    defaultId: session.activeInstallation?.id ?? null,
-  });
-
-  return {
-    installation,
-    canonicalInstallationId:
-      installation && requestedId !== installation.id ? installation.id : null,
-  };
-}
-
-function chooseBrowserInstallation({
-  installations,
-  requestedId,
-  defaultId,
-}: {
-  readonly installations: readonly SessionInstallationSnapshot[];
-  readonly requestedId: number | null;
-  readonly defaultId: number | null;
-}): SessionInstallationSnapshot | null {
-  if (requestedId !== null) {
-    return installations.find((installation) => installation.id === requestedId) ?? null;
-  }
-
-  if (defaultId !== null) {
-    return installations.find((installation) => installation.id === defaultId) ?? null;
-  }
-
-  return installations.length === 1 ? (installations[0] ?? null) : null;
 }
 
 export async function loadSession(
@@ -192,25 +118,4 @@ export function isAuthenticationRequiredError(error: unknown): boolean {
 
   const code = readErrorCode(error);
   return code === undefined || code === "authentication_required";
-}
-
-export function getInstallationAuthErrorDetails(
-  error: unknown,
-): InstallationAuthErrorDetails | null {
-  const code = readErrorCode(error);
-  if (code !== "active_installation_required" && code !== "installation_access_revoked") {
-    return null;
-  }
-
-  const data = readDetailedErrorData(error);
-  const githubInstallationId =
-    typeof data === "object" && data !== null && "githubInstallationId" in data
-      ? (data as { githubInstallationId?: unknown }).githubInstallationId
-      : undefined;
-
-  if (code === "active_installation_required") {
-    return { code };
-  }
-
-  return typeof githubInstallationId === "number" ? { code, githubInstallationId } : null;
 }

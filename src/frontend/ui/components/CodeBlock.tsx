@@ -286,11 +286,17 @@ export interface CodeBlockContainerProps extends React.HTMLAttributes<HTMLDivEle
 export function CodeBlockContainer({
   className,
   children,
+  tabIndex = 0,
   ref,
   ...props
 }: CodeBlockContainerProps & { ref?: React.Ref<HTMLDivElement> }) {
   return (
-    <div ref={ref} className={cx("code-block__container", className)} {...props}>
+    <div
+      ref={ref}
+      className={cx("code-block__container", className)}
+      tabIndex={tabIndex}
+      {...props}
+    >
       {children}
     </div>
   );
@@ -335,7 +341,7 @@ export function CodeBlockContent({
           lang: toShikiLang(language),
           theme,
         });
-        if (!cancelled) setHtml(out);
+        if (!cancelled) setHtml(removeInjectedPreTabIndex(out));
       } catch {
         if (!cancelled) setHtml(`<pre>${escapeHtml(code)}</pre>`);
       }
@@ -373,6 +379,10 @@ export function CodeBlockContent({
       {...props}
     />
   );
+}
+
+function removeInjectedPreTabIndex(html: string): string {
+  return html.replace(/\s+tabindex=(["'])0\1/g, "");
 }
 
 function escapeHtml(s: string): string {

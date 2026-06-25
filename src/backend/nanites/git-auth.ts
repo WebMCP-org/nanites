@@ -70,21 +70,36 @@ function readGitRemote(options: { readonly remote?: string }): string {
 }
 
 function readGitToolOptions(command: LazyGitAuthCommand, rawOptions: unknown): LazyGitToolOptions {
+  const normalizedOptions = normalizeGitOptions(rawOptions);
   switch (command) {
     case "clone":
-      return (rawOptions ?? {}) as GitCloneToolOptions;
+      return (normalizedOptions ?? {}) as GitCloneToolOptions;
     case "fetch":
-      return (rawOptions ?? {}) as GitFetchToolOptions;
+      return (normalizedOptions ?? {}) as GitFetchToolOptions;
     case "pull":
-      return (rawOptions ?? {}) as GitPullToolOptions;
+      return (normalizedOptions ?? {}) as GitPullToolOptions;
     case "push":
-      return (rawOptions ?? {}) as GitPushToolOptions;
+      return (normalizedOptions ?? {}) as GitPushToolOptions;
   }
 }
 
 function stripGitCredentials<T extends GitAuthFields>(options: T): Omit<T, keyof GitAuthFields> {
   const { token: _token, username: _username, password: _password, ...rest } = options;
   return rest;
+}
+
+function normalizeGitOptions(rawOptions: unknown): unknown {
+  if (!rawOptions || typeof rawOptions !== "object" || Array.isArray(rawOptions)) {
+    return rawOptions;
+  }
+
+  const options = rawOptions as Record<string, unknown>;
+  if (typeof options.dir === "string" || typeof options.cwd !== "string") {
+    return rawOptions;
+  }
+
+  const { cwd, ...rest } = options;
+  return { ...rest, dir: cwd };
 }
 
 type LazyGitAuthWrapOptions = {
@@ -148,14 +163,15 @@ function wrapGitToolProviderWithLazyAuth(
     wrappedTools[command] = {
       ...gitTool,
       execute: async (rawOptions?: unknown) => {
+        const normalizedOptions = normalizeGitOptions(rawOptions);
         if (!isLazyGitAuthCommand(command)) {
-          return gitTool.execute(rawOptions);
+          return gitTool.execute(normalizedOptions);
         }
 
         return executeWithLazyAuth({
           command,
           gitTool,
-          toolOptions: readGitToolOptions(command, rawOptions),
+          toolOptions: readGitToolOptions(command, normalizedOptions),
           options,
         });
       },

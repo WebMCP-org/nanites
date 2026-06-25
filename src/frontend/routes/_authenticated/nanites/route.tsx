@@ -11,7 +11,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -20,7 +19,7 @@ import {
   type ReactNode,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, Navigate, createFileRoute, useLocation } from "@tanstack/react-router";
+import { Link, createFileRoute, useLocation } from "@tanstack/react-router";
 import { useAgent } from "agents/react";
 import { DetailedError, parseResponse } from "hono/client";
 import { z } from "zod";
@@ -58,7 +57,6 @@ import {
   GitPullRequestIcon,
   GithubLogoIcon,
   MagnifyingGlassIcon,
-  PlusIcon,
   SlidersHorizontalIcon,
   SidebarSimpleIcon,
   SignOutIcon,
@@ -74,13 +72,7 @@ import type {
   NaniteRunRecord,
   NaniteRunStatus,
   SigveloNaniteManager,
-  TestNaniteTriggerOutput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
-import type {
-  GitHubIssuesFixtureId,
-  GitHubPullRequestFixtureId,
-  GitHubTriggerFixtureInput,
-} from "#/backend/nanites/triggers.ts";
 import type {
   NaniteAgentState,
   NaniteWorkspaceInfo,
@@ -93,8 +85,7 @@ import {
   NaniteRuntimeChatLoading,
   type NaniteAgentInstance,
 } from "#/frontend/routes/_authenticated/nanites/-runtime-chat.tsx";
-import { NanitesChooseInstallationState } from "#/frontend/routes/_authenticated/nanites/-choose-installation-state.tsx";
-import { NanitesZeroInstallState } from "#/frontend/routes/_authenticated/nanites/-zero-install-state.tsx";
+import { GitHubInstallRequiredState } from "#/frontend/routes/_authenticated/-github-install-required-state.tsx";
 import {
   getNextNaniteDesktopPanel,
   NaniteDesktopPanelControls,
@@ -102,23 +93,21 @@ import {
 } from "#/frontend/routes/_authenticated/nanites/-layout-controls.tsx";
 import { AgentConnectionPopover } from "#/frontend/ui/components/AgentConnection.tsx";
 import {
-  Select,
-  SelectList,
-  SelectOption,
-  SelectPopup,
-  SelectPortal,
-  SelectPositioner,
-  SelectTrigger,
-  SelectValue,
-} from "#/frontend/ui/components/Select.tsx";
+  CloudflareModelSelector,
+  type CloudflareModelSelectorGroup,
+} from "#/frontend/ui/components/ModelSelector.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
-import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
-import { useBrowserInstallationSelection } from "#/frontend/lib/browser-installation-selection.ts";
+import {
+  AUTH_SESSION_QUERY_KEY,
+  buildReturnToPath,
+  fetchOptionalSession,
+  invalidateAuthQueries,
+} from "#/frontend/lib/auth.ts";
 import type {
   SigveloManagerConversationAgent,
   ManagerConversationState,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
-import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
+import { buildNaniteAgentName, type NaniteManagerKey } from "#/shared/utils/nanites.ts";
 import { buildGitHubAppInstallHref } from "#/shared/utils/github.ts";
 import {
   getGitHubWebhookAction,
@@ -142,6 +131,38 @@ type BrowserDeploymentGitHubApp = {
   readonly htmlUrl: string;
   readonly ownerLogin: string | null;
 };
+
+type NaniteModelCatalogGroup = CloudflareModelSelectorGroup;
+
+type NaniteModelCatalog = {
+  readonly groups: readonly NaniteModelCatalogGroup[];
+  readonly thirdPartyModelsUrl: string | null;
+};
+
+const naniteModelProviderLabels: Record<string, string> = {
+  ai4bharat: "AI4Bharat",
+  aisingapore: "AI Singapore",
+  alibaba: "Alibaba",
+  anthropic: "Anthropic",
+  baai: "BAAI",
+  deepseek: "DeepSeek",
+  "deepseek-ai": "DeepSeek",
+  google: "Google",
+  ibm: "IBM",
+  "ibm-granite": "IBM",
+  meta: "Meta",
+  "meta-llama": "Meta",
+  mistral: "Mistral AI",
+  mistralai: "Mistral AI",
+  minimax: "MiniMax",
+  moonshotai: "Moonshot AI",
+  nvidia: "NVIDIA",
+  openai: "OpenAI",
+  qwen: "Qwen",
+  xai: "xAI",
+  "zai-org": "Zhipu AI",
+};
+
 async function logoutSession(): Promise<void> {
   await parseResponse(httpClient.api.auth.session.logout.$post());
 }
@@ -168,12 +189,75 @@ async function fetchManagerState(
   };
 }
 
-async function fetchNaniteModels(): Promise<string[]> {
-  const data = await readJsonResponse(httpClient.api.nanites.models.$get());
+function looksLikeRunnableModelId(value: string): boolean {
+  return value.startsWith("@") || /^[a-z0-9][a-z0-9-]*\//i.test(value);
+}
+
+function readNaniteModelId(entry: unknown): string | null {
+  if (typeof entry === "string") {
+    const modelId = entry.trim();
+    return modelId.length > 0 ? modelId : null;
+  }
+
+  if (!isRecord(entry)) {
+    return null;
+  }
+
+  const candidates = [entry.name, entry.id].flatMap((value) => {
+    if (typeof value !== "string") {
+      return [];
+    }
+
+    const modelId = value.trim();
+    return modelId ? [modelId] : [];
+  });
+  return candidates.find(looksLikeRunnableModelId) ?? candidates[0] ?? null;
+}
+
+function formatNaniteModelProvider(provider: string): string {
+  const normalized = provider.trim().toLowerCase();
+  if (naniteModelProviderLabels[normalized]) {
+    return naniteModelProviderLabels[normalized];
+  }
+
+  return normalized
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function readNaniteModelProvider(modelId: string): string {
+  const [, hostedProvider] = /^@(?:cf|hf)\/([^/]+)/.exec(modelId) ?? [];
+  if (hostedProvider) {
+    return formatNaniteModelProvider(hostedProvider);
+  }
+
+  const [provider] = modelId.split("/", 1);
+  return provider ? formatNaniteModelProvider(provider) : "Other";
+}
+
+function readNaniteModelCatalog(data: unknown): NaniteModelCatalog {
   if (!isRecord(data) || !Array.isArray(data.models)) {
     throw new Error("Nanite models response was malformed.");
   }
-  return data.models.filter((model): model is string => typeof model === "string");
+
+  const models = data.models
+    .map(readNaniteModelId)
+    .filter((modelId): modelId is string => modelId !== null);
+  return {
+    groups: [...Map.groupBy(models, readNaniteModelProvider)].map(([provider, groupModels]) => ({
+      provider,
+      models: [...new Set(groupModels)],
+    })),
+    thirdPartyModelsUrl:
+      typeof data.thirdPartyModelsUrl === "string" ? data.thirdPartyModelsUrl : null,
+  };
+}
+
+async function fetchNaniteModels(): Promise<NaniteModelCatalog> {
+  const data = await readJsonResponse(httpClient.api.nanites.models.$get());
+  return readNaniteModelCatalog(data);
 }
 
 async function readJsonResponse(
@@ -252,11 +336,9 @@ type NaniteMobileView = "nanites" | "chat" | "files" | "summary";
 
 export const Route = createFileRoute("/_authenticated/nanites")({
   validateSearch: z.object({
-    installationId: z.coerce.number().int().positive().optional(),
     mode: z.enum(["create"]).optional(),
     naniteId: z.string().optional(),
     runId: z.string().optional(),
-    surface: z.enum(["manager", "nanite"]).optional(),
   }),
   component: NanitesRoute,
 });
@@ -463,14 +545,12 @@ function withAvatarSize(avatar_url: string | null, size: number): string | undef
   }
 }
 
-function InstallationPicker({
+function AccountMenu({
   activeInstallation,
   githubApp,
-  installations,
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
   readonly githubApp: BrowserDeploymentGitHubApp | null;
-  readonly installations: readonly SessionInstallationSnapshot[];
 }) {
   const navigate = Route.useNavigate();
   const location = useLocation();
@@ -489,11 +569,7 @@ function InstallationPicker({
     },
   });
 
-  const otherInstallations = installations.filter(
-    (installation) => installation.id !== activeInstallation.id,
-  );
   const returnToPath = buildReturnToPath(location);
-  const installHref = buildGitHubAppInstallHref({ appSlug: githubApp?.slug, state: returnToPath });
   const manageAccessHref = buildGitHubAppInstallHref({
     appSlug: githubApp?.slug,
     state: returnToPath,
@@ -537,67 +613,8 @@ function InstallationPicker({
               </div>
             </div>
 
-            {otherInstallations.length > 0 ? (
-              <>
-                <div className="account-menu__divider" />
-                <div className="account-menu__section-label">Switch accounts</div>
-                <ul className="account-menu__list">
-                  {otherInstallations.map((installation) => {
-                    const account = installation.account;
-                    const accountLogin = account?.login ?? "Unknown account";
-                    const rowAvatarSrc = withAvatarSize(account?.avatar_url ?? null, 56);
-                    return (
-                      <li key={installation.id}>
-                        <button
-                          type="button"
-                          className="account-menu__account-row"
-                          onClick={() => {
-                            void navigate({
-                              to: "/nanites",
-                              search: (previous) => ({
-                                ...previous,
-                                installationId: installation.id,
-                                mode: undefined,
-                                naniteId: undefined,
-                                runId: undefined,
-                                surface: undefined,
-                              }),
-                            });
-                          }}
-                        >
-                          <Avatar.Root className="account-menu__row-avatar">
-                            {rowAvatarSrc ? (
-                              <Avatar.Image src={rowAvatarSrc} alt="" width={56} height={56} />
-                            ) : null}
-                            <Avatar.Fallback>
-                              {accountLogin.slice(0, 2).toUpperCase()}
-                            </Avatar.Fallback>
-                          </Avatar.Root>
-                          <div className="account-menu__row-info">
-                            <span className="account-menu__row-login">{accountLogin}</span>
-                            <span className="account-menu__row-type">
-                              {account?.type ?? "Account"}
-                            </span>
-                          </div>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            ) : null}
-
             <div className="account-menu__divider" />
 
-            <a className="account-menu__action" href={installHref} target="_blank" rel="noreferrer">
-              <PlusIcon size={14} aria-hidden="true" />
-              <span>
-                {installations.length === 0
-                  ? "Install Nanites on GitHub"
-                  : "Install on another account"}
-              </span>
-              <ArrowSquareOutIcon size={14} aria-hidden="true" />
-            </a>
             <a
               className="account-menu__action"
               href={manageAccessHref}
@@ -615,21 +632,22 @@ function InstallationPicker({
               rel="noreferrer"
             >
               <GithubLogoIcon size={14} aria-hidden="true" />
-              <span>View Nanites on GitHub Marketplace</span>
+              <span>View GitHub App</span>
               <ArrowSquareOutIcon size={14} aria-hidden="true" />
             </a>
 
             <div className="account-menu__divider" />
 
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              color="neutral"
               className="account-menu__action"
               disabled={logout.isPending}
               onClick={() => logout.mutate()}
             >
               <SignOutIcon size={14} aria-hidden="true" />
               <span>{logout.isPending ? "Signing out..." : "Sign out"}</span>
-            </button>
+            </Button>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -680,79 +698,6 @@ function formatEventSourceSpec(eventSource: NaniteEventSource): string {
     case "github":
       return `github: ${eventSource.events?.join(", ") ?? "all events"}`;
   }
-}
-
-function buildBrowserTriggerTestEvent(nanite: ManagedNanite): GitHubTriggerFixtureInput | null {
-  const eventSource = nanite.manifest.eventSource;
-  if (eventSource.type !== "github") {
-    return null;
-  }
-
-  const events = eventSource.events ?? [];
-  const actions = eventSource.actions ?? [];
-  const repository =
-    eventSource.repositories?.[0] ?? nanite.manifest.permissions.github?.repositories[0];
-  if (!repository) {
-    return null;
-  }
-
-  const [owner = repository, name = repository] = repository.split("/", 2);
-  const repositoryOverride = {
-    full_name: repository,
-    name,
-    owner: { login: owner },
-  };
-  if (events.length === 0 || events.includes("push")) {
-    const branch = eventSource.branches?.[0] ?? "main";
-    return {
-      fixture: "push",
-      overrides: {
-        ref: `refs/heads/${branch}`,
-        repository: repositoryOverride,
-      },
-    };
-  }
-
-  if (events.some((event) => event.startsWith("pull_request"))) {
-    let fixture: GitHubPullRequestFixtureId = "pull_request.opened";
-    if (events.includes("pull_request.synchronize") || actions.includes("synchronize")) {
-      fixture = "pull_request.synchronize";
-    } else if (events.includes("pull_request.reopened") || actions.includes("reopened")) {
-      fixture = "pull_request.reopened";
-    } else if (events.includes("pull_request.closed") || actions.includes("closed")) {
-      fixture = "pull_request.closed";
-    }
-
-    return {
-      fixture,
-      overrides: {
-        repository: repositoryOverride,
-      },
-    };
-  }
-
-  if (!events.some((event) => event.startsWith("issues"))) {
-    return null;
-  }
-
-  let fixture: GitHubIssuesFixtureId = "issues.opened";
-  if (events.includes("issues.reopened") || actions.includes("reopened")) {
-    fixture = "issues.reopened";
-  } else if (events.includes("issues.edited") || actions.includes("edited")) {
-    fixture = "issues.edited";
-  } else if (events.includes("issues.closed") || actions.includes("closed")) {
-    fixture = "issues.closed";
-  }
-
-  return {
-    fixture,
-    overrides: {
-      repository: repositoryOverride,
-      issue: {
-        title: `${nanite.manifest.name} trigger fixture`,
-      },
-    },
-  };
 }
 
 function formatTriggerEvent(trigger: NaniteRunRecord["trigger"]): string {
@@ -923,15 +868,16 @@ function InfoSection({
       data-collapsed={collapsible && !isOpen ? "true" : undefined}
     >
       {collapsible ? (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          color="neutral"
           className="nanites-workspace__info-section-header"
           aria-expanded={isOpen}
           onClick={() => setIsOpen((open) => !open)}
         >
           <h2>{title}</h2>
           <CaretDownIcon size={12} aria-hidden="true" />
-        </button>
+        </Button>
       ) : (
         <div className="nanites-workspace__info-section-label">
           <h2>{title}</h2>
@@ -1039,8 +985,9 @@ function NaniteInfoRail({
 }
 
 // Shared model picker for the manager and Nanite cards. `currentModel` is the
-// live source of truth (null while it loads → disabled); `onSelectModel` performs
-// the switch and resolves once it lands so the optimistic value can clear.
+// live source of truth; null means the switcher is disabled until it loads.
+// `onSelectModel` performs the switch and resolves once it lands so the
+// optimistic value can clear.
 function ModelSelect({
   ariaLabel,
   currentModel,
@@ -1050,9 +997,8 @@ function ModelSelect({
   readonly currentModel: string | null;
   readonly onSelectModel: (modelId: string) => Promise<unknown>;
 }) {
-  const labelId = useId();
   const {
-    data: models,
+    data: modelCatalog,
     isLoading: modelsLoading,
     error: modelsError,
   } = useQuery({
@@ -1063,66 +1009,37 @@ function ModelSelect({
   const [pendingModel, setPendingModel] = useState<string | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   const selectedModel = pendingModel ?? currentModel ?? "";
-  // Keep the active model selectable even if it falls outside the fetched catalog.
-  const modelItems = useMemo(() => {
-    const list = models ?? [];
-    const withActive =
-      currentModel && !list.includes(currentModel) ? [currentModel, ...list] : list;
-    return withActive.map((model) => ({ label: model, value: model }));
-  }, [models, currentModel]);
+  const modelChangeDisabled = currentModel === null || pendingModel !== null;
+  const modelGroups = modelCatalog?.groups;
+  const thirdPartyModelsUrl = modelCatalog?.thirdPartyModelsUrl ?? null;
+  const selectModel = (next: string) => {
+    if (next === selectedModel) {
+      return;
+    }
+
+    setPendingModel(next);
+    setModelError(null);
+    void onSelectModel(next)
+      .then(() => setPendingModel(null))
+      .catch((error: unknown) => {
+        setPendingModel(null);
+        setModelError(getErrorMessage(error));
+      });
+  };
+  const error = modelsError ? "Could not load available models. Try reloading." : modelError;
 
   return (
     <InfoSection title="Model" collapsible={false}>
-      <span id={labelId} className="visually-hidden">
-        {ariaLabel}
-      </span>
-      <Select
-        value={selectedModel}
-        items={modelItems}
-        disabled={modelsLoading || currentModel === null || pendingModel !== null}
-        onValueChange={(next: unknown) => {
-          if (typeof next !== "string") {
-            return;
-          }
-          if (next === selectedModel) {
-            return;
-          }
-          setPendingModel(next);
-          setModelError(null);
-          void onSelectModel(next)
-            .then(() => setPendingModel(null))
-            .catch((error: unknown) => {
-              setPendingModel(null);
-              setModelError(getErrorMessage(error));
-            });
-        }}
-      >
-        <SelectTrigger size="sm" aria-labelledby={labelId}>
-          <SelectValue placeholder={modelsLoading ? "Loading models..." : "Select a model"} />
-        </SelectTrigger>
-        <SelectPortal>
-          <SelectPositioner>
-            <SelectPopup>
-              <SelectList>
-                {modelItems.map((item) => (
-                  <SelectOption key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectOption>
-                ))}
-              </SelectList>
-            </SelectPopup>
-          </SelectPositioner>
-        </SelectPortal>
-      </Select>
-      {modelsError ? (
-        <p className="nanites-workspace__action-error" role="alert">
-          Could not load available models. Try reloading.
-        </p>
-      ) : modelError ? (
-        <p className="nanites-workspace__action-error" role="alert">
-          {modelError}
-        </p>
-      ) : null}
+      <CloudflareModelSelector
+        label={ariaLabel}
+        value={selectedModel || null}
+        groups={modelGroups ?? []}
+        disabled={modelChangeDisabled}
+        loading={modelsLoading}
+        gatewayModelsHref={thirdPartyModelsUrl}
+        error={error}
+        onValueChange={selectModel}
+      />
     </InfoSection>
   );
 }
@@ -1131,7 +1048,7 @@ function NaniteManagerInfoPanel({
   managerName,
   actor,
 }: {
-  readonly managerName: string;
+  readonly managerName: NaniteManagerKey;
   readonly actor: BrowserNanitesContext["actor"];
 }) {
   const conversationAgent = useAgent<SigveloManagerConversationAgent, ManagerConversationState>({
@@ -1168,29 +1085,22 @@ function NaniteRunInfoPanel({
   deleteError,
   githubAppSlug,
   isDeleting,
-  isTestingTrigger,
   nanite,
   onDeleteNanite,
   onSetNaniteModel,
-  onTestTrigger,
   run,
-  testTriggerError,
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
   readonly deleteError: unknown;
   readonly githubAppSlug: string | null;
   readonly isDeleting: boolean;
-  readonly isTestingTrigger: boolean;
   readonly nanite: ManagedNanite | null;
   readonly onDeleteNanite: () => void;
   readonly onSetNaniteModel: (modelId: string) => Promise<unknown>;
-  readonly onTestTrigger: () => void;
   readonly run: NaniteRunRecord | null;
-  readonly testTriggerError: unknown;
 }) {
   const [confirmingDeleteNaniteId, setConfirmingDeleteNaniteId] = useState<string | null>(null);
   const isConfirmingDelete = confirmingDeleteNaniteId === nanite?.manifest.id;
-  const canTestTrigger = nanite ? buildBrowserTriggerTestEvent(nanite) !== null : false;
   const repository =
     (run ? getRunRepository(run) : null) ??
     nanite?.manifest.permissions.github?.repositories[0] ??
@@ -1303,8 +1213,9 @@ function NaniteRunInfoPanel({
             <p>{nanite.manifest.description}</p>
           </div>
           <div className="nanites-workspace__danger-zone">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              color="destructive"
               className="nanites-workspace__danger-action"
               data-confirming={isConfirmingDelete ? "true" : undefined}
               disabled={isDeleting}
@@ -1325,15 +1236,16 @@ function NaniteRunInfoPanel({
                     ? "Confirm delete"
                     : "Delete Nanite"}
               </span>
-            </button>
+            </Button>
             {isConfirmingDelete && !isDeleting ? (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                color="neutral"
                 className="nanites-workspace__danger-cancel"
                 onClick={() => setConfirmingDeleteNaniteId(null)}
               >
                 Cancel
-              </button>
+              </Button>
             ) : null}
           </div>
           {deleteError ? (
@@ -1350,32 +1262,6 @@ function NaniteRunInfoPanel({
           currentModel={nanite.manifest.model}
           onSelectModel={onSetNaniteModel}
         />
-      ) : null}
-
-      {nanite && canTestTrigger ? (
-        <InfoSection title="Controls" collapsible={false}>
-          <div className="nanites-workspace__danger-zone">
-            <Button
-              color="neutral"
-              size="sm"
-              variant="outline"
-              disabled={isTestingTrigger}
-              onClick={onTestTrigger}
-            >
-              {isTestingTrigger ? (
-                <CircleNotchIcon size={14} aria-hidden="true" />
-              ) : (
-                <ArrowClockwiseIcon size={14} aria-hidden="true" />
-              )}
-              <span>{isTestingTrigger ? "Testing..." : "Test trigger"}</span>
-            </Button>
-          </div>
-          {testTriggerError ? (
-            <p className="nanites-workspace__action-error" role="alert">
-              {getErrorMessage(testTriggerError)}
-            </p>
-          ) : null}
-        </InfoSection>
       ) : null}
 
       {gitInfoLinks.length > 0 ? (
@@ -2077,70 +1963,40 @@ function NaniteWorkspaceReview({
 function NanitesRoute() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { session, visibleInstallations, installationSelection, isPending } =
-    useBrowserInstallationSelection(search.installationId);
+  const { data: session, isPending } = useQuery({
+    queryKey: AUTH_SESSION_QUERY_KEY,
+    queryFn: fetchOptionalSession,
+  });
   const actor = session?.actor ?? null;
   const githubApp = session?.githubApp ?? null;
-  const selectedInstallation = actor ? installationSelection.installation : null;
+  const activeInstallation = session?.activeInstallation ?? null;
 
   if (isPending) {
     return <RoutePendingPage />;
   }
 
-  if (installationSelection.canonicalInstallationId !== null) {
-    return (
-      <Navigate
-        to="/nanites"
-        search={{ ...search, installationId: installationSelection.canonicalInstallationId }}
-        replace
-      />
-    );
+  if (!activeInstallation || !actor) {
+    return <GitHubInstallRequiredState githubApp={githubApp} />;
   }
 
-  if (!selectedInstallation || !actor) {
-    if (visibleInstallations.length > 0) {
-      return (
-        <NanitesChooseInstallationState
-          installations={visibleInstallations}
-          onSelectInstallation={(installationId) => {
-            void navigate({
-              to: "/nanites",
-              search: {
-                installationId,
-              },
-            });
-          }}
-        />
-      );
-    }
-
-    return <NanitesZeroInstallState githubApp={githubApp} />;
-  }
-
-  const managerName = buildNaniteManagerKey({
-    githubAppId: selectedInstallation.githubAppId,
-    githubInstallationId: selectedInstallation.id,
-  });
+  const managerName = activeInstallation.managerName;
 
   return (
     <NanitesRuntimeSurface
       actor={actor}
-      activeInstallation={selectedInstallation}
+      activeInstallation={activeInstallation}
       githubApp={githubApp}
-      installations={visibleInstallations}
       managerName={managerName}
-      selectedMode={search.mode === "create" || search.surface === "manager" ? "create" : null}
+      selectedMode={search.mode === "create" ? "create" : null}
       selectedNaniteId={search.naniteId ?? null}
       selectedRunId={search.runId ?? null}
       setSelection={(selection) =>
         void navigate({
           search: (previous) => ({
             ...previous,
-            installationId: selectedInstallation.id,
             mode: "mode" in selection ? selection.mode : undefined,
             naniteId: "naniteId" in selection ? selection.naniteId : undefined,
             runId: undefined,
-            surface: undefined,
           }),
           replace: true,
         })
@@ -2149,11 +2005,27 @@ function NanitesRoute() {
   );
 }
 
+function NaniteAgentConnection({
+  children,
+  managerName,
+  naniteId,
+}: {
+  readonly children: (agent: NaniteAgentInstance) => ReactNode;
+  readonly managerName: NaniteManagerKey;
+  readonly naniteId: string;
+}) {
+  const naniteAgent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
+    agent: NANITE_AGENT_NAME,
+    name: buildNaniteAgentName({ managerName, naniteId }),
+  });
+
+  return children(naniteAgent);
+}
+
 function NanitesRuntimeSurface({
   activeInstallation,
   actor,
   githubApp,
-  installations,
   managerName,
   selectedMode,
   selectedNaniteId,
@@ -2163,8 +2035,7 @@ function NanitesRuntimeSurface({
   readonly activeInstallation: SessionInstallationSnapshot;
   readonly actor: BrowserNanitesContext["actor"];
   readonly githubApp: BrowserDeploymentGitHubApp | null;
-  readonly installations: readonly SessionInstallationSnapshot[];
-  readonly managerName: string;
+  readonly managerName: NaniteManagerKey;
   readonly selectedMode: "create" | null;
   readonly selectedNaniteId: string | null;
   readonly selectedRunId: string | null;
@@ -2186,9 +2057,6 @@ function NanitesRuntimeSurface({
   const manager = useAgent<SigveloNaniteManager, NaniteManagerState>({
     agent: NANITE_MANAGER_NAME,
     name: managerName,
-    // agents 0.16 defaults non-streaming RPC calls to a 30s timeout;
-    // testNaniteTrigger waits for a terminal run outcome and routinely needs longer.
-    defaultCallTimeout: 120_000,
   });
   const initialState = isNaniteManagerState(managerStateData?.state)
     ? managerStateData.state
@@ -2255,19 +2123,6 @@ function NanitesRuntimeSurface({
     null;
   const selectedNanite = activeNaniteItem?.nanite ?? null;
   const selectedNaniteAgentId = activeNaniteItem?.id ?? null;
-  const naniteAgent = useAgent<SigveloNaniteAgent, NaniteAgentState>({
-    agent: NANITE_MANAGER_NAME,
-    name: managerName,
-    enabled: selectedNaniteAgentId !== null,
-    sub: selectedNaniteAgentId
-      ? [
-          {
-            agent: NANITE_AGENT_NAME,
-            name: selectedNaniteAgentId,
-          },
-        ]
-      : [],
-  });
   const visibleMobileViews = selectedNaniteAgentId ? naniteMobileViews : managerMobileViews;
   const activeMobileView = visibleMobileViews.includes(mobileView) ? mobileView : "chat";
   // Create mode (the manager) has no file explorer, but it shares the summary
@@ -2304,54 +2159,15 @@ function NanitesRuntimeSurface({
       await navigate({
         search: (previous) => ({
           ...previous,
-          installationId: activeInstallation.id,
           mode: undefined,
           naniteId: undefined,
           runId: undefined,
-          surface: undefined,
         }),
         replace: true,
       });
       setMobileView("chat");
     },
   });
-  const testTrigger = useMutation({
-    mutationFn: async (input: { readonly nanite: ManagedNanite }) => {
-      const event = buildBrowserTriggerTestEvent(input.nanite);
-      if (!event) {
-        throw new Error("Only GitHub-triggered Nanites can run trigger tests from the browser.");
-      }
-
-      const output = (await manager.stub.testNaniteTrigger({
-        naniteId: input.nanite.manifest.id,
-        actorId: `github:${actor.id}`,
-        requestId: crypto.randomUUID(),
-        event,
-      })) as TestNaniteTriggerOutput;
-      if (!output.ok) {
-        throw new Error(output.error);
-      }
-
-      return output;
-    },
-    onSuccess: async (output) => {
-      const latestRun = output.runs[0] ?? null;
-      await refetchManagerState();
-      await navigate({
-        search: (previous) => ({
-          ...previous,
-          installationId: activeInstallation.id,
-          mode: undefined,
-          naniteId: output.naniteId,
-          runId: latestRun?.runId,
-          surface: undefined,
-        }),
-        replace: true,
-      });
-      setMobileView("chat");
-    },
-  });
-
   const moveMobileView = (direction: 1 | -1) => {
     const currentIndex = visibleMobileViews.indexOf(activeMobileView);
     const nextIndex = Math.min(
@@ -2364,7 +2180,7 @@ function NanitesRuntimeSurface({
     }
   };
 
-  const main = (
+  const renderMain = (naniteAgent: NaniteAgentInstance | null) => (
     <main
       className="nanites-workspace"
       data-desktop-panel={effectiveDesktopPanel ?? "closed"}
@@ -2441,15 +2257,17 @@ function NanitesRuntimeSurface({
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    color="neutral"
+                    size="icon"
                     aria-label={isSidebarOpen ? "Hide Nanites sidebar" : "Show Nanites sidebar"}
                     aria-pressed={isSidebarOpen}
                     data-selected={isSidebarOpen}
                     onClick={() => setIsSidebarOpen((current) => !current)}
                   >
                     <SidebarSimpleIcon size={14} aria-hidden="true" />
-                  </button>
+                  </Button>
                 }
               />
               <TooltipPortal>
@@ -2477,11 +2295,7 @@ function NanitesRuntimeSurface({
       <aside className="nanites-workspace__sidebar app__pane" aria-label="Nanites">
         <div className="nanites-workspace__masthead">
           <div className="app__brand">
-            <InstallationPicker
-              activeInstallation={activeInstallation}
-              githubApp={githubApp}
-              installations={installations}
-            />
+            <AccountMenu activeInstallation={activeInstallation} githubApp={githubApp} />
           </div>
           <div className="nanites-workspace__masthead-actions">
             <Tooltip>
@@ -2491,7 +2305,6 @@ function NanitesRuntimeSurface({
                     className="nanites-workspace__nav-link"
                     to="/observability"
                     search={{
-                      installationId: activeInstallation.id,
                       range: "7d",
                     }}
                     aria-label="Open observability"
@@ -2525,8 +2338,9 @@ function NanitesRuntimeSurface({
                   data-collapsed={isCollapsed || undefined}
                   key={group.repository}
                 >
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    color="neutral"
                     className="nanites-workspace__group-header"
                     onClick={() => toggleGroupCollapsed(group.repository)}
                     aria-expanded={!isCollapsed}
@@ -2542,11 +2356,13 @@ function NanitesRuntimeSurface({
                       <span>{groupLabel}</span>
                     </span>
                     <span>{group.items.length}</span>
-                  </button>
+                  </Button>
                   <ul className="nanites-workspace__items" hidden={isCollapsed || undefined}>
                     {group.items.map((item) => (
                       <li key={`${group.repository}:${item.id}`}>
-                        <button
+                        <Button
+                          variant="ghost"
+                          color="neutral"
                           className="nanites-workspace__item"
                           data-selected={!isCreateMode && item.id === activeNaniteItem?.id}
                           onClick={() => {
@@ -2581,7 +2397,7 @@ function NanitesRuntimeSurface({
                               ? getRunActivityLabel(item.latestRun, item.activity)
                               : null}
                           </span>
-                        </button>
+                        </Button>
                       </li>
                     ))}
                   </ul>
@@ -2630,13 +2446,13 @@ function NanitesRuntimeSurface({
                 <ManagerRuntimeChatConnector
                   accountLogin={activeInstallation.account.login}
                   actor={actor}
-                  emptyDescription={`Describe how you want Nanites configured for ${activeInstallation.account.login}, including repos, triggers, responsibilities, and stop conditions.`}
+                  emptyDescription="Start with a focused web-maintenance Nanite, or describe another responsibility."
                   emptyTitle="Configure Nanites"
                   errorDescription="The Nanite configuration conversation could not connect."
                   loadingDescription={`Connecting the configuration agent for ${activeInstallation.account.login}. You’ll be able to describe how you want Nanites configured here in a moment.`}
                   loadingTitle={`Preparing configuration for ${activeInstallation.account.login}`}
                   managerName={managerName}
-                  placeholder={`Describe how you want Nanites configured for ${activeInstallation.account.login}`}
+                  placeholder="Ask the manager to create or tune a Nanite"
                 />
               </Suspense>
             ) : selectedNaniteAgentId ? (
@@ -2656,7 +2472,17 @@ function NanitesRuntimeSurface({
                   />
                 }
               >
-                <NaniteRuntimeChatConnector key={selectedNaniteAgentId} agent={naniteAgent} />
+                {naniteAgent ? (
+                  <NaniteRuntimeChatConnector
+                    key={`${managerName}:${selectedNaniteAgentId}`}
+                    agent={naniteAgent}
+                  />
+                ) : (
+                  <NaniteRuntimeChatLoading
+                    description="Waiting for the selected Nanite connection to initialize."
+                    title="Loading selected Nanite"
+                  />
+                )}
               </Suspense>
             ) : (
               <NaniteRuntimeChatLoading
@@ -2681,15 +2507,7 @@ function NanitesRuntimeSurface({
               deleteError={deleteNanite.error}
               githubAppSlug={githubApp?.slug ?? null}
               isDeleting={deleteNanite.isPending}
-              isTestingTrigger={testTrigger.isPending}
               nanite={selectedNanite}
-              onTestTrigger={() => {
-                if (!selectedNanite) {
-                  return;
-                }
-
-                testTrigger.mutate({ nanite: selectedNanite });
-              }}
               onDeleteNanite={() => {
                 if (!selectedNaniteAgentId) {
                   return;
@@ -2716,7 +2534,6 @@ function NanitesRuntimeSurface({
                 });
               }}
               run={selectedRun}
-              testTriggerError={testTrigger.error}
             />
           ) : (
             <RoutePendingPage
@@ -2755,49 +2572,65 @@ function NanitesRuntimeSurface({
           } as CSSProperties
         }
       >
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          color="neutral"
           data-selected={activeMobileView === "nanites"}
           aria-current={activeMobileView === "nanites" ? "true" : undefined}
           onClick={() => setMobileView("nanites")}
         >
           <FolderSimpleIcon size={18} aria-hidden="true" />
           <span>Nanites</span>
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="ghost"
+          color="neutral"
           data-selected={activeMobileView === "chat"}
           aria-current={activeMobileView === "chat" ? "true" : undefined}
           onClick={() => setMobileView("chat")}
         >
           <ChatCircleTextIcon size={18} aria-hidden="true" />
           <span>Chat</span>
-        </button>
+        </Button>
         {selectedNaniteAgentId ? (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            color="neutral"
             data-selected={activeMobileView === "files"}
             aria-current={activeMobileView === "files" ? "true" : undefined}
             onClick={() => setMobileView("files")}
           >
             <FileIcon size={18} aria-hidden="true" />
             <span>Files</span>
-          </button>
+          </Button>
         ) : null}
         {selectedNaniteAgentId ? (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            color="neutral"
             data-selected={activeMobileView === "summary"}
             aria-current={activeMobileView === "summary" ? "true" : undefined}
             onClick={() => setMobileView("summary")}
           >
             <SlidersHorizontalIcon size={18} aria-hidden="true" />
             <span>Summary</span>
-          </button>
+          </Button>
         ) : null}
       </nav>
     </main>
   );
 
-  return main;
+  if (selectedNaniteAgentId) {
+    return (
+      <NaniteAgentConnection
+        key={`${managerName}:${selectedNaniteAgentId}`}
+        managerName={managerName}
+        naniteId={selectedNaniteAgentId}
+      >
+        {(naniteAgent) => renderMain(naniteAgent)}
+      </NaniteAgentConnection>
+    );
+  }
+
+  return renderMain(null);
 }

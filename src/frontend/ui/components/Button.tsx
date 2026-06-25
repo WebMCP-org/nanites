@@ -1,5 +1,6 @@
-import { Button as BaseButton } from "@base-ui/react/button";
+import { Button as BaseButton, type ButtonState as BaseButtonState } from "@base-ui/react/button";
 import type { ComponentPropsWithoutRef } from "react";
+import { cx } from "./_internal/class-names.js";
 
 /**
  * The visual rendering style of the button.
@@ -81,9 +82,17 @@ export function Button({
   type = "button",
   ...props
 }: ButtonProps & { ref?: React.Ref<HTMLButtonElement> }) {
-  const classes = ["button", `button--${variant}`, `button--${color}`, `button--${size}`, className]
-    .filter(Boolean)
-    .join(" ");
+  const resolvedClassName =
+    typeof className === "function"
+      ? (state: BaseButtonState) =>
+          cx(
+            "button",
+            `button--${variant}`,
+            `button--${color}`,
+            `button--${size}`,
+            className(state),
+          )
+      : cx("button", `button--${variant}`, `button--${color}`, `button--${size}`, className);
 
-  return <BaseButton ref={ref} type={type} className={classes} {...props} />;
+  return <BaseButton ref={ref} type={type} className={resolvedClassName} {...props} />;
 }

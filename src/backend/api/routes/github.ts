@@ -9,16 +9,20 @@ import { createWebMiddleware, Webhooks } from "@octokit/webhooks";
 import { getAgentByName } from "agents";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { AppError } from "#/backend/errors.ts";
+import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { dispatchGitHubWebhookToNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
+import {
+  buildGitHubManagerMessengerName,
+  type SigveloManagerConversationAgent,
+} from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import type {
   GitHubInstallationRepairReason,
   NanitesSetupAgent,
 } from "#/backend/agents/NanitesSetupAgent.ts";
-import { getGitHubChatIngress } from "#/backend/agents/SigveloChatIngress.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { recordAuthFunnelFact } from "#/backend/db/facts.ts";
-import { resolveGitHubApp } from "#/backend/github/apps.ts";
+import { readDeploymentGitHubAppMetadata, resolveGitHubApp } from "#/backend/github/apps.ts";
 import {
   getGitHubWebhookAction,
   getGitHubWebhookEventName,
@@ -92,15 +96,18 @@ function readGitHubWebhookTargetAppId(request: Request): number | null {
 export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
   GITHUB_WEBHOOK_PATH,
   async (context) => {
-    // Clone before createWebMiddleware consumes the body for signature verification,
-    // so the chat ingress can run its own verification on the original payload.
+    // Clone before createWebMiddleware consumes the body; the GitHub messenger
+    // still needs the original signed webhook request.
     const chatRequest = context.req.raw.clone();
     const isPing = context.req.header("x-github-event") === "ping";
     const db = createDbClient(context.env.DB);
     const githubAppId = readGitHubWebhookTargetAppId(context.req.raw);
+    const deploymentApp = await readDeploymentGitHubAppMetadata(db);
     const githubAppConfig =
-      githubAppId === null ? null : await resolveGitHubApp(db, context.env, githubAppId);
-    if (githubAppId === null || !githubAppConfig) {
+      githubAppId === deploymentApp?.appId
+        ? await resolveGitHubApp(db, context.env, deploymentApp.appId)
+        : null;
+    if (githubAppId === null || !deploymentApp || !githubAppConfig) {
       context.executionCtx.waitUntil(
         recordAuthFunnelFact(db, {
           eventType: "github_webhook_rejected_unknown_app",
@@ -148,20 +155,38 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
       ) {
         context.executionCtx.waitUntil(
           (async () => {
-            const ingress = await getGitHubChatIngress(context.env);
-            const response = await ingress.fetch(chatRequest.url, {
+            const githubInstallationId = getGitHubWebhookInstallationId(event);
+            const deploymentInstallation = await requireDeploymentGitHubInstallation(context.env);
+            if (
+              typeof githubInstallationId !== "number" ||
+              githubInstallationId !== deploymentInstallation.githubInstallationId ||
+              githubAppId !== deploymentInstallation.githubAppId
+            ) {
+              throw new AppError("managerConversationInstallationMismatch", {
+                details: { githubAppId, githubInstallationId },
+              });
+            }
+            const conversation = await getAgentByName<Env, SigveloManagerConversationAgent>(
+              context.env.SigveloManagerConversationAgent,
+              buildGitHubManagerMessengerName({
+                managerName: deploymentInstallation.managerName,
+                githubAppSlug: githubAppConfig.slug,
+              }),
+            );
+            const messengerUrl = new URL("/messengers/github/webhook", chatRequest.url);
+            const response = await conversation.fetch(messengerUrl.toString(), {
               method: chatRequest.method,
               headers: chatRequest.headers,
               body: await chatRequest.arrayBuffer(),
             });
             if (!response.ok) {
               const responseText = await response.text();
-              throw new AppError("githubWebhookChatIngressFailed", {
+              throw new AppError("githubWebhookMessengerFailed", {
                 details: {
                   githubResponseStatus: response.status,
                   githubResponseText: responseText,
                 },
-                message: `GitHub chat ingress failed: ${response.status} ${responseText}`,
+                message: `GitHub messenger delivery failed: ${response.status} ${responseText}`,
               });
             }
           })(),

@@ -105,7 +105,7 @@ Keep `src/backend/api/routes/setup.ts` focused on:
 - parsing provider callback query params
 - reading and clearing setup claim cookies
 - reading and refreshing GitHub browser-auth cookies through `requireGitHubUserToken(...)`
-- sealing the active installation into the browser session
+- recording the verified deployment installation through setup-owned state
 - redirecting the browser to GitHub or back to `/setup`
 - passing verified state transitions to `NanitesSetupAgent`
 

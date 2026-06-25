@@ -313,7 +313,7 @@ The token's `resource` or audience should decide where it is valid. A token mint
 
 ### Slice 3: Scope and installation controls
 
-- Show requested scopes and selected installation clearly.
+- Show requested scopes and the deployment installation clearly.
 - Require explicit confirmation for write scopes.
 - Add admin visibility for recent device grants.
 - Add revoke support if refresh tokens or long-lived sessions are introduced.

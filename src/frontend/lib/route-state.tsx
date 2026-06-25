@@ -1,19 +1,13 @@
 import { DEFAULT_AUTH_RETURN_TO_PATH } from "#/shared/constants.ts";
 import { type ReactNode, useEffect } from "react";
 import * as Sentry from "@sentry/react";
-import { useQueryClient, useQueryErrorResetBoundary } from "@tanstack/react-query";
+import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, Navigate, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { Card } from "#/frontend/ui/components/Card.tsx";
 import { NaniteScene, type NaniteSceneVariant } from "#/frontend/ui/components/NaniteScene.tsx";
 import { ArrowClockwiseIcon, ArrowUUpLeftIcon, ArrowRightIcon } from "@phosphor-icons/react";
-import {
-  getInstallationAuthErrorDetails,
-  invalidateAuthQueries,
-  isAuthenticationRequiredError,
-  readApiErrorMessage,
-  type InstallationAuthErrorDetails,
-} from "#/frontend/lib/auth.ts";
+import { isAuthenticationRequiredError, readApiErrorMessage } from "#/frontend/lib/auth.ts";
 import { resolveAuthReturnTo } from "#/shared/utils/auth.ts";
 
 interface StateAction {
@@ -31,20 +25,25 @@ interface PageStateCardProps {
 }
 
 export function RoutePendingPage({
-  title = "Loading Nanites.",
-  description = "Nanites are preparing the next screen and syncing the required data.",
+  title,
+  description,
 }: {
   readonly title?: string;
   readonly description?: string;
 } = {}) {
+  const loadingText = title?.trim() || description?.trim() || null;
+
   // ponytail: card-less, centered loader shared by routes and the chat Suspense fallback.
   return (
     <div className="page-loading">
       <NaniteScene className="page-loading__nanite" mode="solo" variant="working" />
-      <div className="page-loading__copy">
-        <h1 className="app-page-title">{title}</h1>
-        <p className="app-page-description">{description}</p>
-      </div>
+      {loadingText ? (
+        <div className="page-loading__copy">
+          <p className="app-page-description">{loadingText}</p>
+        </div>
+      ) : (
+        <span className="visually-hidden">Loading</span>
+      )}
     </div>
   );
 }
@@ -76,11 +75,6 @@ export function RouteNotFoundPage() {
 export function RouteErrorBoundary(props: ErrorComponentProps) {
   if (isAuthenticationRequiredError(props.error)) {
     return <AuthRedirectBoundary />;
-  }
-
-  const installationError = getInstallationAuthErrorDetails(props.error);
-  if (installationError) {
-    return <InstallationRouteErrorPage installationError={installationError} {...props} />;
   }
 
   return <GenericRouteErrorPage {...props} />;
@@ -145,57 +139,6 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
               icon: <ArrowUUpLeftIcon size={14} />,
               variant: "outline",
             },
-      ]}
-    />
-  );
-}
-
-function InstallationRouteErrorPage({
-  installationError,
-  reset,
-}: ErrorComponentProps & {
-  readonly installationError: InstallationAuthErrorDetails;
-}) {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const queryErrorResetBoundary = useQueryErrorResetBoundary();
-
-  useResetQueryBoundary(queryErrorResetBoundary);
-
-  const title =
-    installationError.code === "active_installation_required"
-      ? "Choose an installation to continue."
-      : "This installation is no longer available.";
-  const description =
-    installationError.code === "active_installation_required"
-      ? "Nanites needs an active GitHub installation before loading the workspace. Pick one to continue."
-      : "GitHub access for this installation changed, so Nanites can no longer use it. Pick another installation or reinstall the Nanites GitHub App.";
-
-  return (
-    <PageStateCard
-      sceneVariant="working"
-      title={title}
-      description={description}
-      actions={[
-        {
-          label: "Reload installations",
-          onClick: () => {
-            queryErrorResetBoundary.reset();
-            reset();
-            void invalidateAuthQueries(queryClient).then(() => router.navigate({ to: "/nanites" }));
-          },
-          icon: <ArrowClockwiseIcon size={14} />,
-        },
-        {
-          label: "Back to Nanites",
-          onClick: () => {
-            queryErrorResetBoundary.reset();
-            reset();
-            void router.navigate({ to: "/nanites" });
-          },
-          icon: <ArrowUUpLeftIcon size={14} />,
-          variant: "outline",
-        },
       ]}
     />
   );

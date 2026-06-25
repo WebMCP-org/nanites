@@ -99,6 +99,7 @@ test("GitHub installation deletion webhook moves completed setup back to reposit
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: setupClaim.token,
       installState,
     }),

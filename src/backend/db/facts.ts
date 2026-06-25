@@ -9,7 +9,10 @@ import {
   platformUsageFacts,
   type GitHubAccountType,
 } from "./schema.ts";
-import type { GitHubInstallationRepository } from "#/backend/github/index.ts";
+import type {
+  GitHubInstallationRepository,
+  GitHubVisibleInstallation,
+} from "#/backend/github/index.ts";
 
 type Defined<T> = Exclude<T, undefined>;
 type PlatformUsageFactInsert = InferInsertModel<typeof platformUsageFacts>;
@@ -25,6 +28,8 @@ type VisibleInstallationProjection = {
     avatar_url: string | null;
   };
 };
+
+type GitHubVisibleInstallationAccount = NonNullable<GitHubVisibleInstallation["account"]>;
 
 type AuthFunnelFactInput = {
   accountId?: AuthFunnelFactInsert["accountId"];
@@ -50,6 +55,52 @@ type PlatformUsageFactInput = {
   metadata?: Record<string, unknown>;
   occurredAt?: Defined<PlatformUsageFactInsert["occurredAt"]>;
 };
+
+function readGitHubAccountLogin(account: GitHubVisibleInstallationAccount): string | null {
+  if ("login" in account && typeof account.login === "string" && account.login.length > 0) {
+    return account.login;
+  }
+  if ("slug" in account && typeof account.slug === "string" && account.slug.length > 0) {
+    return account.slug;
+  }
+  if ("name" in account && typeof account.name === "string" && account.name.length > 0) {
+    return account.name;
+  }
+
+  return null;
+}
+
+function readVisibleInstallationProjection(
+  installation: GitHubVisibleInstallation,
+  githubAppId: number,
+): VisibleInstallationProjection | null {
+  if (installation.suspended_at || !installation.account) {
+    return null;
+  }
+
+  const accountLogin = readGitHubAccountLogin(installation.account);
+  if (!accountLogin || !Number.isInteger(installation.account.id) || installation.account.id <= 0) {
+    return null;
+  }
+
+  return {
+    id: installation.id,
+    githubAppId,
+    account: {
+      id: installation.account.id,
+      login: accountLogin,
+      type:
+        "type" in installation.account &&
+        typeof installation.account.type === "string" &&
+        installation.account.type.length > 0
+          ? installation.account.type
+          : "slug" in installation.account
+            ? "Enterprise"
+            : "Account",
+      avatar_url: installation.account.avatar_url ?? null,
+    },
+  };
+}
 
 export async function findInstallationAccount(
   db: DbClient,
@@ -164,10 +215,20 @@ export async function touchAccountActivity(
 
 export async function recordVisibleInstallationSnapshots(
   db: DbClient,
-  installations: readonly VisibleInstallationProjection[],
+  input: {
+    githubAppId: number;
+    installations: readonly GitHubVisibleInstallation[];
+  },
   observedAt = new Date(),
-): Promise<void> {
-  for (const installation of installations) {
+): Promise<number> {
+  let recorded = 0;
+  for (const rawInstallation of input.installations) {
+    const installation = readVisibleInstallationProjection(rawInstallation, input.githubAppId);
+    if (!installation) {
+      continue;
+    }
+    recorded += 1;
+
     const accountId = `github-account:${installation.account.id}`;
     await db
       .insert(accounts)
@@ -220,6 +281,8 @@ export async function recordVisibleInstallationSnapshots(
       })
       .run();
   }
+
+  return recorded;
 }
 
 export async function recordInstallationRepositorySnapshots(

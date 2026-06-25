@@ -170,6 +170,7 @@ CREATE TABLE `github_apps` (
 	`app_id` integer PRIMARY KEY NOT NULL,
 	`slug` text NOT NULL,
 	`html_url` text NOT NULL,
+	`setup_origin` text,
 	`owner_login` text,
 	`owner_type` text,
 	`client_id` text NOT NULL,
@@ -178,14 +179,13 @@ CREATE TABLE `github_apps` (
 	`webhook_secret_binding` text NOT NULL,
 	`permissions_json` text NOT NULL,
 	`events_json` text NOT NULL,
-	`is_primary` integer DEFAULT false NOT NULL,
 	`status` text DEFAULT 'active' NOT NULL,
 	`retired_at` integer,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `github_apps_primary_unique` ON `github_apps` (`is_primary`) WHERE "github_apps"."is_primary" = 1 AND "github_apps"."status" = 'active';--> statement-breakpoint
+CREATE UNIQUE INDEX `github_apps_active_unique` ON `github_apps` (`status`) WHERE "github_apps"."status" = 'active';--> statement-breakpoint
 CREATE TABLE `nanite_catalog` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text,

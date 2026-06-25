@@ -3,7 +3,7 @@ import { getAgentByName } from "agents";
 import { resetGitHubAppTables, saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 import {
   buildCloudflareVerifiedSetupState,
-  completedSetupLaunchState,
+  repositoryInstalledSetupState,
   readSetupInstallNonce,
 } from "../helpers/setup-state.ts";
 import {
@@ -33,7 +33,7 @@ async function getSetupAgent(
   ) as unknown as SetupAgentTestRpc;
 }
 
-test("setup Agent restores selected installation from deployment metadata after state reset", async () => {
+test("setup Agent restores deployment installation from deployment metadata after state reset", async () => {
   await saveTestGitHubApp(env.DB);
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
@@ -43,6 +43,7 @@ test("setup Agent restores selected installation from deployment metadata after 
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: setupClaim.token,
       installState,
     }),
@@ -50,7 +51,7 @@ test("setup Agent restores selected installation from deployment metadata after 
 
   setupAgent.setState(createInitialSetupState());
   await expect(setupAgent.refresh({ origin: SETUP_ORIGIN })).resolves.toMatchObject(
-    completedSetupLaunchState,
+    repositoryInstalledSetupState,
   );
 });
 

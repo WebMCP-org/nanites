@@ -1,7 +1,6 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import worker from "#/server.ts";
-import { buildGitHubTriggerFixture } from "#/backend/nanites/triggers.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 import {
@@ -81,31 +80,32 @@ export default defineGitHubTrigger({
   });
 
   const deliveryId = `e2e-workflow-${crypto.randomUUID()}`;
-  const event = buildGitHubTriggerFixture({
-    fixture: "push",
-    deliveryId,
-    installationId: githubInstallationId,
-    overrides: {
-      repository: {
-        full_name: "WebMCP-org/npm-packages",
-        name: "npm-packages",
-        owner: { login: "WebMCP-org" },
-      },
-      ref: "refs/heads/main",
-      commits: [
-        {
-          id: "test000000000001",
-          added: [],
-          modified: ["packages/react-webmcp/README.md"],
-          removed: [],
-        },
-      ],
+  const payload = {
+    ref: "refs/heads/main",
+    before: "0000000000000000000000000000000000000000",
+    after: "test000000000001",
+    repository: {
+      id: 101,
+      full_name: "WebMCP-org/npm-packages",
+      name: "npm-packages",
+      default_branch: "main",
+      private: true,
+      owner: { login: "WebMCP-org" },
     },
-  });
+    installation: { id: githubInstallationId },
+    commits: [
+      {
+        id: "test000000000001",
+        added: [],
+        modified: ["packages/react-webmcp/README.md"],
+        removed: [],
+      },
+    ],
+  };
   const ctx = createExecutionContext();
   const response = await worker.fetch(
     await buildTestGitHubWebhookRequest({
-      body: JSON.stringify(event.payload),
+      body: JSON.stringify(payload),
       delivery: deliveryId,
       event: "push",
       origin: "https://sigvelo-agent-tests.example.workers.dev",

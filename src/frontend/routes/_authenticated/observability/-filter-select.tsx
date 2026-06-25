@@ -1,5 +1,4 @@
 import { useId, useMemo } from "react";
-import type { SessionInstallationSnapshot } from "#/frontend/lib/auth.ts";
 import {
   Select,
   SelectList,
@@ -12,46 +11,6 @@ import {
 } from "#/frontend/ui/components/Select.tsx";
 
 const allFilterValue = "__all_observability_values__";
-const installationFilterEmptyValue = "__observability_installation_unset__";
-
-export function ObservabilityInstallationFilterSelect({
-  selectedInstallation,
-  installations,
-  onChange,
-}: {
-  readonly selectedInstallation: SessionInstallationSnapshot | null;
-  readonly installations: readonly SessionInstallationSnapshot[];
-  readonly onChange: (installationId: number) => void;
-}) {
-  const items = useMemo(
-    () => [
-      { label: "Choose installation", value: installationFilterEmptyValue },
-      ...installations.map((installation) => ({
-        label: installation.account.login,
-        value: String(installation.id),
-      })),
-    ],
-    [installations],
-  );
-
-  return (
-    <ObservabilityValueSelect
-      label="Installation"
-      value={selectedInstallation ? String(selectedInstallation.id) : installationFilterEmptyValue}
-      items={items}
-      onValueChange={(next) => {
-        if (next === installationFilterEmptyValue) {
-          return;
-        }
-
-        const installationId = Number(next);
-        if (Number.isInteger(installationId) && installationId > 0) {
-          onChange(installationId);
-        }
-      }}
-    />
-  );
-}
 
 export function ObservabilityValueFilterSelect({
   label,

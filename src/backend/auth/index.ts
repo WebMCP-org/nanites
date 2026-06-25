@@ -2,10 +2,11 @@ import {
   GITHUB_OAUTH_CALLBACK_PATH,
   NANITE_MANAGER_NAME,
   MANAGER_CONVERSATION_AGENT_NAME,
+  NANITE_AGENT_NAME,
 } from "#/shared/constants.ts";
 import { getLogger } from "@logtape/logtape";
 import { AppError, createAppErrorProblemResponse } from "#/backend/errors.ts";
-import { requireBrowserInstallationScope } from "#/backend/auth/installations.ts";
+import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import { createDbClient, type DbClient } from "#/backend/db/index.ts";
 import { getWebFlowAuthorizationUrl } from "@octokit/oauth-methods";
 import {
@@ -17,44 +18,25 @@ import {
   githubOAuthStateSchema,
   githubUserTokenSchema,
   nanitesSessionSchema,
-  readSessionInstallationSnapshots,
   readGitHubOAuthStateCookie,
   sealGitHubOAuthStateCookie,
   sealGitHubUserTokenCookie,
   sealSessionCookie,
   appendExpiredAuthCookies,
   requireSession,
-  type SessionInstallationSnapshot,
 } from "#/backend/auth/session.ts";
-import { recordAuthFunnelFact, recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
-import {
-  exchangeGitHubOAuthCode,
-  fetchGitHubViewer,
-  listVisibleInstallations,
-} from "#/backend/github/index.ts";
-import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
+import { recordAuthFunnelFact } from "#/backend/db/facts.ts";
+import { exchangeGitHubOAuthCode, fetchGitHubViewer } from "#/backend/github/index.ts";
+import { requireDeploymentGitHubApp, type GitHubAppMetadata } from "#/backend/github/apps.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { normalizeAuthenticatedReturnToPath } from "#/shared/utils/auth.ts";
-import { parseNaniteManagerKey } from "#/shared/utils/nanites.ts";
+import { parseNaniteAgentName } from "#/shared/utils/nanites.ts";
 
 const authLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .getChild("auth")
   .with({
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
-
-function chooseActiveInstallation(
-  installations: readonly SessionInstallationSnapshot[],
-  requestedInstallationId: number | null,
-): SessionInstallationSnapshot | null {
-  if (requestedInstallationId !== null) {
-    return (
-      installations.find((installation) => installation.id === requestedInstallationId) ?? null
-    );
-  }
-
-  return installations.length === 1 ? (installations[0] ?? null) : null;
-}
 
 async function recordAccountAuthFunnelEvent(
   db: DbClient,
@@ -70,8 +52,14 @@ async function recordAccountAuthFunnelEvent(
   }
 }
 
-function buildGitHubOAuthCallbackUrl(request: Request): string {
+function buildGitHubOAuthCallbackUrl(
+  request: Request,
+  githubApp: Pick<GitHubAppMetadata, "setupOrigin">,
+): string {
   const url = new URL(request.url);
+  if (githubApp.setupOrigin) {
+    return new URL(GITHUB_OAUTH_CALLBACK_PATH, githubApp.setupOrigin).toString();
+  }
   if (url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]") {
     url.hostname = "localhost";
   }
@@ -98,7 +86,7 @@ export async function startGitHubOAuthLogin({
   const { url: authorizationUrl } = getWebFlowAuthorizationUrl({
     clientType: "github-app",
     clientId: githubAppConfig.clientId,
-    redirectUrl: buildGitHubOAuthCallbackUrl(request),
+    redirectUrl: buildGitHubOAuthCallbackUrl(request, githubAppConfig),
     state: githubOAuthState.state,
   });
   await recordAccountAuthFunnelEvent(db, {
@@ -127,8 +115,8 @@ export async function completeGitHubOAuthCallback({
   state: string | null;
   oauthError: string | null;
 }) {
+  const db = createDbClient(env.DB);
   if (oauthError) {
-    const db = createDbClient(env.DB);
     await recordAccountAuthFunnelEvent(db, {
       eventType: "github_oauth_callback_failed",
       metadata: {
@@ -142,7 +130,6 @@ export async function completeGitHubOAuthCallback({
 
   const githubOAuthState = await readGitHubOAuthStateCookie(request, env);
   if (!code || !state || !githubOAuthState || githubOAuthState.state !== state) {
-    const db = createDbClient(env.DB);
     await recordAccountAuthFunnelEvent(db, {
       eventType: "github_oauth_callback_failed",
       metadata: {
@@ -153,11 +140,12 @@ export async function completeGitHubOAuthCallback({
     throw new AppError("invalidGitHubOAuthCallbackState");
   }
 
+  const deploymentGitHubApp = await requireDeploymentGitHubApp(db, env);
   let githubUserToken: Awaited<ReturnType<typeof exchangeGitHubOAuthCode>>;
   try {
     githubUserToken = await exchangeGitHubOAuthCode({
       code,
-      redirectUri: buildGitHubOAuthCallbackUrl(request),
+      redirectUri: buildGitHubOAuthCallbackUrl(request, deploymentGitHubApp),
       env,
     });
   } catch (error) {
@@ -171,7 +159,6 @@ export async function completeGitHubOAuthCallback({
       typeof error.details?.githubResponseStatus === "number"
         ? error.details.githubResponseStatus
         : null;
-    const db = createDbClient(env.DB);
     await recordAccountAuthFunnelEvent(db, {
       eventType: "github_oauth_callback_failed",
       metadata: {
@@ -183,55 +170,21 @@ export async function completeGitHubOAuthCallback({
     throw error;
   }
   const actor = await fetchGitHubViewer(githubUserToken.accessToken);
-  const db = createDbClient(env.DB);
-  // The user token was minted by the deployment app, so every installation it
-  // can see belongs to that app.
-  const deploymentGitHubApp = await requireDeploymentGitHubApp(db, env);
-  const visibleInstallations = await listVisibleInstallations(githubUserToken.accessToken);
-  const sessionInstallationSnapshots = readSessionInstallationSnapshots(
-    visibleInstallations,
-    deploymentGitHubApp.appId,
-  );
-  await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
-  const activeInstallation = chooseActiveInstallation(sessionInstallationSnapshots, null);
   const session = nanitesSessionSchema.parse({
     githubViewer: actor,
-    activeGithubAppId: activeInstallation?.githubAppId ?? null,
-    activeGithubInstallationId: activeInstallation?.id ?? null,
-    sessionInstallationSnapshot: activeInstallation,
     expiresAt: buildBrowserSessionExpiration(),
   });
 
   await recordAccountAuthFunnelEvent(db, {
     githubUserId: actor.id,
     githubLogin: actor.login,
-    githubInstallationId: activeInstallation?.id ?? null,
     eventType: "github_oauth_callback_succeeded",
-    metadata: {
-      visibleInstallationCount: visibleInstallations.length,
-      activeInstallationCount: sessionInstallationSnapshots.length,
-    },
   });
   await recordAccountAuthFunnelEvent(db, {
     githubUserId: actor.id,
     githubLogin: actor.login,
-    githubInstallationId: activeInstallation?.id ?? null,
     eventType: "first_session_created",
-    metadata: {
-      activeGithubInstallationId: session.activeGithubInstallationId,
-    },
   });
-  if (activeInstallation) {
-    await recordAccountAuthFunnelEvent(db, {
-      githubUserId: actor.id,
-      githubLogin: actor.login,
-      githubInstallationId: activeInstallation.id,
-      eventType: "first_visible_installation_auto_selected",
-      metadata: {
-        githubInstallationId: activeInstallation.id,
-      },
-    });
-  }
 
   return {
     location: githubOAuthState.returnToPath,
@@ -252,7 +205,6 @@ const TEST_AUTH_TOKEN_REQUIRED_MESSAGE =
   "Local authenticated browser sessions require a real GitHub user token. Provide GITHUB_TEST_USER_TOKEN, x-github-test-user-token, or ?githubAccessToken=...";
 
 type TestAuthSessionParams = {
-  activeGithubInstallationId: number | null;
   githubAccessToken?: string | undefined;
   redirect: boolean;
   returnTo: string;
@@ -285,21 +237,8 @@ export async function mintTestAuthSession({
   const viewer = await fetchGitHubViewer(realGitHubUserToken);
   const db = createDbClient(env.DB);
   const deploymentGitHubApp = await requireDeploymentGitHubApp(db, env);
-  const visibleInstallations = await listVisibleInstallations(realGitHubUserToken);
-  const sessionInstallationSnapshots = readSessionInstallationSnapshots(
-    visibleInstallations,
-    deploymentGitHubApp.appId,
-  );
-  await recordVisibleInstallationSnapshots(db, sessionInstallationSnapshots);
-  const activeInstallationSnapshot = chooseActiveInstallation(
-    sessionInstallationSnapshots,
-    params.activeGithubInstallationId,
-  );
   const session = nanitesSessionSchema.parse({
     githubViewer: viewer,
-    activeGithubAppId: activeInstallationSnapshot?.githubAppId ?? null,
-    activeGithubInstallationId: activeInstallationSnapshot?.id ?? null,
-    sessionInstallationSnapshot: activeInstallationSnapshot,
     expiresAt: sessionExpiresAt,
   });
   const githubUserToken = githubUserTokenSchema.parse({
@@ -324,7 +263,6 @@ export async function mintTestAuthSession({
         githubLogin: session.githubViewer.login,
         githubUserId: session.githubViewer.id,
       },
-      activeGithubInstallationId: session.activeGithubInstallationId,
       returnTo: params.returnTo,
     },
   };
@@ -334,9 +272,6 @@ const AGENT_AUTH_HEADERS = {
   kind: "x-nanites-auth-kind",
   githubLogin: "x-nanites-github-login",
   githubUserId: "x-nanites-github-user-id",
-  activeGithubAppId: "x-nanites-active-github-app-id",
-  activeInstallationId: "x-nanites-active-installation-id",
-  installationAccountLogin: "x-nanites-installation-account-login",
 } as const;
 
 type AgentRouteTarget = {
@@ -345,8 +280,6 @@ type AgentRouteTarget = {
 };
 
 type AgentInstallationTarget = {
-  readonly githubAppId: number;
-  readonly githubInstallationId: number;
   readonly managerName: string;
 };
 
@@ -404,18 +337,7 @@ function readManagerConversationTarget(
     });
   }
 
-  const managerIdentity = parseNaniteManagerKey(managerName);
-  if (!managerIdentity) {
-    return new AppError("agentAuthorizationForbidden", {
-      details: { reason: "Manager conversation is not addressed to a valid manager." },
-    });
-  }
-
-  return {
-    githubAppId: managerIdentity.githubAppId,
-    githubInstallationId: managerIdentity.githubInstallationId,
-    managerName,
-  };
+  return { managerName };
 }
 
 function readNaniteAgentInstallationTarget(
@@ -428,9 +350,10 @@ function readNaniteAgentInstallationTarget(
   }
 
   const isNaniteManager = routeTarget.className.toLowerCase() === NANITE_MANAGER_NAME.toLowerCase();
+  const isNaniteAgent = routeTarget.className.toLowerCase() === NANITE_AGENT_NAME.toLowerCase();
   const isManagerConversation =
     routeTarget.className.toLowerCase() === MANAGER_CONVERSATION_AGENT_NAME.toLowerCase();
-  if (!isNaniteManager && !isManagerConversation) {
+  if (!isNaniteManager && !isNaniteAgent && !isManagerConversation) {
     return null;
   }
 
@@ -438,18 +361,15 @@ function readNaniteAgentInstallationTarget(
     return readManagerConversationTarget(routeTarget.instanceName, session);
   }
 
-  const managerIdentity = parseNaniteManagerKey(routeTarget.instanceName);
-  if (!managerIdentity) {
+  const naniteAgentTarget = isNaniteAgent ? parseNaniteAgentName(routeTarget.instanceName) : null;
+  const managerName = isNaniteAgent ? naniteAgentTarget?.managerName : routeTarget.instanceName;
+  if (!managerName) {
     return new AppError("agentAuthorizationForbidden", {
-      details: { reason: "Nanite manager is not installation-scoped." },
+      details: { reason: "Nanite agent is not installation-scoped." },
     });
   }
 
-  return {
-    githubAppId: managerIdentity.githubAppId,
-    githubInstallationId: managerIdentity.githubInstallationId,
-    managerName: routeTarget.instanceName,
-  };
+  return { managerName };
 }
 
 export async function authorizeAgentRequest(
@@ -469,34 +389,15 @@ export async function authorizeAgentRequest(
       return toAgentErrorResponse(routeTarget);
     }
 
+    const scope = await requireDeploymentGitHubInstallation(env);
     if (routeTarget) {
-      const scope = await requireBrowserInstallationScope(request, env, {
-        githubInstallationId: routeTarget.githubInstallationId,
-      });
-      if (
-        routeTarget.githubAppId !== scope.githubAppId ||
-        routeTarget.managerName !== scope.managerName
-      ) {
+      if (routeTarget.managerName !== scope.managerName) {
         return toAgentErrorResponse(
           new AppError("agentAuthorizationForbidden", {
             details: { reason: "Agent target does not belong to the deployment GitHub App." },
           }),
         );
       }
-
-      headers.set(AGENT_AUTH_HEADERS.activeGithubAppId, String(scope.githubAppId));
-      headers.set(AGENT_AUTH_HEADERS.activeInstallationId, String(scope.githubInstallationId));
-      headers.set(AGENT_AUTH_HEADERS.installationAccountLogin, scope.account.login);
-    } else if (session.activeGithubAppId === null || session.activeGithubInstallationId === null) {
-      headers.delete(AGENT_AUTH_HEADERS.activeGithubAppId);
-      headers.delete(AGENT_AUTH_HEADERS.activeInstallationId);
-      headers.delete(AGENT_AUTH_HEADERS.installationAccountLogin);
-    } else {
-      headers.set(AGENT_AUTH_HEADERS.activeGithubAppId, String(session.activeGithubAppId));
-      headers.set(
-        AGENT_AUTH_HEADERS.activeInstallationId,
-        String(session.activeGithubInstallationId),
-      );
     }
 
     return new Request(request, { headers });

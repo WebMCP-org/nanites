@@ -52,11 +52,11 @@ Implemented locally in this branch:
   launch stays locked until GitHub verifies the installed app installation
 - public `.dev.vars.example` and `.env.example` are intentionally empty so Deploy to Cloudflare does
   not ask for setup-time secrets
-- GitHub App installation returns through a setup verification callback that checks the claimed
-  installation against GitHub-visible installations after sign-in
+- GitHub App installation returns through a setup verification callback that checks the returned
+  deployment installation against GitHub-visible installations after sign-in
 - setup verification also requires at least one visible repository, proves the generated GitHub App
   can mint an installation token, and binds claimed setup installs to a nonce from setup Agent state
-- the selected GitHub installation id is persisted with deployment GitHub App metadata, so the
+- the deployment GitHub installation id is persisted with deployment GitHub App metadata, so the
   repository step survives setup Agent state reset while D1 metadata and Worker secrets remain
 - first-launch setup uses a browser-local setup owner claim, so once one browser starts Cloudflare
   setup another visitor cannot mutate the Cloudflare setup state until the claim is released or
@@ -67,9 +67,9 @@ Implemented locally in this branch:
   flow, so a missing migration fails before GitHub creates an app
 - retryable post-conversion failures preserve the orphaned GitHub App URL and cleanup instructions
 - signed GitHub App installation lifecycle webhooks move a completed setup back to repository
-  repair when the selected installation is deleted, suspended, loses repositories, or accepts new
+  repair when the deployment installation is deleted, suspended, loses repositories, or accepts new
   permissions
-- runtime GitHub OAuth, webhook verification, installation tokens, and Chat ingress read through
+- runtime GitHub OAuth, webhook verification, installation tokens, and Think messengers read through
   the deployment GitHub App config owner
 
 Still required before public zero-copy claims:
@@ -171,7 +171,7 @@ Cloudflare AI Search. The token still needs enough access for Workers Builds, Wo
 KV/R2 resources, and D1 migrations.
 
 V1 assumes one Nanites deployment per Cloudflare account. This is intentionally not an idempotent
-multi-install installer for one account. The default resource names are
+multi-deployment installer for one account. The default resource names are
 `nanites-db`, plus KV/R2 names derived from the Worker prefix `nanites-app-production`; setup
 verifies and configures that one selected account instead of trying to namespace or reconcile
 multiple Nanites deployments in the same Cloudflare account. Those default-named resources should be
@@ -223,7 +223,7 @@ The Cloudflare step also checks the runtime pieces Nanites cannot safely fake:
   Dynamic Workers.
 - Workers AI is bound as `AI`, and the default model id is configured.
 - The default model route uses the configured Cloudflare AI Gateway, default `sigvelo-nanites`, with
-  `@cf/zai-org/glm-4.7-flash`. Setup creates or configures that gateway with the deployment
+  `@cf/zai-org/glm-5.2`. Setup creates or configures that gateway with the deployment
   retry/ZDR settings. The zero-config path uses a Cloudflare-hosted Workers AI model; explicit
   third-party model ids may require account-level AI Gateway provider setup outside Nanites.
 - Browser Run is shown as informational because it supports later preview verification, but it is
@@ -254,17 +254,30 @@ Before launch, setup also verifies that the signed-in GitHub user has starred
 `WebMCP-org/nanites`. The generated GitHub App manifest requests GitHub's `Starring` user
 permission for that setup-owned verification step.
 
-Nanites requests the current conservative permission set:
+Nanites requests a broad repository-maintenance ceiling for the generated GitHub App. Runtime
+Nanite manifests still narrow what each Nanite may use, but the installation itself needs enough
+headroom for code, issues, checks, deployments, pages, repository metadata, secrets, and workflows.
 
+- Actions: write
+- Checks: write
 - Contents: write
-- Pull requests: write
-- Actions: read
+- Deployments: write
+- Environments: write
 - Issues: write
+- Metadata: read
+- Pages: write
+- Pull requests: write
+- Repository hooks: write
+- Repository projects: write
+- Secrets: write
 - Starring: write
+- Statuses: write
+- Workflows: write
 
 After installation, GitHub redirects back to Nanites. Nanites does not trust the returned
 `installation_id` by itself; it sends you through the generated GitHub App OAuth flow and only
-activates an installation that GitHub lists as visible to the signed-in user.
+records the deployment installation when GitHub lists that exact installation as visible to the
+signed-in user.
 
 ## 3. Run locally
 
@@ -292,7 +305,7 @@ For local MCP/browser smoke testing, use the real local GitHub App OAuth flow. A
 vp run dev
 ```
 
-Open `http://localhost:5173/auth/github/login`, complete OAuth, select the intended installation,
+Open `http://localhost:5173/auth/github/login`, complete OAuth for the generated local GitHub App,
 then point an MCP client at:
 
 ```text
@@ -340,7 +353,7 @@ https://<your-origin>/mcp
 Minimum release smoke:
 
 1. Sign in with GitHub.
-2. Select the installed GitHub App installation.
+2. Confirm the connected deployment GitHub App installation is shown for the expected account.
 3. Star `WebMCP-org/nanites` through the setup flow and confirm Launch unlocks.
 4. Create one Nanite through the browser or MCP.
 5. Start a manual run.

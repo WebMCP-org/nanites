@@ -60,6 +60,7 @@ export const LOG_EVENTS = {
   NANITE_DEPROVISIONED: "nanite.deprovisioned",
   NANITE_MANAGER_MAINTENANCE_COMPLETED: "nanite.manager.maintenance.completed",
   NANITE_RUN_COMPLETED: "nanite.run.completed",
+  NANITE_MANIFEST_REFRESH_FAILED: "nanite.manifest.refresh.failed",
   NANITE_RUN_CREATED: "nanite.run.created",
   NANITE_RUN_DEDUPED: "nanite.run.deduped",
   NANITE_RUN_DISPATCH_FAILED: "nanite.run.dispatch.failed",

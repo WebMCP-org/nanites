@@ -455,8 +455,10 @@
 }
 
 .observability-bar-list__button {
+  inline-size: 100%;
   min-inline-size: 0;
   padding: 0;
+  justify-content: stretch;
   border: 0;
   background: transparent;
   color: inherit;

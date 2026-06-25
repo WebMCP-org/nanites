@@ -62,9 +62,11 @@ export function AgentConnectionPanel({
       <fieldset className="agent-connect__targets">
         <legend className="agent-connect__legend">Agent connection target</legend>
         {commands.map((command) => (
-          <button
+          <Button
             key={command.target}
-            type="button"
+            variant="ghost"
+            color="neutral"
+            size="sm"
             aria-pressed={command.target === selected.target}
             data-selected={command.target === selected.target}
             className="agent-connect__target"
@@ -73,7 +75,7 @@ export function AgentConnectionPanel({
             }}
           >
             {command.label}
-          </button>
+          </Button>
         ))}
       </fieldset>
       <CodeBlock code={selected.code} language={selected.language}>

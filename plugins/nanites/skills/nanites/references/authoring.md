@@ -183,7 +183,7 @@ Runtime rules:
 
 - The generated Worker must export default `{ handle(event, ctx) }`; `defineGitHubTrigger(...)` returns that shape.
 - Static validation rejects empty source, oversized source, `eval`, `new Function`, runtime WebAssembly compilation, and Node process/filesystem/network imports.
-- Current trigger validation may skip deep Octokit semantic diagnostics, so fixture tests and `agentFeedback` are the real acceptance loop.
+- Current trigger validation may skip deep Octokit semantic diagnostics, so raw-event trigger tests and `agentFeedback` are the real acceptance loop.
 - `ctx.dispatchSelf(...)` input is normalized into JSON-safe scalar or array fields. Nested objects are JSON-stringified; prefer flat fields such as `repository`, `pullNumber`, `headSha`, `after`, `files`, and `reason`.
 - `ctx.record(...)` is a no-op intent with a recorded reason. Use it only when the event should not dispatch.
 
@@ -280,16 +280,21 @@ After `sigvelo_create_nanite`, test the real path:
 {
   "naniteId": "docs-syncer-react-webmcp",
   "event": {
-    "fixture": "push",
-    "overrides": {
+    "id": "docs-syncer-test-1",
+    "name": "push",
+    "payload": {
+      "ref": "refs/heads/main",
+      "before": "0000000000000000000000000000000000000000",
+      "after": "test000000000001",
       "repository": {
+        "id": 101,
         "full_name": "WebMCP-org/npm-packages",
         "name": "npm-packages",
-        "owner": {
-          "login": "WebMCP-org"
-        }
+        "default_branch": "main",
+        "private": true,
+        "owner": { "login": "WebMCP-org" }
       },
-      "ref": "refs/heads/main",
+      "installation": { "id": 123456 },
       "commits": [
         {
           "id": "test000000000001",

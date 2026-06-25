@@ -251,6 +251,7 @@ export const githubApps = sqliteTable(
     appId: integer("app_id").primaryKey(),
     slug: text("slug").notNull(),
     htmlUrl: text("html_url").notNull(),
+    setupOrigin: text("setup_origin"),
     ownerLogin: text("owner_login"),
     ownerType: text("owner_type"),
     clientId: text("client_id").notNull(),

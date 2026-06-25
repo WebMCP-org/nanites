@@ -127,7 +127,7 @@ Trigger handlers are allowed to be clever. Nanites should stay focused. That spl
 
 Generated trigger code needs a real acceptance loop because it is dynamic code that wakes another agent. The manager `testNaniteTrigger` callable owns that loop, and MCP exposes it through the explicit `sigvelo_test_nanite_trigger` tool.
 
-It builds a realistic fixture event, runs the generated trigger, dispatches the real ThinkWorkflow-backed Nanite Run, waits for a terminal structured output, and returns structured `agentFeedback` from the Nanite to the coding agent that authored it. That proves three things at once:
+It validates a caller-supplied GitHub webhook-shaped test event, runs the generated trigger, dispatches the real ThinkWorkflow-backed Nanite Run, waits for a terminal structured output, and returns structured `agentFeedback` from the Nanite to the coding agent that authored it. That proves three things at once:
 
 - the generated trigger syntax and event handling work
 - the trigger wakes the real model through the manager
@@ -173,7 +173,7 @@ sources. The manifest describes identity, model policy, coarse event intake, and
 permission scope. The generated trigger source handles machine-originated behavior.
 
 Do not give the authoring model a manager name, MCP tier, tool allowlist, factory topology, or
-cross-Nanite routing plan. The active installation already selects the manager. GitHub MCP tools are
+cross-Nanite routing plan. The deployment installation already selects the manager. GitHub MCP tools are
 derived from `permissions.github.appPermissions`. Package-specific routing, release handling,
 path filters, debounce rules, and other behavior belong in `triggerSource` code.
 
@@ -183,7 +183,7 @@ path filters, debounce rules, and other behavior belong in `triggerSource` code.
     id: "docs-syncer-react-webmcp",
     name: "React WebMCP docs syncer",
     description: "Keeps React WebMCP docs aligned with package changes.",
-    model: "@cf/zai-org/glm-4.7-flash",
+    model: "@cf/zai-org/glm-5.2",
     eventSource: {
       type: "github",
       events: ["push"],
