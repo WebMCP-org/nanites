@@ -42,10 +42,6 @@
       "binding": "OAUTH_KV",
       "id": "test-oauth-kv",
     },
-    {
-      "binding": "TOOL_OUTPUTS",
-      "id": "b400bec1a47e4917816e8bf8628ce4f5",
-    },
   ],
   "r2_buckets": [
     {

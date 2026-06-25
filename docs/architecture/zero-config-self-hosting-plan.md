@@ -131,7 +131,7 @@ Confirmed by first-party docs and live probes:
   list automatic provisioning for KV, D1, R2, Hyperdrive, Vectorize, Secrets Store Secrets, Durable
   Objects, Workers AI, and Queues from the Wrangler config. This covers Nanites' D1, R2, KV, Durable
   Objects, and Workers AI baseline. The root `wrangler.jsonc` is now the portable public template:
-  the top-level `DB`, `OAUTH_KV`, `TOOL_OUTPUTS`, and `WORKSPACE_FILES` bindings intentionally omit
+  the top-level `DB`, `OAUTH_KV`, and `WORKSPACE_FILES` bindings intentionally omit
   account-specific ids/names where Wrangler can provision them. Named SigVelo environments still
   keep explicit ids in their `env.<name>` blocks.
 - Workers Builds can run app build and deploy commands. Cloudflare's
@@ -932,7 +932,6 @@ cases unblocked.
   - `DB`
   - `WORKSPACE_FILES`
   - `OAUTH_KV`
-  - `TOOL_OUTPUTS`
   - `AI`
   - `BROWSER`
   - `LOADER`
