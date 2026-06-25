@@ -47,6 +47,12 @@ Cloudflare Agents SDK e2e references are useful for real Worker, Durable Object,
 dynamic Worker, and process-restart patterns. Do not copy model/provider mocks into Nanites e2e
 unless the explicit LLM shim is the behavior boundary being controlled.
 
+Relevant local mirrors:
+
+- `opensrc/repos/github.com/cloudflare/agents/packages/think/src/e2e-tests`
+- `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/e2e-tests`
+- `opensrc/repos/github.com/cloudflare/agents/packages/codemode/e2e`
+
 ## Commands
 
 From the repository root:

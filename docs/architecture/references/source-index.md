@@ -16,6 +16,11 @@ Runtime design was checked against these package versions on 2026-05-15:
 - `@cloudflare/workers-types` `4.20260515.1`
 - `@tanstack/react-router` `1.168.13`
 
+Fresh main-branch mirrors were also pulled into:
+
+- `opensrc/repos/github.com/cloudflare/agents/main`
+- `opensrc/repos/github.com/cloudflare/workers-sdk/main`
+
 ## Local SigVelo Files
 
 Current runtime entrypoints:
@@ -77,6 +82,42 @@ Cloudflare runtime references mattered for:
 - Workflow-backed run orchestration
 - Workspace-backed file and git operations
 - MCP attachment through the Think runtime
+
+## Cloudflare `opensrc/` Sources
+
+Core runtime:
+
+- `opensrc/repos/github.com/cloudflare/agents/main/packages/agents/src/index.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/packages/agents/src/workflows.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/packages/think/src/think.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/packages/think/src/extensions/manager.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/packages/think/src/extensions/host-bridge.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/packages/think/src/tools/execute.ts`
+
+Execution-focused docs:
+
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/think/index.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/think/tools.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/think/lifecycle-hooks.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/sessions.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/workflows.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/durable-execution.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/long-running-agents.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/docs/mcp-client.md`
+- `opensrc/repos/github.com/cloudflare/agents/main/design/loopback.md`
+
+Useful implementation mirrors:
+
+- `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts`
+
+Examples worth keeping nearby:
+
+- `opensrc/repos/github.com/cloudflare/agents/main/examples/dynamic-workers/src/server.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/examples/dynamic-workers-playground/src/server.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/examples/dynamic-workers-playground/src/logging.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/examples/workspace-chat/src/server.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/examples/github-webhook/src/server.ts`
+- `opensrc/repos/github.com/cloudflare/agents/main/examples/codemode/README.md`
 
 ## Other Needed Items
 

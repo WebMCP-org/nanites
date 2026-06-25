@@ -54,43 +54,57 @@ versions checked on 2026-06-21 are:
 | `wrangler`                  | `^4.100.0`        | `4.103.0`      |
 | `@cloudflare/workers-types` | `^4.20260612.1`   | `4.20260621.1` |
 
-Cloudflare Agents SDK source references:
+Cloudflare Agents SDK source is mirrored in `opensrc`:
 
-- `cloudflare/agents` monorepo at `3b2af5444af5002cd54fd493452e03c721d31999`
-- `agents` package `0.16.2`
-- `@cloudflare/think` package `0.10.0`
-- `@cloudflare/codemode` package `0.4.1`
-- `@cloudflare/shell` package `0.4.0`
-- `@cloudflare/ai-chat` package `0.8.6`
+- Agents monorepo: `opensrc/repos/github.com/cloudflare/agents/main`
+  (`3b2af5444af5002cd54fd493452e03c721d31999`).
+- `agents` package: `opensrc/repos/github.com/cloudflare/agents/main/packages/agents`
+  (`0.16.2`).
+- `@cloudflare/think` package: `opensrc/repos/github.com/cloudflare/agents/main/packages/think`
+  (`0.10.0`).
+- `@cloudflare/codemode` package: `opensrc/repos/github.com/cloudflare/agents/main/packages/codemode`
+  (`0.4.1`).
+- `@cloudflare/shell` package: `opensrc/repos/github.com/cloudflare/agents/main/packages/shell`
+  (`0.4.0`).
+- `@cloudflare/ai-chat` package: `opensrc/repos/github.com/cloudflare/agents/main/packages/ai-chat`
+  (`0.8.6`).
 
-For browser work, the most relevant upstream references are the Think tools docs,
-`packages/think/src/tools/execute.ts`, `packages/think/src/tools/browser.ts`, and
-`packages/agents/src/browser/connector.ts`.
+For browser work, the most relevant local files are
+`opensrc/repos/github.com/cloudflare/agents/main/docs/think/tools.md`,
+`opensrc/repos/github.com/cloudflare/agents/main/packages/think/src/tools/execute.ts`,
+`opensrc/repos/github.com/cloudflare/agents/main/packages/think/src/tools/browser.ts`, and
+`opensrc/repos/github.com/cloudflare/agents/main/packages/agents/src/browser/connector.ts`.
 
-Modern Web Guidance source references:
+Modern Web Guidance is mirrored in `opensrc`:
 
-- generated skill install target at `GoogleChrome/modern-web-guidance`
-  (`18c2f84274f959df2b31b919c4b16a2cc65e82e1`, release `v0.0.173`)
-- source and eval authoring repo at `GoogleChrome/modern-web-guidance-src`
-  (`014e2600c4abbf564412c269baa03f1b11e4bbde`)
+- Generated skill install target: `opensrc/repos/github.com/GoogleChrome/modern-web-guidance/main`
+  (`18c2f84274f959df2b31b919c4b16a2cc65e82e1`, release `v0.0.173`).
+- Source and eval authoring repo:
+  `opensrc/repos/github.com/GoogleChrome/modern-web-guidance-src/main`
+  (`014e2600c4abbf564412c269baa03f1b11e4bbde`).
 
 Use the generated `skills/modern-web-guidance` tree as the first source for the
 starter prompt's linked skill corpus. Use the source repo when the
 implementation needs guide metadata, tests, or generation scripts.
 
-Vercel's Skills CLI source reference:
+Vercel's Skills CLI is mirrored in `opensrc`:
 
-- `vercel-labs/skills` at `e5c075e3a84b37c5eb398ab74e581558d3fceb0e`
-  (`skills@1.5.12`, MIT)
+- Skills CLI: `opensrc/repos/github.com/vercel-labs/skills/main`
+  (`e5c075e3a84b37c5eb398ab74e581558d3fceb0e`, package `skills@1.5.12`, MIT).
 
 Use it as the reference for linked-skill extraction. The useful files are:
 
-- `src/source-parser.ts` for accepting `owner/repo`, GitHub URLs, refs, subpaths, and
+- `opensrc/repos/github.com/vercel-labs/skills/main/src/source-parser.ts` for accepting
+  `owner/repo`, GitHub URLs, refs, subpaths, and
   `owner/repo@skill`
-- `src/git.ts` for shallow clone behavior, auth fallback, LFS avoidance, and cleanup
-- `src/skills.ts` for safe subpath handling and `SKILL.md` discovery
-- `src/blob.ts` for the faster GitHub tree, raw-file, and cached-download path
-- `src/add.ts` for tying parse, fetch, discover, filter, and install together
+- `opensrc/repos/github.com/vercel-labs/skills/main/src/git.ts` for shallow clone behavior,
+  auth fallback, LFS avoidance, and cleanup
+- `opensrc/repos/github.com/vercel-labs/skills/main/src/skills.ts` for safe subpath handling and
+  `SKILL.md` discovery
+- `opensrc/repos/github.com/vercel-labs/skills/main/src/blob.ts` for the faster GitHub tree,
+  raw-file, and cached-download path
+- `opensrc/repos/github.com/vercel-labs/skills/main/src/add.ts` for tying parse, fetch, discover,
+  filter, and install together
 
 Do not vendor the whole CLI into SigVelo. Borrow the small source parsing and
 discovery behavior needed for `repo -> extracted skill folder`.
@@ -283,7 +297,7 @@ type NaniteRuntimeSkills = {
 ```
 
 Each URL points at a GitHub skill repo or skill subpath, for example
-`GoogleChrome/modern-web-guidance/skills/modern-web-guidance`.
+`opensrc/repos/github.com/GoogleChrome/modern-web-guidance/main/skills/modern-web-guidance`.
 The runtime resolves the URL list into workspace cache entries:
 
 1. Store only the approved URLs in manager-owned `runtimeConfig.skillUrls`; do

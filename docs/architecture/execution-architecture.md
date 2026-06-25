@@ -423,6 +423,12 @@ Do not try to solve every future runtime problem in the same pass.
 - Browser WebMCP references inform instrumentation, registration cleanup, relay behavior, and
   preview verification.
 
+### Local first-party source mirrors
+
+- `opensrc/repos/github.com/cloudflare/agents/docs/workspace.md`
+- `opensrc/repos/github.com/cloudflare/agents/docs/codemode.md`
+- `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts`
+
 ## Other needed inputs
 
 Before Sprint 2 lands, keep these inputs explicit:

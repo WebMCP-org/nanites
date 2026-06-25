@@ -209,10 +209,10 @@ state or a one-PR manager harness.
 
 ## Source notes
 
-- Official GitHub MCP source: `github/github-mcp-server`
+- Official GitHub MCP source: `opensrc/repos/github.com/github/github-mcp-server/main`
 - GitHub MCP remote server docs: `docs/remote-server.md`
 - GitHub MCP scope filtering docs: `docs/scope-filtering.md`
 - GitHub MCP HTTP inventory filtering source: `pkg/http/handler.go`
 - GitHub MCP token parsing source: `pkg/utils/token.go`
-- Cloudflare Think MCP merge point: `@cloudflare/think`
-- Cloudflare Agents MCP client docs: Cloudflare Agents MCP client documentation
+- Cloudflare Think MCP merge point: `opensrc/repos/github.com/cloudflare/agents/packages/think/src/think.ts`
+- Cloudflare Agents MCP client docs: `opensrc/repos/github.com/cloudflare/agents/docs/mcp-client.md`
