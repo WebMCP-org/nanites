@@ -422,10 +422,7 @@ function resolveWorkerRoute(origin: string, env: Env): WorkerRoute | null {
     const labels = hostname.slice(0, -".workers.dev".length).split(".").filter(Boolean);
     if (labels.length >= 2) {
       const workerSubdomain = labels[0] ?? null;
-      if (configuredScriptName && workerSubdomain !== configuredScriptName) {
-        return null;
-      }
-      scriptName ??= workerSubdomain;
+      scriptName = workerSubdomain;
       workersDevSubdomain = labels.slice(1).join(".");
     }
   }

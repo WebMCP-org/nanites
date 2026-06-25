@@ -56,7 +56,7 @@ type SigveloAgentLanguageModelInput = {
 };
 
 function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel | null {
-  const testFixture = String(input.env.NANITES_LLM_FIXTURE);
+  const testFixture = input.env.NANITES_LLM_FIXTURE ?? "";
   if (
     testFixture === "complete" ||
     testFixture === "no_change" ||
@@ -178,7 +178,7 @@ function createConfiguredTestLanguageModel(input: { env: Env }): LanguageModel |
     }).chat("gpt-4o-mini");
   }
 
-  const llmBaseUrl = String(input.env.NANITES_LLM_BASE_URL);
+  const llmBaseUrl = input.env.NANITES_LLM_BASE_URL?.trim() ?? "";
   if (llmBaseUrl) {
     return createOpenAI({
       apiKey: "mock",

@@ -1,7 +1,7 @@
 /**
- * Self-host template config (used by the Deploy to Cloudflare button,
- * scripts/deploy-self-host.mjs, and local dev). Deliberately generic: no
- * account-specific resource ids, routes, or required secrets — the setup flow
+ * Self-host template config (used by the Deploy to Cloudflare button and
+ * local dev). Deliberately generic: no account-specific resource ids, routes,
+ * or required secrets — the setup flow
  * provisions those after first deploy.
  *
  * Production and self-hosted deploys share this public template; hosted-only
@@ -39,15 +39,6 @@
   "ai": {
     "binding": "AI",
     "remote": true,
-  },
-  "vars": {
-    "NANITES_CLOUDFLARE_SCRIPT_NAME": "nanites-app-production",
-    "NANITES_SHOW_SETUP": "true",
-    "ALLOW_TEST_AUTH": "false",
-    "SENTRY_ENVIRONMENT": "production",
-    "SENTRY_TRACES_SAMPLE_RATE": "0.1",
-    "NANITES_LLM_BASE_URL": "",
-    "NANITES_LLM_FIXTURE": "",
   },
   "d1_databases": [
     {
@@ -118,10 +109,6 @@
     {
       "new_sqlite_classes": ["SigveloNaniteAgent"],
       "tag": "v2-nanite-agent-workflows",
-    },
-    {
-      "deleted_classes": ["SigveloChatIngress"],
-      "tag": "v3-delete-chat-ingress",
     },
   ],
   "observability": {

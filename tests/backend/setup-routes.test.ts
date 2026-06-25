@@ -486,7 +486,10 @@ function readFakeCloudflareApiResult(request: CloudflareApiRequestRecord): unkno
  * plus the GitHub manifest conversion endpoint, so the setup Agent can run its
  * `execute` tool calls (including the Worker secret write) without OAuth.
  */
-function buildFakeCloudflareMcpFetch(originalFetch: typeof fetch): typeof fetch {
+function buildFakeCloudflareMcpFetch(
+  originalFetch: typeof fetch,
+  options: { readonly executeError?: string } = {},
+): typeof fetch {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
     if (request.url === GITHUB_MANIFEST_CONVERSION_URL) {
@@ -529,10 +532,18 @@ function buildFakeCloudflareMcpFetch(originalFetch: typeof fetch): typeof fetch 
             },
           ],
         });
-      case "tools/call":
+      case "tools/call": {
+        if (options.executeError) {
+          return respond({
+            content: [{ type: "text", text: options.executeError }],
+            isError: true,
+          });
+        }
+
         return respond({
           content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
         });
+      }
       case "prompts/list":
         return respond({ prompts: [] });
       case "resources/list":
@@ -1145,6 +1156,35 @@ test("Cloudflare setup provisions the configured AI Gateway", async () => {
   }
 });
 
+test("Cloudflare setup uses the workers.dev hostname over a stale script-name hint", async () => {
+  const setupAgent = await getSetupAgent();
+  const cloudflareRequests: CloudflareApiRequestRecord[] = [];
+  const originalFetch = globalThis.fetch;
+  const originalScriptName = env.NANITES_CLOUDFLARE_SCRIPT_NAME;
+  Reflect.set(env, "NANITES_CLOUDFLARE_SCRIPT_NAME", "stale-name");
+  globalThis.fetch = buildCloudflareVerificationMcpFetch(originalFetch, cloudflareRequests);
+
+  try {
+    const result = await setupAgent.connectCloudflare({ origin: SETUP_ORIGIN });
+
+    expect(result.state.cloudflare).toMatchObject({
+      status: "verified",
+      scriptName: "sigvelo-agent-tests",
+    });
+    expect(cloudflareRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "GET",
+          path: "/accounts/test-account/workers/scripts/sigvelo-agent-tests/subdomain",
+        }),
+      ]),
+    );
+  } finally {
+    Reflect.set(env, "NANITES_CLOUDFLARE_SCRIPT_NAME", originalScriptName);
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("GitHub App creation route requires the setup claim", async () => {
   const response = await nanitesHttpApp.request(
     `${SETUP_ORIGIN}/api/setup/github-app`,
@@ -1491,18 +1531,12 @@ test("GitHub manifest callback reports Cloudflare Worker secret write failures s
   const setupAgent = await getSetupAgent();
   const { setupClaim, manifestState } = await startClaimedGitHubApp(setupAgent);
   const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = input instanceof Request ? input : new Request(input, init);
-    if (request.url === GITHUB_MANIFEST_CONVERSION_URL) {
-      return Response.json(buildGitHubManifestConversion());
-    }
-
-    return originalFetch(input, init);
-  };
+  globalThis.fetch = buildFakeCloudflareMcpFetch(originalFetch, {
+    executeError: "secrets-bulk failed (403): missing permission",
+  });
 
   try {
-    // No Cloudflare MCP server is connected, so the Worker secret write fails.
+    await connectFakeCloudflareMcpServer(setupAgent);
     const response = await nanitesHttpApp.request(
       `${SETUP_ORIGIN}/setup/github/manifest/callback?code=test-manifest-code&state=${manifestState}`,
       {
