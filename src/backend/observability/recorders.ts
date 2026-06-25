@@ -567,6 +567,7 @@ function readRunImplicitFailureReason(run: NaniteRunRecord): string | null {
     case "canceled":
       return run.cancellation.type === "unreported" ? run.cancellation.dispatchError : null;
     case "complete":
+    case "no_change":
     case "running":
     case "waiting_for_manager":
       return null;

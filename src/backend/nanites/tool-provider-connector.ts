@@ -1,13 +1,29 @@
 import { CodemodeConnector } from "@cloudflare/codemode";
 import type { ConnectorTools, ToolProvider } from "@cloudflare/codemode";
 
+type ConnectorJsonSchema = NonNullable<ConnectorTools[string]["inputSchema"]>;
+
 type SimpleProviderTools = Record<
   string,
   {
     description?: string;
+    inputSchema?: unknown;
+    outputSchema?: unknown;
+    parameters?: unknown;
     execute: (args?: unknown) => Promise<unknown>;
   }
 >;
+
+function readJsonSchema(schema: unknown): ConnectorJsonSchema | undefined {
+  if (
+    schema &&
+    typeof schema === "object" &&
+    ("type" in schema || "properties" in schema || "$ref" in schema)
+  ) {
+    return schema as ConnectorJsonSchema;
+  }
+  return undefined;
+}
 
 export class ToolProviderConnector extends CodemodeConnector {
   readonly #provider: ToolProvider;
@@ -28,6 +44,8 @@ export class ToolProviderConnector extends CodemodeConnector {
         name,
         {
           description: providerTool.description,
+          inputSchema: readJsonSchema(providerTool.inputSchema ?? providerTool.parameters),
+          outputSchema: readJsonSchema(providerTool.outputSchema),
           execute: (args) => providerTool.execute(args),
         },
       ]),

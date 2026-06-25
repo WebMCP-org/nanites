@@ -4,7 +4,7 @@ import { createDbClient } from "#/backend/db/index.ts";
 import { findInstallationAccount } from "#/backend/db/facts.ts";
 import { GITHUB_ACCOUNT_TYPES } from "#/backend/db/schema.ts";
 import { readGitHubAppMetadata } from "#/backend/github/apps.ts";
-import { sigveloMcpVisibleRepositorySchema } from "#/backend/mcp/auth-props.ts";
+import { listReposAccessibleToInstallation } from "#/backend/github/index.ts";
 import {
   defineSigveloMcpTool,
   type SigveloMcpToolDefinition,
@@ -32,14 +32,7 @@ const whoamiToolOutputSchema = z.object({
     ),
   installationRepositories: z
     .array(z.string().min(1))
-    .describe(
-      "Full names of repositories visible to the authorizing GitHub user for this installation. This is the MCP tool session's repository scope.",
-    ),
-  visibleRepositories: z
-    .array(sigveloMcpVisibleRepositorySchema)
-    .describe(
-      "GitHub repository objects visible to the authorizing GitHub user for this installation, preserving GitHub permission fields such as pull, push, and admin.",
-    ),
+    .describe("Full names of repositories selected for the connected GitHub App installation."),
   githubApp: z
     .object({
       appId: z.number().int().positive(),
@@ -60,13 +53,10 @@ export const whoamiTool = defineSigveloMcpTool({
   name: "sigvelo_whoami",
   title: "Inspect SigVelo authorization",
   description:
-    "Returns the signed-in GitHub user plus the full authorization picture of this tool session: the GitHub App installation, the account it targets, repositories visible to this GitHub user, the app's GitHub permissions and webhook events, and the granted MCP scopes. installationAccount and visibleRepositories are the working scope for repositories and Nanites; githubLogin only identifies the human.",
+    "Returns the signed-in GitHub user plus the full authorization picture of this tool session: the GitHub App installation, the account it targets, installation repositories, the app's GitHub permissions and webhook events, and the granted MCP scopes. installationAccount and installationRepositories are the working scope for Nanites; githubLogin only identifies the human.",
   inputSchema: whoamiToolInputSchema,
   outputSchema: whoamiToolOutputSchema,
-  authorization: {
-    requiredScope: MCP_SCOPES.read,
-    repositoryPolicy: { type: "none" },
-  },
+  requiredScope: MCP_SCOPES.read,
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -75,13 +65,15 @@ export const whoamiTool = defineSigveloMcpTool({
   },
   async execute(_input, { auth, env }) {
     const db = createDbClient(env.DB);
-    const [account, appMetadata] = await Promise.all([
+    const [account, appMetadata, repositories] = await Promise.all([
       findInstallationAccount(db, auth.githubInstallationId),
       readGitHubAppMetadata(db, auth.githubAppId),
+      listReposAccessibleToInstallation({
+        env,
+        githubAppId: auth.githubAppId,
+        githubInstallationId: auth.githubInstallationId,
+      }),
     ]);
-    const visibleRepositories = [...auth.visibleRepositories].sort((left, right) =>
-      left.full_name.localeCompare(right.full_name),
-    );
 
     return {
       authKind: auth.authKind,
@@ -94,8 +86,9 @@ export const whoamiTool = defineSigveloMcpTool({
             type: account.githubAccountType,
           }
         : null,
-      installationRepositories: visibleRepositories.map((repository) => repository.full_name),
-      visibleRepositories,
+      installationRepositories: repositories
+        .map((repository) => repository.full_name)
+        .sort((left, right) => left.localeCompare(right)),
       githubApp: appMetadata
         ? {
             appId: appMetadata.appId,

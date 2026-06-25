@@ -76,6 +76,8 @@
 
 .code-block__content--highlighted {
   padding: 0;
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
 .code-block__content--highlighted pre.shiki {
@@ -86,11 +88,7 @@
   font-family: var(--sigvelo-font-family-code);
   font-size: 0.8125rem;
   line-height: 1.55;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
+  overflow: visible;
 }
 
 .code-block__content--numbered pre code {

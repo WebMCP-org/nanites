@@ -8,7 +8,6 @@ import {
   nonEmptyStringSchema,
   type SigveloMcpToolDefinition,
 } from "#/backend/nanites/tools/define-tool.ts";
-import { resolveReferencedNaniteRepositoryFullNames } from "#/backend/nanites/tools/authorization.ts";
 
 // MCP tool registration only advertises top-level object schemas; a top-level
 // discriminated union is published as an empty input schema, so clients never see
@@ -100,14 +99,7 @@ export const exploreWorkspaceTool = defineSigveloMcpTool({
     "Reads child-owned Think workspace information, directory listings, file content, or text search results for one Nanite.",
   inputSchema: exploreWorkspaceToolInputSchema,
   outputSchema: createObjectOutputSchema("SigVelo Nanite workspace exploration result."),
-  authorization: {
-    requiredScope: MCP_SCOPES.read,
-    repositoryPolicy: {
-      type: "runtime",
-      access: "read",
-      resolve: resolveReferencedNaniteRepositoryFullNames({ type: "referenced_nanites" }),
-    },
-  },
+  requiredScope: MCP_SCOPES.read,
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,

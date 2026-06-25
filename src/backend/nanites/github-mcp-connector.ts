@@ -5,12 +5,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const GITHUB_MCP_SERVER_URL = "https://api.githubcopilot.com/mcp/";
 
-export type GitHubMcpConnectorOptions = {
+type GitHubMcpConnectorOptions = {
   /**
    * Issues the per-connection request headers: a freshly scoped GitHub App
-   * installation token plus the X-MCP tool-filter headers. Called once per
-   * connector instance — on the first execute call of the turn, when codemode
-   * setup describes every connector (not on the first github.* call).
+   * installation token plus the X-MCP tool-filter headers.
    */
   createHeaders: () => Promise<Record<string, string>>;
   /** Overridable for tests; defaults to GitHub's hosted MCP server. */
@@ -27,8 +25,6 @@ export type GitHubMcpConnectorOptions = {
  */
 export class GitHubMcpConnector extends McpConnector {
   readonly #options: GitHubMcpConnectorOptions;
-  /** Client opened in createConnection, closed in disposeExecution. */
-  #client: Client | null = null;
 
   constructor(ctx: DurableObjectState, options: GitHubMcpConnectorOptions) {
     super(ctx, {});
@@ -56,7 +52,6 @@ export class GitHubMcpConnector extends McpConnector {
         { requestInit: { headers } },
       );
       await client.connect(transport);
-      this.#client = client;
       return {
         name: "github",
         client,
@@ -68,21 +63,5 @@ export class GitHubMcpConnector extends McpConnector {
         { cause: error },
       );
     }
-  }
-
-  // A fresh client is opened per turn (createConnection), so close it once the
-  // execution is terminal — client.close() tears down the streamable-HTTP
-  // transport too, otherwise each turn leaks an open SSE connection to GitHub
-  // MCP. Best-effort and idempotent per the hook contract; never fires on an
-  // approval-pause, so the connection survives a resume.
-  // fallow-ignore-next-line unused-class-member
-  override async disposeExecution(
-    executionId: string,
-    status: Parameters<McpConnector["disposeExecution"]>[1],
-  ): Promise<void> {
-    await super.disposeExecution(executionId, status);
-    const client = this.#client;
-    this.#client = null;
-    await client?.close().catch(() => {});
   }
 }

@@ -10,7 +10,6 @@ export type ObservabilityRange = (typeof OBSERVABILITY_RANGES)[number];
 export type ObservabilityFilters = {
   range: ObservabilityRange;
   environment?: string;
-  installationId?: number;
   repository?: string;
   naniteId?: string;
   creator?: string;

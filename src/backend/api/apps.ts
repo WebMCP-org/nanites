@@ -22,12 +22,10 @@ import {
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { GitHubUserToken } from "#/backend/github/index.ts";
 import type { NanitesSession } from "#/backend/auth/session.ts";
-import type { NaniteManagerIdentity } from "#/shared/utils/nanites.ts";
 
 export type WorkerHonoEnv = {
   Bindings: Env;
   Variables: RequestIdVariables & {
-    activeGithubInstallation: NaniteManagerIdentity;
     browserSession: NanitesSession;
     githubUserToken: GitHubUserToken;
     mcpAuthRequest: AuthRequest;

@@ -10,7 +10,6 @@ import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
 import type { GitHubUserToken } from "#/backend/github/index.ts";
 import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods";
-import type { GitHubVisibleInstallation } from "#/backend/github/index.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 
@@ -110,19 +109,6 @@ type BrowserAuthenticatedActor = {
   login: string;
 } & Record<string, unknown>;
 
-type SessionInstallationAccountSnapshot = {
-  id: number;
-  login: string;
-  type: string;
-  avatar_url: string | null;
-};
-
-export type SessionInstallationSnapshot = {
-  id: number;
-  githubAppId: number;
-  account: SessionInstallationAccountSnapshot;
-};
-
 // Cookie boundary check: preserve GitHub's authenticated user object, but require the fields the app reads.
 const authenticatedActorSchema: z.ZodType<BrowserAuthenticatedActor> = z
   .object({
@@ -130,23 +116,8 @@ const authenticatedActorSchema: z.ZodType<BrowserAuthenticatedActor> = z
     login: githubLoginSchema,
   })
   .passthrough();
-const sessionInstallationAccountSchema: z.ZodType<SessionInstallationAccountSnapshot> = z.object({
-  id: githubIdSchema,
-  login: githubLoginSchema,
-  type: z.string().min(1),
-  avatar_url: z.string().nullable(),
-});
-
-const sessionInstallationSnapshotSchema: z.ZodType<SessionInstallationSnapshot> = z.object({
-  id: githubIdSchema,
-  githubAppId: githubIdSchema,
-  account: sessionInstallationAccountSchema,
-});
 export const nanitesSessionSchema = z.object({
   githubViewer: authenticatedActorSchema,
-  activeGithubAppId: githubIdSchema.nullable(),
-  activeGithubInstallationId: githubIdSchema.nullable(),
-  sessionInstallationSnapshot: sessionInstallationSnapshotSchema.nullable().optional(),
   expiresAt: isoDateTimeSchema,
 });
 export const githubUserTokenSchema: z.ZodType<GitHubUserToken> = z.object({
@@ -172,18 +143,13 @@ function isSecureRequest(request: Request): boolean {
   return new URL(request.url).protocol === "https:";
 }
 
-function buildCookieOptions(
-  request: Request,
-  expiresAt: string,
-  overrides?: Partial<CookieOptions>,
-): CookieOptions {
+function buildCookieOptions(request: Request, expiresAt: string): CookieOptions {
   return {
     path: BROWSER_AUTH_COOKIE_PATH,
     httpOnly: true,
     sameSite: BROWSER_AUTH_COOKIE_SAME_SITE,
     secure: isSecureRequest(request),
     expires: new Date(expiresAt),
-    ...overrides,
   };
 }
 
@@ -415,16 +381,6 @@ export function clearGitHubOAuthStateCookie(request: Request): string {
   );
 }
 
-type SessionInstallationSnapshots = readonly SessionInstallationSnapshot[];
-
-type RevalidationArgs = {
-  req: Request;
-  env: Env;
-  session: NanitesSession;
-  resHeaders: Headers | undefined;
-  sessionInstallationSnapshots: SessionInstallationSnapshots;
-};
-type GitHubVisibleInstallationAccount = NonNullable<GitHubVisibleInstallation["account"]>;
 type RefreshableGitHubUserToken = GitHubUserToken & { refreshToken: string };
 
 export async function requireSession(request: Request, env: Env): Promise<NanitesSession> {
@@ -454,11 +410,6 @@ function shouldRefreshGitHubUserToken(githubUserToken: GitHubUserToken, now = Da
   return expiresAt <= now + GITHUB_USER_TOKEN_REFRESH_THRESHOLD_SECONDS * 1000;
 }
 
-function isGitHubUserTokenExpired(githubUserToken: GitHubUserToken, now = Date.now()): boolean {
-  const expiresAt = parseTimestamp(githubUserToken.expiresAt);
-  return expiresAt !== null && expiresAt <= now;
-}
-
 function isRefreshTokenUsable(
   githubUserToken: GitHubUserToken,
   now = Date.now(),
@@ -469,22 +420,6 @@ function isRefreshTokenUsable(
 
   const refreshTokenExpiresAt = parseTimestamp(githubUserToken.refreshTokenExpiresAt);
   return refreshTokenExpiresAt === null || refreshTokenExpiresAt > now;
-}
-
-function readInstallationAccountLogin(account: GitHubVisibleInstallationAccount): string | null {
-  if ("login" in account && typeof account.login === "string" && account.login.length > 0) {
-    return account.login;
-  }
-
-  if ("slug" in account && typeof account.slug === "string" && account.slug.length > 0) {
-    return account.slug;
-  }
-
-  if ("name" in account && typeof account.name === "string" && account.name.length > 0) {
-    return account.name;
-  }
-
-  return null;
 }
 
 async function refreshGitHubUserToken({
@@ -527,8 +462,6 @@ export async function requireGitHubUserToken(
   request: Request,
   env: Env,
   options?: {
-    allowRefresh?: boolean | undefined;
-    clearSessionOnFailure?: boolean | undefined;
     responseHeaders?: Headers | undefined;
   },
 ): Promise<GitHubUserToken> {
@@ -539,7 +472,7 @@ export async function requireGitHubUserToken(
 
   const deploymentApp = await requireDeploymentGitHubApp(createDbClient(env.DB), env);
   if (!isGitHubUserTokenBoundToDeploymentApp(githubUserToken, deploymentApp)) {
-    appendGitHubUserTokenFailureCookies(request, options?.responseHeaders, options);
+    appendExpiredAuthCookies(request, options?.responseHeaders);
     throw new AppError("authenticationRequired");
   }
 
@@ -547,17 +480,8 @@ export async function requireGitHubUserToken(
     return githubUserToken;
   }
 
-  if (options?.allowRefresh === false) {
-    if (isGitHubUserTokenExpired(githubUserToken)) {
-      appendGitHubUserTokenFailureCookies(request, options?.responseHeaders, options);
-      throw new AppError("authenticationRequired");
-    }
-
-    return githubUserToken;
-  }
-
   if (!isRefreshTokenUsable(githubUserToken)) {
-    appendGitHubUserTokenFailureCookies(request, options?.responseHeaders, options);
+    appendExpiredAuthCookies(request, options?.responseHeaders);
     throw new AppError("authenticationRequired");
   }
 
@@ -572,80 +496,9 @@ export async function requireGitHubUserToken(
     );
     return refreshedGitHubUserToken;
   } catch {
-    appendGitHubUserTokenFailureCookies(request, options?.responseHeaders, options);
+    appendExpiredAuthCookies(request, options?.responseHeaders);
     throw new AppError("authenticationRequired");
   }
-}
-
-function readSessionInstallationSnapshot(
-  visibleInstallation: GitHubVisibleInstallation,
-  githubAppId: number,
-): SessionInstallationSnapshot | null {
-  if (visibleInstallation.suspended_at || !visibleInstallation.account) {
-    return null;
-  }
-
-  const accountLogin = readInstallationAccountLogin(visibleInstallation.account);
-  if (!accountLogin) {
-    return null;
-  }
-
-  return sessionInstallationSnapshotSchema.parse({
-    id: visibleInstallation.id,
-    githubAppId,
-    account: {
-      id: visibleInstallation.account.id,
-      login: accountLogin,
-      type:
-        "type" in visibleInstallation.account &&
-        typeof visibleInstallation.account.type === "string" &&
-        visibleInstallation.account.type.length > 0
-          ? visibleInstallation.account.type
-          : "slug" in visibleInstallation.account
-            ? "Enterprise"
-            : "Account",
-      avatar_url: visibleInstallation.account.avatar_url ?? null,
-    },
-  });
-}
-
-/**
- * GitHub user tokens list installations of the app that minted them, so every
- * snapshot from one listing belongs to that single app — the caller names it.
- */
-export function readSessionInstallationSnapshots(
-  visibleInstallations: readonly GitHubVisibleInstallation[],
-  githubAppId: number,
-): SessionInstallationSnapshot[] {
-  return visibleInstallations.flatMap((visibleInstallation) => {
-    const activeInstallation = readSessionInstallationSnapshot(visibleInstallation, githubAppId);
-    return activeInstallation ? [activeInstallation] : [];
-  });
-}
-
-export async function clearRevokedSessionSelectionIfNeeded(input: RevalidationArgs): Promise<void> {
-  const activeGithubInstallationId = input.session.activeGithubInstallationId;
-  if (
-    activeGithubInstallationId === null ||
-    input.sessionInstallationSnapshots.some(
-      (installation) =>
-        installation.id === activeGithubInstallationId &&
-        installation.githubAppId === input.session.activeGithubAppId,
-    )
-  ) {
-    return;
-  }
-
-  const nextSession = nanitesSessionSchema.parse({
-    ...input.session,
-    activeGithubAppId: null,
-    activeGithubInstallationId: null,
-    sessionInstallationSnapshot: null,
-  });
-  input.resHeaders?.append(
-    "Set-Cookie",
-    await sealSessionCookie(nextSession, input.req, input.env),
-  );
 }
 
 export function appendExpiredAuthCookies(
@@ -654,17 +507,4 @@ export function appendExpiredAuthCookies(
 ): void {
   responseHeaders?.append("Set-Cookie", clearSessionCookie(request));
   responseHeaders?.append("Set-Cookie", clearGitHubUserTokenCookie(request));
-}
-
-function appendGitHubUserTokenFailureCookies(
-  request: Request,
-  responseHeaders: Headers | undefined,
-  options: { clearSessionOnFailure?: boolean | undefined } | undefined,
-): void {
-  if (options?.clearSessionOnFailure === false) {
-    responseHeaders?.append("Set-Cookie", clearGitHubUserTokenCookie(request));
-    return;
-  }
-
-  appendExpiredAuthCookies(request, responseHeaders);
 }

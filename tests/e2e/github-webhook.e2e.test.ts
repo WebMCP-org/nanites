@@ -4,6 +4,10 @@ import { getAgentByName } from "agents";
 import worker from "#/server.ts";
 import { ensureD1BaselineSchema, saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 import {
+  buildCloudflareVerifiedSetupState,
+  readSetupInstallNonce,
+} from "../helpers/setup-state.ts";
+import {
   createInitialSetupState,
   type NanitesSetupAgent,
   type NanitesSetupState,
@@ -12,9 +16,6 @@ import {
   buildTestGitHubWebhookRequest,
   type TestGitHubWebhookPayload,
 } from "../helpers/github-webhook.ts";
-
-type GitHubPingPayload = TestGitHubWebhookPayload<"ping">;
-type GitHubInstallationDeletedPayload = TestGitHubWebhookPayload<"installation.deleted">;
 
 type SetupAgentTestRpc = {
   setState(state: NanitesSetupState): void;
@@ -31,8 +32,9 @@ async function getSetupAgent(): Promise<SetupAgentTestRpc> {
   ) as unknown as SetupAgentTestRpc;
 }
 
-function buildGitHubPingBody(): string {
-  const payload = {
+test("GitHub webhook ping requires the configured app secret and a valid signature", async () => {
+  await saveTestGitHubApp(env.DB);
+  const body = JSON.stringify({
     zen: "Approachable is better than simple.",
     hook_id: 123,
     hook: {
@@ -56,61 +58,7 @@ function buildGitHubPingBody(): string {
       login: "alice",
       type: "User",
     },
-  } satisfies GitHubPingPayload;
-  return JSON.stringify(payload);
-}
-
-function buildGitHubInstallationDeletedBody(githubInstallationId: number): string {
-  const payload = {
-    action: "deleted",
-    installation: {
-      id: githubInstallationId,
-      account: {
-        id: 456,
-        login: "WebMCP-org",
-        type: "Organization",
-      },
-    },
-    sender: {
-      id: 789,
-      login: "alice",
-      type: "User",
-    },
-  } satisfies GitHubInstallationDeletedPayload;
-  return JSON.stringify(payload);
-}
-
-async function resetSetupAgent(): Promise<SetupAgentTestRpc> {
-  await ensureD1BaselineSchema(env.DB);
-  const setupAgent = await getSetupAgent();
-  setupAgent.setState(createInitialSetupState());
-  return setupAgent;
-}
-
-function buildCloudflareVerifiedSetupState(): NanitesSetupState {
-  const initialState = createInitialSetupState();
-  return {
-    ...initialState,
-    currentStep: "github-app",
-    cloudflare: {
-      status: "verified",
-      authorizationUrl: null,
-      accountId: "test-account",
-      accountName: "Test Account",
-      scriptName: "sigvelo-agent-tests",
-      readiness: { status: "ready", checkedAt: new Date().toISOString(), items: [] },
-      error: null,
-    },
-    githubApp: {
-      ...initialState.githubApp,
-      status: "ready",
-    },
-  };
-}
-
-test("GitHub webhook ping requires the configured app secret and a valid signature", async () => {
-  await saveTestGitHubApp(env.DB);
-  const body = buildGitHubPingBody();
+  } satisfies TestGitHubWebhookPayload<"ping">);
   const unsignedResponse = await worker.fetch(
     await buildTestGitHubWebhookRequest({
       body,
@@ -141,19 +89,17 @@ test("GitHub webhook ping requires the configured app secret and a valid signatu
 });
 
 test("GitHub installation deletion webhook moves completed setup back to repository repair", async () => {
-  const setupAgent = await resetSetupAgent();
+  await ensureD1BaselineSchema(env.DB);
+  const setupAgent = await getSetupAgent();
+  setupAgent.setState(createInitialSetupState());
   await saveTestGitHubApp(env.DB);
   setupAgent.setState(buildCloudflareVerifiedSetupState());
   const setupClaim = await setupAgent.issueSetupClaim();
-  const setupState = await setupAgent.refresh();
-  const installUrl = setupState.githubApp.installUrl;
-  const installState = installUrl ? new URL(installUrl).searchParams.get("state") : null;
-  if (!installState) {
-    throw new Error("Expected setup Agent to expose a repository install nonce.");
-  }
+  const installState = readSetupInstallNonce(await setupAgent.refresh());
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: setupClaim.token,
       installState,
     }),
@@ -171,7 +117,22 @@ test("GitHub installation deletion webhook moves completed setup back to reposit
     },
   });
 
-  const body = buildGitHubInstallationDeletedBody(42);
+  const body = JSON.stringify({
+    action: "deleted",
+    installation: {
+      id: 42,
+      account: {
+        id: 456,
+        login: "WebMCP-org",
+        type: "Organization",
+      },
+    },
+    sender: {
+      id: 789,
+      login: "alice",
+      type: "User",
+    },
+  } satisfies TestGitHubWebhookPayload<"installation.deleted">);
   const ctx = createExecutionContext();
   const response = await worker.fetch(
     await buildTestGitHubWebhookRequest({

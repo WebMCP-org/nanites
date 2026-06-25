@@ -73,7 +73,7 @@ Human prompts are not trigger events. Manual chats and manual run prompts go dir
 - browser connects to Nanites with Agents SDK sub-agent routing
 - Workspace is the default active execution path
 - GitHub feedback surfaces point at the live Nanite chat
-- explicit lifecycle tools report success, failure, no-change, or manager checkpoint
+- `NaniteRunWorkflow` records structured success, failure, no-change, or manager checkpoint output
 - phase-heavy runtime detail is demoted to transcript, telemetry, and debug tools
 - generated Nanite runtime classes are not on the active path
 

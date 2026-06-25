@@ -2,7 +2,10 @@ import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
 import { ensureD1BaselineSchema, saveTestGitHubApp } from "../helpers/d1-baseline.ts";
 import {
-  createInitialSetupState,
+  buildCloudflareVerifiedSetupState,
+  readSetupInstallNonce,
+} from "../helpers/setup-state.ts";
+import {
   type NanitesSetupAgent,
   type NanitesSetupState,
 } from "#/backend/agents/NanitesSetupAgent.ts";
@@ -17,27 +20,6 @@ type SetupAgentTestRpc = {
   recordRepositoryInstall: NanitesSetupAgent["recordRepositoryInstall"];
 };
 
-function buildCloudflareVerifiedSetupState(): NanitesSetupState {
-  const initialState = createInitialSetupState();
-  return {
-    ...initialState,
-    currentStep: "github-app",
-    cloudflare: {
-      status: "verified",
-      authorizationUrl: null,
-      accountId: "test-account",
-      accountName: "Test Account",
-      scriptName: "sigvelo-agent-tests",
-      readiness: { status: "ready", checkedAt: new Date().toISOString(), items: [] },
-      error: null,
-    },
-    githubApp: {
-      ...initialState.githubApp,
-      status: "ready",
-    },
-  };
-}
-
 async function getSetupAgent(): Promise<SetupAgentTestRpc> {
   return getAgentByName<Env, NanitesSetupAgent>(
     env.NanitesSetupAgent,
@@ -45,25 +27,17 @@ async function getSetupAgent(): Promise<SetupAgentTestRpc> {
   ) as unknown as SetupAgentTestRpc;
 }
 
-function readInstallNonce(setupState: NanitesSetupState): string {
-  const installUrl = setupState.githubApp.installUrl;
-  const installState = installUrl ? new URL(installUrl).searchParams.get("state") : null;
-  if (!installState) {
-    throw new Error("Expected setup Agent to expose a repository install nonce.");
-  }
-  return installState;
-}
-
 test("repository install requires the issued setup claim and install nonce", async () => {
   await ensureD1BaselineSchema(env.DB);
   await saveTestGitHubApp(env.DB);
   const setupAgent = await getSetupAgent();
   setupAgent.setState(buildCloudflareVerifiedSetupState());
-  const installState = readInstallNonce(await setupAgent.refresh({ origin: SETUP_ORIGIN }));
+  const installState = readSetupInstallNonce(await setupAgent.refresh({ origin: SETUP_ORIGIN }));
 
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: "",
       installState,
     }),
@@ -73,6 +47,7 @@ test("repository install requires the issued setup claim and install nonce", asy
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: "not-the-claimed-browser",
       installState,
     }),
@@ -80,6 +55,7 @@ test("repository install requires the issued setup claim and install nonce", asy
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: claim.token,
       installState: "not-the-issued-install-nonce",
     }),
@@ -88,6 +64,7 @@ test("repository install requires the issued setup claim and install nonce", asy
   await expect(
     setupAgent.recordRepositoryInstall({
       githubInstallationId: 42,
+      repositoryFullName: "WebMCP-org/nanites",
       claimToken: claim.token,
       installState,
     }),

@@ -18,14 +18,15 @@ import { z } from "zod";
 import { AppError, describeError, requestValidationHook } from "#/backend/errors.ts";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { createDbClient } from "#/backend/db/index.ts";
-import { listBrowserVisibleInstallationSnapshots } from "#/backend/auth/installations.ts";
+import {
+  requireDeploymentGitHubInstallation,
+  type DeploymentGitHubInstallation,
+} from "#/backend/auth/installations.ts";
 import {
   readSessionCookie,
   type NanitesSession,
-  type SessionInstallationSnapshot,
+  requireGitHubUserToken,
 } from "#/backend/auth/session.ts";
-import { listInstallationRepositories, type GitHubUserToken } from "#/backend/github/index.ts";
-import { createSigveloMcpVisibleRepositorySnapshot } from "#/backend/mcp/auth-props.ts";
 import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { resolveGrantedMcpScopes } from "#/backend/mcp/index.ts";
 import { buildGitHubAppInstallHref } from "#/shared/utils/github.ts";
@@ -43,17 +44,9 @@ type EnvWithOAuthHelpers = Env & {
   OAUTH_PROVIDER?: OAuthHelpers;
 };
 
-interface McpAuthorizeInstallationOption {
-  readonly installation: SessionInstallationSnapshot;
-  readonly repositoryCount: number;
-  readonly manageAccessHref: string;
-}
-
 type BrowserAuthorizeContext = {
-  session: NanitesSession;
-  githubUserToken: GitHubUserToken;
   actor: NanitesSession["githubViewer"];
-  sessionInstallationSnapshots: SessionInstallationSnapshot[];
+  deploymentInstallation: DeploymentGitHubInstallation | null;
 };
 
 export type McpAuthorizeContext =
@@ -71,7 +64,7 @@ export type McpAuthorizeContext =
       status: "no_repositories";
       clientName: string;
       installHref: string;
-      installations: McpAuthorizeInstallationOption[];
+      installation: DeploymentGitHubInstallation;
     }
   | {
       status: "consent";
@@ -79,8 +72,7 @@ export type McpAuthorizeContext =
       requestedScopes: string[];
       authorizeAction: string;
       csrfToken: string;
-      activeGithubInstallationId: number | null;
-      installations: McpAuthorizeInstallationOption[];
+      installation: DeploymentGitHubInstallation;
     }
   | {
       status: "invalid";
@@ -93,12 +85,10 @@ const mcpConsentFormInput = zValidator(
     .object({
       csrf_token: z.string().min(1),
       intent: z.enum(["authorize", "deny"]),
-      github_installation_id: z.coerce.number().int().positive(),
     })
     .transform((value) => ({
       csrfToken: value.csrf_token,
       intent: value.intent,
-      selectedInstallationId: value.github_installation_id,
     })),
   requestValidationHook,
 );
@@ -158,15 +148,25 @@ async function readOptionalBrowserAuthorizeContext({
   }
 
   try {
-    const visibleInstallations = await listBrowserVisibleInstallationSnapshots(request, env, {
-      responseHeaders,
-    });
+    await requireGitHubUserToken(request, env, { responseHeaders });
+    let deploymentInstallation: DeploymentGitHubInstallation | null = null;
+    try {
+      deploymentInstallation = await requireDeploymentGitHubInstallation(env);
+    } catch (error) {
+      if (
+        !(
+          error instanceof AppError &&
+          (error.kind === "deploymentGitHubInstallationRequired" ||
+            error.kind === "deploymentGitHubAppSetupRequired")
+        )
+      ) {
+        throw error;
+      }
+    }
 
     return {
-      session: visibleInstallations.session,
-      actor: visibleInstallations.session.githubViewer,
-      githubUserToken: visibleInstallations.githubUserToken,
-      sessionInstallationSnapshots: visibleInstallations.installations,
+      actor: session.githubViewer,
+      deploymentInstallation,
     };
   } catch (error) {
     if (error instanceof AppError && error.kind === "authenticationRequired") {
@@ -278,7 +278,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         responseHeaders: context.res.headers,
       });
 
-      if (!authContext || authContext.sessionInstallationSnapshots.length === 0) {
+      if (!authContext) {
         throw new AppError("mcpAuthorizationInstallationRequired");
       }
 
@@ -303,29 +303,16 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         );
       }
 
-      const activeInstallation =
-        authContext.sessionInstallationSnapshots.find(
-          (installation) => installation.id === formData.selectedInstallationId,
-        ) ?? null;
-
-      if (!activeInstallation) {
-        throw new AppError("mcpSelectedInstallationUnavailable");
+      const deploymentInstallation = authContext.deploymentInstallation;
+      if (!deploymentInstallation) {
+        throw new AppError("mcpAuthorizationInstallationRequired");
       }
-
-      const visibleRepositories = (
-        await listInstallationRepositories(
-          authContext.githubUserToken.accessToken,
-          activeInstallation.id,
-          { env: context.env, githubAppId: activeInstallation.githubAppId },
-        )
-      ).map(createSigveloMcpVisibleRepositorySnapshot);
-
-      if (visibleRepositories.length === 0) {
+      if (deploymentInstallation.repositories.length === 0) {
         return redirectOAuthError(
           context,
           authRequest,
           "access_denied",
-          "The selected GitHub installation has no repositories shared with SigVelo.",
+          "The connected GitHub installation has no repositories shared with Nanites.",
         );
       }
 
@@ -338,9 +325,9 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         metadata: {
           clientName,
           githubLogin: authContext.actor.login,
-          githubAppId: activeInstallation.githubAppId,
-          githubInstallationId: activeInstallation.id,
-          githubInstallationOwner: activeInstallation.account.login,
+          githubAppId: deploymentInstallation.githubAppId,
+          githubInstallationId: deploymentInstallation.githubInstallationId,
+          githubInstallationOwner: deploymentInstallation.account.login,
           authorizedAt,
         },
         scope: grantedScopes,
@@ -348,11 +335,10 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           authKind: "mcp",
           githubUserId: authContext.actor.id,
           githubLogin: authContext.actor.login,
-          githubAppId: activeInstallation.githubAppId,
-          githubInstallationId: activeInstallation.id,
+          githubAppId: deploymentInstallation.githubAppId,
+          githubInstallationId: deploymentInstallation.githubInstallationId,
           clientId: authRequest.clientId,
           scopes: grantedScopes,
-          visibleRepositories,
           authorizedAt,
         },
       });
@@ -404,7 +390,8 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           appSlug: deploymentGitHubApp.slug,
         });
 
-      if (authContext.sessionInstallationSnapshots.length === 0) {
+      const deploymentInstallation = authContext.deploymentInstallation;
+      if (!deploymentInstallation) {
         expireConsentCookie(context);
         return context.json({
           status: "no_installations",
@@ -413,33 +400,16 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         });
       }
 
-      const installations = await Promise.all(
-        authContext.sessionInstallationSnapshots.map(async (installation) => ({
-          installation,
-          repositoryCount: (
-            await listInstallationRepositories(
-              authContext.githubUserToken.accessToken,
-              installation.id,
-              { env: context.env, githubAppId: installation.githubAppId },
-            )
-          ).length,
-          manageAccessHref: buildDeploymentAppInstallHref({
-            state: authorizeReturnToPath,
-            suggestedTargetId: installation.account.id,
-          }),
-        })),
-      );
-      const repositoryReadyInstallations = installations.filter(
-        (installation) => installation.repositoryCount > 0,
-      );
-
-      if (repositoryReadyInstallations.length === 0) {
+      if (deploymentInstallation.repositories.length === 0) {
         expireConsentCookie(context);
         return context.json({
           status: "no_repositories",
           clientName,
-          installHref: buildDeploymentAppInstallHref({ state: authorizeReturnToPath }),
-          installations,
+          installHref: buildDeploymentAppInstallHref({
+            state: authorizeReturnToPath,
+            suggestedTargetId: deploymentInstallation.account.id,
+          }),
+          installation: deploymentInstallation,
         });
       }
 
@@ -470,8 +440,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         requestedScopes,
         authorizeAction: `${MCP_AUTHORIZE_ROUTE}${sourceUrl.search}`,
         csrfToken,
-        activeGithubInstallationId: authContext.session.activeGithubInstallationId,
-        installations: repositoryReadyInstallations,
+        installation: deploymentInstallation,
       });
     },
   );

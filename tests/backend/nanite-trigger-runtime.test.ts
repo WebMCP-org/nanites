@@ -6,32 +6,64 @@ import {
   saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
-import { buildGitHubTriggerFixture } from "#/backend/nanites/triggers.ts";
-import {
-  isTerminalNaniteRunStatus,
-  type NaniteRunRecord,
-  type SigveloNaniteManager,
+import type {
+  NaniteRunRecord,
+  SigveloNaniteManager,
 } from "#/backend/agents/SigveloNaniteManager.ts";
-import { getGitHubWebhookRepositoryFullName } from "#/shared/utils/github.ts";
+import {
+  MAX_GITHUB_TRIGGER_TEST_EVENT_BYTES,
+  getGitHubWebhookRepositoryFullName,
+  type GitHubWebhookEventSnapshot,
+} from "#/shared/utils/github.ts";
+import {
+  waitForRunWorkflowStatus,
+  waitForTerminalRun,
+  withDetachedRpcResults,
+} from "../helpers/rpc-results.ts";
 
 beforeAll(async () => {
   await ensureD1BaselineSchema(env.DB);
 });
 
-function getManager() {
-  return getAgentByName(
-    env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-    `trigger-validation-${crypto.randomUUID()}`,
+type InstallationManager = Pick<
+  SigveloNaniteManager,
+  | "cancelRuns"
+  | "dispatchRun"
+  | "getSnapshot"
+  | "handleGitHubWebhook"
+  | "inspectNaniteDebug"
+  | "recordRunFailureWithoutWorkflowOutput"
+  | "recordRuntimeActivity"
+  | "recordWorkflowResult"
+  | "registerNanite"
+  | "resolveManagerRequest"
+  | "startNaniteManualRun"
+  | "startRun"
+  | "testNaniteTrigger"
+>;
+
+async function getManager(): Promise<InstallationManager> {
+  return withDetachedRpcResults(
+    (await getAgentByName(
+      env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
+      `trigger-validation-${crypto.randomUUID()}`,
+    )) as unknown as InstallationManager,
   );
 }
 
 async function getInstallationManager(
   githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1,
-) {
-  return getAgentByName(
-    env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-    `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
+): Promise<InstallationManager> {
+  return withDetachedRpcResults(
+    (await getAgentByName(
+      env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
+      `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
+    )) as unknown as InstallationManager,
   );
+}
+
+function randomInstallationId(): number {
+  return Math.floor(Math.random() * 1_000_000) + 1;
 }
 
 const packageDocsTriggerSource = `
@@ -106,9 +138,9 @@ export default {
 };
 `;
 
-type InstallationManager = Awaited<ReturnType<typeof getInstallationManager>>;
 type TriggerTestOutput = Awaited<ReturnType<InstallationManager["testNaniteTrigger"]>>;
 const naniteModel = "deepseek/deepseek-v4-pro";
+const fixtureEnv = env as unknown as { NANITES_LLM_FIXTURE: string };
 
 async function registerPackageDocsSyncer(
   manager: InstallationManager,
@@ -134,8 +166,11 @@ async function registerPackageDocsSyncer(
 }
 
 const npmPackagesRepositoryOverride = {
+  id: 101,
   full_name: "WebMCP-org/npm-packages",
   name: "npm-packages",
+  default_branch: "main",
+  private: true,
   owner: { login: "WebMCP-org" },
 };
 
@@ -146,25 +181,79 @@ const packageDocsChangedCommit = {
   removed: [],
 };
 
+function pushTestEvent(input: {
+  installationId: number;
+  deliveryId?: string;
+  repository?: typeof npmPackagesRepositoryOverride;
+  ref?: string;
+  after?: string;
+  commits?: Array<typeof packageDocsChangedCommit>;
+}): GitHubWebhookEventSnapshot {
+  const after = input.after ?? "test000000000001";
+  return {
+    id: input.deliveryId ?? `delivery-${crypto.randomUUID()}`,
+    name: "push",
+    payload: {
+      ref: input.ref ?? "refs/heads/main",
+      before: "0000000000000000000000000000000000000000",
+      after,
+      repository: input.repository ?? npmPackagesRepositoryOverride,
+      installation: { id: input.installationId },
+      commits: input.commits ?? [
+        {
+          id: after,
+          added: [],
+          modified: ["README.md"],
+          removed: [],
+        },
+      ],
+    },
+  };
+}
+
+function issueTestEvent(input: {
+  installationId: number;
+  action?: string;
+}): GitHubWebhookEventSnapshot {
+  return {
+    id: `delivery-${crypto.randomUUID()}`,
+    name: "issues",
+    payload: {
+      action: input.action ?? "opened",
+      repository: npmPackagesRepositoryOverride,
+      installation: { id: input.installationId },
+      issue: {
+        number: 84,
+        html_url: "https://github.com/WebMCP-org/npm-packages/issues/84",
+        title: "Issue triage test",
+        body: "Issue body.",
+        state: "open",
+        labels: [],
+        user: {
+          login: "test-author",
+        },
+      },
+    },
+  };
+}
+
 function testPackageDocsTrigger(
   manager: InstallationManager,
   input: {
     naniteId: string;
+    installationId: number;
     commits?: Array<typeof packageDocsChangedCommit>;
   },
 ) {
   return manager.testNaniteTrigger({
     naniteId: input.naniteId,
     actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "push",
-      overrides: {
-        repository: npmPackagesRepositoryOverride,
-        ref: "refs/heads/main",
-        ...(input.commits ? { commits: input.commits } : {}),
-      },
-    },
+    event: pushTestEvent({
+      installationId: input.installationId,
+      repository: npmPackagesRepositoryOverride,
+      ref: "refs/heads/main",
+      ...(input.commits ? { commits: input.commits } : {}),
+    }),
     waitForTerminalOutcome: true,
     timeoutMs: 10_000,
   });
@@ -174,7 +263,6 @@ function expectAcceptedTriggerRun(output: TriggerTestOutput, naniteId: string) {
   expect(output.ok).toBe(true);
   expect(output.runs).toHaveLength(1);
   expect(output.acceptance).toMatchObject({
-    fixtureBuilt: true,
     triggerAcceptedEvent: true,
     runCreated: true,
     modelDispatched: true,
@@ -219,8 +307,9 @@ export default {
   });
 });
 
-test("trigger tests return generated noop reasons when fixtures do not dispatch", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests return generated noop reasons when raw events do not dispatch", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
 
   await registerPackageDocsSyncer(manager, {
     id: "package-docs-syncer",
@@ -230,12 +319,12 @@ test("trigger tests return generated noop reasons when fixtures do not dispatch"
 
   const output = await testPackageDocsTrigger(manager, {
     naniteId: "package-docs-syncer",
+    installationId: githubInstallationId,
   });
 
   expect(output.ok).toBe(false);
   expect(output.runs).toHaveLength(0);
   expect(output.acceptance).toMatchObject({
-    fixtureBuilt: true,
     triggerAcceptedEvent: false,
     runCreated: false,
     modelDispatched: false,
@@ -245,8 +334,9 @@ test("trigger tests return generated noop reasons when fixtures do not dispatch"
   expect(output.error).toBe(output.acceptance.triggerRejectionReason);
 });
 
-test("trigger tests dispatch when fixture overrides satisfy generated filters", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests dispatch when raw events satisfy generated filters", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
 
   await registerPackageDocsSyncer(manager, {
     id: "package-docs-syncer",
@@ -256,14 +346,16 @@ test("trigger tests dispatch when fixture overrides satisfy generated filters", 
 
   const output = await testPackageDocsTrigger(manager, {
     naniteId: "package-docs-syncer",
+    installationId: githubInstallationId,
     commits: [packageDocsChangedCommit],
   });
 
   expectAcceptedTriggerRun(output, "package-docs-syncer");
 });
 
-test("trigger tests apply fixture repository overrides before generated filters run", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests pass raw repository payloads through generated filters", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
 
   await registerPackageDocsSyncer(manager, {
     id: "package-docs-syncer-repository-overrides",
@@ -274,32 +366,26 @@ test("trigger tests apply fixture repository overrides before generated filters 
   const output = await manager.testNaniteTrigger({
     naniteId: "package-docs-syncer-repository-overrides",
     actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "push",
-      overrides: {
-        repository: {
-          full_name: "WebMCP-org/npm-packages",
-          name: "npm-packages",
-          owner: {
-            login: "WebMCP-org",
-          },
-        },
-        ref: "refs/heads/main",
-        commits: [packageDocsChangedCommit],
-      },
-    },
+    event: pushTestEvent({
+      installationId: githubInstallationId,
+      repository: npmPackagesRepositoryOverride,
+      ref: "refs/heads/main",
+      commits: [packageDocsChangedCommit],
+    }),
     waitForTerminalOutcome: true,
     timeoutMs: 10_000,
   });
 
-  expect(output.ok).toBe(true);
+  if (!output.ok) {
+    throw new Error(output.error);
+  }
   expect(getGitHubWebhookRepositoryFullName(output.event)).toBe("WebMCP-org/npm-packages");
   expectAcceptedTriggerRun(output, "package-docs-syncer-repository-overrides");
 });
 
-test("trigger tests dispatch issue fixtures through generated filters", async () => {
-  const manager = await getInstallationManager();
+test("trigger tests dispatch issue events through generated filters", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
   const naniteId = "issue-triage-nanite";
 
   await manager.registerNanite({
@@ -321,24 +407,95 @@ test("trigger tests dispatch issue fixtures through generated filters", async ()
   const output = await manager.testNaniteTrigger({
     naniteId,
     actorId: "github:1",
-    requestId: crypto.randomUUID(),
-    event: {
-      fixture: "issues.opened",
-    },
+    event: issueTestEvent({ installationId: githubInstallationId, action: "opened" }),
     waitForTerminalOutcome: true,
     timeoutMs: 10_000,
   });
 
+  if (!output.ok) {
+    throw new Error(output.error);
+  }
   expectAcceptedTriggerRun(output, naniteId);
   expect(output.event.name).toBe("issues");
   expect(output.event.payload.action).toBe("opened");
+});
+
+test("trigger tests reject invalid raw events before generated triggers run", async () => {
+  const githubInstallationId = randomInstallationId();
+  const manager = await getInstallationManager(githubInstallationId);
+  const naniteId = "invalid-raw-event-nanite";
+
+  await registerPackageDocsSyncer(manager, {
+    id: naniteId,
+    name: "Invalid raw event Nanite",
+    triggerSource: packageDocsTriggerSource,
+  });
+
+  const baseEvent = pushTestEvent({ installationId: githubInstallationId });
+  const { installation: _installation, ...payloadWithoutInstallation } = baseEvent.payload;
+  const invalidCases: Array<{ name: string; event: unknown; reason: string }> = [
+    {
+      name: "unknown event",
+      event: { ...baseEvent, name: "not_a_real_event" },
+      reason: "event.name must be a base GitHub webhook event name",
+    },
+    {
+      name: "non-object payload",
+      event: { ...baseEvent, payload: [] },
+      reason: "event.payload must be an object.",
+    },
+    {
+      name: "missing installation",
+      event: { ...baseEvent, payload: payloadWithoutInstallation },
+      reason: "event.payload.installation.id must be a positive integer.",
+    },
+    {
+      name: "mismatched installation",
+      event: {
+        ...baseEvent,
+        payload: {
+          ...baseEvent.payload,
+          installation: { id: githubInstallationId + 1 },
+        },
+      },
+      reason: `event.payload.installation.id must match manager installation ${githubInstallationId}`,
+    },
+    {
+      name: "oversized payload",
+      event: {
+        ...baseEvent,
+        payload: {
+          ...baseEvent.payload,
+          oversized: "x".repeat(MAX_GITHUB_TRIGGER_TEST_EVENT_BYTES),
+        },
+      },
+      reason: `event must serialize to ${MAX_GITHUB_TRIGGER_TEST_EVENT_BYTES} bytes or less`,
+    },
+  ];
+
+  for (const invalidCase of invalidCases) {
+    const output = await manager.testNaniteTrigger({
+      naniteId,
+      actorId: "github:1",
+      event: invalidCase.event,
+      waitForTerminalOutcome: false,
+      timeoutMs: 1_000,
+    });
+
+    expect(output.ok, invalidCase.name).toBe(false);
+    expect(output.event, invalidCase.name).toBeNull();
+    expect(output.error, invalidCase.name).toContain(invalidCase.reason);
+    expect(output.acceptance.triggerRejectionReason, invalidCase.name).toContain(
+      invalidCase.reason,
+    );
+  }
 });
 
 test("issues write Nanites can file issues and comment through GitHub MCP inside execute", async () => {
   const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
   const manager = await getInstallationManager(githubInstallationId);
   const naniteId = "issue-github-mcp-actions";
-  const originalFixture = env.NANITES_LLM_FIXTURE;
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
   const restoreGitHubApi = mockGitHubApi([
     {
       method: "POST",
@@ -441,7 +598,7 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
 
   try {
     await saveTestGitHubApp(env.DB);
-    env.NANITES_LLM_FIXTURE = "github_mcp_issue_actions";
+    fixtureEnv.NANITES_LLM_FIXTURE = "github_mcp_issue_actions";
     await manager.registerNanite({
       manifest: {
         id: naniteId,
@@ -473,11 +630,26 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
     });
     await manager.dispatchRun({ runId: run.runId });
 
-    const terminalRun = await waitForTerminalRun(manager, run.runId);
-    expect(terminalRun.status).toBe("no_change");
+    const terminalRun = await waitForTerminalRun(manager, { runId: run.runId });
+    if (terminalRun.status !== "no_change") {
+      throw new Error("Expected the GitHub MCP action run to finish with no_change.");
+    }
     expect(terminalRun.agentFeedback).toMatchObject({
       severity: "info",
       suggestions: ["issue_write_called=true", "add_issue_comment_called=true"],
+    });
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(workflow).toMatchObject({
+      runId: run.runId,
+      workflow: {
+        workflowId: run.runId,
+        workflowName: "NANITE_RUN_WORKFLOW",
+        status: "complete",
+        metadata: {
+          naniteId,
+          triggerType: "manual",
+        },
+      },
     });
 
     expect(fakeGitHub.toolCalls).toMatchObject([
@@ -507,23 +679,23 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
     expect(observedHeaders?.toolsets?.split(",").sort()).toEqual(["context", "issues"]);
     expect(observedHeaders?.excludedTools?.split(",")).not.toContain("issue_write");
   } finally {
-    env.NANITES_LLM_FIXTURE = originalFixture;
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
     globalThis.fetch = githubApiFetch;
     restoreGitHubApi();
   }
 });
 
-test("ask_manager lifecycle pauses the run with a request-only manager request", async () => {
+test("ask_manager workflow output pauses the run with a request-only manager request", async () => {
   const manager = await getInstallationManager();
-  const naniteId = "ask-manager-lifecycle";
-  const originalFixture = env.NANITES_LLM_FIXTURE;
+  const naniteId = "ask-manager-workflow-output";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
 
   try {
-    env.NANITES_LLM_FIXTURE = "ask_manager";
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
     await manager.registerNanite({
       manifest: {
         id: naniteId,
-        name: "Ask manager lifecycle",
+        name: "Ask manager workflow output",
         description: "Exercises manager escalation.",
         model: naniteModel,
         eventSource: {
@@ -556,9 +728,244 @@ test("ask_manager lifecycle pauses the run with a request-only manager request",
       state: "waiting_for_manager",
       runId: run.runId,
     });
+
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(workflow).toMatchObject({
+      runId: run.runId,
+      workflow: {
+        workflowId: run.runId,
+        workflowName: "NANITE_RUN_WORKFLOW",
+        status: "complete",
+        metadata: {
+          naniteId,
+          triggerType: "manual",
+        },
+      },
+    });
+
+    const cancellationReason = "Manager canceled the waiting test run.";
+    const cancellation = await manager.cancelRuns({
+      runIds: [run.runId],
+      reason: cancellationReason,
+    });
+    expect(cancellation.skippedRuns).toEqual([]);
+    expect(cancellation.canceledRuns).toHaveLength(1);
+    expect(cancellation.canceledRuns[0]).toMatchObject({
+      runId: run.runId,
+      status: "canceled",
+      summary: cancellationReason,
+    });
+
+    const canceledWorkflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(canceledWorkflow.workflow?.status).toBe("complete");
   } finally {
-    env.NANITES_LLM_FIXTURE = originalFixture;
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
   }
+});
+
+test("manual run projects ask_manager output through Workflow callbacks", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "ask-manager-manual-wait";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
+
+  try {
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Ask manager manual wait",
+        description: "Exercises manual wait outcome handling.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {},
+      },
+    });
+
+    const output = await manager.startNaniteManualRun({
+      naniteId,
+      actorId: "github:1",
+      message: "Open the documentation PR.",
+    });
+
+    expect(output.ok).toBe(true);
+    expect(output.runs).toHaveLength(1);
+    expect(output.runs[0].status).toBe("running");
+
+    const waitingRun = await waitForRunStatus(manager, output.runs[0].runId, "waiting_for_manager");
+    if (waitingRun.status !== "waiting_for_manager") {
+      throw new Error("Expected the Nanite run to wait for the manager.");
+    }
+    expect(waitingRun.managerRequest?.request).toContain("repository authority");
+  } finally {
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
+  }
+});
+
+test("manager rejection closes an ask_manager run without resuming its Workflow", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "ask-manager-reject";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
+
+  try {
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Ask manager reject",
+        description: "Exercises manager rejection.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {},
+      },
+    });
+
+    const run = await manager.startRun({
+      naniteId,
+      trigger: {
+        type: "manual",
+        requestId: crypto.randomUUID(),
+        actorId: "github:1",
+        message: "Open the documentation PR.",
+      },
+    });
+    await manager.dispatchRun({ runId: run.runId });
+
+    const waitingRun = await waitForRunStatus(manager, run.runId, "waiting_for_manager");
+    if (waitingRun.status !== "waiting_for_manager") {
+      throw new Error("Expected the Nanite run to wait for the manager.");
+    }
+    await waitForRunWorkflowStatus(manager, { runId: run.runId });
+
+    await manager.resolveManagerRequest({
+      kind: "reject",
+      runId: run.runId,
+      requestId: waitingRun.managerRequest.id,
+      summary: "Manager rejected the requested authority.",
+    });
+
+    const terminalRun = await waitForTerminalRun(manager, { runId: run.runId });
+    if (terminalRun.status !== "fail") {
+      throw new Error("Expected rejected manager request to fail the run.");
+    }
+    expect(terminalRun.summary).toBe("Manager rejected the requested authority.");
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: run.runId });
+    expect(workflow.workflow?.status).toBe("complete");
+  } finally {
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
+  }
+});
+
+test("manager response starts a follow-up Workflow-backed run", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "ask-manager-resume";
+  const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
+
+  try {
+    fixtureEnv.NANITES_LLM_FIXTURE = "ask_manager";
+    await manager.registerNanite({
+      manifest: {
+        id: naniteId,
+        name: "Ask manager resume",
+        description: "Exercises manager resume.",
+        model: naniteModel,
+        eventSource: {
+          type: "manual",
+        },
+        permissions: {},
+      },
+    });
+
+    const run = await manager.startRun({
+      naniteId,
+      trigger: {
+        type: "manual",
+        requestId: crypto.randomUUID(),
+        actorId: "github:1",
+        message: "Open the documentation PR.",
+      },
+    });
+    await manager.dispatchRun({ runId: run.runId });
+
+    const waitingRun = await waitForRunStatus(manager, run.runId, "waiting_for_manager");
+    if (waitingRun.status !== "waiting_for_manager") {
+      throw new Error("Expected the Nanite run to wait for the manager.");
+    }
+    await waitForRunWorkflowStatus(manager, { runId: run.runId });
+
+    fixtureEnv.NANITES_LLM_FIXTURE = "no_change";
+    const followUpRun = await manager.resolveManagerRequest({
+      kind: "resume",
+      runId: run.runId,
+      requestId: waitingRun.managerRequest.id,
+      message: "Repository authority has been granted. Continue the run.",
+    });
+
+    expect(followUpRun.runId).not.toBe(run.runId);
+    expect(followUpRun.trigger).toMatchObject({
+      type: "manual",
+      actorId: "github:1",
+    });
+
+    const resolvedRequestRun = await waitForTerminalRun(manager, { runId: run.runId });
+    if (resolvedRequestRun.status !== "no_change") {
+      throw new Error("Expected resolved manager request to close with no_change.");
+    }
+    expect(resolvedRequestRun.summary).toBe(
+      "Manager answered this request by starting a follow-up run.",
+    );
+
+    const terminalRun = await waitForTerminalRun(manager, { runId: followUpRun.runId });
+    if (terminalRun.status !== "no_change") {
+      throw new Error("Expected follow-up run to finish with no_change.");
+    }
+    const workflow = await waitForRunWorkflowStatus(manager, { runId: followUpRun.runId });
+    expect(workflow.workflow?.status).toBe("complete");
+  } finally {
+    fixtureEnv.NANITES_LLM_FIXTURE = originalFixture;
+  }
+});
+
+test("missing workflow structured output fails the run projection", async () => {
+  const manager = await getInstallationManager();
+  const naniteId = "missing-workflow-output";
+
+  await manager.registerNanite({
+    manifest: {
+      id: naniteId,
+      name: "Missing workflow output",
+      description: "Exercises workflow output failure projection.",
+      model: naniteModel,
+      eventSource: {
+        type: "manual",
+      },
+      permissions: {},
+    },
+  });
+
+  const run = await manager.startRun({
+    naniteId,
+    trigger: {
+      type: "manual",
+      requestId: crypto.randomUUID(),
+      actorId: "github:1",
+      message: "Inspect the trigger but omit a structured result.",
+    },
+  });
+
+  const terminalRun = await manager.recordRunFailureWithoutWorkflowOutput({
+    runId: run.runId,
+    error: "Nanite Run Workflow failed before reporting structured output: no workflow result",
+  });
+  if (terminalRun.status !== "fail") {
+    throw new Error("Expected missing Workflow output to fail the run.");
+  }
+  expect(terminalRun.summary).toContain(
+    "Nanite Run Workflow failed before reporting structured output",
+  );
 });
 
 test("terminal run activity ignores late Think submission activity reports", async () => {
@@ -587,13 +994,18 @@ test("terminal run activity ignores late Think submission activity reports", asy
       message: "Check whether anything changed.",
     },
   });
-  const terminalRun = await manager.completeRun({
+  const terminalRun = await manager.recordWorkflowResult({
     runId: run.runId,
-    status: "no_change",
-    summary: "Nothing changed.",
-    outputUrl: null,
-    agentFeedback: null,
+    naniteId,
+    result: {
+      kind: "no_change",
+      summary: "Nothing changed.",
+      agentFeedback: null,
+    },
   });
+  if (terminalRun.status !== "no_change") {
+    throw new Error("Expected direct Workflow result to finish with no_change.");
+  }
 
   const lateThinking = await manager.recordRuntimeActivity({
     naniteId,
@@ -621,22 +1033,6 @@ test("terminal run activity ignores late Think submission activity reports", asy
   expect(snapshot.runtimeActivityByNanite[naniteId]).toEqual(lateThinking);
 });
 
-async function waitForTerminalRun(
-  manager: InstallationManager,
-  runId: string,
-): Promise<NaniteRunRecord> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const run = (await manager.getSnapshot()).runs[runId];
-    if (run && isTerminalNaniteRunStatus(run.status)) {
-      return run;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  throw new Error(`Run ${runId} did not reach a terminal status in time.`);
-}
-
 async function waitForRunStatus(
   manager: InstallationManager,
   runId: string,
@@ -663,16 +1059,13 @@ test("webhook dispatch dedupes runs by trigger idempotency key", async () => {
     triggerSource: packageDocsTriggerSource,
   });
 
-  const event = buildGitHubTriggerFixture({
-    fixture: "push",
+  const event: GitHubWebhookEventSnapshot = pushTestEvent({
     deliveryId: "delivery-dedupe-1",
     installationId: 555,
-    overrides: {
-      repository: npmPackagesRepositoryOverride,
-      ref: "refs/heads/main",
-      after: "test000000000002",
-      commits: [packageDocsChangedCommit],
-    },
+    repository: npmPackagesRepositoryOverride,
+    ref: "refs/heads/main",
+    after: "test000000000002",
+    commits: [packageDocsChangedCommit],
   });
 
   const firstEvaluations = await manager.handleGitHubWebhook({ event });
@@ -684,7 +1077,7 @@ test("webhook dispatch dedupes runs by trigger idempotency key", async () => {
     throw new Error("Expected the first webhook delivery to create a run.");
   }
 
-  await waitForTerminalRun(manager, runId);
+  await waitForTerminalRun(manager, { runId });
 
   const secondEvaluations = await manager.handleGitHubWebhook({ event });
   expect(secondEvaluations).toHaveLength(1);

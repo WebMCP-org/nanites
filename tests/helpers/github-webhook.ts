@@ -17,14 +17,6 @@ export type TestGitHubWebhookPayload<TEventName extends EmitterWebhookEventName>
   EmitterWebhookEvent<TEventName>["payload"]
 >;
 
-type TestGitHubWebhookRequestHeaders = {
-  readonly "content-type": "application/json";
-  readonly "x-github-delivery": string;
-  readonly "x-github-event": GitHubWebhookEventName;
-  readonly "x-github-hook-installation-target-id": string;
-  readonly "x-github-hook-installation-target-type": "integration";
-};
-
 async function signGitHubWebhookBody(body: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -64,7 +56,7 @@ export async function buildTestGitHubWebhookRequest({
     "x-github-event": event,
     "x-github-hook-installation-target-id": String(TEST_GITHUB_APP_ID),
     "x-github-hook-installation-target-type": "integration",
-  } satisfies TestGitHubWebhookRequestHeaders);
+  });
 
   if (signed) {
     headers.set(

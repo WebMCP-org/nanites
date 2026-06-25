@@ -25,6 +25,7 @@ export type GitHubAppMetadata = {
   readonly appId: number;
   readonly slug: string;
   readonly htmlUrl: string;
+  readonly setupOrigin: string | null;
   readonly ownerLogin: string | null;
   readonly ownerType: string | null;
   readonly clientId: string;
@@ -45,6 +46,7 @@ export type RegisterGitHubAppInput = {
   readonly appId: number;
   readonly slug: string;
   readonly htmlUrl: string;
+  readonly setupOrigin?: string | null;
   readonly ownerLogin: string | null;
   readonly ownerType: string | null;
   readonly clientId: string;
@@ -87,6 +89,7 @@ function toGitHubAppMetadata(row: GitHubAppRow): GitHubAppMetadata {
     appId: row.appId,
     slug: row.slug,
     htmlUrl: row.htmlUrl,
+    setupOrigin: normalizeOrigin(row.setupOrigin),
     ownerLogin: row.ownerLogin,
     ownerType: row.ownerType,
     clientId: row.clientId,
@@ -100,6 +103,16 @@ function toGitHubAppMetadata(row: GitHubAppRow): GitHubAppMetadata {
     },
     configUpdatedAt: row.updatedAt,
   };
+}
+
+function normalizeOrigin(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const origin = new URL(value).origin;
+    return origin.startsWith("http://") || origin.startsWith("https://") ? origin : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -116,14 +129,6 @@ export function readAuthCookieSecret(env: Env): string | null {
   return readConfiguredSecret(env, AUTH_COOKIE_SECRET_BINDING);
 }
 
-export async function listGitHubApps(db: DbClient): Promise<GitHubAppMetadata[]> {
-  const rows = await db
-    .select()
-    .from(githubApps)
-    .orderBy(desc(githubApps.updatedAt), desc(githubApps.appId));
-  return rows.map(toGitHubAppMetadata);
-}
-
 export async function listActiveGitHubApps(db: DbClient): Promise<GitHubAppMetadata[]> {
   const rows = await db
     .select()
@@ -136,7 +141,14 @@ export async function listActiveGitHubApps(db: DbClient): Promise<GitHubAppMetad
 async function readSingletonActiveGitHubAppMetadata(
   db: DbClient,
 ): Promise<GitHubAppMetadata | null> {
-  const apps = await listActiveGitHubApps(db);
+  const apps = (
+    await db
+      .select()
+      .from(githubApps)
+      .where(eq(githubApps.status, "active"))
+      .orderBy(desc(githubApps.updatedAt), desc(githubApps.appId))
+      .limit(2)
+  ).map(toGitHubAppMetadata);
   if (apps.length > 1) {
     throw new AppError("deploymentGitHubAppConflict", {
       details: { githubAppIds: apps.map((app) => app.appId) },
@@ -152,7 +164,11 @@ export async function readGitHubAppMetadata(
 ): Promise<GitHubAppMetadata | null> {
   const rows = await db.select().from(githubApps).where(eq(githubApps.appId, appId)).limit(1);
   const row = rows[0];
-  return row ? toGitHubAppMetadata(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  return toGitHubAppMetadata(row);
 }
 
 export async function readDeploymentGitHubAppMetadata(
@@ -274,6 +290,7 @@ export async function registerGitHubApp(
       appId: input.appId,
       slug: input.slug,
       htmlUrl: input.htmlUrl,
+      setupOrigin: normalizeOrigin(input.setupOrigin),
       ownerLogin: input.ownerLogin,
       ownerType: input.ownerType,
       clientId: input.clientId,
@@ -292,6 +309,7 @@ export async function registerGitHubApp(
       set: {
         slug: input.slug,
         htmlUrl: input.htmlUrl,
+        setupOrigin: normalizeOrigin(input.setupOrigin),
         ownerLogin: input.ownerLogin,
         ownerType: input.ownerType,
         clientId: input.clientId,

@@ -13,14 +13,7 @@ import { AppError, describeError } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
-import {
-  buildBrowserSessionExpiration,
-  nanitesSessionSchema,
-  readSessionInstallationSnapshots,
-  requireGitHubUserToken,
-  requireSession,
-  sealSessionCookie,
-} from "#/backend/auth/session.ts";
+import { requireGitHubUserToken, requireSession } from "#/backend/auth/session.ts";
 import {
   checkAuthenticatedUserStarredNanites,
   issueScopedGitHubInstallationToken,
@@ -29,7 +22,6 @@ import {
   starNanitesRepositoryForAuthenticatedUser,
 } from "#/backend/github/index.ts";
 import {
-  listGitHubApps,
   readAuthCookieSecret,
   readDeploymentGitHubAppMetadata,
   requireGitHubAppsTableReady,
@@ -63,10 +55,6 @@ const gitHubSetupVerificationQuerySchema = z.object({
 });
 const gitHubAppSetupCallbackQuerySchema = gitHubSetupVerificationQuerySchema.extend({
   setup_action: z.enum(["install", "update"]),
-});
-const startGitHubAppBodySchema = z.object({
-  ownerType: z.enum(["user", "organization"]),
-  ownerLogin: z.string().trim().min(1).nullish(),
 });
 
 type GitHubSetupVerificationQuery = z.infer<typeof gitHubSetupVerificationQuerySchema>;
@@ -104,15 +92,11 @@ function throwInstallationVerificationFailed(input: {
   readonly reason: string;
   readonly githubInstallationId: number | null;
   readonly cause?: unknown;
-  readonly visibleInstallationIds?: readonly string[];
   readonly githubError?: string;
 }): never {
   setupLogger.warn(LOG_EVENTS.SETUP_INSTALLATION_VERIFICATION_FAILED, {
     reason: input.reason,
     [OTEL_ATTRS.GITHUB_INSTALLATION_ID]: input.githubInstallationId,
-    ...(input.visibleInstallationIds
-      ? { visibleInstallationIds: input.visibleInstallationIds.join(",") }
-      : {}),
     ...(input.githubError ? { [OTEL_ATTRS.EXCEPTION_MESSAGE]: input.githubError } : {}),
   });
   throw new AppError("setupInstallationVerificationFailed", {
@@ -120,9 +104,6 @@ function throwInstallationVerificationFailed(input: {
     details: {
       githubInstallationId: input.githubInstallationId,
       reason: input.reason,
-      ...(input.visibleInstallationIds
-        ? { visibleInstallationIds: input.visibleInstallationIds }
-        : {}),
       ...(input.githubError ? { githubError: input.githubError } : {}),
     },
   });
@@ -178,13 +159,24 @@ function buildGitHubSetupVerificationLoginUrl(
 }
 
 function requireSetupClaimToken(request: Request): string {
-  const cookieHeader = request.headers.get("cookie");
-  const claimToken = cookieHeader ? parse(cookieHeader)[SETUP_CLAIM_COOKIE_NAME]?.trim() : null;
+  const claimToken = readSetupClaimToken(request);
   if (!claimToken) {
     throw new AppError("setupClaimRequired");
   }
 
   return claimToken;
+}
+
+function readSetupClaimToken(request: Request): string | null {
+  const cookieHeader = request.headers.get("cookie");
+  const claimToken = cookieHeader ? parse(cookieHeader)[SETUP_CLAIM_COOKIE_NAME]?.trim() : null;
+  return claimToken || null;
+}
+
+function buildSetupClaimRequiredUrl(request: Request): URL {
+  const setupUrl = new URL("/setup", request.url);
+  setupUrl.searchParams.set("setup_error", "setup_claim_required");
+  return setupUrl;
 }
 
 async function requireGitHubBrowserAuth(context: Context<WorkerHonoEnv>) {
@@ -274,18 +266,12 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
   })
   .post("/api/setup/github-app", setupVisibleRequired, async (context) => {
     const claimToken = requireSetupClaimToken(context.req.raw);
-    const body = startGitHubAppBodySchema.safeParse(await context.req.json().catch(() => null));
-    if (!body.success) {
-      throw new AppError("invalidSetupState");
-    }
     await requireGitHubAppsTableReady(createDbClient(context.env.DB));
 
     const setupAgent = await getSetupAgent(context.env);
     const result = await setupAgent.startGitHubApp({
       origin: new URL(context.req.raw.url).origin,
       claimToken,
-      ownerType: body.data.ownerType,
-      ownerLogin: body.data.ownerLogin ?? null,
     });
     if (!result.ok) {
       throw new AppError(result.errorKind);
@@ -319,20 +305,21 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
     );
   })
   .get(GITHUB_APP_INSTALL_CALLBACK_PATH, setupVisibleRequired, async (context) => {
-    requireSetupClaimToken(context.req.raw);
     const callbackQuery = requireGitHubAppSetupCallbackQuery(context.req.raw);
+    if (!readSetupClaimToken(context.req.raw) && !(await isRuntimeConfigReadable(context.env))) {
+      return context.redirect(buildSetupClaimRequiredUrl(context.req.raw).toString(), 302);
+    }
     return context.redirect(
       buildGitHubSetupVerificationLoginUrl(context.req.raw, callbackQuery).toString(),
       302,
     );
   })
   .get(GITHUB_APP_INSTALL_VERIFY_PATH, setupVisibleRequired, async (context) => {
-    const claimToken = requireSetupClaimToken(context.req.raw);
+    const claimToken = readSetupClaimToken(context.req.raw);
     const verificationQuery = requireGitHubSetupVerificationQuery(context.req.raw);
-    let session: Awaited<ReturnType<typeof requireSession>>;
     let githubUserToken: Awaited<ReturnType<typeof requireGitHubUserToken>>;
     try {
-      session = await requireSession(context.req.raw, context.env);
+      await requireSession(context.req.raw, context.env);
       githubUserToken = await requireGitHubUserToken(context.req.raw, context.env, {
         responseHeaders: context.res.headers,
       });
@@ -350,43 +337,53 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
     if (!wizardApp) {
       throw new AppError("deploymentGitHubAppSetupRequired");
     }
+    const runtimeConfigReadable = await isRuntimeConfigReadable(context.env);
+    if (!claimToken && !runtimeConfigReadable) {
+      throw new AppError("setupClaimRequired");
+    }
 
     const requestedInstallationId = verificationQuery.installation_id;
     // The login session rides the singleton deployment app, and GitHub remains
-    // authoritative for which installations the browser token can see.
-    const visibleInstallations = readSessionInstallationSnapshots(
-      await listVisibleInstallations(githubUserToken.accessToken),
-      wizardApp.appId,
-    );
+    // authoritative for whether this browser can see the returned installation.
     const verifiedInstallation =
-      visibleInstallations.find((installation) => installation.id === requestedInstallationId) ??
-      null;
+      (await listVisibleInstallations(githubUserToken.accessToken)).find(
+        (installation) => installation.id === requestedInstallationId,
+      ) ?? null;
     if (!verifiedInstallation) {
       throwInstallationVerificationFailed({
         reason: "installation_not_visible",
         githubInstallationId: requestedInstallationId,
-        visibleInstallationIds: visibleInstallations.map((installation) => String(installation.id)),
       });
     }
 
-    await recordVisibleInstallationSnapshots(db, [verifiedInstallation]);
+    const recordedInstallations = await recordVisibleInstallationSnapshots(db, {
+      githubAppId: wizardApp.appId,
+      installations: [verifiedInstallation],
+    });
+    if (recordedInstallations === 0) {
+      throwInstallationVerificationFailed({
+        reason: "installation_not_visible",
+        githubInstallationId: requestedInstallationId,
+      });
+    }
     const firstVisibleRepositoryFullName = await requireInstallationHasVisibleRepository(
       githubUserToken.accessToken,
-      verifiedInstallation.id,
+      requestedInstallationId,
       { env: context.env, githubAppId: wizardApp.appId },
     );
     await proveInstallationTokenCanBeMinted({
       env: context.env,
       githubAppId: wizardApp.appId,
-      githubInstallationId: verifiedInstallation.id,
+      githubInstallationId: requestedInstallationId,
       repositoryFullName: firstVisibleRepositoryFullName,
     });
     const setupAgent = await getSetupAgent(context.env);
     const result = await setupAgent.recordRepositoryInstall({
       claimToken,
-      githubInstallationId: verifiedInstallation.id,
+      githubInstallationId: requestedInstallationId,
+      repositoryFullName: firstVisibleRepositoryFullName,
       installState: verificationQuery.state,
-      runtimeConfigReadable: await isRuntimeConfigReadable(context.env),
+      runtimeConfigReadable,
     });
     if (!result.ok) {
       if (result.errorKind === "installStateMismatch") {
@@ -397,21 +394,6 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
       }
       throw new AppError(result.errorKind);
     }
-
-    const nextSession = nanitesSessionSchema.parse({
-      ...session,
-      activeGithubAppId: verifiedInstallation.githubAppId,
-      activeGithubInstallationId: verifiedInstallation.id,
-      sessionInstallationSnapshot: verifiedInstallation,
-      expiresAt: buildBrowserSessionExpiration(),
-    });
-    context.header(
-      "Set-Cookie",
-      await sealSessionCookie(nextSession, context.req.raw, context.env),
-      {
-        append: true,
-      },
-    );
 
     return context.redirect("/setup", 302);
   })
@@ -437,17 +419,4 @@ export const setupRoutes = new Hono<WorkerHonoEnv>()
         error: starred ? null : UPSTREAM_STAR_MISSING_MESSAGE,
       }),
     );
-  })
-  .get("/api/setup/github-apps", setupVisibleRequired, async (context) => {
-    requireSetupClaimToken(context.req.raw);
-    const apps = await listGitHubApps(createDbClient(context.env.DB));
-    return context.json({
-      apps: apps.map((app) => ({
-        appId: app.appId,
-        slug: app.slug,
-        htmlUrl: app.htmlUrl,
-        ownerLogin: app.ownerLogin,
-        status: app.status,
-      })),
-    });
   });

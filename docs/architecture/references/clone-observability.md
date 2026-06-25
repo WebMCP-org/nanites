@@ -101,26 +101,26 @@ If git operations were replaced with API calls, the entire `.git` directory beco
 
 ### @cloudflare/shell git wrapper
 
-| File                                                                              | What to look at                                                                                                                          |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts`      | `createGit()` factory and all git method wrappers (~400 lines). `clone()` at the top — accepts `depth` but not `onProgress`/`onMessage`. |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/fs-adapter.ts` | Adapts the Workspace filesystem to isomorphic-git's expected `fs` API. This is where file writes during clone go through.                |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/provider.ts`   | Git tool provider for MCP/shell integration — the tools the Nanite LLM calls.                                                            |
+| Upstream area                         | What to look at                                                                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `@cloudflare/shell` git wrapper       | `createGit()` factory and git method wrappers. `clone()` accepts `depth` but not `onProgress` or `onMessage`.            |
+| `@cloudflare/shell` filesystem bridge | Workspace filesystem adaptation for isomorphic-git. This is where file writes during clone go through.                   |
+| `@cloudflare/shell` git provider      | Git tool provider for MCP/shell integration - the tools the Nanite LLM calls.                                            |
 
 ### Workspace storage
 
-| File                                                                         | What to look at                                                                        |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/workspace.ts` | Workspace class — SQLite + R2 storage, inline threshold (~1.5MB), `getWorkspaceInfo()` |
-| `opensrc/repos/github.com/cloudflare/agents/packages/shell/src/backend.ts`   | `StateBackend` interface — the SQLite storage layer that hits `SQLITE_TOOBIG`          |
+| Upstream area                         | What to look at                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------- |
+| `@cloudflare/shell` Workspace storage | Workspace class - SQLite + R2 storage, inline threshold, `getWorkspaceInfo()` |
+| `@cloudflare/shell` state backend     | `StateBackend` interface - the SQLite storage layer that hits `SQLITE_TOOBIG` |
 
 ### Agents SDK observability
 
-| File                                                                                    | What to look at                                                                      |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/observability/index.ts` | Diagnostics channel definitions, `Observability` interface                           |
-| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/observability/agent.ts` | All agent event types — what Workers Observability can show                          |
-| `opensrc/repos/github.com/cloudflare/agents/packages/agents/src/index.ts`               | Main Agent class — `_emit()`, error hooks, destroy/abort, queue/schedule retry logic |
+| Upstream area                   | What to look at                                                             |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| Agents SDK observability module | Diagnostics channel definitions and `Observability` interface              |
+| Agents SDK agent events         | Agent event types - what Workers Observability can show                    |
+| Agents SDK main Agent class     | `_emit()`, error hooks, destroy/abort, queue/schedule retry logic           |
 
 ### GitHub API integration (already exists)
 

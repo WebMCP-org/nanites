@@ -86,31 +86,6 @@ function McpAuthorizePage() {
         title="Choose repositories for Nanites"
         summary={`${context.clientName} can connect after at least one repository is shared with Nanites.`}
       >
-        <ul className="mcp-authorize__installation-list" aria-label="GitHub installations">
-          {context.installations.map((option) => (
-            <li key={option.installation.id}>
-              <a
-                className="mcp-authorize__installation-link"
-                href={option.manageAccessHref}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <span className="mcp-authorize__installation-copy">
-                  <span className="mcp-authorize__installation-login">
-                    {option.installation.account.login}
-                  </span>
-                  <span className="mcp-authorize__installation-meta">
-                    {option.installation.account.type} - no repositories shared
-                  </span>
-                </span>
-                <span className="mcp-authorize__installation-action">
-                  Choose repositories
-                  <ArrowSquareOutIcon size={14} aria-hidden="true" />
-                </span>
-              </a>
-            </li>
-          ))}
-        </ul>
         <div className="mcp-authorize__actions">
           <a
             className="button button--outline button--primary button--lg mcp-authorize__link-button"
@@ -119,7 +94,8 @@ function McpAuthorizePage() {
             rel="noreferrer"
           >
             <GithubMotionMark size={18} />
-            <span>Install on another account</span>
+            <span>Choose repositories</span>
+            <ArrowSquareOutIcon size={14} aria-hidden="true" />
           </a>
           <Button
             color="neutral"
@@ -153,37 +129,23 @@ function McpAuthorizePage() {
     );
   }
 
-  const selectedInstallationId = context.installations.some(
-    (option) => option.installation.id === context.activeGithubInstallationId,
-  )
-    ? context.activeGithubInstallationId
-    : (context.installations[0]?.installation.id ?? "");
+  const repositoryCount = context.installation.repositories.length;
 
   return (
     <McpAuthorizeShell
       title={`Authorize ${context.clientName}`}
-      summary="Choose the GitHub installation this MCP client may use with Nanites."
+      summary={`This MCP client will use this deployment's ${context.installation.account.login} GitHub installation.`}
     >
       <form className="mcp-authorize__form" method="post" action={context.authorizeAction}>
         <input type="hidden" name="csrf_token" value={context.csrfToken} />
 
-        <label className="mcp-authorize__field" htmlFor="mcp-authorize-installation">
+        <div className="mcp-authorize__field">
           <span>GitHub installation</span>
-          <select
-            id="mcp-authorize-installation"
-            className="mcp-authorize__select"
-            name="github_installation_id"
-            defaultValue={String(selectedInstallationId)}
-            required
-          >
-            {context.installations.map((option) => (
-              <option key={option.installation.id} value={option.installation.id}>
-                {option.installation.account.login} ({option.repositoryCount}{" "}
-                {option.repositoryCount === 1 ? "repository" : "repositories"})
-              </option>
-            ))}
-          </select>
-        </label>
+          <strong>{context.installation.account.login}</strong>
+          <span>
+            {repositoryCount} {repositoryCount === 1 ? "repository" : "repositories"}
+          </span>
+        </div>
 
         <ul className="mcp-authorize__scopes" aria-label="Requested MCP scopes">
           {context.requestedScopes.map((scope) => (

@@ -43,7 +43,7 @@ Use these rules when changing Nanites:
   GitHub-owned data in Octokit/webhook shapes until a concrete non-GitHub boundary requires a
   projection. Do not create SigVelo DTOs that rename, subset, or normalize standard GitHub facts.
 - **Validate untrusted boundaries, then trust internal owners.** Validate MCP `create_nanite`
-  inputs, generated Nanite lifecycle tool calls, GitHub webhooks, external API responses, and browser
+  inputs, generated Nanite structured outputs, GitHub webhooks, external API responses, and browser
   route/search input. Do not make the manager re-parse state it owns, mirror TypeScript types with
   Zod, add `schemaVersion` fields before a migration exists, or accept caller-supplied timestamps
   and ids for manager-owned events.
@@ -105,7 +105,7 @@ A Nanite should own:
 - workspace-backed repo inspection and edits
 - MCP and skill attachments
 - change proposal pointer
-- lifecycle tools such as `complete`, `no_change`, `fail`, and `ask_manager`
+- structured Run output produced through the Run Workflow
 - child Nanite proposals when a vertical should split
 
 Do not use a custom `/live` tunnel for new UI paths. The SDK sub-agent route is the canonical live route.
@@ -381,7 +381,8 @@ Still missing or incomplete:
 
 - generated trigger handler registration UI and authoring skill examples
 - schedule intake through the same generated trigger handler path
-- lifecycle tools beyond the current completion, no-change, failure, and manager checkpoint tools
+- richer Workflow-backed Run outputs beyond the current completion, no-change, failure, and manager
+  checkpoint outcomes
 
 ## Release hardening target
 
@@ -413,30 +414,14 @@ Do not try to solve every future runtime problem in the same pass.
 - [src/backend/db/schema.ts](/src/backend/db/schema.ts)
 - [src/frontend/routes/\_authenticated/nanites/route.tsx](/src/frontend/routes/_authenticated/nanites/route.tsx)
 
-### Sibling working repos
+### External reference themes
 
-`../char-ai-saas` gives the best current reference for control-plane versus client-execution boundaries:
-
-- `../char-ai-saas/apps/char-ai-saas/worker/chat/thread-manager.ts`
-- `../char-ai-saas/apps/char-ai-saas/worker/chat/thread-agent/chat-orchestrator.ts`
-- `../char-ai-saas/apps/char-ai-saas/src/embed/agent/hooks/useThreadRuntime.tsx`
-- `../char-ai-saas/packages/shared-types/src/agent-contracts.ts`
-
-`../npm-packages` gives the best current reference for browser-side WebMCP instrumentation and verification:
-
-- `../npm-packages/packages/webmcp-polyfill/src/index.ts`
-- `../npm-packages/packages/webmcp-ts-sdk/src/browser-server.ts`
-- `../npm-packages/packages/react-webmcp/src/useWebMCP.ts`
-- `../npm-packages/packages/webmcp-local-relay/src/bridgeServer.ts`
-- `../npm-packages/packages/webmcp-local-relay/src/browser/widgetRuntime.ts`
-- `../npm-packages/packages/codemode/src/webmcp.ts`
-- `../npm-packages/packages/chrome-devtools-mcp/src/tools/webmcp.ts`
-
-### Local first-party source mirrors
-
-- [opensrc/repos/github.com/cloudflare/agents/docs/workspace.md](/opensrc/repos/github.com/cloudflare/agents/docs/workspace.md)
-- [opensrc/repos/github.com/cloudflare/agents/docs/codemode.md](/opensrc/repos/github.com/cloudflare/agents/docs/codemode.md)
-- [opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts](/opensrc/repos/github.com/cloudflare/agents/packages/shell/src/git/index.ts)
+- Cloudflare Agents, Think, Workspace, Shell, Codemode, Worker Loader, Workflows, and Durable
+  Objects provide the runtime primitives.
+- Control-plane and client-tool execution references inform the manager/Nanite split, RPC
+  boundaries, tool authorization, and approval UX.
+- Browser WebMCP references inform instrumentation, registration cleanup, relay behavior, and
+  preview verification.
 
 ## Other needed inputs
 

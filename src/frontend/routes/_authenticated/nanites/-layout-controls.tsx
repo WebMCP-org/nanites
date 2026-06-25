@@ -1,4 +1,5 @@
 import { FileIcon, SlidersHorizontalIcon } from "@phosphor-icons/react";
+import { Button } from "#/frontend/ui/components/Button.tsx";
 import {
   Tooltip,
   TooltipPopup,
@@ -30,15 +31,17 @@ export function NaniteDesktopPanelControls({
       <Tooltip>
         <TooltipTrigger
           render={
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              color="neutral"
+              size="icon"
               aria-label="Summary"
               aria-pressed={activePanel === "summary"}
               data-selected={activePanel === "summary"}
               onClick={() => onToggle("summary")}
             >
               <SlidersHorizontalIcon size={14} aria-hidden="true" />
-            </button>
+            </Button>
           }
         />
         <TooltipPortal>
@@ -51,15 +54,17 @@ export function NaniteDesktopPanelControls({
         <Tooltip>
           <TooltipTrigger
             render={
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                color="neutral"
+                size="icon"
                 aria-label="File explorer"
                 aria-pressed={activePanel === "files"}
                 data-selected={activePanel === "files"}
                 onClick={() => onToggle("files")}
               >
                 <FileIcon size={14} aria-hidden="true" />
-              </button>
+              </Button>
             }
           />
           <TooltipPortal>

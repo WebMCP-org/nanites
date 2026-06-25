@@ -12,7 +12,8 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 - For product or runtime work inside the Nanites repo, read the architecture docs named in `AGENTS.md` before changing runtime behavior.
 - For MCP authoring or debugging, load only the focused reference you need:
   - Manifest and trigger authoring: `references/authoring.md`
-  - Setup, MCP testing, and troubleshooting: `references/operations.md`
+  - Codemode runtime behavior and prompt debugging: `references/codemode-runtime.md`
+  - Setup, MCP testing, deployment, and self-hosting troubleshooting: `references/operations.md`
 - Prefer improving this skill or one existing reference when a Nanite task teaches reusable operating knowledge.
 
 ## Operating Model
@@ -38,7 +39,7 @@ Nanites are small durable agents that own one vertical maintenance responsibilit
 2. Inspect existing Nanites with `sigvelo_debug_nanites` before creating or changing one.
 3. Draft a strict `sigvelo_create_nanite` payload: `manifest.id`, `name`, `description`, `model`, `eventSource`, `permissions`, and `triggerSource` for GitHub or schedule sources.
 4. Register or update one Nanite with `sigvelo_create_nanite`. For related fleets, create and validate one Nanite before moving to the next.
-5. Test generated triggers with `sigvelo_test_nanite_trigger`. Use fixture overrides that satisfy the trigger's repository, branch, action, and path filters.
+5. Test generated triggers with `sigvelo_test_nanite_trigger`. Write a GitHub webhook-shaped event whose `payload.installation.id` matches `sigvelo_whoami`, and whose repository, branch, action, and changed files satisfy the trigger filters.
 6. Test manual behavior with `sigvelo_start_nanite_run`.
 7. Inspect terminal run status, transcript, submissions, workspace, and `agentFeedback`; iterate until the Nanite actually works.
 8. For cleanup, use `sigvelo_cancel_nanite_runs`, `sigvelo_reset_nanite_debug`, or `sigvelo_deprovision_nanite` with an explicit reason.

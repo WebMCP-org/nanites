@@ -4,13 +4,10 @@
   --app-dark: #1a2332;
   --app-dark-text: #dce3ed;
   --app-dark-muted: #8ba7b8;
-  --app-dark-subtle: #4a6070;
   --app-dark-border: #2e3d50;
-  --app-dark-surface: #151e2c;
   --app-accent: #0f7b6c;
   --app-accent-dark: #0a5f54;
   --app-accent-soft: #e0f2ee;
-  --app-dust: #7eb8c9;
   --app-dusk: #2d5a8a;
   --app-bg: #f5f7fa;
   --app-charcoal: #1a2332;
@@ -19,8 +16,6 @@
   --app-border-soft: #e2e6ec;
   --app-surface: #ebeef3;
   --app-surface-hover: rgba(0, 0, 0, 0.04);
-  --app-surface-hover-strong: rgba(0, 0, 0, 0.08);
-  --app-header-rail-height: 3.375rem;
   --app-sidebar: #f5fbfe;
   --app-sidebar-border: #c5dae6;
   --app-chat-surface: #f7fcfe;
@@ -39,13 +34,8 @@
 
   /* Semantic status palette (used across pills, dots, timeline rows) */
   --app-status-success: #16a34a;
-  --app-status-success-dark: #15803d;
   --app-status-danger: #dc2626;
-  --app-status-danger-dark: #b91c1c;
   --app-status-warning: #d97706;
-  --app-status-warning-dark: #b45309;
-  --app-status-neutral: #6b7280;
-  --app-status-neutral-dark: #4b5563;
 
   /* Override sigvelo tokens for the agent app */
   --sigvelo-background-color: var(--app-bg);
@@ -67,13 +57,6 @@
     --app-scrollbar-thumb: #1a2332;
     --app-scrollbar-thumb-hover: #000000;
   }
-}
-
-.app-header__identity {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-inline-size: 0;
 }
 
 /* ── Login screen ── */
@@ -212,36 +195,6 @@
   font-weight: 750;
 }
 
-.mcp-authorize__select,
-.mcp-authorize__input {
-  inline-size: 100%;
-  min-block-size: 2.75rem;
-  padding-inline: 0.875rem;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: var(--sigvelo-paper-color);
-  color: var(--app-charcoal);
-  font: inherit;
-  font-weight: 600;
-}
-
-.mcp-authorize__select:focus-visible,
-.mcp-authorize__input:focus-visible {
-  outline: 2px solid var(--sigvelo-focus-color);
-  outline-offset: 2px;
-}
-
-.mcp-authorize__input::placeholder {
-  color: color-mix(in srgb, var(--app-text-muted) 72%, transparent);
-}
-
-.mcp-authorize__note {
-  margin: 0;
-  color: var(--app-text-muted);
-  font-size: var(--sigvelo-font-size-sm);
-  line-height: 1.5;
-}
-
 .mcp-authorize__scopes,
 .mcp-authorize__actions {
   display: flex;
@@ -254,67 +207,6 @@
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.mcp-authorize__installation-list {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.mcp-authorize__installation-link {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  min-block-size: 3.25rem;
-  padding: 0.75rem;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background-color: var(--sigvelo-paper-color);
-  color: var(--app-charcoal);
-  text-decoration: none;
-}
-
-.mcp-authorize__installation-link:hover {
-  background-color: var(--app-surface-hover);
-}
-
-.mcp-authorize__installation-link:focus-visible {
-  outline: 2px solid var(--sigvelo-focus-color);
-  outline-offset: 2px;
-}
-
-.mcp-authorize__installation-copy {
-  display: grid;
-  gap: 0.125rem;
-  min-inline-size: 0;
-}
-
-.mcp-authorize__installation-login {
-  overflow: hidden;
-  color: var(--app-charcoal);
-  font-size: var(--sigvelo-font-size-sm);
-  font-weight: var(--sigvelo-font-weight-semibold);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mcp-authorize__installation-meta {
-  color: var(--app-text-muted);
-  font-size: var(--sigvelo-font-size-xs);
-}
-
-.mcp-authorize__installation-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  color: var(--app-accent-dark);
-  font-size: var(--sigvelo-font-size-xs);
-  font-weight: var(--sigvelo-font-weight-semibold);
-  white-space: nowrap;
 }
 
 .mcp-authorize__actions .button {
@@ -435,80 +327,6 @@
   grid-template-rows: auto auto 1fr;
 }
 
-.app-topbar {
-  background-color: var(--app-dark);
-  color: var(--app-dark-text);
-  padding-block: 0.875rem;
-  padding-inline: clamp(1rem, 3vw, 1.5rem);
-}
-
-.app-topbar__inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  max-inline-size: 72rem;
-  margin-inline: auto;
-}
-
-.app-topbar__left {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-}
-
-.app-topbar__wordmark {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  color: var(--app-dark-text);
-  text-decoration: none;
-}
-
-.app-topbar__wordmark:hover {
-  color: var(--app-dark-text);
-}
-
-.app-topbar__right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.app-topbar__link {
-  font-size: 0.8125rem;
-  color: var(--app-dark-muted);
-  text-decoration: none;
-  transition: color 150ms ease;
-  cursor: pointer;
-  background: none;
-  border: none;
-  font-family: inherit;
-  padding: 0;
-}
-
-.app-topbar__link:hover {
-  color: var(--app-dark-text);
-}
-
-.app-link {
-  color: var(--app-accent);
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
-  text-decoration-thickness: 1px;
-  font-weight: 500;
-}
-
-.app-link:hover {
-  text-decoration-thickness: 2px;
-}
-
-.app-link:focus-visible {
-  outline: 2px solid var(--app-accent);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
 /* ── Main content ── */
 
 .app-main {
@@ -554,6 +372,37 @@
   aspect-ratio: 120 / 56;
 }
 
+.page-state-card__metadata {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem;
+  text-align: start;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 0.5rem;
+  background: var(--app-surface);
+}
+
+.page-state-card__metadata-item {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.page-state-card__metadata dt {
+  color: var(--app-text-muted);
+  font-weight: 600;
+}
+
+.page-state-card__metadata dd {
+  min-inline-size: 0;
+  margin: 0;
+  color: var(--app-charcoal);
+  overflow-wrap: anywhere;
+}
+
 .app-stack {
   display: grid;
   gap: 1.5rem;
@@ -561,8 +410,7 @@
 
 /* ── Page headers ── */
 
-.app-page-header,
-.app-section-header {
+.app-page-header {
   display: grid;
   gap: 0.375rem;
 }
@@ -594,63 +442,6 @@
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-}
-
-.app-action-row--center {
-  justify-content: center;
-}
-
-.app-page-eyebrow {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--app-accent);
-}
-
-.app-section-header h3 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--app-charcoal);
-  text-wrap: balance;
-}
-
-.app-section-header p {
-  margin: 0;
-  color: var(--app-text-muted);
-  font-size: 0.875rem;
-  text-wrap: pretty;
-}
-
-/* ── Detail rows ── */
-
-.app-detail-grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-}
-
-.app-detail-row {
-  display: grid;
-  gap: 0.25rem;
-  padding: 1rem;
-  border-radius: var(--sigvelo-border-radius-md);
-  background-color: var(--app-surface);
-}
-
-.app-detail-row h4 {
-  margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--app-charcoal);
-}
-
-.app-detail-row p {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--app-text-muted);
 }
 
 /* ── Dashboard ── */
@@ -706,84 +497,6 @@
   gap: 0.75rem;
 }
 
-.dashboard__installation-list {
-  inline-size: min(100%, 30rem);
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.5rem;
-  list-style: none;
-}
-
-.dashboard__installation-option {
-  inline-size: 100%;
-  min-block-size: 3.5rem;
-  padding: 0.625rem;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: var(--sigvelo-paper-color);
-  color: var(--app-charcoal);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.dashboard__installation-option:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--app-accent) 30%, var(--app-border));
-  background: color-mix(in srgb, var(--app-accent-soft) 45%, white);
-}
-
-.dashboard__installation-option:focus-visible {
-  outline: 2px solid var(--sigvelo-focus-color);
-  outline-offset: 2px;
-}
-
-.dashboard__installation-option:disabled {
-  cursor: wait;
-  opacity: 0.68;
-}
-
-.dashboard__installation-avatar {
-  inline-size: 2rem;
-  block-size: 2rem;
-}
-
-.dashboard__installation-copy {
-  min-inline-size: 0;
-  display: grid;
-  gap: 0.125rem;
-}
-
-.dashboard__installation-login,
-.dashboard__installation-type,
-.dashboard__installation-cta {
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dashboard__installation-login {
-  color: var(--app-charcoal);
-  font-size: 0.875rem;
-  font-weight: 700;
-}
-
-.dashboard__installation-type,
-.dashboard__installation-cta {
-  color: var(--app-text-muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.dashboard__installation-cta {
-  color: var(--app-accent-dark);
-}
-
 @media (width <= 36rem) {
   .dashboard__zero-install-actions {
     align-items: stretch;
@@ -793,13 +506,5 @@
   .dashboard__zero-install-actions .button {
     justify-content: center;
     inline-size: 100%;
-  }
-
-  .dashboard__installation-option {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .dashboard__installation-cta {
-    grid-column: 2;
   }
 }

@@ -7,6 +7,7 @@ const testsDir = import.meta.dirname;
 const srcDir = path.join(testsDir, "../../src");
 
 export default defineConfig({
+  logLevel: "error",
   plugins: [
     agents(),
     cloudflareTest({

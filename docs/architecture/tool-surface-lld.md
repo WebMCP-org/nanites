@@ -12,30 +12,35 @@ The design keeps a sharp split between real Durable Object and Agent layers, whi
 
 ## Decision
 
-Define Nanite manager actions as **MCP-style tool definitions** in plain TypeScript. These definitions are the single source of truth for tool names, descriptions, input schemas, and handler behavior.
+Define Nanite manager actions as **MCP-style tool definitions** in plain TypeScript. These
+definitions are the single source of truth for tool names, descriptions, input schemas, output
+schemas, scope checks, telemetry, and handler behavior.
 
-The MCP server registers those definitions directly with the MCP TypeScript SDK. Manager chat calls
-the same definitions from server code. The browser stays native to Agents SDK stubs and uses small
-frontend helpers over the manager methods it needs.
+The MCP route registers those definitions with the MCP TypeScript SDK. Manager chat exposes the same
+definitions as Think tools through `createSigveloThinkTools()`. The browser stays native to Agents
+SDK stubs and uses small frontend helpers over the manager methods it needs.
 
 Do not make MCP transport the internal API. MCP is the native external machine API, but the shared abstraction is the tool definition module.
 
-Do not add per-tool scopes for v1. The user-facing manager surface is limited by installation authorization and by Nanite runtime capability validation, not by different permissions per surface.
+Keep v1 scopes coarse. The registry has `requiredScope` for MCP read/write gating, but product
+authority still comes from deployment-installation authorization and Nanite runtime capability
+validation. Do not add fine-grained product scopes until a real boundary appears.
 
 ## Layer map
 
 ```mermaid
 flowchart TD
   Browser["Browser UI"] --> BrowserClient["Frontend manager client<br/>code layer"]
-  MCPClient["External MCP client"] --> MCPAgent["SigveloMcpAgent<br/>real MCP Agent/DO"]
+  MCPClient["External MCP client"] --> MCPRoute["/mcp route<br/>stateless MCP handler"]
   GitHubChat["@sigvelo GitHub chat"] --> ManagerChat["SigveloManagerConversationAgent<br/>real Think Agent/DO"]
 
   BrowserClient --> ManagerPrimitives["SigveloNaniteManager callable primitives<br/>real Agent/DO methods"]
-  MCPAgent --> McpAdapter["MCP tool adapter<br/>code layer"]
-  ManagerChat --> ChatAdapter["Manager chat tool adapter<br/>code layer"]
+  MCPRoute --> McpAdapter["MCP tool adapter<br/>code layer"]
+  ManagerChat --> MessengerAdapter["getMessengers<br/>GitHub Chat SDK adapter"]
+  ManagerChat --> ThinkToolAdapter["Think tool adapter<br/>createSigveloThinkTools"]
 
   McpAdapter --> ToolRegistry["Nanite tool definitions<br/>code layer"]
-  ChatAdapter --> ToolRegistry
+  ThinkToolAdapter --> ToolRegistry
 
   ToolRegistry --> ManagerPrimitives["SigveloNaniteManager primitives<br/>real Agent/DO methods"]
   ManagerPrimitives --> ManagerState["Manager durable state<br/>registry, runs, activity"]
@@ -51,7 +56,7 @@ flowchart TD
 There is one manager per GitHub installation:
 
 ```text
-installation:{githubInstallationId}
+app:{githubAppId}:installation:{githubInstallationId}
 ```
 
 The manager owns durable state and manager-owned behavior:
@@ -80,21 +85,27 @@ It owns runtime behavior that belongs to the Nanite:
 - live token streaming
 - workspace and file inspection
 - MCP attachments
-- lifecycle tools such as `complete`, `no_change`, `fail`, and `ask_manager`
+- structured Run output through `NaniteRunWorkflow`
 
 The tool registry never owns Nanite runtime state. It can ask the manager to delegate to a child Nanite for debug, transcript, submission, or workspace inspection.
 
-### `SigveloMcpAgent`
+### MCP route
 
-`SigveloMcpAgent` is the real MCP server Agent/DO.
+`src/backend/mcp/index.ts` is the stateless MCP server route.
 
-It does not own Nanite state. It adapts MCP tool calls into Nanite tool definitions, builds trusted `NaniteToolContext` from MCP auth props, resolves the authorized manager, and returns MCP `structuredContent`.
+It does not own Nanite state. It validates `SigveloMcpAuthProps`, creates a fresh `McpServer` per
+request, registers the Nanite tool registry, adapts MCP tool calls into `executeSigveloNaniteTool()`,
+and returns MCP `structuredContent`.
 
 ### `SigveloManagerConversationAgent`
 
 `SigveloManagerConversationAgent` is the real Think Agent/DO for the conversational manager surface.
 
-It does not own Nanite state. When a user tags or messages the manager, this agent resolves the prompting GitHub user and installation, builds `surface: "manager_chat"` context, and calls the same Nanite tool definitions.
+It owns the manager conversation transcript and workspace, but not Nanite runtime state. Its
+`getMessengers()` method uses Think `defineMessengers()` plus `chatSdkMessenger()` with the GitHub
+Chat SDK adapter. When a user tags or messages the manager, the agent resolves the prompting GitHub
+user against the deployment installation and exposes the same Nanite tool definitions as
+`surface: "manager_chat"` Think tools.
 
 The manager chat agent gets no special authority. It acts on behalf of the prompting user.
 
@@ -106,26 +117,30 @@ The tool definition module is plain TypeScript. It is not a Durable Object, not 
 
 It defines:
 
-- MCP-compatible name, title, description, annotations, and input schema
-- one handler function per tool
+- MCP-compatible name, title, description, annotations, input schema, and output schema
+- one `execute` function per tool
+- the required MCP scope
 - TypeScript output types derived from the manager methods that own those shapes
 
 The handler receives parsed input and trusted product context. It composes real manager primitives.
 
-The handler also receives an explicit manager runtime. MCP and manager-chat adapters pass a manager
-stub. Browser code does not execute these handlers.
+`executeSigveloNaniteTool()` resolves the authorized manager runtime from `SigveloMcpAuthProps`.
+MCP and manager-chat adapters pass the same auth shape with different `surface` values. Browser code
+does not execute these handlers.
 
 ### MCP adapter
 
-The MCP adapter runs inside `SigveloMcpAgent`.
+The MCP adapter runs inside `src/backend/mcp/index.ts`.
 
-It registers each tool definition with the MCP TypeScript SDK. The SDK validates MCP input against the registered input schemas. The adapter should not duplicate parsing around every tool.
+It registers every tool definition with the MCP TypeScript SDK. The SDK validates MCP input against
+the registered input schemas, and the shared executor parses again at the registry boundary so MCP
+and Think tool calls have the same safety check.
 
 The adapter only does MCP-specific work:
 
-- get MCP auth props
-- build `NaniteToolContext`
-- call the tool handler
+- validate MCP OAuth props
+- register the canonical `naniteTools` list
+- call `executeSigveloNaniteTool()`
 - return `structuredContent` and a text fallback
 
 ### Browser frontend client
@@ -150,7 +165,9 @@ session and manager name boundary.
 
 The manager chat adapter runs inside `SigveloManagerConversationAgent`.
 
-It resolves the GitHub message author and installation, builds `surface: "manager_chat"` context, and calls the same tool handlers. The adapter may present those tools to the model through MCP or call them directly from server code, but the underlying handler remains the same.
+`getMessengers()` handles the GitHub Chat SDK ingress. `getTools()` calls `createSigveloThinkTools()`
+after the conversation is connected to the deployment installation. That adapter converts the same
+tool registry into AI SDK tools with `surface: "manager_chat"`.
 
 ## Tool context
 
@@ -161,11 +178,8 @@ export type NaniteToolSurface = "mcp" | "manager_chat";
 
 export type NaniteToolContext = {
   surface: NaniteToolSurface;
-  actor: {
-    kind: "github_user";
-    githubUserId: number;
-    githubLogin: string;
-  };
+  actor: ObservabilityActor;
+  githubAppId: number;
   githubInstallationId: number;
   managerName: string;
   requestId: string;
@@ -186,18 +200,19 @@ System maintenance is not part of this public tool surface. It should remain bou
 
 ## Authorization model
 
-Do not add per-tool read/write scopes in v1.
+Do not add fine-grained product scopes in v1.
 
 The user-facing manager tool surface is limited by these checks:
 
 1. The actor is an authenticated GitHub user.
-2. The actor is allowed to operate the selected GitHub installation.
-3. The selected manager is derived from `githubInstallationId`; public tool inputs do not accept a
-   manager name.
+2. The actor is allowed to operate the deployment GitHub installation.
+3. The deployment manager is derived from `githubAppId` and `githubInstallationId`; public tool
+   inputs do not accept a manager name.
 4. Nanite manifests and generated runtime permissions stay inside that installation boundary.
 5. Nanite runtime GitHub/MCP/workspace authority is constrained by the validated Nanite manifest.
 
-MCP OAuth may still advertise existing scopes for compatibility. The v1 tool model should not branch behavior by per-tool scope unless a real product boundary appears.
+MCP OAuth may advertise read/write scopes. The v1 tool model should not branch behavior by
+fine-grained product scope unless a real product boundary appears.
 
 ## Canonical tool shape
 
@@ -209,36 +224,37 @@ import { z } from "zod";
 
 export type NaniteToolRuntime = {
   context: NaniteToolContext;
+  auth: SigveloMcpAuthProps;
+  env: Env;
   manager: NaniteManager;
 };
 
 export type NaniteTool<TInputSchema extends z.ZodType, TOutput> = {
   name: string;
-  config: {
-    title: string;
-    description: string;
-    inputSchema: TInputSchema;
-    annotations?: ToolAnnotations;
-  };
-  handler(input: z.output<TInputSchema>, runtime: NaniteToolRuntime): Promise<TOutput>;
+  title: string;
+  description: string;
+  inputSchema: TInputSchema;
+  outputSchema: z.ZodType;
+  requiredScope: SigveloMcpScope;
+  annotations?: ToolAnnotations;
+  execute(input: z.output<TInputSchema>, runtime: NaniteToolRuntime): Promise<TOutput>;
 };
 ```
 
 The tool definition owns the input schema and handler. The input schema is the runtime boundary for
 agent/tool calls. The output contract is a TypeScript return type derived from the manager method
-that already owns that shape.
+that already owns that shape, plus a Zod output schema for MCP and AI SDK tool metadata.
 
-Do not add MCP output schemas for v1. They duplicate the typed manager return contracts and make MCP
-discovery/runtime behavior depend on a second schema copy. If a future external API needs runtime
-output validation, add that at the API boundary instead of making every manager tool carry a parallel
-output schema.
+Most tools can use `createObjectOutputSchema(...)`, which keeps the registry object-rooted without
+trying to mirror every manager return type in Zod. Use a specific output schema when the output is
+itself a public discovery contract, such as `sigvelo_whoami`.
 
-Prefer plain object exports with `satisfies`. Do not add a `defineNaniteTool(...)` helper unless
-TypeScript inference genuinely needs it. The tool files should read like a list of product tools,
-not a framework.
+Use `defineSigveloMcpTool(...)` with `satisfies` so every registry entry has the same fields while
+the individual tool files still read like product tools.
 
-For MCP, the SDK validates input. The handler can assume `input` has already been parsed by the SDK.
-The adapter returns `structuredContent`, but does not advertise an `outputSchema`.
+For MCP, the SDK validates input. The shared executor also parses at the registry boundary because
+manager chat uses the same executor through AI SDK tools. The adapter returns `structuredContent`
+and a model-readable JSON text fallback.
 
 For browser stubs, the callable input is typed and same-origin. The browser path can stay as frontend
 helpers over manager stubs unless a workflow needs a new composed backend operation.
@@ -246,15 +262,15 @@ helpers over manager stubs unless a workflow needs a new composed backend operat
 ## Example tool definition
 
 ```ts
-export const startNaniteRunTool = {
+export const startNaniteRunTool = defineSigveloMcpTool({
   name: "sigvelo_start_nanite_run",
-  config: {
-    title: "Start a SigVelo Nanite run",
-    description:
-      "Starts a direct manual run for one registered Nanite and dispatches it through the real Nanite manager path.",
-    inputSchema: startNaniteRunInputSchema,
-  },
-  async handler(input, { context, manager }) {
+  title: "Start a SigVelo Nanite run",
+  description:
+    "Starts a direct manual run for one registered Nanite and dispatches it through the real Nanite manager path.",
+  inputSchema: startNaniteRunInputSchema,
+  outputSchema: createObjectOutputSchema("SigVelo Nanite manual run start result."),
+  requiredScope: MCP_SCOPES.write,
+  async execute(input, { context, manager }) {
     return manager.startNaniteManualRun({
       naniteId: input.naniteId,
       message: input.message,
@@ -262,70 +278,73 @@ export const startNaniteRunTool = {
       manualRequestId: input.manualRequestId ?? context.requestId,
     });
   },
-} satisfies NaniteTool<typeof startNaniteRunInputSchema, StartNaniteManualRunOutput>;
+} satisfies SigveloMcpToolDefinition<typeof startNaniteRunInputSchema, StartNaniteManualRunOutput>);
 ```
 
-The handler composes real manager primitives. It does not mutate state directly and does not duplicate manager-owned transition logic.
+The handler composes real manager primitives. It does not mutate state directly and does not
+duplicate manager-owned transition logic.
 
 ## Manager tools module
 
-The shared module should be declarative. Keep the context type, schemas, explicit tool objects, and
-small helper functions in one backend module:
+The shared module is declarative. Keep the context type, schemas, explicit tool objects, and small
+helper functions in:
 
 ```text
 src/backend/nanites/tools/index.ts
 ```
 
-Export each tool by name, and keep an ordered list only for tests, documentation, and MCP
-registration assertions.
+Export each tool by name, and keep one ordered list as the canonical registry for MCP and manager
+chat adapters.
 
 ```ts
 export const naniteTools = [
+  whoamiTool,
   createNaniteTool,
-  debugNanitesTool,
-  deprovisionNaniteTool,
+  inspectDebugTool,
+  deprovisionTool,
   startNaniteRunTool,
-  cancelNaniteRunsTool,
+  cancelRunsTool,
   testNaniteTriggerTool,
-  exploreNaniteWorkspaceTool,
-  resetNaniteDebugTool,
-] as const;
-
-export type NaniteToolName = (typeof naniteTools)[number]["name"];
+  exploreWorkspaceTool,
+  resetDebugTool,
+] as const satisfies readonly AnySigveloMcpToolDefinition[];
 ```
 
-Do not use a lookup map for normal dispatch. MCP registration and manager chat should import the
-tool they call and name it directly. Repetition is preferable to a hidden command bus.
-
-`sigvelo_whoami` stays adapter-local because it reports MCP auth token context and does not call
-manager state.
+Do not create per-surface copies of this list. MCP and manager chat should adapt the registry, not
+redeclare it.
 
 ## MCP adapter
 
-MCP registration should be explicit. Register each canonical tool with the MCP SDK using its own
-definition. A tiny result-format helper is acceptable, but avoid a generic registration loop as the
-primary implementation pattern.
+MCP registration is a small loop over the canonical registry. This is the only dispatch list; it
+keeps the external tool surface visible without hand-writing the same adapter wrapper nine times.
 
 ```ts
-server.registerTool(startNaniteRunTool.name, startNaniteRunTool.config, async (input) => {
-  const runtime = await buildMcpNaniteToolRuntime();
-  const output = await startNaniteRunTool.handler(input, runtime);
-
-  return {
-    structuredContent: output,
-    content: [{ type: "text", text: JSON.stringify(output, null, 2) }],
-  };
-});
-
-server.registerTool(deprovisionNaniteTool.name, deprovisionNaniteTool.config, async (input) => {
-  const runtime = await buildMcpNaniteToolRuntime();
-  const output = await deprovisionNaniteTool.handler(input, runtime);
-
-  return {
-    structuredContent: output,
-    content: [{ type: "text", text: JSON.stringify(output, null, 2) }],
-  };
-});
+for (const definition of naniteTools) {
+  server.registerTool(
+    definition.name,
+    {
+      title: definition.title,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      outputSchema: definition.outputSchema,
+      annotations: definition.annotations,
+      _meta: definition._meta,
+    },
+    async (toolInput, extra) =>
+      formatMcpToolResult(
+        await executeSigveloNaniteTool({
+          definition,
+          toolInput,
+          invocation: {
+            env,
+            props: auth,
+            surface: "mcp",
+            requestId: extra.requestId == null ? undefined : String(extra.requestId),
+          },
+        }),
+      ),
+  );
+}
 ```
 
 The MCP SDK handles input validation for MCP calls:
@@ -334,11 +353,8 @@ The MCP SDK handles input validation for MCP calls:
 - TypeScript locks the handler return type at build time
 - `structuredContent` carries the returned object for clients and model-readable JSON mirrors it in `content`
 
-The adapter should not manually parse every input. It should not runtime-parse owned manager outputs.
-
-The explicit registration makes drift visible in code review. If a tool is missing from MCP, the
-absence is a visible missing `server.registerTool(...)` block instead of a hidden filter, loop, or
-metadata bug.
+The adapter should not manually parse every input or runtime-parse owned manager outputs. The
+registry list is the review surface: if a tool should not be public, remove it from `naniteTools`.
 
 ## Browser frontend client
 
@@ -374,28 +390,23 @@ MCP. Symmetry is less important than an obvious call path.
 
 ## Manager chat adapter
 
-Manager chat should call the same tools as the user who prompted it.
+Manager chat exposes the same registry as Think tools after it connects the conversation to the
+deployment installation.
 
 ```ts
-const runtime = {
-  context: {
-    surface: "manager_chat",
-    actor: {
-      kind: "github_user",
-      githubUserId: chatContext.author.githubUserId,
-      githubLogin: chatContext.author.githubLogin,
-    },
-    githubInstallationId: chatContext.githubInstallationId,
-    managerName: buildNaniteManagerKey(chatContext.githubInstallationId),
-    requestId: chatContext.messageId,
-  },
-  manager,
-} satisfies NaniteToolRuntime;
-
-const output = await startNaniteRunTool.handler(input, runtime);
+const sigveloTools =
+  this.state.status === "connected"
+    ? createSigveloThinkTools({
+        env: this.env,
+        auth: this.state.sigveloToolAuthProps,
+      })
+    : {};
 ```
 
-The manager chat agent should not receive a broader manager credential. It can inspect, create, update, deprovision, or start Nanites only as the prompting user inside the selected installation.
+`createSigveloThinkTools()` wraps each registry tool with `surface: "manager_chat"` and uses the
+same `executeSigveloNaniteTool()` path as MCP. The manager chat agent should not receive a broader
+manager credential. It can inspect, create, update, deprovision, or start Nanites only as the
+prompting user inside the deployment installation.
 
 ## Manager primitives
 
@@ -435,17 +446,17 @@ Prefer explicit handler code. More boilerplate is acceptable when it keeps type 
 
 ## Public v1 tools
 
-The initial public tool surface should be:
+The public v1 tool surface is:
 
 | Tool                               | Purpose                                                       | Manager behavior                                                    |
 | ---------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `sigvelo_whoami`                   | Show the current actor and installation context.              | May be adapter-local or context-only.                               |
+| `sigvelo_whoami`                   | Show the current actor and installation context.              | Reports auth/runtime context from the registry executor.            |
 | `sigvelo_create_nanite`            | Create or update one Nanite manifest.                         | Validate repository scope, then register on manager.                |
 | `sigvelo_debug_nanites`            | Inspect manager state and optional child Think runtime state. | Read manager state and delegate child debug when requested.         |
 | `sigvelo_deprovision_nanite`       | Remove one registered Nanite and its child agent.             | Call manager deprovision flow.                                      |
 | `sigvelo_start_nanite_run`         | Start a manual Nanite run.                                    | Create run, dispatch to child Think Nanite, optionally wait.        |
 | `sigvelo_cancel_nanite_runs`       | Cancel pending or running runs.                               | Call manager cancellation flow and child cancellation where needed. |
-| `sigvelo_test_nanite_trigger`      | Exercise generated trigger acceptance path.                   | Build fixture, test generated trigger, dispatch accepted runs.      |
+| `sigvelo_test_nanite_trigger`      | Exercise generated trigger acceptance path.                   | Validate raw event, test generated trigger, dispatch accepted runs. |
 | `sigvelo_explore_nanite_workspace` | Read child Nanite workspace info, files, listings, or search. | Delegate to child Nanite workspace API through manager.             |
 | `sigvelo_reset_nanite_debug`       | Reset child runtime debug state.                              | Ask manager to reset child-owned debug state.                       |
 
@@ -488,20 +499,22 @@ MCP output should include both structured content and text content:
 }
 ```
 
-## Migration plan
+## Implementation status
 
-1. Add `manager-tools.ts` under `src/backend/nanites/`.
-2. Move MCP-specific helper logic that composes manager operations into tool handlers.
-3. Register MCP tools from the registry instead of hand-writing each handler in `src/backend/mcp/index.ts`.
-4. Add frontend helper functions for browser workflows that need clearer UI-level names.
-5. Keep the UI on typed manager stubs unless a browser workflow needs a new composed manager callable.
-6. Update manager chat instructions and adapter code to call the same explicit tools.
-7. Keep lower-level manager primitives for webhooks, generated trigger dispatch, lifecycle tools, and child Nanite runtime callbacks.
-8. Do not add compatibility tools while Nanites are pre-production; keep the surface explicit.
+- Tool definitions live under `src/backend/nanites/tools/`.
+- `src/backend/mcp/index.ts` registers `naniteTools` with the MCP SDK.
+- `SigveloManagerConversationAgent.getMessengers()` owns GitHub Chat SDK ingress through
+  `chatSdkMessenger()`.
+- `SigveloManagerConversationAgent.getTools()` exposes the same registry through
+  `createSigveloThinkTools()`.
+- The browser UI remains on typed Agents SDK stubs and frontend helpers.
+- Lower-level manager primitives still serve webhooks, generated trigger dispatch, Workflow
+  projection callbacks, and child Nanite runtime callbacks.
+- There are no compatibility tools or old chat ingress shims.
 
 ## Test plan
 
-Add parity and behavior tests around the registry.
+Keep parity and behavior tests around the registry.
 
 ### Registry parity
 
@@ -510,7 +523,7 @@ Assert that every canonical public tool is registered for MCP.
 Assert that browser helper functions intentionally call existing manager stubs. Do not require every
 MCP tool to have a browser wrapper.
 
-Assert that compatibility tools are explicitly marked as compatibility, not accidentally treated as canonical.
+Assert that no compatibility tools or legacy chat ingress wrappers are registered as canonical.
 
 ### MCP behavior
 
@@ -551,7 +564,9 @@ Do not introduce a parallel HTTP control surface for v1. Manager control should 
 
 Do not make MCP transport the only internal path. The browser should keep Agents SDK stubs and direct Nanite sub-agent chat.
 
-Do not add per-tool scopes until there is a real authorization boundary. Installation authorization and Nanite capability constraints are enough for v1.
+Do not add fine-grained product scopes until there is a real authorization boundary. Coarse MCP
+read/write gating, deployment-installation authorization, and Nanite capability constraints are
+enough for v1.
 
 Do not create a generic manager command bus. Explicit tool handlers and explicit manager primitives are easier to reason about and safer to evolve.
 
@@ -563,8 +578,7 @@ If a future browser workflow needs a composed backend operation, the manager sho
 trusted user and installation context from existing browser auth/session state or authenticated
 connection metadata. The browser should not send trusted actor fields.
 
-The current MCP server advertises `nanites:read` and `nanites:write` scopes. The implementation can keep that OAuth compatibility while the internal tool model ignores per-tool scopes.
-
-`sigvelo_whoami` should be intentionally classified. If it is an auth diagnostic, keep it adapter-local. If it is part of the parity surface, include it in `naniteTools` as a context-only tool.
+The current MCP server advertises `nanites:read` and `nanites:write` scopes. The registry maps each
+tool to one of those scopes; do not add narrower tool-specific grants until the product needs them.
 
 Do not ship `sigvelo_poke_nanite`. The explicit tools cover the same operations and are easier for agents and UI code to call without action-dispatch branching.

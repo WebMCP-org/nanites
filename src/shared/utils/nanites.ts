@@ -12,6 +12,8 @@ export type NaniteManagerIdentity = {
   readonly githubInstallationId: number;
 };
 
+export type NaniteAgentName = `${NaniteManagerKey}:nanite:${string}`;
+
 export function buildNaniteManagerKey(identity: NaniteManagerIdentity): NaniteManagerKey {
   return `app:${identity.githubAppId}:installation:${identity.githubInstallationId}`;
 }
@@ -34,4 +36,29 @@ export function parseNaniteManagerKey(managerName: string): NaniteManagerIdentit
   }
 
   return { githubAppId, githubInstallationId };
+}
+
+export function buildNaniteAgentName(input: {
+  readonly managerName: NaniteManagerKey;
+  readonly naniteId: string;
+}): NaniteAgentName {
+  return `${input.managerName}:nanite:${input.naniteId}`;
+}
+
+export function parseNaniteAgentName(
+  agentName: string,
+): { readonly managerName: NaniteManagerKey; readonly naniteId: string } | null {
+  const separator = ":nanite:";
+  const separatorIndex = agentName.indexOf(separator);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const managerName = agentName.slice(0, separatorIndex);
+  const naniteId = agentName.slice(separatorIndex + separator.length);
+  if (!naniteId || !parseNaniteManagerKey(managerName)) {
+    return null;
+  }
+
+  return { managerName: managerName as NaniteManagerKey, naniteId };
 }

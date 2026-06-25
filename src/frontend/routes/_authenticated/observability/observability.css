@@ -455,8 +455,10 @@
 }
 
 .observability-bar-list__button {
+  inline-size: 100%;
   min-inline-size: 0;
   padding: 0;
+  justify-content: stretch;
   border: 0;
   background: transparent;
   color: inherit;
@@ -669,17 +671,6 @@
 
 .observability-table-panel:first-child {
   grid-column: 1 / -1;
-}
-
-.observability-table-wrap {
-  --scrollbar-thumb: var(--app-scrollbar-thumb, var(--sigvelo-neutral-stroke-soft));
-  --scrollbar-track: var(--app-scrollbar-track, var(--sigvelo-neutral-fill-softer));
-
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
 }
 
 .observability-table-panel table {

@@ -37,6 +37,8 @@ GitHub CLI (`gh`) is for verifying the operator identity and GitHub App setup. D
 
 MCP clients may display tools under a connector namespace, but the callable tool names exposed by the Nanites server currently start with `sigvelo_`.
 
+Use `references/codemode-runtime.md` for Nanite and manager `execute` prompt behavior. That runtime guidance is separate from operator setup and deployment troubleshooting.
+
 ## MCP Connection
 
 MCP endpoint:
@@ -88,7 +90,7 @@ mcpjam oauth login \
 1. Call `sigvelo_whoami`.
 2. Call `sigvelo_debug_nanites` before changing an existing Nanite.
 3. Register or update one Nanite with `sigvelo_create_nanite`.
-4. For generated triggers, call `sigvelo_test_nanite_trigger` with fixture overrides that should pass the trigger filters.
+4. For generated triggers, call `sigvelo_test_nanite_trigger` with a raw GitHub webhook-shaped event that should pass the trigger filters.
 5. If the test dispatches a model, inspect terminal run status and `agentFeedback`.
 6. If it fails or times out, inspect transcript/submissions and workspace.
 7. Update the manifest or trigger and repeat until the Nanite reaches a useful terminal outcome.
@@ -99,16 +101,21 @@ Trigger test:
 {
   "naniteId": "docs-syncer-react-webmcp",
   "event": {
-    "fixture": "push",
-    "overrides": {
+    "id": "docs-syncer-test-1",
+    "name": "push",
+    "payload": {
+      "ref": "refs/heads/main",
+      "before": "0000000000000000000000000000000000000000",
+      "after": "test000000000001",
       "repository": {
+        "id": 101,
         "full_name": "WebMCP-org/npm-packages",
         "name": "npm-packages",
-        "owner": {
-          "login": "WebMCP-org"
-        }
+        "default_branch": "main",
+        "private": true,
+        "owner": { "login": "WebMCP-org" }
       },
-      "ref": "refs/heads/main",
+      "installation": { "id": 123456 },
       "commits": [
         {
           "id": "test000000000001",
@@ -209,7 +216,7 @@ Use those payloads with `sigvelo_cancel_nanite_runs`, `sigvelo_reset_nanite_debu
 - `sigvelo_deprovision_nanite`: removes one obsolete Nanite and its debug/run state.
 - `sigvelo_start_nanite_run`: starts a manual Nanite run.
 - `sigvelo_cancel_nanite_runs`: cancels pending or running Nanite runs.
-- `sigvelo_test_nanite_trigger`: builds a GitHub fixture, evaluates generated trigger code, dispatches accepted runs, and optionally waits for terminal outcome.
+- `sigvelo_test_nanite_trigger`: validates a raw GitHub webhook-shaped event, evaluates generated trigger code, dispatches accepted runs, and optionally waits for terminal outcome.
 - `sigvelo_explore_nanite_workspace`: explores workspace info, list, read, and search actions.
 - `sigvelo_reset_nanite_debug`: clears child-owned Think messages and durable submissions for one Nanite.
 
@@ -219,7 +226,7 @@ Trigger accepted no event:
 
 - Read `acceptance.triggerRejectionReason` first. It should include generated-trigger no-op reasons or manager dispatch/idempotency details when available.
 - Check `eventSource` candidate filters.
-- Check fixture type and overrides.
+- Check the test event `name`, `payload.action`, `payload.installation.id`, repository, branch, and changed files.
 - Check generated trigger repository, branch, action, label, and path assumptions.
 - Watch for repeated idempotency keys in repeated tests.
 

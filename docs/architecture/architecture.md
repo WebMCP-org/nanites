@@ -233,13 +233,13 @@ Meanings:
 The long-term user story should feel like:
 
 1. User signs in with GitHub.
-2. User selects an accessible installation.
-3. User sees the Nanites configured for that installation.
+2. The deployment has one connected GitHub App installation.
+3. User sees the Nanites configured for that deployment installation.
 4. User can filter or group them by repo, package, docs area, or responsibility.
 5. User sees recent work, status, and schedule/trigger info.
 6. User can understand what each Nanite does and how it is triggered.
 
-That means the main runtime surface is installation-centric, not PR-centric.
+That means the main runtime surface is deployment-installation-centric, not PR-centric.
 
 PRs are one trigger among several.
 
@@ -247,11 +247,12 @@ PRs are one trigger among several.
 
 ### Auth boundary
 
-Use `githubInstallationId` as the authorization boundary.
+Use the deployment `githubInstallationId` as the authorization boundary.
 
 ### Product surface boundary
 
-Use installation as the primary runtime surface. Repos are important filters and scope targets, not required manager layers.
+Use the deployment installation as the primary runtime surface. Repos are important filters and
+scope targets, not required manager layers.
 
 ### Behavior boundary
 
@@ -311,7 +312,8 @@ Owns:
 - current and recent Runs
 - workspace-backed investigation and edits
 - change proposal pointer
-- lifecycle tools such as complete, no-change, fail, ask-manager, and create-child-nanite
+- structured Run output through `NaniteRunWorkflow`
+- child Nanite proposal tools when a vertical should split
 
 Use Agents SDK sub-agent routing for browser access. The UI should connect directly to the Nanite sub-agent instead of reading a mirrored transcript from the manager.
 
@@ -446,7 +448,7 @@ It means the system should model change-proposal continuity explicitly once Nani
 Current implementation direction:
 
 - Nanite definitions are authored in code
-- repository scope is derived from the repositories visible to the active installation
+- repository scope is derived from the repositories visible to the deployment installation
 - do not add D1-backed Nanite configuration until users can actually author or edit it
 
 Do not carry a compatibility layer for repo-file config while the product is still code-authored.
@@ -464,14 +466,11 @@ That means the likely long-term direction is:
 
 ## Workflow Direction
 
-If some Nanites become:
+Nanite Runs are backed by the static `NaniteRunWorkflow` primitive. The Run id is the Workflow
+instance id, and the manager projection is the product index for UI, audit, and history.
 
-- long-running
-- retry-heavy
-- multi-step
-- approval-gated
-
-then Cloudflare Workflows may become the right execution primitive for Runs.
+Dynamic or generated Workflows remain a later decision for tenant-authored orchestration source. Do
+not add another Run lifecycle harness while the static Workflow primitive covers the normal Run path.
 
 That decision should be made later.
 

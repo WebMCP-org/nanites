@@ -15,13 +15,7 @@ provenance, and audit review.
 
 ## Reference Shape
 
-The closest local reference is the ClickHouse/TanStack Router analytics prototype at:
-
-```text
-/Users/alexmnahas/contracting/zuplo/mcp-gateway-analytics
-```
-
-Borrow these ideas:
+Borrow these product-dashboard patterns:
 
 - customer question first, storage second
 - URL-backed filters
@@ -197,14 +191,14 @@ spend roll up under?"
 
 Initial attribution policy:
 
-| Situation                    | Actor                                 | Billing attribution                                         |
-| ---------------------------- | ------------------------------------- | ----------------------------------------------------------- |
-| Browser manual action        | Signed-in GitHub user.                | Same GitHub user.                                           |
-| MCP tool call                | GitHub user stored in MCP auth props. | Same GitHub user unless the action runs an existing Nanite. |
-| Scheduled Nanite run         | `schedule`.                           | Nanite creator until explicit ownership exists.             |
-| GitHub webhook-triggered run | `github_webhook`.                     | Nanite creator until explicit ownership exists.             |
-| Maintenance cleanup          | `system`.                             | Null unless cleaning up a specific user-created Nanite.     |
-| Nanite continuation          | `agent`.                              | Existing run billing attribution.                           |
+| Situation                    | Actor                  | Billing attribution                                         |
+| ---------------------------- | ---------------------- | ----------------------------------------------------------- |
+| Browser manual action        | Signed-in GitHub user. | Same GitHub user.                                           |
+| MCP tool call                | MCP OAuth GitHub user. | Same GitHub user unless the action runs an existing Nanite. |
+| Scheduled Nanite run         | `schedule`.            | Nanite creator until explicit ownership exists.             |
+| GitHub webhook-triggered run | `github_webhook`.      | Nanite creator until explicit ownership exists.             |
+| Maintenance cleanup          | `system`.              | Null unless cleaning up a specific user-created Nanite.     |
+| Nanite continuation          | `agent`.               | Existing run billing attribution.                           |
 
 This avoids a false claim that every automated run was directly started by a person while still
 letting the dashboard answer "which user's Nanites are spending money?"
@@ -646,27 +640,28 @@ payloads by default.
 
 ## Security Model
 
-GitHub is the identity and authorization source for customer observability.
+GitHub is the identity source for customer observability. The deployment GitHub installation is the
+authorization boundary.
 
 Do not add a Nanites user or role model. The app can store GitHub ids, logins, installation ids, and
 repository ids as facts for provenance, joins, and audit review. Those stored facts do not grant
-access. Every customer-facing read should start from the current GitHub-authenticated viewer.
+access. Every customer-facing read should start from the current GitHub-authenticated viewer and the
+deployment installation resolved by server-side setup state.
 
 Default rules:
 
-- A signed-in viewer can see only installations GitHub says they can access.
-- Repository-level filters and rows are limited to repositories GitHub says the viewer can access
-  for that installation.
-- If a viewer only has access to part of an installation, aggregate cost and activity views are
-  clipped to that visible subset.
+- A signed-in viewer can see observability for the one deployment GitHub installation.
+- Repository-level filters and rows are limited to repositories recorded for that deployment
+  installation.
+- There is no installation picker, cross-installation union, or personal-account fallback in v1.
 - Installation-wide cost, catalog, and audit views should require a stronger GitHub signal such as
   organization owner, installation admin, repository admin, or repository maintain access when that
   distinction becomes necessary.
 - The GitHub App owner is not automatically a customer-route superuser.
 
-When the current GitHub token is missing, expired, cannot see the installation, cannot see the
-repository, or does not have a required admin signal, deny the read. Do not fall back to cached
-database relationships as authorization.
+When the current GitHub session is missing, the deployment installation is unavailable, a repository
+filter is outside the deployment installation, or a required admin signal is missing, deny the read.
+Do not fall back to cached database relationships as authorization.
 
 ## Access Control Sequence
 
@@ -676,9 +671,9 @@ render without production data, but real observability rows require the GitHub-a
 For real installation data, use the existing GitHub-authenticated session first:
 
 1. Viewer signs in with GitHub.
-2. Backend resolves visible installations through the existing GitHub token.
-3. Backend only returns observability rows for installations the viewer can see.
-4. Backend clips repository-scoped rows to repositories the viewer can see.
+2. Backend resolves the deployment installation from setup metadata and GitHub projections.
+3. Backend returns observability rows only for that deployment installation.
+4. Backend rejects repository filters outside that deployment installation.
 5. Later, tighten installation-wide views to GitHub organization owner, repository admin,
    repository maintain, or installation admin when the product needs an admin-only view.
 

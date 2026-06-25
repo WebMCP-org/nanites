@@ -20,13 +20,8 @@ app:<githubAppId>:installation:<githubInstallationId>
 ```
 
 The app id stays in D1 facts and manager identity because it is an observed
-fact, not public page state. Browser page state names only the selected
-installation:
-
-```text
-/nanites?installationId=122769206
-/observability?installationId=122769206&range=7d
-```
+fact, not public page state. The deployment installation is resolved from setup
+metadata and D1 projections; browser page state does not choose it.
 
 ## Invariants
 
@@ -37,9 +32,8 @@ installation:
 - Registering a different app fails closed.
 - Browser GitHub user-token cookies are bound to the deployment app by app id
   and client id.
-- Page pickers change the URL scope. They do not mutate the session default.
-- `/api/auth/installations/active` means "set default installation" for
-  compatibility with older entry points, not page navigation.
+- Browser sessions identify the signed-in human, not an installation choice.
+- Runtime manager names derive from the deployment installation.
 
 ## Setup
 
@@ -57,7 +51,7 @@ multiple blocks with cleanup instructions.
 
 D1 mirrors what the deployment app can see through GitHub APIs:
 
-- visible installations from `/user/installations`
+- the deployment installation verified through `/user/installations`
 - repository snapshots from installation repository listings
 - facts and audit rows emitted by runtime work
 

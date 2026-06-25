@@ -447,6 +447,7 @@ cookie. <a href="${DEV_LOCAL_SETUP_PATH}">Start over</a>.</p>`,
       appId: conversion.id,
       slug,
       htmlUrl: conversion.html_url,
+      setupOrigin: new URL(context.req.raw.url).origin,
       ownerLogin: conversion.owner && "login" in conversion.owner ? conversion.owner.login : null,
       ownerType:
         conversion.owner && "type" in conversion.owner ? (conversion.owner.type ?? null) : null,
@@ -516,7 +517,10 @@ cookie. <a href="${DEV_LOCAL_SETUP_PATH}">Start over</a>.</p>`,
 
       try {
         const profile = await fetchAuthenticatedGitHubApp({ appId, privateKey });
-        await registerGitHubApp(db, profile);
+        await registerGitHubApp(db, {
+          ...profile,
+          setupOrigin: new URL(context.req.raw.url).origin,
+        });
         restored.push({
           appId,
           slug: profile.slug,

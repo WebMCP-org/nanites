@@ -17,7 +17,7 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 1. Durable tests exercise real product boundaries.
 2. Durable tests do not mock app-internal modules, functions, or stores.
 3. Synthetic payloads should use canonical app or provider types, and any raw external JSON the app immediately decodes should still pass through validation at that boundary.
-4. Shared endpoint and transport paths should come from owner constants such as `src/mcp.ts` and `src/github.ts`.
+4. Shared endpoint and transport paths should come from owner constants such as `src/shared/constants.ts`.
 5. Assertions should target rendered output, HTTP behavior, persisted state, or published artifacts.
 6. Nanites e2e is stricter than the lower lanes: no mocks anywhere except the explicit deterministic
    LLM provider shim when model output must be controlled.
@@ -31,7 +31,8 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
   - no active browser tests are kept until they mount a real route/app surface
 - Backend lane:
   - Worker runtime via `@cloudflare/vitest-pool-workers`
-  - signed GitHub Chat SDK ingress coverage in `tests/backend/chat-sdk-ingress.test.ts`
+  - deployment auth coverage in `tests/backend/browser-auth-routes.test.ts`
+  - generated trigger and signed webhook coverage in `tests/backend/nanite-trigger-runtime.test.ts`
   - GitHub external-boundary HTTP mocking in `tests/helpers/github-api-mock.ts`
 - E2E lane:
   - lane config and stricter no-mock guidance are in `tests/e2e`

@@ -1,6 +1,5 @@
 import { Think, Workspace, defaultContextOverflowClassifier } from "@cloudflare/think";
 import type {
-  ChatRecoveryConfig,
   Session,
   StepContext,
   ThinkSubmissionInspection,
@@ -13,14 +12,16 @@ import type {
 import { createExecuteTool } from "@cloudflare/think/tools/execute";
 import { createExtensionTools } from "@cloudflare/think/tools/extensions";
 import { createWorkspaceTools } from "@cloudflare/think/tools/workspace";
-import { createWorkspaceStateBackend } from "@cloudflare/shell";
 import type { FileInfo } from "@cloudflare/shell";
 import type { ToolProvider } from "@cloudflare/codemode";
+import type { SkillSource } from "agents/skills";
+import type { WorkflowInfo, WorkflowStatus } from "agents/workflows";
 import { GitHubMcpConnector } from "#/backend/nanites/github-mcp-connector.ts";
+import { createNaniteWorkspaceSkillSource } from "#/backend/nanites/linked-skills.ts";
 import { ToolProviderConnector } from "#/backend/nanites/tool-provider-connector.ts";
 import { getLogger } from "@logtape/logtape";
-import { callable } from "agents";
-import { hasToolCall, tool, type LanguageModel, type ToolSet, type UIMessage } from "ai";
+import { callable, getAgentByName } from "agents";
+import { tool, type LanguageModel, type ToolSet, type UIMessage } from "ai";
 import { z } from "zod";
 import { AppError, describeError, parseOptionalAppIsoDate } from "#/backend/errors.ts";
 import { LOG_EVENTS, LOGGING, OTEL_ATTRS } from "#/backend/logging.ts";
@@ -29,8 +30,16 @@ import {
   issueScopedGitHubInstallationToken,
   type GitHubAppPermissions,
 } from "#/backend/github/index.ts";
-import { gitToolsWithGitHubInstallationAuth } from "#/backend/nanites/git-auth.ts";
-import { deriveNaniteGitHubMcpAccess } from "#/backend/nanites/github-mcp-capabilities.ts";
+import {
+  gitCheckoutTools,
+  gitHubRepositoryFromGitConfig,
+  githubRepositoryCheckoutDir,
+  gitToolsWithGitHubInstallationAuth,
+} from "#/backend/nanites/git-auth.ts";
+import {
+  deriveNaniteGitHubMcpAccess,
+  resolveNaniteGitHubPermissionRepositoryFullNames,
+} from "#/backend/nanites/github-mcp-capabilities.ts";
 import {
   NaniteToolOutputArtifactStore,
   naniteToolOutputArtifactReadInputSchema,
@@ -42,14 +51,11 @@ import {
   NANITES_AI_GATEWAY_ID,
 } from "#/backend/nanites/language-model.ts";
 import {
-  SigveloNaniteManager,
-  type CompleteNaniteRunInput,
   type ManagedNanite,
-  type NaniteAgentFeedback,
   type NaniteManifest,
-  type NaniteRunModelSnapshot,
+  type NaniteManagerState,
   type NaniteRunRecord,
-  type NaniteRunStatus,
+  type NaniteRuntimeConfig,
   type NaniteRuntimeActivityState,
   type NaniteScheduledEventSourceSpec,
   type NaniteScheduleWhen,
@@ -57,6 +63,12 @@ import {
   type RecordNaniteRuntimeActivityInput,
   type StartNaniteRunInput,
 } from "#/backend/agents/SigveloNaniteManager.ts";
+import {
+  NANITE_RUN_WORKFLOW_NAME,
+  naniteRunWorkflowResultSchema,
+  type NaniteRunWorkflowParams,
+  type NaniteRunWorkflowResult,
+} from "#/backend/agents/NaniteRunWorkflow.ts";
 import { getDispatchIntents, runGeneratedTrigger } from "#/backend/nanites/triggers.ts";
 import {
   getGitHubWebhookRepositoryFullName,
@@ -67,9 +79,7 @@ import {
   buildNaniteAiGatewayMetadata,
   naniteTriggerActor,
   recordAiUsageFact,
-  recordAuditEvent,
   resolveNaniteBillingAttribution,
-  systemActor,
 } from "#/backend/observability/recorders.ts";
 
 // ---------------------------------------------------------------------------
@@ -81,33 +91,16 @@ import {
  * this state is run-scoped bookkeeping mirrored from the manager, so a reset
  * on version mismatch is safe.
  */
-const NANITE_AGENT_STATE_VERSION = 3;
-
-export type NaniteChatErrorRecord = {
-  runId: string | null;
-  error: string;
-  occurredAt: string;
-};
+const NANITE_AGENT_STATE_VERSION = 5;
 
 export type NaniteAgentState = {
   version: number;
   naniteId: string | null;
   managerName: string | null;
   manifest: NaniteManifest | null;
+  runtimeConfig: NaniteRuntimeConfig | null;
   activeRunId: string | null;
-  activeRunModel: NaniteRunModelSnapshot | null;
   trigger: NaniteTriggerEvent | null;
-  /** Last observed model/tool activity, read by the lifecycle watchdog. */
-  lastActivityAt: string | null;
-  /**
-   * Last chat/stream error, kept durable so the eventual unreported-completion
-   * summary can name the real cause (facet console logs do not reliably reach
-   * Workers Logs).
-   */
-  lastChatError: NaniteChatErrorRecord | null;
-  lifecycleContinuationAttempted: boolean;
-  interruptedRetryCount: number;
-  watchdogScheduleId: string | null;
   updatedAt: string | null;
 };
 
@@ -117,14 +110,9 @@ function createInitialNaniteAgentState(): NaniteAgentState {
     naniteId: null,
     managerName: null,
     manifest: null,
+    runtimeConfig: null,
     activeRunId: null,
-    activeRunModel: null,
     trigger: null,
-    lastActivityAt: null,
-    lastChatError: null,
-    lifecycleContinuationAttempted: false,
-    interruptedRetryCount: 0,
-    watchdogScheduleId: null,
     updatedAt: null,
   };
 }
@@ -138,6 +126,10 @@ export type StartNaniteAgentInput = {
   nanite: ManagedNanite;
   run: NaniteRunRecord;
 };
+
+export type NaniteWorkspaceCheckout =
+  | { repository: string; dir: string; status: "cloned" | "fetched"; error: null }
+  | { repository: string; dir: null; status: "skipped" | "failed"; error: string };
 
 export type NaniteWorkspaceInfo = {
   fileCount: number;
@@ -219,21 +211,26 @@ export type NaniteDebugInspectOutput = {
   onStartDegradations?: { step: string; error: string }[];
 };
 
+export type NaniteRunWorkflowInspection = {
+  workflow: {
+    workflowId: string;
+    workflowName: string;
+    status: WorkflowInfo["status"];
+    metadata: Record<string, unknown> | null;
+    error: WorkflowInfo["error"];
+    createdAt: string;
+    updatedAt: string;
+    completedAt: string | null;
+  } | null;
+};
+
 export type NaniteDebugResetOutput = {
   clearedMessages: boolean;
   deletedSubmissions: number;
 };
 
-export type NaniteAgentMaintenanceInput = {
-  managerName: string;
-  nanite: ManagedNanite;
-  completedBeforeIso?: string;
-  submissionDeleteLimit?: number;
-};
-
 export type NaniteAgentMaintenanceOutput = {
   activeRunId: string | null;
-  reconciledActiveSubmission: boolean;
   deletedSubmissions: number;
 };
 
@@ -242,40 +239,12 @@ export type NaniteAgentMaintenanceOutput = {
 // ---------------------------------------------------------------------------
 
 const naniteMaxSteps = 200;
-const naniteLifecycleTools = ["complete", "no_change", "fail", "ask_manager"] as const;
-const naniteLifecycleContinuationSuffix = "lifecycle-continuation";
-const naniteWatchdogDelaySeconds = 180;
-const naniteWatchdogIdleMs = naniteWatchdogDelaySeconds * 1000;
-const naniteWatchdogStabilityTimeoutMs = 1_000;
-const naniteInterruptedSubmissionError = "Submission was interrupted after messages were applied.";
-const naniteInterruptedSubmissionMaxRetries = 1;
-const naniteChatRecoveryMaxAttempts = 10;
-const naniteChatRecoveryNoProgressTimeoutMs = 10 * 60 * 1000;
-const naniteChatRecoveryTerminalMessage =
-  "This Nanite run was interrupted and could not recover automatically. SigVelo will mark the run failed if no lifecycle outcome was already recorded.";
-const naniteChatRecovery = {
-  maxAttempts: naniteChatRecoveryMaxAttempts,
-  noProgressTimeoutMs: naniteChatRecoveryNoProgressTimeoutMs,
-  terminalMessage: naniteChatRecoveryTerminalMessage,
-} satisfies ChatRecoveryConfig;
 // Nanite tools can legitimately run for minutes without streaming chunks; keep
-// the stream-stall watchdog off globally and let run/submission recovery decide.
+// stream-stall recovery off globally and let Workflow-owned runs decide.
 const naniteChatStreamStallTimeoutMs = 0;
 const naniteDebugPartMaxLength = 12_000;
-const naniteToolOutputBudgetExcludedTools = new Set([
-  "complete",
-  "no_change",
-  "fail",
-  "ask_manager",
-  "create_child_nanite",
-  "artifact_read",
-]);
-const terminalSubmissionStatuses = new Set<ThinkSubmissionStatus>([
-  "completed",
-  "aborted",
-  "skipped",
-  "error",
-]);
+const terminalWorkflowStatuses = new Set<WorkflowStatus>(["complete", "errored", "terminated"]);
+const naniteToolOutputBudgetExcludedTools = new Set(["create_child_nanite", "artifact_read"]);
 const naniteLogger = getLogger(LOGGING.NANITES_CATEGORY);
 
 const NANITE_WORKSPACE_MEASURE_ENTRY_LIMIT = 50_000;
@@ -292,12 +261,6 @@ const NANITE_NON_REPOSITORY_DIRECTORIES = new Set([
   "usr",
   "var",
 ]);
-
-const agentFeedbackSchema: z.ZodType<NaniteAgentFeedback> = z.object({
-  severity: z.enum(["info", "warning", "error"]),
-  message: z.string().min(1),
-  suggestions: z.array(z.string().min(1)).optional(),
-});
 
 const aiGatewayLogDetailSchema = z
   .object({
@@ -322,43 +285,6 @@ const metadataRecordSchema = z.record(z.string(), z.unknown());
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function isTerminalSubmissionStatus(
-  status: ThinkSubmissionStatus,
-): status is "completed" | "aborted" | "skipped" | "error" {
-  return terminalSubmissionStatuses.has(status);
-}
-
-function isLifecycleTerminalStatus(status: NaniteRunStatus): boolean {
-  return (
-    status === "complete" || status === "no_change" || status === "fail" || status === "canceled"
-  );
-}
-
-function createUserMessage(text: string): UIMessage {
-  return {
-    id: crypto.randomUUID(),
-    role: "user",
-    parts: [{ type: "text", text }],
-  };
-}
-
-function buildLifecycleContinuationSubmissionId(runId: string): string {
-  return `${runId}:${naniteLifecycleContinuationSuffix}`;
-}
-
-function getActivityStateAfterTool(toolName: string): NaniteRuntimeActivityState {
-  switch (toolName) {
-    case "complete":
-    case "no_change":
-    case "fail":
-      return "idle";
-    case "ask_manager":
-      return "waiting_for_manager";
-    default:
-      return "thinking";
-  }
 }
 
 function getUsageNumber(
@@ -430,7 +356,7 @@ function getTextFromModelMessage(message: TurnContext["messages"][number]): stri
 
   if (Array.isArray(content)) {
     return content
-      .flatMap((part) => ("text" in part && typeof part.text === "string" ? [part.text] : []))
+      .map((part) => ("text" in part && typeof part.text === "string" ? part.text : ""))
       .join("");
   }
 
@@ -566,6 +492,7 @@ function formatGitHubAppPermissions(permissions: GitHubAppPermissions | undefine
 
 function buildNaniteTaskContext(input: {
   manifest: NaniteManifest | null;
+  runtimeConfig: NaniteRuntimeConfig | null;
   trigger: NaniteTriggerEvent | null;
 }): string {
   const manifestContext = input.manifest
@@ -590,7 +517,7 @@ function buildNaniteTaskContext(input: {
         JSON.stringify(input.manifest, null, 2),
         "",
         "Use this manifest as the authority for scope, trigger behavior, and permission grants.",
-        "Operate only inside the declared repository and permission scope. If the task needs another repository, permission, or event source, use ask_manager with a plain-language request or fail with the missing config.",
+        "Operate only inside the declared repository and permission scope. If the task needs another repository, permission, or event source, ask the manager with a plain-language request or fail with the missing config.",
       ].join("\n")
     : "No Nanite manifest has been attached yet.";
 
@@ -599,9 +526,19 @@ function buildNaniteTaskContext(input: {
     "",
     manifestContext,
     "",
+    "Runtime configuration:",
+    input.runtimeConfig ? JSON.stringify(input.runtimeConfig, null, 2) : "No runtime config.",
+    "",
     "Active run trigger payload:",
     input.trigger ? formatTrigger(input.trigger) : "No active run trigger has been attached yet.",
   ].join("\n");
+}
+
+function browserRuntimeConfig(
+  runtimeConfig: NaniteRuntimeConfig | null,
+): NaniteRuntimeConfig["browser"] | null {
+  const browser = runtimeConfig?.browser;
+  return browser?.enabled === true ? browser : null;
 }
 
 function getTriggerTestInstruction(trigger: NaniteTriggerEvent): string | null {
@@ -618,7 +555,30 @@ const naniteGitSafetyInstructions = [
   "If a push is rejected, fetch the remote branch and reconcile with rebase or merge before pushing again. Do not assume GitHub or the git tool is stale.",
 ] as const;
 
-function buildRunPrompt(input: StartNaniteAgentInput): string {
+function hasGitHubContentsPermission(manifest: NaniteManifest): boolean {
+  const level = manifest.permissions.github?.appPermissions.contents;
+  return level === "read" || level === "write";
+}
+
+function formatWorkspacePreparation(checkouts: NaniteWorkspaceCheckout[] | undefined): string {
+  if (!checkouts || checkouts.length === 0) {
+    return "No manifest repositories were prepared.";
+  }
+
+  return checkouts
+    .map((checkout) => {
+      const location = checkout.dir ? ` at ${checkout.dir}` : "";
+      const error = checkout.error ? ` (${checkout.error})` : "";
+      return `- ${checkout.repository}: ${checkout.status}${location}${error}`;
+    })
+    .join("\n");
+}
+
+function buildRunPrompt(
+  input: StartNaniteAgentInput & {
+    workspaceCheckouts?: NaniteWorkspaceCheckout[];
+  },
+): string {
   const manualMessage =
     input.run.trigger.type === "manual" && input.run.trigger.message
       ? `\n\nManual operator message:\n${input.run.trigger.message}`
@@ -626,6 +586,19 @@ function buildRunPrompt(input: StartNaniteAgentInput): string {
   const testInstruction = getTriggerTestInstruction(input.run.trigger);
   const testInstructionMessage = testInstruction
     ? `\n\nTrigger acceptance test instruction:\n${testInstruction}`
+    : "";
+  const browser = browserRuntimeConfig(input.nanite.runtimeConfig ?? null);
+  const browserInstruction = browser
+    ? [
+        "",
+        "Browser Run capability:",
+        `Target URL: ${browser.targetUrl}`,
+        "Use cdp.* inside execute for browser evidence: screenshot, console/network summary, WebMCP status, and focused accessibility or performance observations.",
+        "When you click a link or control, verify a postcondition before claiming success: URL/path/hash, title/h1, DOM state, scroll position, or focus changed as expected.",
+        browser.evidenceRequired
+          ? "Do not return complete or no_change for this browser-audit run until the evidence is captured or explain the missing evidence with ask_manager/fail."
+          : "Browser evidence is optional for this run.",
+      ].join("\n")
     : "";
 
   return [
@@ -640,25 +613,29 @@ function buildRunPrompt(input: StartNaniteAgentInput): string {
     manualMessage,
     testInstructionMessage,
     "",
+    "Workspace checkout preparation:",
+    formatWorkspacePreparation(input.workspaceCheckouts),
+    browserInstruction,
+    "",
     "First classify the task's execution plane: GitHub API/MCP, workspace files/git, trigger/routing, or human/product decision.",
-    "Do not hydrate or repair workspace git for API-only tasks. Use workspace checkout only when local file inspection or file edits are needed.",
     "Use the workspace, git, MCP, and code execution tools as needed for the chosen execution plane.",
+    "Use prepared checkout paths before cloning repositories yourself.",
     "Use Workspace read/list/grep/find for repository file review. Use execute with state.* and git.* for coordinated filesystem and git work.",
-    "For GitHub triggers that require repository inspection or edits, hydrate the durable workspace idempotently: if no matching .git/config exists, clone the trigger repository once into an explicit safe directory; otherwise fetch or pull the relevant branch/ref instead of cloning again.",
     "The execute tool runs Worker-compatible JavaScript, not a Node.js shell: do not use require(), child_process, or subprocess commands. Use state.* and git.* inside execute instead.",
     "Do not use GitHub MCP to read repository files, list commits, or list branches; reserve GitHub MCP for pull requests, metadata, issue comments, scoped issue filing, checks, and workflow status.",
     "Use Workspace git tools for repository changes and branch pushes.",
     "Use GitHub MCP for GitHub API tasks: finding existing PRs, creating PRs, updating PR metadata, reading PR details, reading check or workflow status, commenting on issues, and filing scoped follow-up issues.",
     "Do not use GitHub MCP file-write tools unless this Nanite was explicitly granted them. Do not merge pull requests unless this Nanite was explicitly granted merge authority.",
-    "For GitHub changes, manage branches and pull requests yourself with git, gh, or Octokit instead of expecting SigVelo to publish a support lane for you.",
+    "For GitHub changes, manage branches with git.* and pull requests with github.* instead of expecting SigVelo to publish a support lane for you.",
+    "Before work that may open a PR, run a small github.* pull request lookup through execute; if GitHub MCP is unavailable, ask the manager before changing files.",
     "Reuse an existing open PR when that is the coherent review surface for your responsibility.",
     "When stacked PRs are useful: the bottom branch targets the repo default branch, each higher branch targets the branch below it, every PR stays small and independently reviewable, and every PR description includes stack ordering.",
-    "Use gh stack only when it is available. Otherwise use plain git branches and gh pr create --base <previous-branch>.",
+    "For stacked PRs, use plain git branches and create each PR with github.* against the correct base branch.",
     "Never push directly to a default branch.",
     ...naniteGitSafetyInstructions,
-    "When you call complete, set outputUrl to the most useful result URL: the primary PR, top PR, stack entrypoint, or another explicit output URL. If no URL exists, make the summary self-contained.",
-    "If you hit roadblocks immediately or repeat materially similar failures, assume the Nanite may be misconfigured. Stop debugging and call ask_manager or fail with the clearest blocker.",
-    "When the attempt reaches a terminal outcome, call exactly one lifecycle tool: complete, no_change, fail, or ask_manager.",
+    "When the work is complete, set outputUrl to the most useful result URL in the structured result: the primary PR, top PR, stack entrypoint, or another explicit output URL. If no URL exists, make the summary self-contained.",
+    "If you hit roadblocks immediately or repeat materially similar failures, assume the Nanite may be misconfigured. Stop debugging and ask the manager or fail with the clearest blocker.",
+    "When the attempt reaches an outcome, return exactly one structured result kind: complete, no_change, fail, or ask_manager.",
   ].join("\n");
 }
 
@@ -667,22 +644,15 @@ function buildNaniteSystemPrompt(): string {
     "You are a SigVelo Nanite: a durable maintenance agent for one narrow responsibility inside a GitHub installation.",
     "Your transcript, workspace, and memory are durable. Keep durable memory compact and evidence-backed.",
     "Use nanite_task_context for the current manifest, repository scope, permission grants, generated trigger source, and active trigger payload.",
-    "Use the smallest execution plane that can satisfy the run: github.* tools inside execute for pull requests, checks, issue comments, scoped issue filing, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; ask_manager for missing authority or product decisions.",
+    "Use the smallest execution plane that can satisfy the run: github.* tools inside execute for pull requests, checks, issue comments, scoped issue filing, and metadata; Workspace for repository files, edits, and git; generated trigger context for event routing; manager request for missing authority or product decisions.",
     "Do not use github.* tools to inspect repository files, commits, or branches. Use Workspace read/list/grep/find and execute git tools so file evidence stays in the durable workspace.",
-    "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Discover github.* methods with codemode.search/codemode.describe. It is not a shell and cannot use require(), child_process, or subprocess commands.",
+    "The execute tool runs Worker-compatible JavaScript with state.*, git.*, and (when GitHub permissions are granted) github.* providers. Use direct provider calls for common methods; use codemode.search/codemode.describe only when the method shape is unfamiliar. It is not a shell and cannot use require(), child_process, or subprocess commands.",
+    'Common execute shapes: `await git.status({ dir })`, `await state.readFile({ path })`, `await github.list_pull_requests({ owner, repo, state: "open" })`.',
     "Use artifact_read for saved SigVelo tool-output artifacts such as toolout_...; do not look for those artifacts in the workspace.",
     "Keep GitHub-facing output concise. Keep detailed investigation in this transcript.",
     "",
-    "Do not claim success without evidence. If authority, configuration, approval, or target scope is missing, use ask_manager. If the target state is impossible or a deterministic tool/API error repeats, use fail.",
-    "Finish exactly once with complete, no_change, fail, or ask_manager.",
-  ].join("\n");
-}
-
-function buildLifecycleContinuationPrompt(): string {
-  return [
-    "You stopped without reporting the Nanite run outcome.",
-    "Use the transcript evidence already available and call exactly one lifecycle tool now: complete, no_change, fail, or ask_manager.",
-    "Do not investigate further unless a lifecycle tool requires the final summary or manager request details.",
+    "Do not claim success without evidence. If authority, configuration, approval, or target scope is missing, ask the manager. If the target state is impossible or a deterministic tool/API error repeats, fail.",
+    "Finish exactly once with a structured result: complete, no_change, fail, or ask_manager.",
   ].join("\n");
 }
 
@@ -694,39 +664,50 @@ type ScheduledTriggerPayload = {
   eventSource: NaniteScheduledEventSourceSpec;
 };
 
-type LifecycleWatchdogPayload = {
-  runId: string;
-};
-
-type LastStepDiagnostic = {
-  runId: string | null;
-  stepNumber: number;
-  finishReason: string;
-  rawFinishReason: string | null;
-  toolCallCount: number;
-  toolResultCount: number;
-};
-
 /**
  * The methods this agent calls on its parent manager. The concrete DO stub
  * type expands the manager's full RPC graph and trips TS2589, so the cast is
  * confined to `parentManager()`.
  */
 type ParentManagerRpc = {
-  getSnapshot: SigveloNaniteManager["getSnapshot"];
+  getSnapshot: () => Promise<NaniteManagerState>;
   startRun: (input: StartNaniteRunInput) => Promise<NaniteRunRecord>;
-  dispatchRun: SigveloNaniteManager["dispatchRun"];
-  completeRun: SigveloNaniteManager["completeRun"];
-  askManager: SigveloNaniteManager["askManager"];
-  recordUnreportedRunCompletion: SigveloNaniteManager["recordUnreportedRunCompletion"];
+  dispatchRun: (input: { runId: string }) => Promise<NaniteRunRecord>;
+  recordWorkflowResult: (input: {
+    runId: string;
+    naniteId: string;
+    result: NaniteRunWorkflowResult;
+  }) => Promise<NaniteRunRecord>;
+  recordRunFailureWithoutWorkflowOutput: (input: {
+    runId: string;
+    error: string;
+  }) => Promise<NaniteRunRecord>;
   recordRuntimeActivity: (input: RecordNaniteRuntimeActivityInput) => Promise<unknown>;
 };
+
+/**
+ * Classifies a repository-checkout error as an infra/auth failure (fail the run) versus a repo
+ * that is legitimately unavailable (advisory). git/isomorphic-git surface most failures as plain
+ * Error with no typed taxonomy, so structural checks (AppError) are preferred and message checks
+ * are the fallback for the auth signals git emits.
+ */
+function isInfraCheckoutFailure(error: unknown): boolean {
+  if (error instanceof AppError) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  // git-auth raises this sentinel when an in-scope repo could not be issued an installation token.
+  if (message.includes("outside this Nanite's git scope")) {
+    return true;
+  }
+  // GitHub auth rejection (bad/expired/forbidden installation token), mirroring git-auth's own check.
+  return /\b(?:401|403)\b/.test(message) && /unauthori[sz]ed|forbidden/i.test(message);
+}
 
 export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   initialState: NaniteAgentState = createInitialNaniteAgentState();
   extensionLoader = this.env.LOADER;
   override maxSteps = naniteMaxSteps;
-  override chatRecovery = naniteChatRecovery;
   override chatStreamStallTimeoutMs = naniteChatStreamStallTimeoutMs;
   override classifyChatError = defaultContextOverflowClassifier;
   override contextOverflow = { reactive: true, maxRetries: 2 };
@@ -741,7 +722,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     name: () => this.name,
   });
 
-  private lastStepDiagnostic: LastStepDiagnostic | null = null;
   private currentTurnContinuation = false;
 
   override async onStart(): Promise<void> {
@@ -765,10 +745,20 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return buildNaniteSystemPrompt();
   }
 
+  override getSkills(): SkillSource[] {
+    return [
+      createNaniteWorkspaceSkillSource({
+        workspace: this.workspace,
+        sourceUrls: () => this.state.runtimeConfig?.skillUrls ?? [],
+        beforeRefresh: () => this.refreshManifestFromManager(),
+      }),
+    ];
+  }
+
   override configureSession(session: Session): Session {
     return session
       .withContext("nanite_identity", {
-        description: "Stable SigVelo Nanite identity, tool routing rules, and lifecycle rules.",
+        description: "Stable SigVelo Nanite identity, tool routing rules, and run-output rules.",
         maxTokens: 4000,
         provider: {
           get: async () => this.getSystemPrompt(),
@@ -782,6 +772,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           get: async () =>
             buildNaniteTaskContext({
               manifest: this.state.manifest,
+              runtimeConfig: this.state.runtimeConfig,
               trigger: this.state.trigger,
             }),
         },
@@ -797,6 +788,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     const workspaceTools = createWorkspaceTools(this.workspace);
     const artifactStore = this.createToolOutputArtifactStore();
     const githubMcpConnector = this.createGitHubMcpConnector();
+    const browser = browserRuntimeConfig(this.state.runtimeConfig);
     const extensionTools = this.extensionManager
       ? {
           ...createExtensionTools({ manager: this.extensionManager }),
@@ -806,16 +798,15 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return {
       ...workspaceTools,
-      execute: createExecuteTool({
-        ctx: this.ctx,
+      execute: createExecuteTool(this, {
         tools: workspaceTools,
-        state: createWorkspaceStateBackend(this.workspace),
         connectors: [
           new ToolProviderConnector(this.ctx, this.createGitToolProvider()),
           new ToolProviderConnector(this.ctx, artifactStore.provider()),
           ...(githubMcpConnector ? [githubMcpConnector] : []),
         ],
-        loader: this.env.LOADER,
+        browser: browser ? this.env.BROWSER : undefined,
+        session: browser ? { mode: "dynamic" as const } : undefined,
       }),
       ...extensionTools,
       artifact_read: tool({
@@ -823,72 +814,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           "Inspect saved SigVelo tool-output artifacts. With no args, lists current-run artifacts. With artifactId, reads a bounded slice. With pattern, grep-searches one artifact or all current-run artifacts.",
         inputSchema: naniteToolOutputArtifactReadInputSchema,
         execute: async (input) => artifactStore.readToolInput(input),
-      }),
-      complete: tool({
-        description:
-          "Mark the active Nanite work attempt complete only after the requested outcome happened. Include the most useful output URL when one exists, such as the commit, branch, PR, or run result URL.",
-        inputSchema: z.object({
-          summary: z.string().min(1),
-          outputUrl: z.string().url().nullable().optional(),
-          agentFeedback: agentFeedbackSchema.optional(),
-        }),
-        execute: async ({ summary, outputUrl, agentFeedback }) =>
-          this.finishRun({
-            status: "complete",
-            summary,
-            outputUrl: outputUrl ?? null,
-            agentFeedback: agentFeedback ?? null,
-          }),
-      }),
-      no_change: tool({
-        description:
-          "Mark the active Nanite work attempt finished with no changes needed only when investigation proves no action is needed. This is not valid for imperative tasks such as pushing a commit unless the equivalent target state already exists.",
-        inputSchema: z.object({
-          summary: z.string().min(1),
-          agentFeedback: agentFeedbackSchema.optional(),
-        }),
-        execute: async ({ summary, agentFeedback }) =>
-          this.finishRun({
-            status: "no_change",
-            summary,
-            outputUrl: null,
-            agentFeedback: agentFeedback ?? null,
-          }),
-      }),
-      fail: tool({
-        description:
-          "Mark the active Nanite work attempt failed when the target state is impossible, the requested API/tool path is unavailable, a deterministic tool/API error repeats, or the task cannot be completed within the granted permissions. After two materially similar failures, stop debugging and use fail or ask_manager.",
-        inputSchema: z.object({
-          summary: z.string().min(1),
-          agentFeedback: agentFeedbackSchema.optional(),
-        }),
-        execute: async ({ summary, agentFeedback }) =>
-          this.finishRun({
-            status: "fail",
-            summary,
-            outputUrl: null,
-            agentFeedback: agentFeedback ?? null,
-          }),
-      }),
-      ask_manager: tool({
-        description:
-          "Pause the active Nanite work attempt and ask the manager for missing authority, access, configuration, product judgment, or setup work. Explain what you tried, what blocked it, and what would let you continue. After two materially similar failures, stop debugging and use ask_manager or fail.",
-        inputSchema: z.object({
-          request: z.string().min(1),
-        }),
-        execute: async ({ request }) => {
-          const manager = await this.parentManager();
-          const run = await manager.askManager({
-            runId: this.getActiveRunId(),
-            request,
-          });
-          await this.clearWatchdog();
-          return {
-            accepted: true,
-            status: run.status,
-            request: run.managerRequest.request,
-          };
-        },
       }),
       create_child_nanite: tool({
         description:
@@ -920,16 +845,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     const runId = getRunIdFromTurn(ctx) ?? this.state.activeRunId;
     if (runId && runId !== this.state.activeRunId) {
-      const run = await this.readRun(runId);
       this.setState({
         ...this.state,
         activeRunId: runId,
-        activeRunModel: run?.model ?? this.state.activeRunModel,
         updatedAt: nowIso(),
       });
     }
 
-    this.touchActivity();
     await this.reportRuntimeActivity("thinking");
     naniteLogger.debug(LOG_EVENTS.NANITE_TURN_STARTED, {
       ...this.logContext(),
@@ -944,7 +866,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       model: await this.getTurnModel(runId),
       sendReasoning: true,
       tools: this.wrapTurnToolsForOutputBudget(ctx.tools),
-      stopWhen: naniteLifecycleTools.map((toolName) => hasToolCall(toolName)),
       // AI Gateway owns upstream-provider retries (NANITES_AI_GATEWAY_REQUEST_DEFAULTS); cap the
       // AI SDK's own retry so the two layers don't compound into ~10 attempts. 1 still covers a
       // transient worker→gateway transport blip.
@@ -953,13 +874,11 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   override async beforeToolCall(ctx: ToolCallContext): Promise<void> {
-    this.touchActivity();
     await this.reportRuntimeActivity("tool_calling", { toolName: ctx.toolName });
   }
 
   override async afterToolCall(ctx: ToolCallResultContext): Promise<void> {
-    this.touchActivity();
-    await this.reportRuntimeActivity(getActivityStateAfterTool(ctx.toolName), {
+    await this.reportRuntimeActivity("thinking", {
       toolName: ctx.toolName,
       error: ctx.success ? null : describeError(ctx.error),
     });
@@ -983,16 +902,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   override onStepFinish(ctx: StepContext): void {
-    this.touchActivity();
-    this.lastStepDiagnostic = {
-      runId: this.state.activeRunId,
-      stepNumber: ctx.stepNumber,
-      finishReason: ctx.finishReason,
-      rawFinishReason: ctx.rawFinishReason ?? null,
-      toolCallCount: ctx.toolCalls.length,
-      toolResultCount: ctx.toolResults.length,
-    };
-
     naniteLogger.debug(LOG_EVENTS.NANITE_STEP_FINISHED, {
       ...this.logContext(),
       stepNumber: ctx.stepNumber,
@@ -1016,119 +925,145 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     );
   }
 
-  override onChatError(error: unknown): unknown {
-    const described = describeError(error);
-    this.setState({
-      ...this.state,
-      lastChatError: {
-        runId: this.state.activeRunId,
-        error: described,
-        occurredAt: nowIso(),
-      },
-      updatedAt: nowIso(),
-    });
-    this.ctx.waitUntil(this.reportRuntimeActivity("error", { error: described }));
-    this.ctx.waitUntil(
-      this.recordChatErrorAuditEvent(described).catch((recordError: unknown) => {
-        naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
-          ...this.logContext(),
-          operation: "run.chat_error.audit",
-          error: describeError(recordError),
-        });
-      }),
-    );
-    naniteLogger.error(LOG_EVENTS.NANITE_CHAT_ERROR, {
-      ...this.logContext(),
-      error: described,
-    });
-    return error;
-  }
-
-  /**
-   * Chat errors are persisted to the audit table because they otherwise leave
-   * no durable trace: the run terminalizes later through the watchdog or
-   * submission status with a generic summary, and facet console logs are
-   * unreliable in production.
-   */
-  private async recordChatErrorAuditEvent(error: string): Promise<void> {
-    const identity = parseNaniteManagerKey(this.requireManagerName());
-    if (!identity) {
+  override async onWorkflowComplete(
+    workflowName: string,
+    workflowId: string,
+    result?: unknown,
+  ): Promise<void> {
+    if (workflowName !== NANITE_RUN_WORKFLOW_NAME) {
       return;
     }
 
-    const runId = this.state.activeRunId;
-    await recordAuditEvent(createDbClient(this.env.DB), {
-      eventName: "audit.run.chat_error",
-      githubAppId: identity.githubAppId,
-      githubInstallationId: identity.githubInstallationId,
-      naniteId: this.state.naniteId,
-      runKey: runId,
-      actor: this.state.trigger
-        ? naniteTriggerActor(this.state.trigger)
-        : systemActor("maintenance"),
-      targetType: "run",
-      targetId: runId,
-      outcome: "failure",
-      metadata: { error },
-    });
+    const parsed = naniteRunWorkflowResultSchema.safeParse(result);
+    if (!parsed.success) {
+      await this.projectWorkflowError(
+        workflowId,
+        `Nanite Run Workflow completed with invalid structured output: ${parsed.error.message}`,
+      );
+      return;
+    }
+
+    const naniteId = this.state.naniteId;
+    if (!naniteId) {
+      await this.projectWorkflowError(
+        workflowId,
+        "Nanite Run Workflow completed without Nanite state.",
+      );
+      return;
+    }
+
+    const manager = await this.parentManager();
+    await manager.recordWorkflowResult({ runId: workflowId, naniteId, result: parsed.data });
+    this.clearActiveWorkflowRun(workflowId);
+  }
+
+  override async onWorkflowError(
+    workflowName: string,
+    workflowId: string,
+    error: string,
+  ): Promise<void> {
+    if (workflowName !== NANITE_RUN_WORKFLOW_NAME) {
+      return;
+    }
+
+    await this.projectWorkflowError(
+      workflowId,
+      `Nanite Run Workflow failed before reporting structured output: ${error}`,
+    );
   }
 
   // -------------------------------------------------------------------------
   // Run intake from the manager
   // -------------------------------------------------------------------------
 
-  async enqueueFromManager(input: StartNaniteAgentInput): Promise<void> {
-    const acceptedAt = nowIso();
-    this.setState({
-      version: NANITE_AGENT_STATE_VERSION,
-      naniteId: input.nanite.manifest.id,
-      managerName: input.managerName,
-      manifest: input.nanite.manifest,
-      activeRunId: input.run.runId,
-      activeRunModel: input.run.model,
-      trigger: input.run.trigger,
-      lastActivityAt: acceptedAt,
-      lastChatError: null,
-      lifecycleContinuationAttempted: false,
-      interruptedRetryCount: 0,
-      watchdogScheduleId: this.state.watchdogScheduleId,
-      updatedAt: acceptedAt,
-    });
-    await this.armWatchdog(input.run.runId);
-    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
-      ...this.logContext(input.run.runId),
-      [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
-      [OTEL_ATTRS.NANITE_RUN_STATUS]: input.run.status,
-      versionId: input.run.model.manifestVersionId,
-    });
+  async startRunWorkflowFromManager(input: StartNaniteAgentInput): Promise<string> {
+    this.acceptWorkflowRun(input);
+    try {
+      const runId = await this.runWorkflow<NaniteRunWorkflowParams>(
+        NANITE_RUN_WORKFLOW_NAME,
+        {
+          runId: input.run.runId,
+          managerName: input.managerName,
+        },
+        {
+          id: input.run.runId,
+          metadata: {
+            naniteId: input.run.naniteId,
+            triggerType: input.run.trigger.type,
+            // Durable model snapshot: a Workflow can outlive the manager's capped run history,
+            // so getTurnModel falls back to this when the run record has been evicted.
+            modelId: input.run.model.effectiveModelId,
+            gatewayId: input.run.model.effectiveGatewayId,
+          },
+        },
+      );
 
-    await this.submitMessages([createUserMessage(buildRunPrompt(input))], {
-      submissionId: input.run.runId,
-      idempotencyKey: input.run.triggerKey,
-      metadata: {
-        managerName: input.managerName,
-        naniteId: input.nanite.manifest.id,
-        runId: input.run.runId,
-      },
-    });
-    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
-      ...this.logContext(input.run.runId),
-      [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: input.run.runId,
+      naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_SUBMITTED, {
+        ...this.logContext(input.run.runId),
+        [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
+        [OTEL_ATTRS.NANITE_SUBMISSION_ID]: runId,
+        source: "think_workflow",
+      });
+      return runId;
+    } catch (error) {
+      this.clearActiveWorkflowRun(input.run.runId);
+      throw error;
+    }
+  }
+
+  async prepareWorkflowRun(input: {
+    managerName: string;
+    runId: string;
+    workspaceCheckouts?: NaniteWorkspaceCheckout[];
+  }): Promise<string> {
+    const { nanite, run } = await this.requireWorkflowRunContext(input);
+    this.acceptWorkflowRun({ managerName: input.managerName, nanite, run });
+    return buildRunPrompt({
+      managerName: input.managerName,
+      nanite,
+      run,
+      workspaceCheckouts: input.workspaceCheckouts,
     });
   }
 
-  async cancelRunFromManager(input: { runId: string; reason: string }): Promise<void> {
-    await this.cancelRunSubmissions(input.runId, input.reason);
-    if (this.state.activeRunId === input.runId) {
-      await this.clearWatchdog();
-      this.setState({
-        ...this.state,
-        activeRunId: null,
-        activeRunModel: null,
-        updatedAt: nowIso(),
-      });
+  async prepareWorkflowWorkspace(input: {
+    managerName: string;
+    runId: string;
+  }): Promise<NaniteWorkspaceCheckout[]> {
+    const { nanite, run } = await this.requireWorkflowRunContext(input);
+    this.acceptWorkflowRun({ managerName: input.managerName, nanite, run });
+
+    const repositories = resolveNaniteGitHubPermissionRepositoryFullNames(nanite.manifest);
+    if (!hasGitHubContentsPermission(nanite.manifest)) {
+      return repositories.map((repository) => ({
+        repository,
+        dir: null,
+        status: "skipped",
+        error: "Manifest does not grant GitHub contents read/write permission.",
+      }));
     }
+
+    return Promise.all(
+      repositories.map(async (repository): Promise<NaniteWorkspaceCheckout> => {
+        try {
+          return await this.prepareRepositoryCheckout(repository);
+        } catch (error) {
+          // Infra/auth failures (token issuance, missing installation, auth rejection) hard-fail
+          // the run: a degraded workspace makes the model narrate an infra outage as if it were a
+          // normal result. A repo that is legitimately unavailable (deleted/renamed/404) stays
+          // advisory so the model can still proceed and explain the gap.
+          if (isInfraCheckoutFailure(error)) {
+            throw error;
+          }
+          return {
+            repository,
+            dir: null,
+            status: "failed",
+            error: describeError(error),
+          };
+        }
+      }),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1204,9 +1139,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
           input: { triggerError: `Trigger failed before model dispatch: ${triggerResult.error}` },
         },
       });
-      await manager.recordUnreportedRunCompletion({
+      await manager.recordRunFailureWithoutWorkflowOutput({
         runId: run.runId,
-        status: "error",
         error: `Trigger failed before model dispatch: ${triggerResult.error}`,
       });
       return;
@@ -1225,325 +1159,36 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   // -------------------------------------------------------------------------
-  // Lifecycle watchdog
+  // Submission cancellation
   // -------------------------------------------------------------------------
-
-  async checkLifecycleWatchdog(payload: LifecycleWatchdogPayload): Promise<void> {
-    if (this.state.activeRunId !== payload.runId) {
-      return;
-    }
-
-    const run = await this.readRun(payload.runId);
-    if (
-      !run ||
-      run.naniteId !== this.state.naniteId ||
-      isLifecycleTerminalStatus(run.status) ||
-      run.status === "waiting_for_manager"
-    ) {
-      await this.clearWatchdog();
-      return;
-    }
-
-    const lastActivityMs = this.state.lastActivityAt
-      ? new Date(this.state.lastActivityAt).getTime()
-      : 0;
-    if (Date.now() - lastActivityMs < naniteWatchdogIdleMs) {
-      await this.armWatchdog(payload.runId);
-      return;
-    }
-
-    const stable = await this.waitUntilStable({ timeout: naniteWatchdogStabilityTimeoutMs });
-    if (!stable) {
-      await this.armWatchdog(payload.runId);
-      return;
-    }
-
-    if (!this.state.lifecycleContinuationAttempted) {
-      await this.submitLifecycleContinuation(payload.runId);
-      await this.armWatchdog(payload.runId);
-      return;
-    }
-
-    const manager = await this.parentManager();
-    await manager.recordUnreportedRunCompletion({
-      runId: payload.runId,
-      status: "error",
-      error: [
-        "Nanite lifecycle watchdog found the run stable without a lifecycle outcome after a lifecycle continuation was already attempted.",
-        this.chatErrorSummaryLine(payload.runId),
-      ]
-        .filter((line): line is string => Boolean(line))
-        .join(" "),
-    });
-    await this.clearWatchdog();
-    this.setState({
-      ...this.state,
-      activeRunId: null,
-      activeRunModel: null,
-      updatedAt: nowIso(),
-    });
-  }
-
-  private async armWatchdog(runId: string): Promise<void> {
-    const current = this.state.watchdogScheduleId;
-    if (current) {
-      await this.cancelSchedule(current);
-    }
-
-    const schedule = await this.schedule(naniteWatchdogDelaySeconds, "checkLifecycleWatchdog", {
-      runId,
-    } satisfies LifecycleWatchdogPayload);
-    this.setState({
-      ...this.state,
-      watchdogScheduleId: schedule.id,
-      updatedAt: nowIso(),
-    });
-  }
-
-  private async clearWatchdog(): Promise<void> {
-    const current = this.state.watchdogScheduleId;
-    if (!current) {
-      return;
-    }
-
-    await this.cancelSchedule(current);
-    this.setState({
-      ...this.state,
-      watchdogScheduleId: null,
-      updatedAt: nowIso(),
-    });
-  }
-
-  /** Cheap durable activity marker — read by the watchdog instead of re-arming alarms. */
-  private touchActivity(): void {
-    this.setState({
-      ...this.state,
-      lastActivityAt: nowIso(),
-    });
-  }
-
-  // -------------------------------------------------------------------------
-  // Submission outcomes
-  // -------------------------------------------------------------------------
-
-  protected override async onSubmissionStatus(
-    submission: ThinkSubmissionInspection,
-  ): Promise<void> {
-    if (!isTerminalSubmissionStatus(submission.status)) {
-      return;
-    }
-
-    const runId = this.resolveSubmissionRunId(submission);
-    if (!runId) {
-      return;
-    }
-
-    const run = await this.readRun(runId);
-    if (!run || run.naniteId !== this.state.naniteId) {
-      return;
-    }
-
-    const diagnostic = this.lastStepDiagnostic;
-    const logProperties = {
-      ...this.logContext(runId),
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submission.submissionId,
-      status: submission.status,
-      error: submission.error,
-      lastStepNumber: diagnostic?.runId === runId ? diagnostic.stepNumber : undefined,
-      lastFinishReason: diagnostic?.runId === runId ? diagnostic.finishReason : undefined,
-      maxSteps: this.maxSteps,
-    };
-    if (submission.status === "error") {
-      naniteLogger.error(LOG_EVENTS.NANITE_SUBMISSION_STATUS, logProperties);
-    } else {
-      naniteLogger.info(LOG_EVENTS.NANITE_SUBMISSION_STATUS, logProperties);
-    }
-
-    if (isLifecycleTerminalStatus(run.status) || run.status === "waiting_for_manager") {
-      // The run already reported through a lifecycle tool; nothing to repair.
-      if (isLifecycleTerminalStatus(run.status) && this.state.activeRunId === runId) {
-        await this.clearWatchdog();
-        this.setState({
-          ...this.state,
-          activeRunId: null,
-          activeRunModel: null,
-          updatedAt: nowIso(),
-        });
-      }
-      return;
-    }
-
-    // The submission ended but the run never reported a lifecycle outcome.
-    if (
-      submission.status === "error" &&
-      submission.error === naniteInterruptedSubmissionError &&
-      (await this.retryInterruptedSubmission(run))
-    ) {
-      return;
-    }
-
-    if (
-      submission.status === "completed" &&
-      submission.metadata?.lifecycleContinuation !== true &&
-      !this.state.lifecycleContinuationAttempted &&
-      (await this.submitLifecycleContinuation(runId))
-    ) {
-      return;
-    }
-
-    const manager = await this.parentManager();
-    await manager.recordUnreportedRunCompletion({
-      runId,
-      status: submission.status,
-      error: this.buildNoLifecycleSummary(runId, submission, diagnostic),
-    });
-    await this.clearWatchdog();
-    this.setState({
-      ...this.state,
-      activeRunId: this.state.activeRunId === runId ? null : this.state.activeRunId,
-      activeRunModel: this.state.activeRunId === runId ? null : this.state.activeRunModel,
-      updatedAt: nowIso(),
-    });
-  }
 
   private resolveSubmissionRunId(submission: ThinkSubmissionInspection): string | null {
-    const metadataRunId =
-      typeof submission.metadata?.runId === "string" ? submission.metadata.runId : null;
-    if (metadataRunId) {
-      return metadataRunId;
+    const workflowPrompt = submission.metadata?.__thinkWorkflowPrompt;
+    if (workflowPrompt && typeof workflowPrompt === "object" && !Array.isArray(workflowPrompt)) {
+      const workflow = (workflowPrompt as { workflow?: unknown }).workflow;
+      if (workflow && typeof workflow === "object" && !Array.isArray(workflow)) {
+        const workflowId = (workflow as { id?: unknown }).id;
+        if (typeof workflowId === "string") {
+          return workflowId;
+        }
+      }
     }
 
-    return this.state.activeRunId === submission.submissionId ? this.state.activeRunId : null;
-  }
-
-  private buildNoLifecycleSummary(
-    runId: string,
-    submission: ThinkSubmissionInspection,
-    diagnostic: LastStepDiagnostic | null,
-  ): string {
-    return [
-      "The Think turn completed before the Nanite reported a lifecycle outcome.",
-      `Submission status: ${submission.status}.`,
-      `Lifecycle continuation attempted: ${this.state.lifecycleContinuationAttempted ? "yes" : "no"}.`,
-      submission.error ? `Submission error: ${submission.error}.` : null,
-      diagnostic
-        ? `Last step: ${diagnostic.stepNumber}; finishReason=${diagnostic.finishReason}; rawFinishReason=${diagnostic.rawFinishReason ?? "none"}; toolCallCount=${diagnostic.toolCallCount}; toolResultCount=${diagnostic.toolResultCount}.`
-        : "Last step: unavailable.",
-      this.chatErrorSummaryLine(runId),
-    ]
-      .filter((line): line is string => Boolean(line))
-      .join(" ");
-  }
-
-  private chatErrorSummaryLine(runId: string): string | null {
-    const chatError = this.state.lastChatError;
-    if (!chatError || (chatError.runId !== null && chatError.runId !== runId)) {
-      return null;
-    }
-    return `Last chat error: ${chatError.error} (at ${chatError.occurredAt}).`;
-  }
-
-  private async retryInterruptedSubmission(run: NaniteRunRecord): Promise<boolean> {
-    if (this.state.interruptedRetryCount >= naniteInterruptedSubmissionMaxRetries) {
-      return false;
-    }
-
-    const manager = await this.parentManager();
-    const nanite = (await manager.getSnapshot()).nanites[run.naniteId];
-    if (!nanite) {
-      return false;
-    }
-
-    const retryAttempt = this.state.interruptedRetryCount + 1;
-    const managerName = this.requireManagerName();
-    this.setState({
-      ...this.state,
-      activeRunId: run.runId,
-      activeRunModel: run.model,
-      interruptedRetryCount: retryAttempt,
-      lastActivityAt: nowIso(),
-      updatedAt: nowIso(),
-    });
-
-    await this.reportRuntimeActivity("thinking");
-    await this.submitMessages(
-      [
-        createUserMessage(
-          [
-            buildRunPrompt({ managerName, nanite, run }),
-            "",
-            `Automatic retry ${retryAttempt}/${naniteInterruptedSubmissionMaxRetries}: the previous Think submission was interrupted before a lifecycle outcome.`,
-          ].join("\n"),
-        ),
-      ],
-      {
-        submissionId: `${run.runId}:retry:${retryAttempt}`,
-        idempotencyKey: `${run.triggerKey}:retry:${retryAttempt}`,
-        metadata: {
-          managerName,
-          naniteId: nanite.manifest.id,
-          runId: run.runId,
-          retryAttempt,
-        },
-      },
-    );
-    naniteLogger.warn(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-      ...this.logContext(run.runId),
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: `${run.runId}:retry:${retryAttempt}`,
-      status: "retrying",
-      error: naniteInterruptedSubmissionError,
-      retryAttempt,
-      maxRetries: naniteInterruptedSubmissionMaxRetries,
-    });
-    return true;
-  }
-
-  private async submitLifecycleContinuation(runId: string): Promise<boolean> {
-    const run = await this.readRun(runId);
-    if (!run || run.naniteId !== this.state.naniteId || run.status !== "running") {
-      return false;
-    }
-
-    this.setState({
-      ...this.state,
-      lifecycleContinuationAttempted: true,
-      lastActivityAt: nowIso(),
-      updatedAt: nowIso(),
-    });
-
-    const submissionId = buildLifecycleContinuationSubmissionId(run.runId);
-    const result = await this.submitMessages(
-      [createUserMessage(buildLifecycleContinuationPrompt())],
-      {
-        submissionId,
-        idempotencyKey: `${run.triggerKey}:${naniteLifecycleContinuationSuffix}`,
-        metadata: {
-          managerName: this.requireManagerName(),
-          naniteId: run.naniteId,
-          runId: run.runId,
-          lifecycleContinuation: true,
-        },
-      },
-    );
-
-    naniteLogger.warn(LOG_EVENTS.NANITE_SUBMISSION_STATUS, {
-      ...this.logContext(runId),
-      [OTEL_ATTRS.NANITE_SUBMISSION_ID]: submissionId,
-      status: result.accepted
-        ? "lifecycle_continuation_submitted"
-        : "lifecycle_continuation_exists",
-    });
-    return true;
+    return null;
   }
 
   private async cancelRunSubmissions(runId: string, reason: string): Promise<void> {
-    await Promise.all([
-      this.cancelSubmission(runId, reason),
-      this.cancelSubmission(buildLifecycleContinuationSubmissionId(runId), reason),
-      ...Array.from({ length: naniteInterruptedSubmissionMaxRetries }, (_, index) =>
-        this.cancelSubmission(`${runId}:retry:${index + 1}`, reason),
-      ),
-    ]);
+    const submissions = await this.listSubmissions({ limit: 25 });
+    const submissionIds = submissions
+      .filter(
+        (submission) =>
+          (submission.status === "pending" || submission.status === "running") &&
+          this.resolveSubmissionRunId(submission) === runId,
+      )
+      .map((submission) => submission.submissionId);
+    await Promise.all(
+      submissionIds.map((submissionId) => this.cancelSubmission(submissionId, reason)),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1551,8 +1196,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   // -------------------------------------------------------------------------
 
   async inspectDebug(input: NaniteDebugInspectInput = {}): Promise<NaniteDebugInspectOutput> {
-    await this.reconcileActiveTerminalSubmission();
-
     const output: NaniteDebugInspectOutput = {};
     if (input.transcript !== false) {
       output.transcript = inspectTranscript(await this.getMessages(), input.transcript ?? {});
@@ -1573,16 +1216,44 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return output;
   }
 
+  async inspectRunWorkflow(input: { runId: string }): Promise<NaniteRunWorkflowInspection> {
+    if (this.getWorkflow(input.runId)) {
+      await this.getWorkflowStatus(NANITE_RUN_WORKFLOW_NAME, input.runId);
+    }
+    const workflow = this.getWorkflow(input.runId);
+    return {
+      workflow: workflow
+        ? {
+            workflowId: workflow.workflowId,
+            workflowName: workflow.workflowName,
+            status: workflow.status,
+            metadata: workflow.metadata,
+            error: workflow.error,
+            createdAt: workflow.createdAt.toISOString(),
+            updatedAt: workflow.updatedAt.toISOString(),
+            completedAt: workflow.completedAt?.toISOString() ?? null,
+          }
+        : null,
+    };
+  }
+
+  async terminateRunWorkflowFromManager(input: { runId: string; reason: string }): Promise<void> {
+    const workflow = this.getWorkflow(input.runId);
+    if (workflow && !terminalWorkflowStatuses.has(workflow.status)) {
+      await this.terminateWorkflow(input.runId);
+    }
+    await this.cancelRunSubmissions(input.runId, input.reason);
+    if (this.state.activeRunId === input.runId) {
+      this.clearActiveWorkflowRun(input.runId);
+    }
+  }
+
   async resetDebugState(): Promise<NaniteDebugResetOutput> {
     await this.clearMessages();
     const deletedSubmissions = await this.deleteSubmissions({ limit: 500 });
-    await this.clearWatchdog();
     this.setState({
       ...this.state,
       activeRunId: null,
-      activeRunModel: null,
-      lifecycleContinuationAttempted: false,
-      interruptedRetryCount: 0,
       updatedAt: nowIso(),
     });
 
@@ -1592,11 +1263,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     };
   }
 
-  async maintainFromManager(
-    input: NaniteAgentMaintenanceInput,
-  ): Promise<NaniteAgentMaintenanceOutput> {
+  async maintainFromManager(input: {
+    managerName: string;
+    nanite: ManagedNanite;
+    completedBeforeIso?: string;
+    submissionDeleteLimit?: number;
+  }): Promise<NaniteAgentMaintenanceOutput> {
     this.syncIdentityFromManager(input);
-    const reconciledActiveSubmission = await this.reconcileActiveTerminalSubmission();
     const deletedSubmissions = await this.deleteSubmissions({
       completedBefore: parseOptionalAppIsoDate(input.completedBeforeIso, "completedBeforeIso"),
       limit: Math.min(Math.max(input.submissionDeleteLimit ?? 100, 1), 500),
@@ -1604,30 +1277,8 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return {
       activeRunId: this.state.activeRunId,
-      reconciledActiveSubmission,
       deletedSubmissions,
     };
-  }
-
-  private async reconcileActiveTerminalSubmission(): Promise<boolean> {
-    const activeRunId = this.state.activeRunId;
-    if (!activeRunId) {
-      return false;
-    }
-
-    const submissions = await this.listSubmissions({
-      limit: 25,
-      status: [...terminalSubmissionStatuses],
-    });
-    const submission = submissions.find(
-      (candidate) => this.resolveSubmissionRunId(candidate) === activeRunId,
-    );
-    if (!submission) {
-      return false;
-    }
-
-    await this.onSubmissionStatus(submission);
-    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -1777,8 +1428,96 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   // Internals
   // -------------------------------------------------------------------------
 
+  private acceptWorkflowRun(input: StartNaniteAgentInput): void {
+    const acceptedAt = nowIso();
+    this.setState({
+      version: NANITE_AGENT_STATE_VERSION,
+      naniteId: input.nanite.manifest.id,
+      managerName: input.managerName,
+      manifest: input.nanite.manifest,
+      runtimeConfig: input.nanite.runtimeConfig ?? null,
+      activeRunId: input.run.runId,
+      trigger: input.run.trigger,
+      updatedAt: acceptedAt,
+    });
+    naniteLogger.info(LOG_EVENTS.NANITE_AGENT_RUN_ACCEPTED, {
+      ...this.logContext(input.run.runId),
+      [OTEL_ATTRS.NANITE_RUN_KEY]: input.run.triggerKey,
+      [OTEL_ATTRS.NANITE_RUN_STATUS]: input.run.status,
+      versionId: input.run.model.manifestVersionId,
+    });
+  }
+
+  private async requireWorkflowRunContext(input: {
+    managerName: string;
+    runId: string;
+  }): Promise<{ nanite: ManagedNanite; run: NaniteRunRecord }> {
+    this.setState({
+      ...this.state,
+      managerName: input.managerName,
+      updatedAt: nowIso(),
+    });
+    const manager = await this.parentManager();
+    const snapshot = await manager.getSnapshot();
+    const run = snapshot.runs[input.runId];
+    if (!run) {
+      throw new AppError("naniteRunNotFound", {
+        details: { runId: input.runId },
+        message: `Nanite run ${input.runId} was not found.`,
+      });
+    }
+    const nanite = snapshot.nanites[run.naniteId];
+    if (!nanite) {
+      throw new AppError("naniteNotFound", {
+        details: { naniteId: run.naniteId },
+        message: `Nanite ${run.naniteId} was not found for run ${run.runId}.`,
+      });
+    }
+    if (this.state.naniteId && this.state.naniteId !== run.naniteId) {
+      throw new AppError("naniteRuntimeActivityMismatch", {
+        details: {
+          runId: input.runId,
+          naniteId: this.state.naniteId,
+          actualNaniteId: run.naniteId,
+        },
+        message: `Nanite run ${input.runId} belongs to ${run.naniteId}, not ${this.state.naniteId}`,
+      });
+    }
+
+    return { nanite, run };
+  }
+
+  private clearActiveWorkflowRun(runId: string): void {
+    if (this.state.activeRunId !== runId) {
+      return;
+    }
+    this.setState({
+      ...this.state,
+      activeRunId: null,
+      updatedAt: nowIso(),
+    });
+  }
+
+  private async projectWorkflowError(runId: string, error: string): Promise<NaniteRunRecord> {
+    const manager = await this.parentManager();
+    const run = await manager.recordRunFailureWithoutWorkflowOutput({
+      runId,
+      error,
+    });
+    this.clearActiveWorkflowRun(runId);
+    return run;
+  }
+
   private async parentManager(): Promise<ParentManagerRpc> {
-    return (await this.parentAgent(SigveloNaniteManager)) as unknown as ParentManagerRpc;
+    const managerName = this.state.managerName ?? this.parentPath.at(-1)?.name;
+    if (!managerName) {
+      throw new AppError("naniteAgentManagerRequired");
+    }
+
+    return (await getAgentByName(
+      this.env.SigveloNaniteManager,
+      managerName,
+    )) as unknown as ParentManagerRpc;
   }
 
   private requireManagerName(): string {
@@ -1789,14 +1528,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return managerName;
   }
 
-  private getActiveRunId(): string {
-    const runId = this.state.activeRunId;
-    if (!runId) {
-      throw new AppError("naniteAgentActiveRunRequired");
-    }
-    return runId;
-  }
-
   private async readRun(runId: string | null): Promise<NaniteRunRecord | null> {
     if (!runId) {
       return null;
@@ -1805,12 +1536,28 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     return (await manager.getSnapshot()).runs[runId] ?? null;
   }
 
-  private syncIdentityFromManager(input: { managerName: string; nanite: ManagedNanite }): void {
+  /**
+   * Recover the run's model from the durable Workflow metadata captured at dispatch.
+   * Used as a fallback when the manager has evicted the run record but the Workflow
+   * (timeout: 7 days) is still running. Returns null if the workflow or fields are absent.
+   */
+  private readWorkflowRunModel(runId: string): { modelId: string; gatewayId: string } | null {
+    const metadata = this.getWorkflow(runId)?.metadata;
+    const modelId = metadata?.modelId;
+    const gatewayId = metadata?.gatewayId;
+    if (typeof modelId !== "string" || typeof gatewayId !== "string") {
+      return null;
+    }
+    return { modelId, gatewayId };
+  }
+
+  syncIdentityFromManager(input: { managerName: string; nanite: ManagedNanite }): void {
     this.setState({
       ...this.state,
       naniteId: input.nanite.manifest.id,
       managerName: input.managerName,
       manifest: input.nanite.manifest,
+      runtimeConfig: input.nanite.runtimeConfig ?? null,
       updatedAt: nowIso(),
     });
   }
@@ -1818,8 +1565,14 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   private async refreshManifestFromManager(): Promise<void> {
     const manager = await this.parentManager();
     const snapshot = await manager.getSnapshot();
-    const manifest = snapshot.nanites[this.state.naniteId ?? this.name]?.manifest ?? null;
-    if (!manifest || JSON.stringify(manifest) === JSON.stringify(this.state.manifest)) {
+    const nanite = snapshot.nanites[this.state.naniteId ?? this.name] ?? null;
+    const manifest = nanite?.manifest ?? null;
+    const runtimeConfig = nanite?.runtimeConfig ?? null;
+    if (
+      !manifest ||
+      (JSON.stringify(manifest) === JSON.stringify(this.state.manifest) &&
+        JSON.stringify(runtimeConfig) === JSON.stringify(this.state.runtimeConfig))
+    ) {
       return;
     }
 
@@ -1828,34 +1581,9 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       naniteId: manifest.id,
       managerName: this.requireManagerName(),
       manifest,
+      runtimeConfig,
       updatedAt: nowIso(),
     });
-  }
-
-  private async finishRun(input: {
-    status: CompleteNaniteRunInput["status"];
-    summary: string;
-    outputUrl: string | null;
-    agentFeedback: NaniteAgentFeedback | null;
-  }): Promise<{
-    accepted: true;
-    status: NaniteRunStatus;
-    summary: string;
-    outputUrl: string | null;
-  }> {
-    const manager = await this.parentManager();
-    const run = await manager.completeRun({
-      runId: this.getActiveRunId(),
-      ...input,
-    });
-    await this.clearWatchdog();
-
-    return {
-      accepted: true,
-      status: run.status,
-      summary: run.summary,
-      outputUrl: run.outputUrl,
-    };
   }
 
   private async reportRuntimeActivity(
@@ -1890,8 +1618,20 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
   private async getTurnModel(runId: string | null): Promise<LanguageModel> {
     const run = await this.readRun(runId);
-    const runModel = run?.model ?? this.state.activeRunModel;
-    const modelId = runModel?.effectiveModelId ?? this.state.manifest?.model;
+    // A Workflow can outlive the manager's capped run history (MAX_RUNS_IN_STATE). When the run
+    // record has been evicted, recover the model from the durable workflow metadata captured at
+    // dispatch instead of throwing and killing the in-flight turn.
+    const workflowModel = runId && !run ? this.readWorkflowRunModel(runId) : null;
+    if (runId && !run && !workflowModel) {
+      throw new AppError("naniteRunNotFound", {
+        details: { runId },
+        message: `Nanite run ${runId} was not found.`,
+      });
+    }
+
+    const runModel = run?.model;
+    const modelId =
+      runModel?.effectiveModelId ?? workflowModel?.modelId ?? this.state.manifest?.model;
     if (!modelId) {
       throw new AppError("nanitesModelSelectionInvalid", {
         details: {
@@ -1906,7 +1646,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       sessionAffinity: runId ?? this.name,
       gatewayMetadata: await this.buildTurnGatewayMetadata(run),
       modelId,
-      gatewayId: runModel?.effectiveGatewayId ?? NANITES_AI_GATEWAY_ID,
+      gatewayId: runModel?.effectiveGatewayId ?? workflowModel?.gatewayId ?? NANITES_AI_GATEWAY_ID,
     });
   }
 
@@ -1952,7 +1692,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     const repository = getRunRepository(run);
     const requestId = `${run.runId}:step:${ctx.stepNumber}:${ctx.response.id}`;
-    const aiGatewayLogId = this.env.AI.aiGatewayLogId || undefined;
+    const aiGatewayLogId = this.env.AI?.aiGatewayLogId || undefined;
     const aiGatewayLog = await this.readAiGatewayLogDetail(
       aiGatewayLogId,
       run.model.effectiveGatewayId,
@@ -2020,6 +1760,36 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   // GitHub MCP + git auth
   // -------------------------------------------------------------------------
 
+  private async prepareRepositoryCheckout(repository: string): Promise<NaniteWorkspaceCheckout> {
+    const dir = githubRepositoryCheckoutDir(repository);
+    const ownerDir = dir.split("/").slice(0, -1).join("/");
+    await this.workspace.mkdir(ownerDir, { recursive: true });
+
+    const git = gitCheckoutTools(this.createGitToolProvider());
+    const existingConfig = await this.workspace.readFile(`${dir}/.git/config`);
+    if (existingConfig) {
+      const existingRepository = gitHubRepositoryFromGitConfig({
+        config: existingConfig,
+        remote: "origin",
+      });
+      if (existingRepository?.toLowerCase() !== repository.toLowerCase()) {
+        throw new Error(
+          `Existing checkout at ${dir} points to ${existingRepository ?? "unknown"}.`,
+        );
+      }
+      await git.pull.execute({ dir });
+      return { repository, dir, status: "fetched", error: null };
+    }
+
+    await git.clone.execute({
+      url: `https://github.com/${repository}.git`,
+      dir,
+      depth: 1,
+      singleBranch: true,
+    });
+    return { repository, dir, status: "cloned", error: null };
+  }
+
   /**
    * GitHub MCP tools live inside the codemode sandbox as `github.*` —
    * discoverable via codemode.search and gated by Nanite-scoped GitHub grants.
@@ -2065,15 +1835,18 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
   private createGitToolProvider(): ToolProvider {
     return gitToolsWithGitHubInstallationAuth(this.workspace, {
-      getAllowedRepositories: () => this.state.manifest?.permissions.github?.repositories ?? [],
-      issueToken: () => this.issueGitToolToken(),
+      getAllowedRepositories: () =>
+        this.state.manifest && hasGitHubContentsPermission(this.state.manifest)
+          ? resolveNaniteGitHubPermissionRepositoryFullNames(this.state.manifest)
+          : [],
+      issueToken: ({ repository }) => this.issueGitToolToken(repository),
     });
   }
 
-  private async issueGitToolToken(): Promise<string | null> {
+  private async issueGitToolToken(repository: string): Promise<string | null> {
     const identity = parseNaniteManagerKey(this.requireManagerName());
     const permissions = this.state.manifest?.permissions.github;
-    if (!identity || !permissions || permissions.repositories.length === 0) {
+    if (!identity || !permissions) {
       return null;
     }
 
@@ -2081,7 +1854,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       env: this.env,
       githubAppId: identity.githubAppId,
       installationId: identity.githubInstallationId,
-      repositories: permissions.repositories,
+      repositories: [repository],
       permissions: permissions.appPermissions ?? {},
     });
     return scopedToken.token;
