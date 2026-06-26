@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gte, isNull, like, lte, or, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { CloudflareAiGatewayLog } from "#/backend/observability/ai-gateway.ts";
 import type { DbClient } from "#/backend/db/index.ts";
 import { aiUsageFacts, auditEvents, naniteCatalog, naniteRunFacts } from "#/backend/db/schema.ts";
 
@@ -37,14 +38,9 @@ export type KpiMetric = {
   unit?: "count" | "usd-micros";
 };
 
-export type CostPoint = {
+export type AiRequestPoint = {
   key: string;
   label: string;
-  estimatedCostUsdMicros: number;
-  providerBilledCostUsdMicros: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
   count: number;
 };
 
@@ -116,17 +112,17 @@ export type ObservabilityOverviewResponse = {
   githubInstallationId: number;
   generatedAt: string;
   kpis: KpiMetric[];
-  costOverTime: CostPoint[];
-  costByNanite: CostPoint[];
-  costByRepository: CostPoint[];
-  costByModel: CostPoint[];
-  costByActor: CostPoint[];
-  costByBillingUser: CostPoint[];
+  aiRequestsOverTime: AiRequestPoint[];
+  aiRequestsByNanite: AiRequestPoint[];
+  aiRequestsByRepository: AiRequestPoint[];
+  aiRequestsByModel: AiRequestPoint[];
+  aiRequestsByActor: AiRequestPoint[];
+  aiRequestsByAttributedUser: AiRequestPoint[];
   runTrend: RunTrendPoint[];
   impactTrend: ImpactTrendPoint[];
   runsByOutcome: RunOutcomePoint[];
-  topNanitesByRunCount: CostPoint[];
-  topNanitesByEstimatedCost: CostPoint[];
+  topNanitesByRunCount: AiRequestPoint[];
+  topNanitesByAiRequestCount: AiRequestPoint[];
   impact: ObservabilityImpactSummary;
   nanitesByCreator: NaniteCreatorPoint[];
   runsByActor: RunActorPoint[];
@@ -163,7 +159,7 @@ export type NaniteCatalogRow = {
   lastRunAt: string | null;
   lastRunStatus: string | null;
   runCount: number;
-  estimatedCostUsdMicros: number;
+  aiRequestCount: number;
 };
 
 type RunFeedFields = {
@@ -175,7 +171,7 @@ type RunFeedFields = {
   status: string;
   conclusion: string | null;
   actor: string | null;
-  billing: string | null;
+  costAttribution: string | null;
   summary: string | null;
   outputUrl: string | null;
   outputPullRequestNumber: number | null;
@@ -186,7 +182,7 @@ type RunFeedFields = {
 };
 
 export type RunFeedRow = RunFeedFields & {
-  estimatedCostUsdMicros: number;
+  aiRequestCount: number;
   startedAt: string;
   completedAt: string | null;
 };
@@ -198,19 +194,19 @@ export type AuditFeedRow = {
   actor: string | null;
   surface: string;
   targetType: string;
-  targetId: string | null;
+  targetId: string;
   outcome: string;
   reasonCode: string | null;
   requestId: string | null;
 };
 
-export type CostBreakdownResponse = {
-  byNanite: CostPoint[];
-  byRun: CostPoint[];
-  byRepository: CostPoint[];
-  byModel: CostPoint[];
-  byActor: CostPoint[];
-  byBillingUser: CostPoint[];
+export type AiRequestBreakdownResponse = {
+  byNanite: AiRequestPoint[];
+  byRun: AiRequestPoint[];
+  byRepository: AiRequestPoint[];
+  byModel: AiRequestPoint[];
+  byActor: AiRequestPoint[];
+  byAttributedUser: AiRequestPoint[];
 };
 
 export type ObservabilityEventDetail =
@@ -227,14 +223,13 @@ export type ObservabilityEventDetail =
       row: {
         id: string;
         requestId: string;
-        naniteId: string | null;
-        runKey: string | null;
+        aiGatewayId: string;
+        aiGatewayLogId: string;
+        aiGatewayLog: CloudflareAiGatewayLog | null;
+        naniteId: string;
+        runKey: string;
         provider: string;
         model: string;
-        estimatedCostUsdMicros: number;
-        inputTokens: number;
-        outputTokens: number;
-        totalTokens: number;
         completedAt: string;
       };
     };
@@ -243,14 +238,9 @@ type AuditRow = typeof auditEvents.$inferSelect;
 type DrizzleExpression = SQL<unknown> | AnySQLiteColumn;
 type TimeWindow = { now: Date; start: Date };
 
-type CostPointDbRow = {
+type AiRequestPointDbRow = {
   key: unknown;
   label: unknown;
-  estimatedCostUsdMicros: number | null;
-  providerBilledCostUsdMicros: number | null;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  totalTokens: number | null;
   count: number;
 };
 
@@ -263,7 +253,7 @@ type RunTrendDbRow = RunTrendPoint;
 type ImpactTrendDbRow = ImpactTrendPoint;
 
 type OverviewKpiTotals = {
-  estimatedCostUsdMicros: number;
+  aiRequestCount: number;
   runCount: number;
   successfulRuns: number;
   failedRuns: number;
@@ -288,11 +278,11 @@ type CatalogFeedDbRow = {
   lastRunAt: Date | null;
   lastRunStatus: string | null;
   runCount: number | null;
-  estimatedCostUsdMicros: number | null;
+  aiRequestCount: number | null;
 };
 
 type RunFeedDbRow = RunFeedFields & {
-  estimatedCostUsdMicros: number | null;
+  aiRequestCount: number | null;
   startedAt: Date;
   completedAt: Date | null;
 };
@@ -336,8 +326,8 @@ type ImpactSummaryDbRow = {
 };
 
 const observabilityDayMs = 24 * 60 * 60 * 1000;
-const defaultCostGroupLimit = 8;
-const costOverTimeLimit = 30;
+const defaultBreakdownLimit = 8;
+const trendPointLimit = 30;
 const topNaniteLimit = 8;
 const recentEventLimit = 12;
 const feedRowLimit = 100;
@@ -642,19 +632,14 @@ function auditWhere(scope: ObservabilityVisibilityScope): SQL<unknown> | undefin
   ]);
 }
 
-const estimatedCostSum = sql<number>`cast(coalesce(sum(coalesce(${aiUsageFacts.providerBilledTotalCostUsdMicros}, ${aiUsageFacts.estimatedTotalCostUsdMicros}, 0)), 0) as int)`;
-const providerBilledCostSum = sql<number>`cast(coalesce(sum(coalesce(${aiUsageFacts.providerBilledTotalCostUsdMicros}, 0)), 0) as int)`;
-const inputTokenSum = sql<number>`cast(coalesce(sum(coalesce(${aiUsageFacts.inputTokens}, 0)), 0) as int)`;
-const outputTokenSum = sql<number>`cast(coalesce(sum(coalesce(${aiUsageFacts.outputTokens}, 0)), 0) as int)`;
-const totalTokenSum = sql<number>`cast(coalesce(sum(coalesce(${aiUsageFacts.totalTokens}, 0)), 0) as int)`;
 const aiUsageCount = sql<number>`cast(count(${aiUsageFacts.id}) as int)`;
 const runCount = sql<number>`cast(count(${naniteRunFacts.id}) as int)`;
-const costDayKey = sql<string>`date(${aiUsageFacts.completedAt}, 'unixepoch')`;
+const aiRequestDayKey = sql<string>`date(${aiUsageFacts.completedAt}, 'unixepoch')`;
 const runDayKey = sql<string>`date(${naniteRunFacts.startedAt}, 'unixepoch')`;
 const impactDayKey = sql<string>`date(coalesce(${naniteRunFacts.outputPullRequestMergedAt}, ${naniteRunFacts.completedAt}, ${naniteRunFacts.startedAt}), 'unixepoch')`;
 const modelKey = sql<string>`coalesce(${aiUsageFacts.provider}, 'Unreported provider') || '/' || ${aiUsageFacts.model}`;
 const actorKey = sql<string>`coalesce(${aiUsageFacts.actorGithubLogin}, ${aiUsageFacts.actorKind}, 'Unknown')`;
-const billingKey = sql<string>`coalesce(${aiUsageFacts.billingGithubLogin}, cast(${aiUsageFacts.billingGithubUserId} as text), 'Unassigned')`;
+const attributedUserKey = sql<string>`coalesce(${aiUsageFacts.costAttributedGithubLogin}, cast(${aiUsageFacts.costAttributedGithubUserId} as text), 'Unassigned')`;
 const runOutcomeKey = sql<string>`coalesce(${naniteRunFacts.conclusion}, ${naniteRunFacts.status})`;
 const runActorKey = sql<string>`coalesce(${naniteRunFacts.actorGithubLogin}, ${naniteRunFacts.triggeredByGithubLogin}, ${naniteRunFacts.actorKind}, 'Unknown')`;
 const creatorKey = sql<string>`coalesce(${naniteCatalog.createdByGithubLogin}, 'Unknown')`;
@@ -667,10 +652,10 @@ const outputPullRequestCondition = sql`${naniteRunFacts.outputPullRequestNumber}
 const mergedPullRequestCondition = sql`${naniteRunFacts.outputPullRequestMerged} = true`;
 const outputLinesChangedSum = sql<number>`cast(coalesce(sum(coalesce(${naniteRunFacts.outputAdditions}, 0) + coalesce(${naniteRunFacts.outputDeletions}, 0)), 0) as int)`;
 
-function toCostPoint(
-  row: CostPointDbRow,
+function toAiRequestPoint(
+  row: AiRequestPointDbRow,
   labelForKey?: (key: string | number | null) => string,
-): CostPoint {
+): AiRequestPoint {
   const rawKey =
     typeof row.key === "string" || typeof row.key === "number" || row.key === null
       ? row.key
@@ -685,16 +670,11 @@ function toCostPoint(
   return {
     key,
     label,
-    estimatedCostUsdMicros: row.estimatedCostUsdMicros ?? 0,
-    providerBilledCostUsdMicros: row.providerBilledCostUsdMicros ?? 0,
-    inputTokens: row.inputTokens ?? 0,
-    outputTokens: row.outputTokens ?? 0,
-    totalTokens: row.totalTokens ?? 0,
     count: row.count,
   };
 }
 
-async function readAiCostGroup(
+async function readAiRequestGroup(
   db: DbClient,
   scope: ObservabilityVisibilityScope,
   input: {
@@ -703,19 +683,14 @@ async function readAiCostGroup(
     groupBy: readonly DrizzleExpression[];
     labelForKey?: (key: string | number | null) => string;
     limit?: number;
-    sort?: "cost" | "key";
+    sort?: "count" | "key";
   },
-): Promise<CostPoint[]> {
-  const limit = input.limit ?? defaultCostGroupLimit;
+): Promise<AiRequestPoint[]> {
+  const limit = input.limit ?? defaultBreakdownLimit;
   const query = db
     .select({
       key: input.key,
       label: input.label,
-      estimatedCostUsdMicros: estimatedCostSum,
-      providerBilledCostUsdMicros: providerBilledCostSum,
-      inputTokens: inputTokenSum,
-      outputTokens: outputTokenSum,
-      totalTokens: totalTokenSum,
       count: aiUsageCount,
     })
     .from(aiUsageFacts)
@@ -725,9 +700,9 @@ async function readAiCostGroup(
   const rows =
     input.sort === "key"
       ? await query.orderBy(asc(input.key)).limit(limit).all()
-      : await query.orderBy(desc(estimatedCostSum)).limit(limit).all();
+      : await query.orderBy(desc(aiUsageCount)).limit(limit).all();
 
-  return rows.map((row) => toCostPoint(row, input.labelForKey));
+  return rows.map((row) => toAiRequestPoint(row, input.labelForKey));
 }
 
 async function readRunOutcomes(
@@ -763,7 +738,7 @@ async function readRunTrend(
     .where(runWhere(scope))
     .groupBy(runDayKey)
     .orderBy(asc(runDayKey))
-    .limit(costOverTimeLimit)
+    .limit(trendPointLimit)
     .all();
 
   return rows;
@@ -787,7 +762,7 @@ async function readImpactTrend(
     .where(runWhere(scope))
     .groupBy(impactDayKey)
     .orderBy(asc(impactDayKey))
-    .limit(costOverTimeLimit)
+    .limit(trendPointLimit)
     .all();
 
   return rows;
@@ -836,7 +811,7 @@ async function readNanitesByCreator(
     .where(catalogWhere(scope))
     .groupBy(creatorKey)
     .orderBy(desc(sql<number>`cast(count(${naniteCatalog.id}) as int)`))
-    .limit(defaultCostGroupLimit)
+    .limit(defaultBreakdownLimit)
     .all();
 
   return rows.map((row) => ({
@@ -863,7 +838,7 @@ async function readRunsByActor(
     .where(runWhere(scope))
     .groupBy(runActorKey)
     .orderBy(desc(runCount))
-    .limit(defaultCostGroupLimit)
+    .limit(defaultBreakdownLimit)
     .all();
 
   return rows.map((row) => ({
@@ -879,7 +854,7 @@ async function readRunsByActor(
 async function readTopNanitesByRunCount(
   db: DbClient,
   scope: ObservabilityVisibilityScope,
-): Promise<CostPoint[]> {
+): Promise<AiRequestPoint[]> {
   const rows = await db
     .select({
       key: naniteRunFacts.naniteId,
@@ -896,28 +871,19 @@ async function readTopNanitesByRunCount(
   return rows.map((row) => ({
     key: row.key,
     label: row.label,
-    estimatedCostUsdMicros: 0,
-    providerBilledCostUsdMicros: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
     count: row.count,
   }));
 }
 
-async function readEstimatedCostTotal(
+async function readAiRequestCountTotal(
   db: DbClient,
   scope: ObservabilityVisibilityScope,
 ): Promise<number> {
   const row = (
-    await db
-      .select({ estimatedCostUsdMicros: estimatedCostSum })
-      .from(aiUsageFacts)
-      .where(aiUsageWhere(scope))
-      .all()
+    await db.select({ count: aiUsageCount }).from(aiUsageFacts).where(aiUsageWhere(scope)).all()
   )[0];
 
-  return row?.estimatedCostUsdMicros ?? 0;
+  return row?.count ?? 0;
 }
 
 async function readOverviewKpiTotals(
@@ -925,8 +891,8 @@ async function readOverviewKpiTotals(
   scope: ObservabilityVisibilityScope,
 ): Promise<OverviewKpiTotals> {
   const { start } = resolveWindow(scope);
-  const [estimatedCostUsdMicros, runRow, catalogRow] = await Promise.all([
-    readEstimatedCostTotal(db, scope),
+  const [aiRequestCount, runRow, catalogRow] = await Promise.all([
+    readAiRequestCountTotal(db, scope),
     db
       .select({
         runCount,
@@ -954,7 +920,7 @@ async function readOverviewKpiTotals(
   ]);
 
   return {
-    estimatedCostUsdMicros,
+    aiRequestCount,
     runCount: runRow?.runCount ?? 0,
     successfulRuns: runRow?.successfulRuns ?? 0,
     failedRuns: runRow?.failedRuns ?? 0,
@@ -1033,9 +999,9 @@ function catalogNaniteRunCount(scope: ObservabilityVisibilityScope): SQL<number>
   )`;
 }
 
-function catalogNaniteCost(scope: ObservabilityVisibilityScope): SQL<number> {
+function catalogNaniteAiRequestCount(scope: ObservabilityVisibilityScope): SQL<number> {
   return sql<number>`(
-    select ${estimatedCostSum}
+    select cast(count(${aiUsageFacts.id}) as int)
     from ${aiUsageFacts}
     where ${requireWhere(
       whereAll([aiUsageWhere(scope), sql`${aiUsageFacts.naniteId} = ${naniteCatalog.naniteId}`]),
@@ -1062,7 +1028,7 @@ async function readCatalogFeedRows(
       lastRunAt: naniteCatalog.lastRunAt,
       lastRunStatus: naniteCatalog.lastRunStatus,
       runCount: catalogNaniteRunCount(scope),
-      estimatedCostUsdMicros: catalogNaniteCost(scope),
+      aiRequestCount: catalogNaniteAiRequestCount(scope),
     })
     .from(naniteCatalog)
     .where(catalogWhere(scope))
@@ -1070,9 +1036,9 @@ async function readCatalogFeedRows(
     .all();
 }
 
-function runCost(scope: ObservabilityVisibilityScope): SQL<number> {
+function runAiRequestCount(scope: ObservabilityVisibilityScope): SQL<number> {
   return sql<number>`(
-    select ${estimatedCostSum}
+    select cast(count(${aiUsageFacts.id}) as int)
     from ${aiUsageFacts}
     where ${requireWhere(
       whereAll([aiUsageWhere(scope), sql`${aiUsageFacts.runKey} = ${naniteRunFacts.runKey}`]),
@@ -1095,7 +1061,7 @@ async function readRunFeedRows(
       status: naniteRunFacts.status,
       conclusion: naniteRunFacts.conclusion,
       actor: naniteRunFacts.actorGithubLogin,
-      billing: naniteRunFacts.billingGithubLogin,
+      costAttribution: naniteRunFacts.costAttributedGithubLogin,
       summary: naniteRunFacts.summary,
       outputUrl: naniteRunFacts.outputUrl,
       outputPullRequestNumber: naniteRunFacts.outputPullRequestNumber,
@@ -1103,7 +1069,7 @@ async function readRunFeedRows(
       outputAdditions: naniteRunFacts.outputAdditions,
       outputDeletions: naniteRunFacts.outputDeletions,
       outputChangedFiles: naniteRunFacts.outputChangedFiles,
-      estimatedCostUsdMicros: runCost(scope),
+      aiRequestCount: runAiRequestCount(scope),
       startedAt: naniteRunFacts.startedAt,
       completedAt: naniteRunFacts.completedAt,
     })
@@ -1137,7 +1103,7 @@ function mapRunFeedRow(row: RunFeedDbRow): RunFeedRow {
     status: row.status,
     conclusion: row.conclusion,
     actor: row.actor,
-    billing: row.billing,
+    costAttribution: row.costAttribution,
     summary: row.summary,
     outputUrl: row.outputUrl,
     outputPullRequestNumber: row.outputPullRequestNumber,
@@ -1145,7 +1111,7 @@ function mapRunFeedRow(row: RunFeedDbRow): RunFeedRow {
     outputAdditions: row.outputAdditions,
     outputDeletions: row.outputDeletions,
     outputChangedFiles: row.outputChangedFiles,
-    estimatedCostUsdMicros: row.estimatedCostUsdMicros ?? 0,
+    aiRequestCount: row.aiRequestCount ?? 0,
     startedAt: row.startedAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
   };
@@ -1173,12 +1139,12 @@ export async function getObservabilityOverview(
   const { now } = resolveWindow(scope);
   const [
     kpiTotals,
-    costOverTime,
-    costByNanite,
-    costByRepository,
-    costByModel,
-    costByActor,
-    costByBillingUser,
+    aiRequestsOverTime,
+    aiRequestsByNanite,
+    aiRequestsByRepository,
+    aiRequestsByModel,
+    aiRequestsByActor,
+    aiRequestsByAttributedUser,
     runTrend,
     impactTrend,
     runsByOutcome,
@@ -1189,38 +1155,38 @@ export async function getObservabilityOverview(
     recentEvents,
   ] = await Promise.all([
     readOverviewKpiTotals(db, scope),
-    readAiCostGroup(db, scope, {
-      key: costDayKey,
-      label: costDayKey,
-      groupBy: [costDayKey],
-      limit: costOverTimeLimit,
+    readAiRequestGroup(db, scope, {
+      key: aiRequestDayKey,
+      label: aiRequestDayKey,
+      groupBy: [aiRequestDayKey],
+      limit: trendPointLimit,
       sort: "key",
     }),
-    readAiCostGroup(db, scope, {
+    readAiRequestGroup(db, scope, {
       key: aiUsageFacts.naniteId,
       label: sql<string>`coalesce(${aiUsageFacts.naniteId}, 'Unknown')`,
       groupBy: [aiUsageFacts.naniteId],
     }),
-    readAiCostGroup(db, scope, {
+    readAiRequestGroup(db, scope, {
       key: sql<string>`coalesce(cast(${aiUsageFacts.githubRepositoryId} as text), 'unscoped')`,
       label: sql<string>`coalesce(cast(${aiUsageFacts.githubRepositoryId} as text), 'unscoped')`,
       groupBy: [aiUsageFacts.githubRepositoryId],
       labelForKey: (key) => repositoryLabelForKey(scope, key),
     }),
-    readAiCostGroup(db, scope, {
+    readAiRequestGroup(db, scope, {
       key: modelKey,
       label: modelKey,
       groupBy: [aiUsageFacts.provider, aiUsageFacts.model],
     }),
-    readAiCostGroup(db, scope, {
+    readAiRequestGroup(db, scope, {
       key: actorKey,
       label: actorKey,
       groupBy: [actorKey],
     }),
-    readAiCostGroup(db, scope, {
-      key: billingKey,
-      label: billingKey,
-      groupBy: [billingKey],
+    readAiRequestGroup(db, scope, {
+      key: attributedUserKey,
+      label: attributedUserKey,
+      groupBy: [attributedUserKey],
     }),
     readRunTrend(db, scope),
     readImpactTrend(db, scope),
@@ -1239,10 +1205,10 @@ export async function getObservabilityOverview(
     generatedAt: now.toISOString(),
     kpis: [
       {
-        key: "estimated-cost",
-        label: "Estimated AI cost",
-        value: kpiTotals.estimatedCostUsdMicros,
-        unit: "usd-micros",
+        key: "ai-requests",
+        label: "AI requests",
+        value: kpiTotals.aiRequestCount,
+        unit: "count",
       },
       {
         key: "runs",
@@ -1290,17 +1256,17 @@ export async function getObservabilityOverview(
         unit: "count",
       },
     ],
-    costOverTime,
-    costByNanite,
-    costByRepository,
-    costByModel,
-    costByActor,
-    costByBillingUser,
+    aiRequestsOverTime,
+    aiRequestsByNanite,
+    aiRequestsByRepository,
+    aiRequestsByModel,
+    aiRequestsByActor,
+    aiRequestsByAttributedUser,
     runTrend,
     impactTrend,
     runsByOutcome,
     topNanitesByRunCount,
-    topNanitesByEstimatedCost: costByNanite,
+    topNanitesByAiRequestCount: aiRequestsByNanite,
     impact,
     nanitesByCreator,
     runsByActor,
@@ -1308,41 +1274,41 @@ export async function getObservabilityOverview(
   };
 }
 
-export async function getNaniteCostBreakdown(
+export async function getNaniteAiRequestBreakdown(
   db: DbClient,
   scope: ObservabilityVisibilityScope,
-): Promise<CostBreakdownResponse> {
+): Promise<AiRequestBreakdownResponse> {
   return {
-    byNanite: await readAiCostGroup(db, scope, {
+    byNanite: await readAiRequestGroup(db, scope, {
       key: aiUsageFacts.naniteId,
       label: sql<string>`coalesce(${aiUsageFacts.naniteId}, 'Unknown')`,
       groupBy: [aiUsageFacts.naniteId],
     }),
-    byRun: await readAiCostGroup(db, scope, {
+    byRun: await readAiRequestGroup(db, scope, {
       key: aiUsageFacts.runKey,
       label: sql<string>`coalesce(${aiUsageFacts.runKey}, 'Unknown')`,
       groupBy: [aiUsageFacts.runKey],
     }),
-    byRepository: await readAiCostGroup(db, scope, {
+    byRepository: await readAiRequestGroup(db, scope, {
       key: sql<string>`coalesce(cast(${aiUsageFacts.githubRepositoryId} as text), 'unscoped')`,
       label: sql<string>`coalesce(cast(${aiUsageFacts.githubRepositoryId} as text), 'unscoped')`,
       groupBy: [aiUsageFacts.githubRepositoryId],
       labelForKey: (key) => repositoryLabelForKey(scope, key),
     }),
-    byModel: await readAiCostGroup(db, scope, {
+    byModel: await readAiRequestGroup(db, scope, {
       key: modelKey,
       label: modelKey,
       groupBy: [aiUsageFacts.provider, aiUsageFacts.model],
     }),
-    byActor: await readAiCostGroup(db, scope, {
+    byActor: await readAiRequestGroup(db, scope, {
       key: actorKey,
       label: actorKey,
       groupBy: [actorKey],
     }),
-    byBillingUser: await readAiCostGroup(db, scope, {
-      key: billingKey,
-      label: billingKey,
-      groupBy: [billingKey],
+    byAttributedUser: await readAiRequestGroup(db, scope, {
+      key: attributedUserKey,
+      label: attributedUserKey,
+      groupBy: [attributedUserKey],
     }),
   };
 }
@@ -1367,7 +1333,7 @@ export async function getNaniteCatalogRows(
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     lastRunStatus: row.lastRunStatus,
     runCount: row.runCount ?? 0,
-    estimatedCostUsdMicros: row.estimatedCostUsdMicros ?? 0,
+    aiRequestCount: row.aiRequestCount ?? 0,
   }));
 }
 
@@ -1493,15 +1459,13 @@ export async function getObservabilityEventDetail(
       row: {
         id: row.id,
         requestId: row.requestId,
+        aiGatewayId: row.aiGatewayId,
+        aiGatewayLogId: row.aiGatewayLogId,
+        aiGatewayLog: null,
         naniteId: row.naniteId,
         runKey: row.runKey,
         provider: row.provider ?? "Unreported provider",
         model: row.model,
-        estimatedCostUsdMicros:
-          row.providerBilledTotalCostUsdMicros ?? row.estimatedTotalCostUsdMicros ?? 0,
-        inputTokens: row.inputTokens ?? 0,
-        outputTokens: row.outputTokens ?? 0,
-        totalTokens: row.totalTokens ?? 0,
         completedAt: row.completedAt.toISOString(),
       },
     };

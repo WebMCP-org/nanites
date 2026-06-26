@@ -56,7 +56,7 @@ flowchart TD
 There is one manager per GitHub installation:
 
 ```text
-app:{githubAppId}:installation:{githubInstallationId}
+installation:{githubInstallationId}
 ```
 
 The manager owns durable state and manager-owned behavior:
@@ -206,7 +206,7 @@ The user-facing manager tool surface is limited by these checks:
 
 1. The actor is an authenticated GitHub user.
 2. The actor is allowed to operate the deployment GitHub installation.
-3. The deployment manager is derived from `githubAppId` and `githubInstallationId`; public tool
+3. The deployment manager is derived from `githubInstallationId`; public tool
    inputs do not accept a manager name.
 4. Nanite manifests and generated runtime permissions stay inside that installation boundary.
 5. Nanite runtime GitHub/MCP/workspace authority is constrained by the validated Nanite manifest.

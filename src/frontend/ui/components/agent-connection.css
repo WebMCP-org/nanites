@@ -137,15 +137,6 @@
   padding: 0.875rem;
 }
 
-.setup-agent-connect {
-  max-inline-size: 35rem;
-  padding: 0.75rem;
-  border: var(--sigvelo-border-style) var(--sigvelo-border-width)
-    var(--sigvelo-neutral-stroke-softer);
-  border-radius: var(--sigvelo-border-radius-lg);
-  background: color-mix(in oklab, var(--sigvelo-paper-color), var(--sigvelo-neutral-fill-softer));
-}
-
 @media (width <= 40rem) {
   .agent-connect__targets {
     grid-template-columns: repeat(2, minmax(0, 1fr));

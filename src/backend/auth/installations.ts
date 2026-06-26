@@ -25,7 +25,7 @@ export async function requireDeploymentGitHubInstallation(
   env: Env,
 ): Promise<DeploymentGitHubInstallation> {
   const db = createDbClient(env.DB);
-  const deploymentGitHubApp = await requireDeploymentGitHubApp(db, env);
+  const deploymentGitHubApp = requireDeploymentGitHubApp(env);
   const rows = await db
     .select({
       githubAppId: accountInstallations.githubAppId,
@@ -68,7 +68,6 @@ export async function requireDeploymentGitHubInstallation(
       ),
     );
   const managerName = buildNaniteManagerKey({
-    githubAppId: installation.githubAppId,
     githubInstallationId: installation.githubInstallationId,
   });
 

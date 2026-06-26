@@ -1,5 +1,4 @@
 import {
-  DEFAULT_GITHUB_APP_SLUG,
   SIGVELO_GITHUB_APP_INSTALL_PATH,
   SIGVELO_GITHUB_APP_PERMISSIONS_PATH,
 } from "#/shared/constants.ts";
@@ -15,12 +14,12 @@ export function buildGitHubAppInstallHref({
   suggestedTargetId,
   repositoryIds = [],
 }: {
-  readonly appSlug?: string | null;
+  readonly appSlug: string;
   readonly state?: string | null;
   readonly suggestedTargetId?: number | null;
   readonly repositoryIds?: readonly number[];
-} = {}): string {
-  const githubAppUrl = `https://github.com/apps/${appSlug ?? DEFAULT_GITHUB_APP_SLUG}`;
+}): string {
+  const githubAppUrl = `https://github.com/apps/${appSlug}`;
   const path = suggestedTargetId
     ? SIGVELO_GITHUB_APP_PERMISSIONS_PATH
     : SIGVELO_GITHUB_APP_INSTALL_PATH;
@@ -93,8 +92,6 @@ export const githubTriggerTestEventInputSchema = z.object(
   },
   { error: "event must be an object." },
 );
-
-export type GitHubTriggerTestEventInput = z.input<typeof githubTriggerTestEventInputSchema>;
 
 function invalidGitHubTriggerTestEvent(reason: string): GitHubTriggerTestEventParseResult {
   return { ok: false, reason };

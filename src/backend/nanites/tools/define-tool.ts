@@ -11,7 +11,7 @@ import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager
 import type { ObservabilityActor } from "#/backend/observability/recorders.ts";
 import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
-export type SigveloNaniteToolSurface = "mcp" | "manager_chat";
+type SigveloNaniteToolSurface = "mcp" | "manager_chat";
 type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
 
 type NaniteToolContext = {
@@ -100,7 +100,6 @@ async function resolveAuthorizedNaniteToolRuntime(
   input: PreparedSigveloNaniteToolInvocation,
 ): Promise<NaniteToolRuntime> {
   const managerName = buildNaniteManagerKey({
-    githubAppId: input.props.githubAppId,
     githubInstallationId: input.props.githubInstallationId,
   });
 
@@ -170,7 +169,6 @@ function createToolTelemetryContext(input: SigveloNaniteToolTelemetryInput) {
     [OTEL_ATTRS.NANITE_MANAGER_NAME]:
       runtimeContext?.managerName ??
       buildNaniteManagerKey({
-        githubAppId: input.invocation.props.githubAppId,
         githubInstallationId: input.invocation.props.githubInstallationId,
       }),
     [OTEL_ATTRS.NANITE_TOOL_NAME]: input.definition.name,

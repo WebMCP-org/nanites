@@ -67,8 +67,8 @@ import {
 } from "./-search.ts";
 import { ObservabilityValueFilterSelect } from "./-filter-select.tsx";
 import type {
+  AiRequestPoint,
   AuditFeedRow,
-  CostPoint,
   ImpactTrendPoint,
   KpiMetric,
   NaniteCreatorPoint,
@@ -107,7 +107,7 @@ const tabLabels = {
   runs: "Runs",
   audit: "Audit",
 } as const satisfies Record<ObservabilitySearch["tab"], string>;
-const costChartColor = "var(--app-control-dark)";
+const aiRequestChartColor = "var(--app-control-dark)";
 const chartColors = [
   "var(--app-control-dark)",
   "var(--app-accent)",
@@ -140,7 +140,7 @@ const summaryMetricKeys = [
   "lines-changed",
   "active-nanites",
   "waiting-runs",
-  "estimated-cost",
+  "ai-requests",
 ] as const;
 
 type SearchPatch = Partial<ObservabilitySearch>;
@@ -248,7 +248,7 @@ function installationIdentityPerson(
     avatarUrl: withAvatarSize(installation?.account.avatar_url, 64),
     detail: installation
       ? `#${installation.githubInstallationId}`
-      : "Complete setup to connect GitHub",
+      : "Connect a GitHub installation",
   };
 }
 
@@ -346,18 +346,6 @@ function resetFiltersPatch(): SearchPatch {
   };
 }
 
-function costChartPoints(points: readonly CostPoint[]): ChartPoint[] {
-  return points.map((point) => {
-    const value = point.estimatedCostUsdMicros / 1_000_000;
-    return {
-      key: point.key,
-      label: point.label,
-      value,
-      formattedValue: formatUsd(value),
-    };
-  });
-}
-
 function runTrendChartPoints(points: readonly RunTrendPoint[]) {
   return points.map((point) => ({
     label: point.label,
@@ -380,7 +368,7 @@ function impactTrendChartPoints(points: readonly ImpactTrendPoint[]) {
   }));
 }
 
-function countChartPoints(points: readonly CostPoint[]): ChartPoint[] {
+function countChartPoints(points: readonly AiRequestPoint[]): ChartPoint[] {
   return points.map((point) => ({
     key: point.key,
     label: point.label,
@@ -428,7 +416,7 @@ function SummaryMetricIcon({ metricKey }: { readonly metricKey: SummaryMetricKey
       return <ArrowClockwiseIcon size={18} aria-hidden="true" />;
     case "active-nanites":
       return <RobotIcon size={18} aria-hidden="true" />;
-    case "estimated-cost":
+    case "ai-requests":
       return <CoinVerticalIcon size={18} aria-hidden="true" />;
   }
 }
@@ -573,50 +561,42 @@ function TrendArea({
   );
 }
 
-function costPointTotals(points: readonly CostPoint[]) {
+function aiRequestPointTotals(points: readonly AiRequestPoint[]) {
   return points.reduce(
     (totals, point) => ({
-      estimatedCostUsdMicros: totals.estimatedCostUsdMicros + point.estimatedCostUsdMicros,
-      totalTokens: totals.totalTokens + point.totalTokens,
       count: totals.count + point.count,
     }),
-    { estimatedCostUsdMicros: 0, totalTokens: 0, count: 0 },
+    { count: 0 },
   );
 }
 
-function CostOverTimeChart({ points }: { readonly points: readonly CostPoint[] }) {
-  const chartData = useMemo(() => costChartPoints(points), [points]);
-  const totals = useMemo(() => costPointTotals(points), [points]);
+function AiRequestsOverTimeChart({ points }: { readonly points: readonly AiRequestPoint[] }) {
+  const chartData = useMemo(() => countChartPoints(points), [points]);
+  const totals = useMemo(() => aiRequestPointTotals(points), [points]);
 
   return (
-    <ChartPanel title="Cost over time" icon={<CoinVerticalIcon size={17} aria-hidden="true" />}>
+    <ChartPanel
+      title="AI requests over time"
+      icon={<CoinVerticalIcon size={17} aria-hidden="true" />}
+    >
       {chartData.length ? (
         <>
           <TrendAreaChart
             data={chartData}
             initialDimension={{ width: 880, height: 320 }}
-            yAxisWidth={76}
-            tickFormatter={formatUsd}
-            tooltipFormatter={formatUsd}
+            yAxisWidth={56}
+            tooltipFormatter={formatNumber}
           >
             <TrendArea
               dataKey="value"
-              name="Estimated cost"
-              color={costChartColor}
+              name="AI requests"
+              color={aiRequestChartColor}
               fillOpacity={0.16}
               strokeWidth={2.75}
               dot
             />
           </TrendAreaChart>
           <div className="observability-chart-stats">
-            <span>
-              <strong>{formatUsdMicros(totals.estimatedCostUsdMicros)}</strong>
-              <small>Total cost</small>
-            </span>
-            <span>
-              <strong>{formatNumber(totals.totalTokens)}</strong>
-              <small>Tokens</small>
-            </span>
             <span>
               <strong>{formatNumber(totals.count)}</strong>
               <small>Requests</small>
@@ -882,14 +862,14 @@ function RunOutcomeChart({ points }: { readonly points: readonly RunOutcomePoint
 }
 
 function BreakdownBoard({
-  costByNanite,
-  costByRepository,
-  costByModel,
+  aiRequestsByNanite,
+  aiRequestsByRepository,
+  aiRequestsByModel,
   topNanitesByRunCount,
 }: {
-  readonly costByNanite: readonly ChartPoint[];
-  readonly costByRepository: readonly ChartPoint[];
-  readonly costByModel: readonly ChartPoint[];
+  readonly aiRequestsByNanite: readonly ChartPoint[];
+  readonly aiRequestsByRepository: readonly ChartPoint[];
+  readonly aiRequestsByModel: readonly ChartPoint[];
   readonly topNanitesByRunCount: readonly ChartPoint[];
 }) {
   return (
@@ -897,24 +877,24 @@ function BreakdownBoard({
       <div className="observability-panel__header">
         <h2>
           <ChartBarIcon size={17} aria-hidden="true" />
-          Cost and usage breakdown
+          AI request breakdown
         </h2>
       </div>
       <div className="observability-breakdown-grid">
         <MetricBarList
-          title="Cost by Nanite"
-          points={costByNanite}
-          emptyText="No Nanite costs in scope."
+          title="Requests by Nanite"
+          points={aiRequestsByNanite}
+          emptyText="No Nanite requests in scope."
         />
         <MetricBarList
-          title="Cost by repository"
-          points={costByRepository}
-          emptyText="No repository costs in scope."
+          title="Requests by repository"
+          points={aiRequestsByRepository}
+          emptyText="No repository requests in scope."
         />
         <MetricBarList
-          title="Cost by model"
-          points={costByModel}
-          emptyText="No model costs in scope."
+          title="Requests by model"
+          points={aiRequestsByModel}
+          emptyText="No model requests in scope."
         />
         <MetricBarList
           title="Top by run count"
@@ -1113,15 +1093,15 @@ function ImpactBoard({ impact }: { readonly impact: ObservabilityImpactSummary }
 function PeopleBoard({
   creatorPoints,
   actorPoints,
-  costByActor,
-  costByBillingUser,
+  aiRequestsByActor,
+  aiRequestsByAttributedUser,
   selectedCreator,
   onSelectCreator,
 }: {
   readonly creatorPoints: readonly ChartPoint[];
   readonly actorPoints: readonly ChartPoint[];
-  readonly costByActor: readonly ChartPoint[];
-  readonly costByBillingUser: readonly ChartPoint[];
+  readonly aiRequestsByActor: readonly ChartPoint[];
+  readonly aiRequestsByAttributedUser: readonly ChartPoint[];
   readonly selectedCreator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
@@ -1145,14 +1125,14 @@ function PeopleBoard({
         />
         <MetricBarList title="Runs by actor" points={actorPoints} emptyText="No runs in scope." />
         <MetricBarList
-          title="Cost by actor"
-          points={costByActor}
-          emptyText="No actor costs in scope."
+          title="AI requests by actor"
+          points={aiRequestsByActor}
+          emptyText="No actor requests in scope."
         />
         <MetricBarList
-          title="Cost by billing user"
-          points={costByBillingUser}
-          emptyText="No billing costs in scope."
+          title="AI requests by attributed user"
+          points={aiRequestsByAttributedUser}
+          emptyText="No attributed requests in scope."
         />
       </div>
     </Card>
@@ -1430,7 +1410,6 @@ function NaniteTable({ rows }: { readonly rows: readonly NaniteCatalogRow[] }) {
         row.repositories.slice(0, repositoryPreviewLimit).join(", ") || row.repositoryCount,
     },
     { header: "Runs", render: (row) => formatNumber(row.runCount) },
-    { header: "Cost", render: (row) => formatUsdMicros(row.estimatedCostUsdMicros) },
     { header: "Creator", render: (row) => row.creator ?? "Unknown" },
   ];
 
@@ -1466,7 +1445,6 @@ function RunTable({ rows }: { readonly rows: readonly RunFeedRow[] }) {
     { header: "Repository", render: (row) => row.repository },
     { header: "Status", render: (row) => <OutcomeBadge value={row.conclusion ?? row.status} /> },
     { header: "Actor", render: (row) => row.actor ?? "Unknown" },
-    { header: "Cost", render: (row) => formatUsdMicros(row.estimatedCostUsdMicros) },
     { header: "Impact", render: (row) => <RunImpactCell row={row} /> },
     {
       header: "Result",
@@ -1528,11 +1506,26 @@ function Dashboard({
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
-  const costByNanite = useMemo(() => costChartPoints(data.overview.costByNanite), [data]);
-  const costByRepository = useMemo(() => costChartPoints(data.overview.costByRepository), [data]);
-  const costByModel = useMemo(() => costChartPoints(data.overview.costByModel), [data]);
-  const costByActor = useMemo(() => costChartPoints(data.overview.costByActor), [data]);
-  const costByBillingUser = useMemo(() => costChartPoints(data.overview.costByBillingUser), [data]);
+  const aiRequestsByNanite = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByNanite),
+    [data],
+  );
+  const aiRequestsByRepository = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByRepository),
+    [data],
+  );
+  const aiRequestsByModel = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByModel),
+    [data],
+  );
+  const aiRequestsByActor = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByActor),
+    [data],
+  );
+  const aiRequestsByAttributedUser = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByAttributedUser),
+    [data],
+  );
   const creatorPoints = useMemo(() => creatorChartPoints(data.overview.nanitesByCreator), [data]);
   const actorPoints = useMemo(() => actorChartPoints(data.overview.runsByActor), [data]);
   const topNanitesByRunCount = useMemo(
@@ -1556,9 +1549,9 @@ function Dashboard({
             <RunOutcomeChart points={data.overview.runsByOutcome} />
           </div>
           <BreakdownBoard
-            costByNanite={costByNanite}
-            costByRepository={costByRepository}
-            costByModel={costByModel}
+            aiRequestsByNanite={aiRequestsByNanite}
+            aiRequestsByRepository={aiRequestsByRepository}
+            aiRequestsByModel={aiRequestsByModel}
             topNanitesByRunCount={topNanitesByRunCount}
           />
         </>
@@ -1575,8 +1568,8 @@ function Dashboard({
           <PeopleBoard
             creatorPoints={creatorPoints}
             actorPoints={actorPoints}
-            costByActor={costByActor}
-            costByBillingUser={costByBillingUser}
+            aiRequestsByActor={aiRequestsByActor}
+            aiRequestsByAttributedUser={aiRequestsByAttributedUser}
             selectedCreator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1592,8 +1585,8 @@ function Dashboard({
           <PeopleBoard
             creatorPoints={creatorPoints}
             actorPoints={actorPoints}
-            costByActor={costByActor}
-            costByBillingUser={costByBillingUser}
+            aiRequestsByActor={aiRequestsByActor}
+            aiRequestsByAttributedUser={aiRequestsByAttributedUser}
             selectedCreator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1638,11 +1631,11 @@ function Dashboard({
             <RunOutcomeChart points={data.overview.runsByOutcome} />
           </div>
           <ImpactBoard impact={data.overview.impact} />
-          <CostOverTimeChart points={data.overview.costOverTime} />
+          <AiRequestsOverTimeChart points={data.overview.aiRequestsOverTime} />
           <BreakdownBoard
-            costByNanite={costByNanite}
-            costByRepository={costByRepository}
-            costByModel={costByModel}
+            aiRequestsByNanite={aiRequestsByNanite}
+            aiRequestsByRepository={aiRequestsByRepository}
+            aiRequestsByModel={aiRequestsByModel}
             topNanitesByRunCount={topNanitesByRunCount}
           />
           <EventRail
@@ -1804,8 +1797,12 @@ function ObservabilityRoute() {
     return <RoutePendingPage />;
   }
 
+  if (!session) {
+    return <RoutePendingPage />;
+  }
+
   if (!activeInstallation) {
-    return <GitHubInstallRequiredState githubApp={session?.githubApp ?? null} />;
+    return <GitHubInstallRequiredState githubApp={session.githubApp} />;
   }
 
   return (
@@ -1834,7 +1831,7 @@ function ObservabilityRoute() {
       />
       <footer className="observability-footer">
         <CoinVerticalIcon size={15} aria-hidden="true" />
-        Estimated AI cost only
+        Cloudflare AI Gateway
       </footer>
     </main>
   );

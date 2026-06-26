@@ -20,10 +20,7 @@ const SCREEN_ICON_WARN = "#c87832";
 const GLASS_STROKE = "#8ba7b8";
 const BADGE_SUCCESS = "#0f7b6c";
 const BADGE_FAIL = "#dc2626";
-const SHADOW_FILL = "#0d1520";
 const TRIO_XS = [40, 100, 160] as const;
-const STUDY_XS = [60, 120, 180] as const;
-const STATIC_TRIO_XS = [20, 92, 164] as const;
 
 export function NaniteScene({ variant, mode = "trio", className, title }: NaniteSceneProps) {
   const wrapperClass = [
@@ -241,112 +238,6 @@ export function NaniteScene({ variant, mode = "trio", className, title }: Nanite
             />
           </g>
         ) : null}
-      </svg>
-    </div>
-  );
-}
-
-export function NaniteTrioStudying({
-  className,
-  title,
-}: {
-  readonly className?: string;
-  readonly title?: string;
-}) {
-  const naniteY = 70;
-  const wrapperClass = ["nanite-scene", "nanite-scene--studying", className]
-    .filter(Boolean)
-    .join(" ");
-  const ariaProps = title
-    ? { role: "img" as const, "aria-label": title }
-    : { "aria-hidden": true as const };
-
-  return (
-    <div className={wrapperClass}>
-      <svg viewBox="0 0 240 110" preserveAspectRatio="xMidYMid meet" fill="none" {...ariaProps}>
-        {title ? <title>{title}</title> : null}
-
-        <g transform="translate(120, 20)">
-          <rect
-            x="-28"
-            y="-4"
-            width="56"
-            height="36"
-            rx="3"
-            fill={SCREEN_BG}
-            stroke={SCREEN_BORDER}
-            strokeWidth="1"
-          />
-          <circle cx="-21" cy="2" r="1.5" fill={SCREEN_ICON_WARN} />
-          <circle cx="-15" cy="2" r="1.5" fill={HAT_SHELL} />
-          <circle cx="-9" cy="2" r="1.5" fill={BODY_COLORS[0]} />
-          <rect x="-22" y="8" width="30" height="2" rx="1" fill={SCREEN_LINE} />
-          <rect x="-22" y="13" width="20" height="2" rx="1" fill={SCREEN_LINE} />
-          <rect x="-22" y="18" width="26" height="2" rx="1" fill={SCREEN_LINE} />
-          <rect x="-22" y="23" width="16" height="4" rx="2" fill={BODY_COLORS[1]} opacity="0.5" />
-        </g>
-
-        <g transform="translate(140, 44)">
-          <g className="nanite-scene__study-glass">
-            <circle cx="0" cy="0" r="6" fill="none" stroke={GLASS_STROKE} strokeWidth="1.2" />
-            <line
-              x1="4.5"
-              y1="4.5"
-              x2="9"
-              y2="9"
-              stroke={GLASS_STROKE}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          </g>
-        </g>
-
-        {STUDY_XS.map((x, index) => (
-          <g key={x} transform={`translate(${x}, ${naniteY})`}>
-            <NaniteBody index={index} />
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-export function NaniteTrioStatic({
-  className,
-  title,
-}: {
-  readonly className?: string;
-  readonly title?: string;
-}) {
-  const cy = 28;
-  const groundY = 52;
-  const wrapperClass = ["nanite-scene", "nanite-scene--static-trio", className]
-    .filter(Boolean)
-    .join(" ");
-  const ariaProps = title
-    ? { role: "img" as const, "aria-label": title }
-    : { "aria-hidden": true as const };
-
-  return (
-    <div className={wrapperClass}>
-      <svg viewBox="0 4 184 52" preserveAspectRatio="xMidYMid meet" fill="none" {...ariaProps}>
-        {title ? <title>{title}</title> : null}
-        {STATIC_TRIO_XS.map((x) => (
-          <ellipse
-            key={`shadow-${x}`}
-            cx={x}
-            cy={groundY}
-            rx="18"
-            ry="2.8"
-            fill={SHADOW_FILL}
-            opacity="0.08"
-          />
-        ))}
-        {STATIC_TRIO_XS.map((x, index) => (
-          <g key={x} transform={`translate(${x}, ${cy})`}>
-            <NaniteBody index={index} />
-          </g>
-        ))}
       </svg>
     </div>
   );

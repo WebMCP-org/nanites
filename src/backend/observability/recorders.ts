@@ -1,8 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
-import type { LanguageModelUsage } from "ai";
 import type { DbClient } from "#/backend/db/index.ts";
-import { findAccountIdByInstallationId, touchAccountActivity } from "#/backend/db/facts.ts";
+import { requireAccountIdByInstallationId, touchAccountActivity } from "#/backend/db/facts.ts";
 import {
   aiUsageFacts,
   auditEvents,
@@ -54,98 +53,76 @@ export type ObservabilityActor = {
   actorLogin?: string | null;
 };
 
-export type NaniteBillingAttribution = {
+type NaniteCostAttribution = {
   githubUserId: number | null;
   githubLogin: string | null;
   basis: string | null;
 };
 
-export type RecordNaniteCatalogProjectionInput = {
-  accountId?: string | null;
+type RecordNaniteCatalogProjectionInput = {
   githubAppId: number;
   githubInstallationId: number;
   nanite: ManagedNanite;
-  actor?: ObservabilityActor | null;
+  actor: ObservabilityActor;
 };
 
-export type RecordAuditEventInput = {
+type RecordAuditEventInput = {
   id?: string;
   occurredAt?: Date;
   eventName: string;
-  accountId?: string | null;
-  githubAppId?: number | null;
-  githubInstallationId?: number | null;
-  githubRepositoryId?: number | null;
-  repositoryFullName?: string | null;
-  naniteId?: string | null;
+  githubAppId: number;
+  githubInstallationId: number;
+  naniteId: string;
   runKey?: string | null;
   actor: ObservabilityActor;
-  billing?: NaniteBillingAttribution | null;
   surface?: ObservabilityActorSource;
   targetType: AuditTargetType;
-  targetId?: string | null;
+  targetId: string;
   outcome: AuditEventOutcome;
   reasonCode?: string | null;
   requestId?: string | null;
   metadata?: Record<string, unknown>;
 };
 
-export type RecordNaniteRunFactInput = {
-  accountId?: string | null;
+type RecordNaniteRunFactInput = {
   githubAppId: number;
   githubInstallationId: number;
   run: NaniteRunRecord;
-  nanite?: ManagedNanite | null;
-  actor?: ObservabilityActor | null;
-  billing?: NaniteBillingAttribution | null;
-  outputPullRequest?: GitHubPullRequestImpact | null;
+  actor: ObservabilityActor;
+  outputPullRequest: GitHubPullRequestImpact | null;
 };
 
-export type RecordAiUsageFactInput = {
-  accountId?: string | null;
+type RecordAiUsageFactInput = {
   githubAppId: number;
   githubInstallationId: number;
-  githubRepositoryId?: number | null;
-  naniteId?: string | null;
-  runKey?: string | null;
+  githubRepositoryId: number | null;
+  naniteId: string;
+  runKey: string;
   requestId: string;
-  provider?: string | null;
+  provider: string | null;
   model: string;
-  sessionAffinity?: string | null;
-  isContinuation?: boolean;
-  stepCount?: number;
-  finishReason?: string | null;
-  usage: LanguageModelUsage;
-  providerMetadata?: unknown;
-  providerBilledTotalCostUsdMicros?: number | null;
-  aiGatewayId?: string | null;
-  aiGatewayLogId?: string | null;
-  aiGatewayEventId?: string | null;
-  actor?: ObservabilityActor | null;
-  billing?: NaniteBillingAttribution | null;
-  startedAt?: Date;
-  completedAt?: Date;
+  sessionAffinity: string;
+  isContinuation: boolean;
+  stepCount: number;
+  finishReason: string | null;
+  aiGatewayId: string;
+  aiGatewayLogId: string;
+  actor: ObservabilityActor;
+  costAttribution: NaniteCostAttribution;
+  startedAt: Date;
+  completedAt: Date;
 };
 
 type BuildAiUsageFactInsertInput = {
   input: RecordAiUsageFactInput;
   accountId: string;
-  billing: NaniteBillingAttribution;
-  startedAt: Date;
-  completedAt: Date;
 };
 
-async function resolveOptionalAccountId(
+async function requireInputAccountId(
   db: DbClient,
-  input: { accountId?: string | null; githubInstallationId?: number | null },
-): Promise<string | null> {
-  if (input.accountId !== undefined) {
-    return input.accountId;
-  }
-
-  return input.githubInstallationId
-    ? findAccountIdByInstallationId(db, input.githubInstallationId)
-    : null;
+  input: { githubInstallationId: number },
+): Promise<string> {
+  return requireAccountIdByInstallationId(db, input.githubInstallationId);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -199,14 +176,6 @@ function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record
   );
 }
 
-function stringifyJson(value: unknown): string | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
-  return JSON.stringify(value);
-}
-
 function countNaniteTriggerEvents(manifest: NaniteManifest): number {
   return manifest.eventSource.type === "github" ? (manifest.eventSource.events?.length ?? 0) : 1;
 }
@@ -215,12 +184,12 @@ function countNanitePermissions(manifest: NaniteManifest): number {
   return Object.keys(manifest.permissions.github?.appPermissions ?? {}).length;
 }
 
-function actorGithubUserId(actor: ObservabilityActor | null | undefined): number | null {
-  return actor?.githubUserId ?? null;
+function actorGithubUserId(actor: ObservabilityActor): number | null {
+  return actor.githubUserId ?? null;
 }
 
-function actorGithubLogin(actor: ObservabilityActor | null | undefined): string | null {
-  return actor?.githubLogin ?? null;
+function actorGithubLogin(actor: ObservabilityActor): string | null {
+  return actor.githubLogin ?? null;
 }
 
 export function systemActor(source: ObservabilityActorSource): ObservabilityActor {
@@ -282,16 +251,16 @@ export function naniteTriggerActor(trigger: NaniteTriggerEvent): ObservabilityAc
   }
 }
 
-export async function resolveNaniteBillingAttribution(
+export async function resolveNaniteCostAttribution(
   db: DbClient,
   input: {
     githubInstallationId: number;
     naniteId: string;
-    actor?: ObservabilityActor | null;
+    actor: ObservabilityActor;
   },
-): Promise<NaniteBillingAttribution> {
+): Promise<NaniteCostAttribution> {
   const actorId = actorGithubUserId(input.actor);
-  if (input.actor?.kind === "github_user" && actorId !== null) {
+  if (input.actor.kind === "github_user" && actorId !== null) {
     return {
       githubUserId: actorId,
       githubLogin: actorGithubLogin(input.actor),
@@ -329,8 +298,8 @@ export function buildNaniteAiGatewayMetadata(input: {
   githubInstallationId: number;
   naniteId: string;
   runKey: string;
-  billingGithubUserId?: number | null;
-  repository?: string | null;
+  costAttributedGithubUserId: number | null;
+  repository: string | null;
 }): Record<string, string> {
   const metadataEntries: Array<[string, string]> = [
     ["installation_id", String(input.githubInstallationId)],
@@ -338,11 +307,11 @@ export function buildNaniteAiGatewayMetadata(input: {
     ["run_key", input.runKey],
   ];
 
-  if (input.billingGithubUserId) {
-    metadataEntries.push(["billing_user_id", String(input.billingGithubUserId)]);
+  if (input.costAttributedGithubUserId !== null) {
+    metadataEntries.push(["cost_attributed_user_id", String(input.costAttributedGithubUserId)]);
   }
 
-  if (input.repository) {
+  if (input.repository !== null) {
     metadataEntries.push(["repo", input.repository]);
   }
 
@@ -353,7 +322,7 @@ export async function recordNaniteCatalogProjection(
   db: DbClient,
   input: RecordNaniteCatalogProjectionInput,
 ): Promise<void> {
-  const accountId = await resolveOptionalAccountId(db, input);
+  const accountId = await requireInputAccountId(db, input);
   const repositories = resolveNaniteManifestRepositoryFullNames(input.nanite.manifest);
   const existing = await db.query.naniteCatalog.findFirst({
     where: and(
@@ -413,9 +382,7 @@ export async function recordNaniteCatalogProjection(
     })
     .run();
 
-  if (accountId) {
-    await touchAccountActivity(db, accountId, values.updatedAt);
-  }
+  await touchAccountActivity(db, accountId, values.updatedAt);
 }
 
 export async function deleteNaniteCatalogProjection(
@@ -435,7 +402,7 @@ export async function deleteNaniteCatalogProjection(
 
 export async function recordAuditEvent(db: DbClient, input: RecordAuditEventInput): Promise<void> {
   const occurredAt = input.occurredAt ?? new Date();
-  const accountId = await resolveOptionalAccountId(db, input);
+  const accountId = await requireInputAccountId(db, input);
   const actorId =
     input.actor.actorId ??
     (input.actor.githubUserId ? `github:${input.actor.githubUserId}` : input.actor.kind);
@@ -444,23 +411,23 @@ export async function recordAuditEvent(db: DbClient, input: RecordAuditEventInpu
     occurredAt,
     eventName: input.eventName,
     accountId,
-    githubAppId: input.githubAppId ?? null,
-    githubInstallationId: input.githubInstallationId ?? null,
-    githubRepositoryId: input.githubRepositoryId ?? null,
-    repositoryFullName: input.repositoryFullName ?? null,
-    naniteId: input.naniteId ?? null,
+    githubAppId: input.githubAppId,
+    githubInstallationId: input.githubInstallationId,
+    githubRepositoryId: null,
+    repositoryFullName: null,
+    naniteId: input.naniteId,
     runKey: input.runKey ?? null,
     actorKind: input.actor.kind,
     actorId,
     actorLogin: input.actor.actorLogin ?? actorGithubLogin(input.actor),
     actorGithubUserId: actorGithubUserId(input.actor),
     actorGithubLogin: actorGithubLogin(input.actor),
-    billingGithubUserId: input.billing?.githubUserId ?? null,
-    billingGithubLogin: input.billing?.githubLogin ?? null,
-    billingBasis: input.billing?.basis ?? null,
+    costAttributedGithubUserId: null,
+    costAttributedGithubLogin: null,
+    costAttributionBasis: null,
     surface: input.surface ?? input.actor.source,
     targetType: input.targetType,
-    targetId: input.targetId ?? null,
+    targetId: input.targetId,
     outcome: input.outcome,
     reasonCode: input.reasonCode ?? null,
     requestId: input.requestId ?? null,
@@ -469,9 +436,7 @@ export async function recordAuditEvent(db: DbClient, input: RecordAuditEventInpu
 
   await db.insert(auditEvents).values(values).run();
 
-  if (accountId) {
-    await touchAccountActivity(db, accountId, occurredAt);
-  }
+  await touchAccountActivity(db, accountId, occurredAt);
 }
 
 function triggerKindForRun(run: NaniteRunRecord): RunTriggerKind {
@@ -542,10 +507,6 @@ function readRunTriggerPullRequestNumber(run: NaniteRunRecord): number | null {
     : null;
 }
 
-function readRunPhase(run: NaniteRunRecord): "investigating" | "completed" {
-  return run.status === "running" ? "investigating" : "completed";
-}
-
 function readRunSummary(run: NaniteRunRecord): string | null {
   if (run.status === "running") {
     return null;
@@ -584,18 +545,13 @@ export async function recordNaniteRunFact(
   db: DbClient,
   input: RecordNaniteRunFactInput,
 ): Promise<void> {
-  const accountId = await resolveOptionalAccountId(db, input);
-  if (!accountId) {
-    return;
-  }
+  const accountId = await requireInputAccountId(db, input);
 
-  const billing =
-    input.billing ??
-    (await resolveNaniteBillingAttribution(db, {
-      githubInstallationId: input.githubInstallationId,
-      naniteId: input.run.naniteId,
-      actor: input.actor,
-    }));
+  const costAttribution = await resolveNaniteCostAttribution(db, {
+    githubInstallationId: input.githubInstallationId,
+    naniteId: input.run.naniteId,
+    actor: input.actor,
+  });
   const repository = readRunRepository(input.run);
   const updatedAt = new Date(input.run.updatedAt);
   const values: NaniteRunFactInsert = {
@@ -607,21 +563,19 @@ export async function recordNaniteRunFact(
     repositoryFullName: repository.repositoryFullName,
     runKey: input.run.runId,
     naniteId: input.run.naniteId,
-    variant: "workspace",
     triggerKind: triggerKindForRun(input.run),
     triggerPullRequestNumber: readRunTriggerPullRequestNumber(input.run),
     triggeredByGithubUserId: actorGithubUserId(input.actor),
     triggeredByGithubLogin: actorGithubLogin(input.actor),
-    actorKind: input.actor?.kind ?? null,
+    actorKind: input.actor.kind,
     actorGithubUserId: actorGithubUserId(input.actor),
     actorGithubLogin: actorGithubLogin(input.actor),
-    actorSource: input.actor?.source ?? null,
-    billingGithubUserId: billing.githubUserId,
-    billingGithubLogin: billing.githubLogin,
-    billingAttributionBasis: billing.basis,
+    actorSource: input.actor.source,
+    costAttributedGithubUserId: costAttribution.githubUserId,
+    costAttributedGithubLogin: costAttribution.githubLogin,
+    costAttributionBasis: costAttribution.basis,
     status: input.run.status,
     conclusion: runConclusionForStatus(input.run.status),
-    phase: readRunPhase(input.run),
     task: readRunTask(input.run),
     summary: readRunSummary(input.run),
     outputUrl: readRunOutputUrl(input.run),
@@ -638,7 +592,6 @@ export async function recordNaniteRunFact(
     effectiveGatewayId: input.run.model.effectiveGatewayId,
     modelManifestVersionId: input.run.model.manifestVersionId,
     modelResolvedAt: new Date(input.run.model.resolvedAt),
-    configSource: "default",
     implicitFailureReason: readRunImplicitFailureReason(input.run),
     startedAt: new Date(input.run.startedAt),
     completedAt: readRunCompletedAt(input.run),
@@ -659,7 +612,6 @@ export async function recordNaniteRunFact(
       set: {
         status: values.status,
         conclusion: values.conclusion,
-        phase: values.phase,
         summary: values.summary,
         outputUrl: values.outputUrl,
         outputPullRequestNumber: values.outputPullRequestNumber,
@@ -699,27 +651,7 @@ export async function recordNaniteRunFact(
   await touchAccountActivity(db, accountId, updatedAt);
 }
 
-async function resolveAiUsageBilling(
-  db: DbClient,
-  input: RecordAiUsageFactInput,
-): Promise<NaniteBillingAttribution> {
-  if (input.billing) {
-    return input.billing;
-  }
-
-  if (!input.naniteId) {
-    return { githubUserId: null, githubLogin: null, basis: null };
-  }
-
-  return resolveNaniteBillingAttribution(db, {
-    githubInstallationId: input.githubInstallationId,
-    naniteId: input.naniteId,
-    actor: input.actor,
-  });
-}
-
 function buildAiUsageFactInsert(input: BuildAiUsageFactInsertInput): AiUsageFactInsert {
-  const usage = input.input.usage;
   const actor = input.input.actor;
 
   return {
@@ -727,41 +659,28 @@ function buildAiUsageFactInsert(input: BuildAiUsageFactInsertInput): AiUsageFact
     accountId: input.accountId,
     githubAppId: input.input.githubAppId,
     githubInstallationId: input.input.githubInstallationId,
-    githubRepositoryId: input.input.githubRepositoryId ?? null,
-    naniteId: input.input.naniteId ?? null,
-    runKey: input.input.runKey ?? null,
+    githubRepositoryId: input.input.githubRepositoryId,
+    naniteId: input.input.naniteId,
+    runKey: input.input.runKey,
     requestId: input.input.requestId,
-    provider: input.input.provider ?? null,
+    provider: input.input.provider,
     model: input.input.model,
-    sessionAffinity: input.input.sessionAffinity ?? null,
-    isContinuation: input.input.isContinuation ?? false,
-    stepCount: input.input.stepCount ?? 1,
-    finishReason: input.input.finishReason ?? null,
-    inputTokens: usage.inputTokens ?? null,
-    outputTokens: usage.outputTokens ?? null,
-    totalTokens: usage.totalTokens ?? null,
-    reasoningTokens: usage.outputTokenDetails?.reasoningTokens ?? usage.reasoningTokens ?? null,
-    cachedInputTokens: usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? null,
-    cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens ?? null,
-    rawUsageJson: stringifyJson(usage.raw),
-    providerMetadataJson: stringifyJson(input.input.providerMetadata),
-    providerBilledTotalCostUsdMicros: input.input.providerBilledTotalCostUsdMicros ?? null,
-    aiGatewayId: input.input.aiGatewayId ?? null,
-    aiGatewayLogId: input.input.aiGatewayLogId ?? null,
-    aiGatewayEventId: input.input.aiGatewayEventId ?? null,
-    actorKind: actor?.kind ?? null,
+    sessionAffinity: input.input.sessionAffinity,
+    isContinuation: input.input.isContinuation,
+    stepCount: input.input.stepCount,
+    finishReason: input.input.finishReason,
+    aiGatewayId: input.input.aiGatewayId,
+    aiGatewayLogId: input.input.aiGatewayLogId,
+    actorKind: actor.kind,
     actorGithubUserId: actorGithubUserId(actor),
     actorGithubLogin: actorGithubLogin(actor),
-    actorSource: actor?.source ?? null,
-    billingGithubUserId: input.billing.githubUserId,
-    billingGithubLogin: input.billing.githubLogin,
-    billingAttributionBasis: input.billing.basis,
-    estimatedInputCostUsdMicros: null,
-    estimatedOutputCostUsdMicros: null,
-    estimatedTotalCostUsdMicros: null,
-    startedAt: input.startedAt,
-    completedAt: input.completedAt,
-    createdAt: input.completedAt,
+    actorSource: actor.source,
+    costAttributedGithubUserId: input.input.costAttribution.githubUserId,
+    costAttributedGithubLogin: input.input.costAttribution.githubLogin,
+    costAttributionBasis: input.input.costAttribution.basis,
+    startedAt: input.input.startedAt,
+    completedAt: input.input.completedAt,
+    createdAt: input.input.completedAt,
   };
 }
 
@@ -776,28 +695,15 @@ function aiUsageFactUpdate(values: AiUsageFactInsert) {
     isContinuation: values.isContinuation,
     stepCount: values.stepCount,
     finishReason: values.finishReason,
-    inputTokens: values.inputTokens,
-    outputTokens: values.outputTokens,
-    totalTokens: values.totalTokens,
-    reasoningTokens: values.reasoningTokens,
-    cachedInputTokens: values.cachedInputTokens,
-    cacheWriteTokens: values.cacheWriteTokens,
-    rawUsageJson: values.rawUsageJson,
-    providerMetadataJson: values.providerMetadataJson,
-    providerBilledTotalCostUsdMicros: values.providerBilledTotalCostUsdMicros,
     aiGatewayId: values.aiGatewayId,
     aiGatewayLogId: values.aiGatewayLogId,
-    aiGatewayEventId: values.aiGatewayEventId,
     actorKind: values.actorKind,
     actorGithubUserId: values.actorGithubUserId,
     actorGithubLogin: values.actorGithubLogin,
     actorSource: values.actorSource,
-    billingGithubUserId: values.billingGithubUserId,
-    billingGithubLogin: values.billingGithubLogin,
-    billingAttributionBasis: values.billingAttributionBasis,
-    estimatedInputCostUsdMicros: values.estimatedInputCostUsdMicros,
-    estimatedOutputCostUsdMicros: values.estimatedOutputCostUsdMicros,
-    estimatedTotalCostUsdMicros: values.estimatedTotalCostUsdMicros,
+    costAttributedGithubUserId: values.costAttributedGithubUserId,
+    costAttributedGithubLogin: values.costAttributedGithubLogin,
+    costAttributionBasis: values.costAttributionBasis,
     completedAt: values.completedAt,
   };
 }
@@ -806,20 +712,11 @@ export async function recordAiUsageFact(
   db: DbClient,
   input: RecordAiUsageFactInput,
 ): Promise<void> {
-  const completedAt = input.completedAt ?? new Date();
-  const startedAt = input.startedAt ?? completedAt;
-  const accountId = await resolveOptionalAccountId(db, input);
-  if (!accountId) {
-    return;
-  }
+  const accountId = await requireInputAccountId(db, input);
 
-  const billing = await resolveAiUsageBilling(db, input);
   const values = buildAiUsageFactInsert({
     input,
     accountId,
-    billing,
-    startedAt,
-    completedAt,
   });
 
   await db
@@ -831,5 +728,5 @@ export async function recordAiUsageFact(
     })
     .run();
 
-  await touchAccountActivity(db, accountId, completedAt);
+  await touchAccountActivity(db, accountId, input.completedAt);
 }

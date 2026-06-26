@@ -17,7 +17,6 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { AppError, describeError, requestValidationHook } from "#/backend/errors.ts";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import { createDbClient } from "#/backend/db/index.ts";
 import {
   requireDeploymentGitHubInstallation,
   type DeploymentGitHubInstallation,
@@ -153,13 +152,7 @@ async function readOptionalBrowserAuthorizeContext({
     try {
       deploymentInstallation = await requireDeploymentGitHubInstallation(env);
     } catch (error) {
-      if (
-        !(
-          error instanceof AppError &&
-          (error.kind === "deploymentGitHubInstallationRequired" ||
-            error.kind === "deploymentGitHubAppSetupRequired")
-        )
-      ) {
+      if (!(error instanceof AppError && error.kind === "deploymentGitHubInstallationRequired")) {
         throw error;
       }
     }
@@ -378,12 +371,9 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         });
       }
 
-      const deploymentGitHubApp = await requireDeploymentGitHubApp(
-        createDbClient(context.env.DB),
-        context.env,
-      );
+      const deploymentGitHubApp = requireDeploymentGitHubApp(context.env);
       const buildDeploymentAppInstallHref = (
-        options: Parameters<typeof buildGitHubAppInstallHref>[0],
+        options: Omit<Parameters<typeof buildGitHubAppInstallHref>[0], "appSlug">,
       ) =>
         buildGitHubAppInstallHref({
           ...options,

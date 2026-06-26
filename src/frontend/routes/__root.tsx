@@ -19,7 +19,6 @@ function RootRoute() {
 }
 
 function titleForPath(pathname: string): string {
-  if (pathname.startsWith("/setup")) return "Setup | Nanites";
   if (pathname.startsWith("/mcp-authorize")) return "Authorize MCP Client | Nanites";
   if (pathname.startsWith("/observability")) return "Observability | Nanites";
   if (pathname.startsWith("/nanites")) return "Nanites Workspace | Nanites";

@@ -3,11 +3,7 @@ import { getAgentByName } from "agents";
 import worker from "#/server.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
-import {
-  TEST_GITHUB_APP_ID,
-  ensureD1BaselineSchema,
-  saveTestGitHubApp,
-} from "../helpers/d1-baseline.ts";
+import { ensureD1BaselineSchema } from "../helpers/d1-baseline.ts";
 import { buildTestGitHubWebhookRequest } from "../helpers/github-webhook.ts";
 import {
   waitForRunWorkflowStatus,
@@ -24,14 +20,13 @@ async function getInstallationManager(githubInstallationId: number): Promise<Man
   return withDetachedRpcResults(
     (await getAgentByName<Env, SigveloNaniteManager>(
       env.SigveloNaniteManager,
-      buildNaniteManagerKey({ githubAppId: TEST_GITHUB_APP_ID, githubInstallationId }),
+      buildNaniteManagerKey({ githubInstallationId }),
     )) as unknown as ManagerRpc,
   );
 }
 
 test("signed GitHub webhook starts a Workflow-backed Nanite run to a durable outcome", async () => {
   await ensureD1BaselineSchema(env.DB);
-  await saveTestGitHubApp(env.DB);
 
   const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
   const manager = await getInstallationManager(githubInstallationId);

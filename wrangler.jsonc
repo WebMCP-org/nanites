@@ -1,12 +1,7 @@
 /**
- * Self-host template config (used by the Deploy to Cloudflare button and
- * local dev). Deliberately generic: no account-specific resource ids, routes,
- * or required secrets — the setup flow
- * provisions those after first deploy.
- *
- * Production and self-hosted deploys share this public template; hosted-only
- * details such as domains and secrets are managed by Cloudflare and /setup.
- * Local dev overrides vars via .dev.vars.
+ * Runtime Worker config. Provisioner-owned installs upload this prebuilt bundle
+ * with account-specific resources, routes, and secrets supplied outside this
+ * repo. Local dev overrides vars via .dev.vars.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -57,12 +52,8 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": [
       "/api/*",
-      "/rpc/*",
-      "/admin/api/*",
-      "/admin/rpc/*",
       "/agents/*",
       "/auth/*",
-      "/setup/*",
       "/authorize",
       "/mcp",
       "/oauth/*",
@@ -88,19 +79,11 @@
         "class_name": "SigveloNaniteAgent",
         "name": "SigveloNaniteAgent",
       },
-      {
-        "class_name": "NanitesSetupAgent",
-        "name": "NanitesSetupAgent",
-      },
     ],
   },
   "migrations": [
     {
-      "new_sqlite_classes": [
-        "SigveloManagerConversationAgent",
-        "SigveloNaniteManager",
-        "NanitesSetupAgent",
-      ],
+      "new_sqlite_classes": ["SigveloManagerConversationAgent", "SigveloNaniteManager"],
       "tag": "v1-durable-object-baseline",
     },
     {

@@ -41,7 +41,7 @@ export class GitHubMcpConnector extends McpConnector {
       return this.#options.createConnection();
     }
 
-    // A failure here fails codemode setup — and with it every execute call of
+    // A failure here fails codemode initialization, and with it every execute call of
     // the current turn, git.* and state.* included — so make the cause
     // unmistakably GitHub MCP rather than a generic execute error.
     try {

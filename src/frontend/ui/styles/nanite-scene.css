@@ -16,29 +16,11 @@
   flex-shrink: 0;
 }
 
-.nanite-scene--studying {
-  display: block;
-  inline-size: 100%;
-  block-size: auto;
-  line-height: 0;
-}
-
-.nanite-scene--static-trio {
-  inline-size: min(240px, 80%);
-  block-size: auto;
-  aspect-ratio: 184 / 52;
-}
-
 .nanite-scene svg {
   display: block;
   inline-size: 100%;
   block-size: 100%;
   overflow: visible;
-}
-
-.nanite-scene--studying svg,
-.nanite-scene--static-trio svg {
-  block-size: auto;
 }
 
 .nanite-scene--concerned .nanite-scene__nanite {
@@ -48,7 +30,6 @@
 .nanite-scene__nanite,
 .nanite-scene__hat,
 .nanite-scene__glass,
-.nanite-scene__study-glass,
 .nanite-scene__badge,
 .nanite-scene__sparkle,
 .nanite-scene__github-signal,
@@ -58,8 +39,7 @@
 }
 
 .nanite-scene__nanite,
-.nanite-scene__glass,
-.nanite-scene__study-glass {
+.nanite-scene__glass {
   transform-origin: 50% 100%;
 }
 
@@ -216,10 +196,6 @@
 
 .nanite-scene--concerned .nanite-scene__nanite[data-index="2"] {
   animation-delay: 600ms;
-}
-
-.nanite-scene__study-glass {
-  animation: nanite-study-glass 1.1s ease-in-out infinite alternate;
 }
 
 @keyframes nanite-idle-left {
@@ -427,17 +403,10 @@
   }
 }
 
-@keyframes nanite-study-glass {
-  to {
-    transform: rotate(-10deg);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .nanite-scene__nanite,
   .nanite-scene__hat,
   .nanite-scene__glass,
-  .nanite-scene__study-glass,
   .nanite-scene__badge,
   .nanite-scene__sparkle,
   .nanite-scene__github-signal,

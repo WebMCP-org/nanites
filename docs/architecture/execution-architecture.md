@@ -297,9 +297,9 @@ provider-shaped objects instead of extending a SigVelo repository DTO.
 Add:
 
 - GitHub `repository.size`
-- prior workspace hydration failures
-- prior hydration duration
-- post-hydration file count and byte count
+- prior workspace preparation failures
+- prior workspace preparation duration
+- prepared workspace file count and byte count
 - lightweight preview and deployment signal presence where available
 
 When Workspace is not enough, prefer GitHub-native mechanisms: CI logs, GitHub API tree/blob operations, and pull request checks. Do not reintroduce a container backend as the default fallback.

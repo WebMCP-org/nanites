@@ -399,7 +399,7 @@ function ProseMarkdown({ children, streaming = false }: { children: string; stre
   );
 }
 
-export function RuntimeConversation({
+function RuntimeConversation({
   agentMessages,
   isRecovering = false,
   isStreaming,

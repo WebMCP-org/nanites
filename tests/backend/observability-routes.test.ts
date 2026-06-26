@@ -13,8 +13,6 @@ import {
   TEST_GITHUB_APP_ID,
   buildTestBrowserAuthCookieHeader,
   ensureD1BaselineSchema,
-  resetGitHubAppTables,
-  saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
 
 const TEST_INSTALLATION_ID = 42;
@@ -29,10 +27,8 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM nanite_run_facts;");
   await env.DB.exec("DELETE FROM nanite_catalog;");
   await env.DB.exec("DELETE FROM account_repositories;");
-  await env.DB.exec("DELETE FROM account_people;");
-  await resetGitHubAppTables(env.DB);
+  await env.DB.exec("DELETE FROM account_installations;");
   await env.DB.exec("DELETE FROM accounts;");
-  await saveTestGitHubApp(env.DB);
 });
 
 function buildVisibleRepository(input: { id?: number; fullName?: string } = {}) {
@@ -144,7 +140,6 @@ async function seedObservabilityRows(): Promise<void> {
       repositoryFullName: TEST_REPOSITORY,
       runKey: "run-1",
       naniteId: "docs-syncer",
-      variant: "workspace",
       triggerKind: "manual",
       actorKind: "github_user",
       actorGithubUserId: 1,
@@ -152,9 +147,13 @@ async function seedObservabilityRows(): Promise<void> {
       actorSource: "browser",
       status: "complete",
       conclusion: "success",
-      phase: "completed",
       task: "Update docs",
       summary: "Docs updated.",
+      modelRuntimePath: "workers_ai_gateway",
+      effectiveModelId: "@cf/test/model",
+      effectiveGatewayId: "sigvelo-nanites",
+      modelManifestVersionId: "version-1",
+      modelResolvedAt: now,
       startedAt: now,
       completedAt: now,
       lastUpdatedAt: now,
@@ -173,14 +172,13 @@ async function seedObservabilityRows(): Promise<void> {
       requestId: "request-1",
       provider: "workers-ai",
       model: "@cf/test/model",
-      inputTokens: 10,
-      outputTokens: 20,
-      totalTokens: 30,
+      sessionAffinity: "run-1",
+      aiGatewayId: "sigvelo-nanites",
+      aiGatewayLogId: "gateway-log-1",
       actorKind: "github_user",
       actorGithubUserId: 1,
       actorGithubLogin: "alice",
       actorSource: "browser",
-      estimatedTotalCostUsdMicros: 123,
       startedAt: now,
       completedAt: now,
     })
@@ -248,5 +246,6 @@ test("observability dashboard composes the page after resolving GitHub scope onc
     outcomes: ["success"],
     surfaces: ["browser"],
   });
+  expect(body.overview.kpis.find((kpi) => kpi.key === "ai-requests")?.value).toBe(1);
   expect(body.overview.kpis.find((kpi) => kpi.key === "runs")?.value).toBe(1);
 });

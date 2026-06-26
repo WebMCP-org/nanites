@@ -10,7 +10,6 @@ import {
 } from "#/shared/constants.ts";
 import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import type { Hook } from "@hono/zod-validator";
-import * as Sentry from "@sentry/cloudflare";
 import { deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { Env as HonoEnv, ErrorHandler } from "hono";
@@ -52,7 +51,6 @@ type ProblemDetails = {
       readonly query: Record<string, unknown>;
     };
     readonly error: SerializedError;
-    readonly sentryEventId?: string;
   };
   [extension: string]: unknown;
 };
@@ -80,48 +78,23 @@ export const APP_ERRORS = {
     message:
       "GitHub OAuth token exchange failed. Check the GitHub OAuth app credentials configured for this environment.",
   },
-  githubAppPrivateKeyRequired: {
-    code: "github_app_private_key_required",
-    status: 500,
-    message: "GITHUB_APP_PRIVATE_KEY is missing or empty.",
-  },
-  deploymentGitHubAppSetupRequired: {
-    code: "deployment_github_app_setup_required",
+  deploymentGitHubAppRequired: {
+    code: "deployment_github_app_required",
     status: 403,
-    message: "Nanites setup must create and install a GitHub App before this action can run.",
-  },
-  deploymentGitHubAppConflict: {
-    code: "deployment_github_app_conflict",
-    status: 500,
-    message: "This deployment has more than one active GitHub App configured.",
-    publicDetailKeys: ["githubAppIds"],
+    message:
+      "This deployment must have one provisioned GitHub App and required Worker secrets before this action can run.",
   },
   deploymentGitHubInstallationRequired: {
     code: "deployment_github_installation_required",
     status: 403,
-    message: "Nanites setup must connect one GitHub App installation before this action can run.",
+    message:
+      "This deployment must have one connected GitHub App installation before this action can run.",
   },
   deploymentGitHubInstallationConflict: {
     code: "deployment_github_installation_conflict",
     status: 500,
     message: "This deployment has more than one active GitHub App installation configured.",
     publicDetailKeys: ["githubInstallationIds"],
-  },
-  githubAppNotFound: {
-    code: "github_app_not_found",
-    status: 403,
-    message: "This deployment has no active GitHub App with the requested app id.",
-    publicDetailKeys: ["githubAppId"],
-  },
-  setupClaimRequired: {
-    code: "setup_claim_required",
-    status: 403,
-    message: "This browser must complete Cloudflare setup before continuing.",
-  },
-  invalidSetupState: {
-    code: "invalid_setup_state",
-    status: 400,
-    message: "Setup state is missing, expired, or invalid.",
   },
   requestValidationFailed: {
     code: "request_validation_failed",
@@ -133,42 +106,6 @@ export const APP_ERRORS = {
     code: "api_route_not_found",
     status: 404,
     message: "API route not found.",
-  },
-  setupDatabaseMigrationRequired: {
-    code: "setup_database_migration_required",
-    status: 500,
-    message: "Nanites setup database migrations have not been applied.",
-    publicDetailKeys: ["table"],
-  },
-  cloudflareReadinessRequired: {
-    code: "cloudflare_readiness_required",
-    status: 403,
-    message: "Cloudflare account is not ready for Nanites setup.",
-    publicDetailKeys: ["reason"],
-  },
-  cloudflareWorkerSecretWriteFailed: {
-    code: "cloudflare_worker_secret_write_failed",
-    status: 500,
-    message: "Nanites could not write generated secrets to this Cloudflare Worker.",
-    publicDetailKeys: ["cloudflareResponseStatus"],
-  },
-  githubAppManifestConversionFailed: {
-    code: "github_app_manifest_conversion_failed",
-    status: 400,
-    message: "GitHub App manifest conversion failed.",
-    publicDetailKeys: ["githubResponseStatus"],
-  },
-  setupInstallationVerificationFailed: {
-    code: "setup_installation_verification_failed",
-    status: 403,
-    message: "GitHub did not confirm access to the installed Nanites GitHub App.",
-    publicDetailKeys: ["githubInstallationId", "reason", "githubError"],
-  },
-  upstreamStarVerificationFailed: {
-    code: "upstream_star_verification_failed",
-    status: 403,
-    message: "GitHub did not confirm that this user starred the Nanites repository.",
-    publicDetailKeys: ["githubResponseStatus"],
   },
   githubRuntimeTokenRepositoryRequired: {
     code: "github_runtime_token_repository_required",
@@ -207,11 +144,6 @@ export const APP_ERRORS = {
     code: "nanite_manager_installation_required",
     status: 403,
     message: "Nanite operation requires an installation-scoped manager.",
-  },
-  naniteGitHubRepositoryPermissionsRequired: {
-    code: "nanite_github_repository_permissions_required",
-    status: 400,
-    message: "GitHub MCP capability requires GitHub repository permissions.",
   },
   naniteRepositoryScopeForbidden: {
     code: "nanite_repository_scope_forbidden",
@@ -254,18 +186,6 @@ export const APP_ERRORS = {
     status: 500,
     message: "SigveloNaniteAgent is not attached to an installation manager.",
   },
-  naniteAgentRunAcceptFailed: {
-    code: "nanite_agent_run_accept_failed",
-    status: 500,
-    message: "Nanite agent could not accept the run from the manager.",
-    publicDetailKeys: ["reason"],
-  },
-  naniteAgentRunSubmitFailed: {
-    code: "nanite_agent_run_submit_failed",
-    status: 500,
-    message: "Nanite agent could not submit the run to the manager.",
-    publicDetailKeys: ["reason"],
-  },
   naniteAgentGithubMcpInstallationRequired: {
     code: "nanite_agent_github_mcp_installation_required",
     status: 403,
@@ -283,27 +203,11 @@ export const APP_ERRORS = {
     message: "Generated trigger bundling failed.",
     publicDetailKeys: ["reason"],
   },
-  githubMcpToolPermissionMappingRequired: {
-    code: "github_mcp_tool_permission_mapping_required",
-    status: 500,
-    message: "GitHub MCP tool is not mapped to GitHub App permissions.",
-    publicDetailKeys: ["toolName"],
-  },
-  githubMcpAllowedToolRequired: {
-    code: "github_mcp_allowed_tool_required",
-    status: 400,
-    message: "GitHub MCP capability must expose at least one allowed tool.",
-  },
   toolOutputArtifactNotFound: {
     code: "tool_output_artifact_not_found",
     status: 404,
     message: "Tool output artifact was not found or has expired.",
     publicDetailKeys: ["artifactId"],
-  },
-  toolOutputPatternRequired: {
-    code: "tool_output_pattern_required",
-    status: 400,
-    message: "artifact_read pattern must be a non-empty string when grep-searching.",
   },
   toolOutputActiveRunRequired: {
     code: "tool_output_active_run_required",
@@ -314,17 +218,6 @@ export const APP_ERRORS = {
     code: "manager_conversation_installation_mismatch",
     status: 403,
     message: "Manager conversation installation does not match the selected manager.",
-  },
-  naniteManagerNotFound: {
-    code: "nanite_manager_not_found",
-    status: 404,
-    message: "Nanite manager not found.",
-    publicDetailKeys: ["managerName"],
-  },
-  naniteToolInstallationRequired: {
-    code: "nanite_tool_installation_required",
-    status: 401,
-    message: "SigVelo manager tools require a connected GitHub installation.",
   },
   testAuthTokenRequired: {
     code: "test_auth_token_required",
@@ -551,21 +444,6 @@ function serializeError(error: unknown, depth = 0): SerializedError {
   return serialized;
 }
 
-function captureServerError(error: unknown, status: number): string | undefined {
-  if (status < 500) {
-    return;
-  }
-
-  try {
-    const eventId = Sentry.captureException(error, {
-      mechanism: { handled: true, type: "hono.on_error" },
-    });
-    return typeof eventId === "string" ? eventId : undefined;
-  } catch {
-    return;
-  }
-}
-
 function writeProblemResponse(body: ProblemDetails, sourceHeaders?: Headers): Response {
   const headers = new Headers();
   sourceHeaders?.forEach((value, key) => {
@@ -596,7 +474,6 @@ function problemResponse(input: {
   const requestId = input.requestId;
   const error = serializeError(input.error);
   const details = input.details ? (sanitize(input.details) as Record<string, unknown>) : undefined;
-  const sentryEventId = captureServerError(input.error, input.status);
   const body: ProblemDetails = {
     type: `${PROBLEM_TYPE_BASE_URL}${input.code}`,
     title: input.title,
@@ -614,7 +491,6 @@ function problemResponse(input: {
         query: requestUrl ? readQuery(requestUrl) : {},
       },
       error,
-      ...(sentryEventId ? { sentryEventId } : {}),
     },
   };
 
@@ -833,7 +709,6 @@ function withContextHeaders(response: Response, context: ErrorHandlerContext): R
 
 function handleHttpException(error: HTTPException, context: ErrorHandlerContext): Response {
   const response = error.getResponse();
-  captureServerError(error, response.status);
   return withContextHeaders(response, context);
 }
 

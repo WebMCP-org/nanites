@@ -10,14 +10,13 @@ import { z } from "zod";
 import { AppError } from "#/backend/errors.ts";
 import type { GitHubUserToken } from "#/backend/github/index.ts";
 import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods";
-import { createDbClient } from "#/backend/db/index.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 
 /**
  * GitHub OAuth state lifetime in seconds.
  *
- * Arbitrary Nanites app policy: first-time setup can include GitHub App install
- * and repository-selection detours, so keep the browser state deliberately lax.
+ * Browser OAuth may include GitHub App install and repository-selection detours,
+ * so keep the state deliberately lax.
  */
 const GITHUB_OAUTH_STATE_TTL_SECONDS = 60 * 60;
 
@@ -78,12 +77,7 @@ const NANITES_BROWSER_AUTH_HKDF_HASH = "SHA-256";
 const NANITES_BROWSER_AUTH_HKDF_SALT = "sigvelo:nanites:browser-auth";
 
 function requireAuthCookieSecret(env: Env): string {
-  const secret = env.AUTH_COOKIE_SECRET;
-  if (typeof secret !== "string" || secret.trim().length === 0) {
-    throw new AppError("deploymentGitHubAppSetupRequired");
-  }
-
-  return secret;
+  return env.AUTH_COOKIE_SECRET;
 }
 
 /**
@@ -429,7 +423,7 @@ async function refreshGitHubUserToken({
   githubUserToken: RefreshableGitHubUserToken;
   env: Env;
 }): Promise<GitHubUserToken> {
-  const githubAppConfig = await requireDeploymentGitHubApp(createDbClient(env.DB), env);
+  const githubAppConfig = requireDeploymentGitHubApp(env);
   const { authentication } = await refreshGitHubOAuthToken({
     clientType: "github-app",
     clientId: githubAppConfig.clientId,
@@ -470,7 +464,7 @@ export async function requireGitHubUserToken(
     throw new AppError("authenticationRequired");
   }
 
-  const deploymentApp = await requireDeploymentGitHubApp(createDbClient(env.DB), env);
+  const deploymentApp = requireDeploymentGitHubApp(env);
   if (!isGitHubUserTokenBoundToDeploymentApp(githubUserToken, deploymentApp)) {
     appendExpiredAuthCookies(request, options?.responseHeaders);
     throw new AppError("authenticationRequired");

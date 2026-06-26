@@ -11,7 +11,7 @@
 <p align="center">
   <a href="docs/agent-setup.md">Agent setup</a> ·
   <a href="docs/architecture/README.md">How it works</a> ·
-  <a href="docs/self-hosting.md">Self-hosting</a> ·
+  <a href="docs/self-hosting.md">Self-hosted runtime</a> ·
   <a href="docs/architecture/roadmap.md">Roadmap</a> ·
   <a href="docs/development.md">Development</a>
 </p>
@@ -22,12 +22,6 @@
   <img alt="GitHub App" src="https://img.shields.io/badge/auth-GitHub%20App-2d5a8a?style=flat-square&labelColor=0d1520" />
   <img alt="MCP" src="https://img.shields.io/badge/surface-MCP-7eb8c9?style=flat-square&labelColor=0d1520" />
   <img alt="Vite Plus" src="https://img.shields.io/badge/toolchain-Vite%2B-8ba7b8?style=flat-square&labelColor=0d1520" />
-</p>
-
-<p align="center">
-  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/WebMCP-org/nanites">
-    <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
-  </a>
 </p>
 
 Nanites are named, durable collaborators for GitHub maintenance. Each Nanite owns one narrow loop:
@@ -104,7 +98,7 @@ For local checkouts, standalone MCP commands, and Cloudflare operator MCP server
 | [Execution model](docs/architecture/execution-architecture.md) | Durable Nanite run lifecycle.                   |
 | [User stories](docs/architecture/user-stories.md)              | Product workflows and expected outcomes.        |
 | [Roadmap](docs/architecture/roadmap.md)                        | Planned product work.                           |
-| [Self-hosting](docs/self-hosting.md)                           | Run your own Cloudflare and GitHub App setup.   |
+| [Self-hosted runtime](docs/self-hosting.md)                    | Runtime/provisioner boundary.                   |
 | [Development](docs/development.md)                             | Local app setup and repo commands.              |
 | [Contributing](CONTRIBUTING.md)                                | Project contribution workflow.                  |
 | [Security](SECURITY.md)                                        | Responsible disclosure.                         |

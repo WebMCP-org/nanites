@@ -60,6 +60,7 @@ import {
 } from "#/backend/observability/recorders.ts";
 import { NANITES_AI_GATEWAY_ID } from "#/backend/nanites/language-model.ts";
 import { resolveNaniteManifestRepositoryFullNames } from "#/backend/nanites/github-mcp-capabilities.ts";
+import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 
 export const NANITE_TRIGGER_TEST_TIMEOUT_MS = 60_000;
 export const NANITE_TRIGGER_TEST_INSTRUCTION = [
@@ -75,6 +76,10 @@ const STALE_RUNNING_AFTER_MS = 24 * 60 * 60 * 1000;
 const TERMINAL_SUBMISSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const TERMINAL_RUN_POLL_INTERVAL_MS = 500;
 const naniteManagerLogger = getLogger(LOGGING.NANITES_CATEGORY);
+
+type NaniteManagerRuntimeScope = NaniteManagerIdentity & {
+  readonly githubAppId: number;
+};
 
 // ---------------------------------------------------------------------------
 // Manifest
@@ -528,18 +533,16 @@ export type RecordNaniteRuntimeActivityInput = {
 
 export async function dispatchGitHubWebhookToNaniteManager({
   env,
-  githubAppId,
   githubInstallationId,
   event,
 }: {
   env: Env;
-  githubAppId: number;
   githubInstallationId: number;
   event: EmitterWebhookEvent;
 }): Promise<NaniteWebhookEvaluation[]> {
   const manager = await getAgentByName<Env, SigveloNaniteManager>(
     env.SigveloNaniteManager,
-    buildNaniteManagerKey({ githubAppId, githubInstallationId }),
+    buildNaniteManagerKey({ githubInstallationId }),
   );
   // The concrete DO stub expands the manager's full RPC graph and trips TS2589.
   return (
@@ -893,10 +896,7 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     const manifest = normalizeNaniteManifest(input.manifest);
     const runtimeConfig = normalizeNaniteRuntimeConfig(input.runtimeConfig);
 
-    const identity = this.identity();
-    if (identity) {
-      await this.assertRepositoriesBelongToInstallation(identity, manifest);
-    }
+    await this.assertRepositoriesBelongToInstallation(manifest);
 
     if (manifest.eventSource.type !== "manual") {
       if (!manifest.triggerSource) {
@@ -1910,12 +1910,26 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
   // Internals
   // -------------------------------------------------------------------------
 
-  private identity(): NaniteManagerIdentity | null {
+  private managerIdentity(): NaniteManagerIdentity | null {
     return parseNaniteManagerKey(this.name);
   }
 
   private installationId(): number | null {
-    return this.identity()?.githubInstallationId ?? null;
+    return this.managerIdentity()?.githubInstallationId ?? null;
+  }
+
+  private async managerScope(): Promise<NaniteManagerRuntimeScope | null> {
+    const identity = this.managerIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const deploymentApp = requireDeploymentGitHubApp(this.env);
+
+    return {
+      githubAppId: deploymentApp.appId,
+      githubInstallationId: identity.githubInstallationId,
+    };
   }
 
   private requireNanite(naniteId: string): ManagedNanite {
@@ -2109,13 +2123,15 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     return readRuns();
   }
 
-  private async assertRepositoriesBelongToInstallation(
-    identity: NaniteManagerIdentity,
-    manifest: NaniteManifest,
-  ): Promise<void> {
+  private async assertRepositoriesBelongToInstallation(manifest: NaniteManifest): Promise<void> {
     const requested = resolveNaniteManifestRepositoryFullNames(manifest);
     if (requested.length === 0) {
       return;
+    }
+
+    const identity = await this.managerScope();
+    if (!identity) {
+      throw new AppError("naniteManagerInstallationRequired");
     }
 
     const accessible = new Set(
@@ -2143,15 +2159,14 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
     operation: string,
     record: (
       db: ReturnType<typeof createDbClient>,
-      identity: NaniteManagerIdentity,
+      identity: NaniteManagerRuntimeScope,
     ) => Promise<void>,
   ): Promise<void> {
-    const identity = this.identity();
-    if (!identity) {
-      return;
-    }
-
     try {
+      const identity = await this.managerScope();
+      if (!identity) {
+        return;
+      }
       await record(createDbClient(this.env.DB), identity);
     } catch (error) {
       naniteManagerLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
@@ -2216,7 +2231,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
         githubAppId: identity.githubAppId,
         githubInstallationId: identity.githubInstallationId,
         run: input.run,
-        nanite: this.state.nanites[input.run.naniteId],
         actor: input.actor ?? naniteTriggerActor(input.run.trigger),
         outputPullRequest,
       });

@@ -29,8 +29,7 @@ import { createSigveloAgentLanguageModel } from "#/backend/nanites/language-mode
 import { createSigveloThinkTools } from "#/backend/nanites/tools/index.ts";
 import { buildNaniteManagerKey, parseNaniteManagerKey } from "#/shared/utils/nanites.ts";
 import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
-import { buildGitHubAppSecretBindings, readConfiguredSecret } from "#/backend/github/apps.ts";
-import { normalizeGitHubAppPrivateKeyToPkcs8 } from "#/backend/github/private-key.ts";
+import { requireDeploymentGitHubAppForId } from "#/backend/github/apps.ts";
 
 const SIGVELO_MANAGER_CHAT_CLIENT_ID = "sigvelo-github-manager-chat";
 const GITHUB_MANAGER_MESSENGER_ID = "github";
@@ -94,9 +93,10 @@ type GitHubManagerMessengerRoot = {
 
 export function buildGitHubManagerMessengerName(input: {
   readonly managerName: string;
+  readonly githubAppId: number;
   readonly githubAppSlug: string;
 }): string {
-  return `${input.managerName}${GITHUB_MANAGER_MESSENGER_SEPARATOR}${encodeURIComponent(
+  return `${input.managerName}${GITHUB_MANAGER_MESSENGER_SEPARATOR}${input.githubAppId}:${encodeURIComponent(
     input.githubAppSlug,
   )}`;
 }
@@ -113,7 +113,19 @@ function parseGitHubManagerMessengerRoot(name: string): GitHubManagerMessengerRo
     return null;
   }
 
-  const rawSlug = name.slice(separatorIndex + GITHUB_MANAGER_MESSENGER_SEPARATOR.length);
+  const rawRoot = name.slice(separatorIndex + GITHUB_MANAGER_MESSENGER_SEPARATOR.length);
+  const appSeparatorIndex = rawRoot.indexOf(":");
+  if (appSeparatorIndex <= 0) {
+    return null;
+  }
+
+  const rawAppId = rawRoot.slice(0, appSeparatorIndex);
+  const githubAppId = Number(rawAppId);
+  if (!Number.isInteger(githubAppId) || githubAppId <= 0) {
+    return null;
+  }
+
+  const rawSlug = rawRoot.slice(appSeparatorIndex + 1);
   let githubAppSlug: string;
   try {
     githubAppSlug = decodeURIComponent(rawSlug);
@@ -126,7 +138,7 @@ function parseGitHubManagerMessengerRoot(name: string): GitHubManagerMessengerRo
 
   return {
     managerName,
-    githubAppId: identity.githubAppId,
+    githubAppId,
     githubInstallationId: identity.githubInstallationId,
     githubAppSlug,
   };
@@ -138,16 +150,6 @@ function readMessengerRootFromAgentPath(input: {
 }): GitHubManagerMessengerRoot | null {
   const rootName = input.parentPath[0]?.name ?? input.name;
   return parseGitHubManagerMessengerRoot(rootName);
-}
-
-function requireMessengerSecret(env: Env, bindingName: string): string {
-  const value = readConfiguredSecret(env, bindingName);
-  if (!value) {
-    throw new AppError("deploymentGitHubAppSetupRequired", {
-      details: { bindingName },
-    });
-  }
-  return value;
 }
 
 export class SigveloManagerConversationAgent extends Think<Env, ManagerConversationState> {
@@ -188,9 +190,8 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     return { model };
   }
 
-  // AI Gateway owns upstream-provider retries (NANITES_AI_GATEWAY_REQUEST_DEFAULTS); cap the AI
-  // SDK's own retry so the two layers don't compound. 1 still covers a transient
-  // worker→gateway transport blip.
+  // AI Gateway owns upstream-provider retries; cap the AI SDK's own retry so the
+  // two layers don't compound. 1 still covers a transient worker to gateway blip.
   override beforeTurn(): TurnConfig {
     return { maxRetries: 1 };
   }
@@ -236,22 +237,20 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
       return defineMessengers({});
     }
 
-    const bindings = buildGitHubAppSecretBindings(messengerRoot.githubAppId);
+    const githubApp = requireDeploymentGitHubAppForId(this.env, messengerRoot.githubAppId);
     const github = createGitHubAdapter({
-      appId: String(messengerRoot.githubAppId),
+      appId: String(githubApp.appId),
       installationId: messengerRoot.githubInstallationId,
-      privateKey: normalizeGitHubAppPrivateKeyToPkcs8(
-        requireMessengerSecret(this.env, bindings.privateKeyBinding),
-      ),
-      webhookSecret: requireMessengerSecret(this.env, bindings.webhookSecretBinding),
-      userName: messengerRoot.githubAppSlug,
+      privateKey: githubApp.privateKey,
+      webhookSecret: githubApp.webhookSecret,
+      userName: githubApp.slug,
     });
 
     return defineMessengers({
       [GITHUB_MANAGER_MESSENGER_ID]: chatSdkMessenger({
         adapter: github,
         provider: "github",
-        userName: messengerRoot.githubAppSlug,
+        userName: githubApp.slug,
         verifyWebhook: false,
         respondTo: ["mention", "subscribed-thread"],
         conversation: (event) => ({
@@ -342,7 +341,6 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
     this.setState({
       status: "connected",
       managerName: buildNaniteManagerKey({
-        githubAppId: props.githubAppId,
         githubInstallationId: props.githubInstallationId,
       }),
       githubAppId: props.githubAppId,
@@ -392,7 +390,7 @@ export class SigveloManagerConversationAgent extends Think<Env, ManagerConversat
 
   /**
    * Exposes GitHub MCP inside the codemode sandbox as `github.*`, minting a
-   * fresh installation token per turn-setup in createHeaders. Broad access:
+   * fresh installation token for each turn in createHeaders. Broad access:
    * the token covers every accessible repo with the installation's granted
    * permissions, and no X-MCP filter is sent, so the manager sees the full
    * tool surface. Returns null until an installation is connected.

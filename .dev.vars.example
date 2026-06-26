@@ -1,8 +1,6 @@
 # Intentionally empty.
 #
-# Cloudflare Deploy to Cloudflare reads `.dev.vars.example` as deploy-time secret prompts.
-# Fresh self-hosted Nanites deploys should not ask for any runtime secrets up front; `/setup`
-# generates the auth cookie secret and customer-owned GitHub App credentials after Cloudflare
-# ownership is verified.
+# Provisioned deployments receive runtime secrets from the external provisioner,
+# not from this local development template.
 #
 # For local development details, see `docs/development.md`.

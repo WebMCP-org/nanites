@@ -1,6 +1,5 @@
 import { DEFAULT_AUTH_RETURN_TO_PATH } from "#/shared/constants.ts";
 import { type ReactNode, useEffect } from "react";
-import * as Sentry from "@sentry/react";
 import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, Navigate, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import { Button } from "#/frontend/ui/components/Button.tsx";
@@ -104,10 +103,6 @@ function GenericRouteErrorPage({ error, reset }: ErrorComponentProps) {
   const isDashboardLocation = router.state.location.pathname !== "/";
 
   useResetQueryBoundary(queryErrorResetBoundary);
-
-  useEffect(() => {
-    Sentry.captureException(error);
-  }, [error]);
 
   const problem = readApiProblem(error);
   const message =

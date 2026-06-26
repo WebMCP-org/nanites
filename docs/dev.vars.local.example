@@ -1,17 +1,14 @@
 # Copy to `.dev.vars` for local development. Do not commit `.dev.vars`.
 
-# Keep the first-launch setup wizard hidden locally; its Cloudflare ownership
-# verification cannot run on localhost. Local GitHub identity comes from
-# http://localhost:5173/setup/local instead (see docs/development.md).
-NANITES_SHOW_SETUP="false"
-
-# GitHub App credentials (`GITHUB_APP_<ID>_PRIVATE_KEY`, `GITHUB_APP_<ID>_CLIENT_SECRET`,
-# `GITHUB_APP_<ID>_WEBHOOK_SECRET`) and `AUTH_COOKIE_SECRET` are not typed in by hand:
-# creating a dev GitHub App at /setup/local prints the exact block to append here.
-# A local coding agent may append that generated block, but it should not print the values.
+AUTH_COOKIE_SECRET="replace-with-local-cookie-secret"
+CLOUDFLARE_ACCOUNT_ID="replace-with-local-cloudflare-account-id"
+CLOUDFLARE_API_TOKEN="replace-with-local-cloudflare-api-token"
+GITHUB_APP_ID="replace-with-local-github-app-id"
+GITHUB_APP_SLUG="replace-with-local-github-app-slug"
+GITHUB_APP_CLIENT_ID="replace-with-local-github-app-client-id"
+GITHUB_APP_PRIVATE_KEY="replace-with-local-github-app-private-key"
+GITHUB_APP_CLIENT_SECRET="replace-with-local-github-app-client-secret"
+GITHUB_APP_WEBHOOK_SECRET="replace-with-local-github-app-webhook-secret"
 
 # Required only when using ALLOW_TEST_AUTH=true for local MCP/browser smoke tests.
 GITHUB_TEST_USER_TOKEN=""
-
-# Optional Sentry runtime secret.
-SENTRY_DSN=""
