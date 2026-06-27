@@ -1,9 +1,9 @@
 import { MCP_SCOPES } from "#/shared/constants.ts";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
-import { findInstallationAccount } from "#/backend/db/facts.ts";
+import { requireInstallationAccount } from "#/backend/db/facts.ts";
 import { GITHUB_ACCOUNT_TYPES } from "#/backend/db/schema.ts";
-import { readGitHubAppMetadata } from "#/backend/github/apps.ts";
+import { readDeploymentGitHubAppMetadata } from "#/backend/github/apps.ts";
 import { listReposAccessibleToInstallation } from "#/backend/github/index.ts";
 import {
   defineSigveloMcpTool,
@@ -26,7 +26,6 @@ const whoamiToolOutputSchema = z.object({
       login: z.string().min(1),
       type: z.enum(GITHUB_ACCOUNT_TYPES),
     })
-    .nullable()
     .describe(
       "The GitHub org or user account this installation targets. This is the working scope: repositories and Nanites belong to this account, not to githubLogin.",
     ),
@@ -38,13 +37,8 @@ const whoamiToolOutputSchema = z.object({
       appId: z.number().int().positive(),
       slug: z.string().min(1),
       htmlUrl: z.string().min(1),
-      permissions: z
-        .record(z.string(), z.string())
-        .describe("GitHub App permission name to granted access level (read/write/admin)."),
-      events: z.array(z.string()).describe("Webhook events the GitHub App subscribes to."),
     })
-    .nullable()
-    .describe("The GitHub App behind this installation and the permissions it was granted."),
+    .describe("The deployment GitHub App behind this installation."),
   clientId: z.string().min(1),
   scopes: z.array(z.string().min(1)).describe("SigVelo MCP scopes granted to this tool session."),
 });
@@ -66,8 +60,8 @@ export const whoamiTool = defineSigveloMcpTool({
   async execute(_input, { auth, env }) {
     const db = createDbClient(env.DB);
     const [account, appMetadata, repositories] = await Promise.all([
-      findInstallationAccount(db, auth.githubInstallationId),
-      readGitHubAppMetadata(db, auth.githubAppId),
+      requireInstallationAccount(db, auth.githubInstallationId),
+      readDeploymentGitHubAppMetadata(env),
       listReposAccessibleToInstallation({
         env,
         githubAppId: auth.githubAppId,
@@ -80,24 +74,18 @@ export const whoamiTool = defineSigveloMcpTool({
       githubUserId: auth.githubUserId,
       githubLogin: auth.githubLogin,
       githubInstallationId: auth.githubInstallationId,
-      installationAccount: account
-        ? {
-            login: account.githubAccountLogin,
-            type: account.githubAccountType,
-          }
-        : null,
+      installationAccount: {
+        login: account.githubAccountLogin,
+        type: account.githubAccountType,
+      },
       installationRepositories: repositories
         .map((repository) => repository.full_name)
         .sort((left, right) => left.localeCompare(right)),
-      githubApp: appMetadata
-        ? {
-            appId: appMetadata.appId,
-            slug: appMetadata.slug,
-            htmlUrl: appMetadata.htmlUrl,
-            permissions: appMetadata.permissions,
-            events: [...appMetadata.events],
-          }
-        : null,
+      githubApp: {
+        appId: appMetadata.appId,
+        slug: appMetadata.slug,
+        htmlUrl: appMetadata.htmlUrl,
+      },
       clientId: auth.clientId,
       scopes: auth.scopes,
     };

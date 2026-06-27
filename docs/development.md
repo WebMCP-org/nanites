@@ -66,113 +66,68 @@ vp exec wrangler whoami
 - R2 bucket bound as `WORKSPACE_FILES`
 - KV namespace bound as `OAUTH_KV` for OAuth state and prefixed tool-output artifacts
 
-The default `wrangler.jsonc` leaves D1, R2, and KV resource ids/names empty so Wrangler can
-auto-provision them during deploy.
+The external provisioner creates or configures deployment resources, including the
+`sigvelo-nanites` AI Gateway. Runtime code only names that gateway with
+`NANITES_AI_GATEWAY_ID` in `src/backend/nanites/language-model.ts`; change the provisioner and
+redeploy if the gateway identity changes. The default model is `@cf/zai-org/glm-5.2` through the
+Worker `AI` binding and AI Gateway, so local development does not depend on third-party provider
+credentials.
 
-`/setup` uses Cloudflare API MCP with Billing Read to confirm the selected account has an active
-Workers paid subscription. It also creates or configures the deployment AI Gateway
-(`sigvelo-nanites`) with the retry/ZDR policy from `NANITES_AI_GATEWAY_REQUEST_DEFAULTS` in
-`src/backend/nanites/language-model.ts` — edit those constants and redeploy to change them. The
-default model is `@cf/zai-org/glm-5.2` through the Worker `AI` binding and AI Gateway, so the
-zero-config path does not depend on third-party provider credentials.
+AI Gateway event detail reads use `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. The token
+needs AI Gateway Read access.
 
-Apply database migrations before relying on an environment:
+## Local Runtime Contract
 
-```bash
-vp run db:migrate:remote
-```
+Local development mirrors the provisioner contract:
 
-## Local Runtime Secrets
+- `AUTH_COOKIE_SECRET`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `GITHUB_APP_ID`
+- `GITHUB_APP_SLUG`
+- `GITHUB_APP_CLIENT_ID`
+- `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_APP_CLIENT_SECRET`
+- `GITHUB_APP_WEBHOOK_SECRET`
+- runtime-discovered installation rows in `accounts`, `accountInstallations`, and
+  `accountRepositories`
 
-Fresh self-hosted deploys should use the Deploy to Cloudflare button and `/setup`; that path creates
-the customer-owned GitHub App and writes generated runtime secrets to Worker Secrets without
-copy-paste. There are no hand-set GitHub secrets anywhere: runtime identity is a `github_apps` D1
-row plus per-app secret bindings (`GITHUB_APP_<ID>_PRIVATE_KEY` and friends).
-
-Local development gets the same identity through the dev-only `/setup/local` page instead of the
-wizard (whose Cloudflare ownership verification cannot run on localhost). See
-[Local GitHub App Setup](#local-github-app-setup).
-
-The local `.dev.vars` template sets `NANITES_SHOW_SETUP=false` so normal local development does not
-auto-route into the first-launch setup wizard. Set `NANITES_SHOW_SETUP=true` in `.dev.vars` only
-when intentionally testing the setup flow.
-
-Optional Sentry:
+Run the local runtime:
 
 ```bash
-vp exec wrangler secret put SENTRY_DSN --config wrangler.jsonc
+cp docs/dev.vars.local.example .dev.vars
+vp run db:migrate:local
+vp run dev
 ```
 
-Setting the `SENTRY_DSN` secret enables both worker-side Sentry and browser-side Sentry — the
-frontend reads the DSN at runtime from `/api/client-config`, so no rebuild is needed. (A build-time
-`VITE_SENTRY_DSN` still takes precedence when set.) The public template defaults to the production
-Sentry environment and a `0.1` trace sample rate when those optional runtime vars are absent.
+### Local GitHub App settings
 
-For local browser SDK or source-map upload settings, copy the Sentry/browser template only when you
-need it:
+Use a GitHub App you own for local development. Copy its values into `.dev.vars` using the
+deployment-level names above. Older local files may have keys like
+`GITHUB_APP_<app-id>_PRIVATE_KEY`; rename those values to `GITHUB_APP_PRIVATE_KEY`,
+`GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_WEBHOOK_SECRET`.
+
+Set the local app's OAuth callback URL to:
+
+```text
+http://localhost:5173/auth/github/callback
+```
+
+For webhook testing, GitHub cannot deliver to localhost directly. Either keep an inactive
+placeholder webhook URL for UI/OAuth work, or use a public smee channel:
 
 ```bash
-cp docs/env.local.example .env
+npx smee-client --url <channel> --target http://localhost:5173/api/github/webhook
 ```
 
-## Local GitHub App Setup
+The local app needs enough repository permissions for the Nanites you want to test. A broad local
+maintenance app usually uses write access for Actions, Checks, Contents, Deployments, Issues, Pages,
+Pull requests, Repository hooks, Repository projects, Secrets, and Workflows, plus read access for
+Metadata.
 
-SigVelo needs a GitHub App installed on the repositories Nanites may maintain. For self-hosted
-deployments, `/setup` creates the app. Locally, the dev-only `/setup/local` page (mounted only in
-dev builds and only answering loopback hostnames) does the same job: it runs GitHub's app-manifest
-flow with Nanites' default permissions and registers the resulting app in the local D1 database.
-
-Agent-assisted first-time setup (once per developer):
-
-1. `cp docs/dev.vars.local.example .dev.vars`
-2. `vp run db:migrate:local && vp run dev`
-3. If the browser lands on the Nanites login screen before setup is complete, use **Open local
-   setup**. It links to `http://localhost:5173/setup/local`.
-4. Open `http://localhost:5173/setup/local` and click **Create dev GitHub App on GitHub**. A
-   coding agent can open the page and follow the manifest link, but GitHub may still require the
-   human to log in, pass sudo-mode, or confirm account access.
-5. After GitHub redirects back, append the printed secret block (`GITHUB_APP_<ID>_*` plus
-   `AUTH_COOKIE_SECRET`) to `.dev.vars` and restart `vp run dev`. A local coding agent can read the
-   returned page and append this block without exposing the values in chat. The worker cannot write
-   `.dev.vars` itself.
-6. Optional: upload `public/assets/nanite-github-app-badge.png` as the app badge in GitHub App
-   settings under **Display information**. GitHub App manifests cannot set badges.
-7. Install the app on at least one repository. A coding agent can open the install URL, but the
-   human should choose the GitHub account, repository scope, and final install approval.
-8. Sign in at `http://localhost:5173`. The runtime uses the local deployment installation recorded
-   by `/setup/local`; there is no separate installation picker. The sign-in step uses the generated
-   GitHub App OAuth flow, so browser login or consent prompts remain human checkpoints.
-
-What a coding agent can do locally:
-
-- create `.dev.vars` from the template
-- run migrations and `vp run dev`
-- open `/setup/local` and follow the GitHub App manifest redirect
-- append the generated secret block to `.dev.vars` without printing the values
-- restart the dev server and run `/setup/local/restore`
-- open the GitHub App install URL and return to the Nanites login flow
-
-What still needs a human:
-
-- GitHub login, CAPTCHA, sudo-mode, and account access confirmation
-- choosing the account and repository scope for the GitHub App installation
-- approving the GitHub App installation or org-request flow
-- approving GitHub App OAuth during Nanites sign-in
-- optional badge upload in GitHub App settings
-
-After any `rm -rf .wrangler` (the supported reset for stale local state), the secrets in
-`.dev.vars` survive and the database row is rebuilt without a browser flow:
-
-```bash
-vp run db:migrate:local && vp run dev
-curl -X POST http://localhost:5173/setup/local/restore
-```
-
-The dev app manifest uses an inactive `https://example.com/nanites-local-webhook` placeholder
-because GitHub requires a hook URL but rejects localhost hook URLs. Local webhook behavior is
-covered by the test suite. For live local webhooks, point the app's webhook URL at a public
-[smee.io](https://smee.io) channel in GitHub settings, activate it, and run
-`npx smee-client --url <channel> --target http://localhost:5173/api/github/webhook`.
+For tests and local smoke data, use the helpers in `tests/helpers/d1-baseline.ts` or seed D1 with
+the same installation projection shape the runtime discovers. Do not add setup routes or
+deploy-time secret prompts back to this repo.
 
 The Nanite runtime should prefer Workspace git plus GitHub MCP/Octokit for GitHub API work. Do not assume shell `gh` is authenticated inside a Nanite unless `GH_TOKEN` injection is explicitly added.
 
@@ -304,11 +259,7 @@ vp check
 vp test
 ```
 
-Deploy:
-
-```bash
-vp run deploy
-```
+Deployments are provisioner-owned. Build Nanites here; install or update it from `../sigvelo`.
 
 ## Testing
 

@@ -4,23 +4,10 @@ import type { LanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import type { NaniteRunWorkflowResult } from "#/backend/agents/NaniteRunWorkflow.ts";
 
-// AI Gateway policy. Not an env var on purpose: self-hosters own this repo, so to
-// change it you edit the constant and redeploy — your Cloudflare account holds the
-// resulting gateway config. The setup flow provisions the gateway with these values.
+// AI Gateway policy. The provisioner writes the gateway config with these values,
+// and runtime deployments keep using the same identifier after install.
 // The default model id lives in #/shared/constants.ts so the browser can share it.
 export const NANITES_AI_GATEWAY_ID = "sigvelo-nanites";
-
-export const NANITES_AI_GATEWAY_REQUEST_DEFAULTS = {
-  maxAttempts: 5,
-  retryDelayMs: 500,
-  backoff: "exponential",
-  zdr: false,
-} as const satisfies {
-  maxAttempts: number;
-  retryDelayMs: number;
-  backoff: "constant" | "linear" | "exponential";
-  zdr: boolean;
-};
 
 type WorkersAIBinding = NonNullable<Parameters<typeof createWorkersAI>[0]["binding"]>;
 

@@ -57,3 +57,27 @@ export function mockGitHubApi(routes: readonly GitHubRoute[]): () => void {
   activeGitHubFetchRestore = restore;
   return restore;
 }
+
+export function mockGitHubVisibleInstallations(
+  installations: readonly { readonly id: number; readonly suspendedAt?: string | null }[],
+): () => void {
+  return mockGitHubApi([
+    {
+      path: /^\/user\/installations(?:\?(?:page=1&per_page=100|per_page=100&page=1))?$/,
+      response: () =>
+        Response.json({
+          total_count: installations.length,
+          installations: installations.map((installation) => ({
+            id: installation.id,
+            suspended_at: installation.suspendedAt ?? null,
+            account: {
+              id: installation.id,
+              login: "WebMCP-org",
+              type: "Organization",
+              avatar_url: null,
+            },
+          })),
+        }),
+    },
+  ]);
+}

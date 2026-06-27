@@ -79,8 +79,9 @@ import {
   buildNaniteAiGatewayMetadata,
   naniteTriggerActor,
   recordAiUsageFact,
-  resolveNaniteBillingAttribution,
+  resolveNaniteCostAttribution,
 } from "#/backend/observability/recorders.ts";
+import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 
 // ---------------------------------------------------------------------------
 // State
@@ -92,6 +93,11 @@ import {
  * on version mismatch is safe.
  */
 const NANITE_AGENT_STATE_VERSION = 5;
+
+type NaniteAgentManagerScope = {
+  readonly githubAppId: number;
+  readonly githubInstallationId: number;
+};
 
 export type NaniteAgentState = {
   version: number;
@@ -262,76 +268,12 @@ const NANITE_NON_REPOSITORY_DIRECTORIES = new Set([
   "var",
 ]);
 
-const aiGatewayLogDetailSchema = z
-  .object({
-    id: z.string().optional(),
-    provider: z.string().optional(),
-    model: z.string().optional(),
-    tokens_in: z.number().finite().optional(),
-    tokens_out: z.number().finite().optional(),
-    cost: z.number().finite().optional(),
-    cached: z.boolean().optional(),
-    duration: z.number().finite().optional(),
-    success: z.boolean().optional(),
-    status_code: z.number().int().optional(),
-  })
-  .passthrough();
-type AiGatewayLogDetail = z.output<typeof aiGatewayLogDetailSchema>;
-const metadataRecordSchema = z.record(z.string(), z.unknown());
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function getUsageNumber(
-  usage: StepContext["usage"],
-  field: "inputTokens" | "outputTokens" | "totalTokens",
-): number | null {
-  const value = usage[field];
-  return typeof value === "number" ? value : null;
-}
-
-function usageWithGatewayTokens(
-  usage: StepContext["usage"],
-  log: AiGatewayLogDetail | null,
-): StepContext["usage"] {
-  const inputTokens = log?.tokens_in ?? usage.inputTokens;
-  const outputTokens = log?.tokens_out ?? usage.outputTokens;
-  const totalTokens =
-    typeof inputTokens === "number" && typeof outputTokens === "number"
-      ? inputTokens + outputTokens
-      : usage.totalTokens;
-
-  return { ...usage, inputTokens, outputTokens, totalTokens };
-}
-
-function providerMetadataWithGatewayLog(
-  providerMetadata: unknown,
-  log: AiGatewayLogDetail | null,
-): unknown {
-  if (!log) {
-    return providerMetadata;
-  }
-
-  const metadata = metadataRecordSchema.safeParse(providerMetadata).data ?? {};
-  const gatewayMetadata = metadataRecordSchema.safeParse(metadata.gateway).data ?? {};
-
-  return {
-    ...metadata,
-    gateway: {
-      ...gatewayMetadata,
-      logId: log.id,
-      cached: log.cached,
-      durationMs: log.duration,
-      success: log.success,
-      statusCode: log.status_code,
-      costUsd: log.cost,
-    },
-  };
 }
 
 function getRunRepository(run: NaniteRunRecord): {
@@ -541,15 +483,6 @@ function browserRuntimeConfig(
   return browser?.enabled === true ? browser : null;
 }
 
-function getTriggerTestInstruction(trigger: NaniteTriggerEvent): string | null {
-  if (trigger.type !== "github") {
-    return null;
-  }
-
-  const instruction = trigger.input?.sigveloTestInstruction;
-  return typeof instruction === "string" && instruction.trim() ? instruction.trim() : null;
-}
-
 const naniteGitSafetyInstructions = [
   "Before committing or pushing, verify the current branch, upstream branch, remote default branch, and latest remote head for the branch you plan to update.",
   "If a push is rejected, fetch the remote branch and reconcile with rebase or merge before pushing again. Do not assume GitHub or the git tool is stale.",
@@ -583,9 +516,13 @@ function buildRunPrompt(
     input.run.trigger.type === "manual" && input.run.trigger.message
       ? `\n\nManual operator message:\n${input.run.trigger.message}`
       : "";
-  const testInstruction = getTriggerTestInstruction(input.run.trigger);
-  const testInstructionMessage = testInstruction
-    ? `\n\nTrigger acceptance test instruction:\n${testInstruction}`
+  const triggerTestInstruction =
+    input.run.trigger.type === "github" &&
+    typeof input.run.trigger.input?.sigveloTestInstruction === "string"
+      ? input.run.trigger.input.sigveloTestInstruction.trim()
+      : "";
+  const testInstructionMessage = triggerTestInstruction
+    ? `\n\nTrigger acceptance test instruction:\n${triggerTestInstruction}`
     : "";
   const browser = browserRuntimeConfig(input.nanite.runtimeConfig ?? null);
   const browserInstruction = browser
@@ -866,9 +803,9 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       model: await this.getTurnModel(runId),
       sendReasoning: true,
       tools: this.wrapTurnToolsForOutputBudget(ctx.tools),
-      // AI Gateway owns upstream-provider retries (NANITES_AI_GATEWAY_REQUEST_DEFAULTS); cap the
-      // AI SDK's own retry so the two layers don't compound into ~10 attempts. 1 still covers a
-      // transient worker→gateway transport blip.
+      // AI Gateway owns upstream-provider retries; cap the AI SDK's own retry so
+      // the two layers don't compound into many attempts. 1 still covers a
+      // transient worker to gateway blip.
       maxRetries: 1,
     };
   }
@@ -909,9 +846,6 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       rawFinishReason: ctx.rawFinishReason ?? undefined,
       toolCallCount: ctx.toolCalls.length,
       toolResultCount: ctx.toolResults.length,
-      inputTokens: getUsageNumber(ctx.usage, "inputTokens") ?? undefined,
-      outputTokens: getUsageNumber(ctx.usage, "outputTokens") ?? undefined,
-      totalTokens: getUsageNumber(ctx.usage, "totalTokens") ?? undefined,
       maxSteps: this.maxSteps,
     });
     this.ctx.waitUntil(
@@ -1660,7 +1594,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         return undefined;
       }
 
-      const billing = await resolveNaniteBillingAttribution(createDbClient(this.env.DB), {
+      const costAttribution = await resolveNaniteCostAttribution(createDbClient(this.env.DB), {
         githubInstallationId: identity.githubInstallationId,
         naniteId,
         actor: naniteTriggerActor(run.trigger),
@@ -1670,7 +1604,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
         githubInstallationId: identity.githubInstallationId,
         naniteId,
         runKey: run.runId,
-        billingGithubUserId: billing.githubUserId,
+        costAttributedGithubUserId: costAttribution.githubUserId,
         repository: getRunRepository(run).repository,
       });
     } catch (error) {
@@ -1683,8 +1617,32 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     }
   }
 
+  private async readManagerScope(): Promise<NaniteAgentManagerScope | null> {
+    const managerName = this.requireManagerName();
+    const identity = parseNaniteManagerKey(managerName);
+    if (!identity) {
+      return null;
+    }
+
+    const deploymentApp = requireDeploymentGitHubApp(this.env);
+
+    return {
+      githubAppId: deploymentApp.appId,
+      githubInstallationId: identity.githubInstallationId,
+    };
+  }
+
+  private async requireManagerScope(): Promise<NaniteAgentManagerScope> {
+    const scope = await this.readManagerScope();
+    if (!scope) {
+      throw new AppError("naniteAgentGithubMcpInstallationRequired");
+    }
+
+    return scope;
+  }
+
   private async recordStepUsage(ctx: StepContext): Promise<void> {
-    const identity = parseNaniteManagerKey(this.requireManagerName());
+    const identity = await this.readManagerScope();
     const run = await this.readRun(this.state.activeRunId);
     if (!identity || !run) {
       return;
@@ -1693,13 +1651,13 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
     const repository = getRunRepository(run);
     const requestId = `${run.runId}:step:${ctx.stepNumber}:${ctx.response.id}`;
     const aiGatewayLogId = this.env.AI?.aiGatewayLogId || undefined;
-    const aiGatewayLog = await this.readAiGatewayLogDetail(
-      aiGatewayLogId,
-      run.model.effectiveGatewayId,
-    );
+    if (!aiGatewayLogId) {
+      return;
+    }
+
     const actor = naniteTriggerActor(run.trigger);
     const db = createDbClient(this.env.DB);
-    const billing = await resolveNaniteBillingAttribution(db, {
+    const costAttribution = await resolveNaniteCostAttribution(db, {
       githubInstallationId: identity.githubInstallationId,
       naniteId: run.naniteId,
       actor,
@@ -1712,48 +1670,19 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
       naniteId: run.naniteId,
       runKey: run.runId,
       requestId,
-      provider: aiGatewayLog?.provider ?? null,
-      model: aiGatewayLog?.model ?? run.model.effectiveModelId,
+      provider: null,
+      model: run.model.effectiveModelId,
       sessionAffinity: run.runId,
       isContinuation: this.currentTurnContinuation,
       stepCount: ctx.stepNumber + 1,
       finishReason: ctx.finishReason,
-      usage: usageWithGatewayTokens(ctx.usage, aiGatewayLog),
-      providerMetadata: providerMetadataWithGatewayLog(ctx.providerMetadata, aiGatewayLog),
-      providerBilledTotalCostUsdMicros:
-        aiGatewayLog?.cost === undefined ? undefined : Math.round(aiGatewayLog.cost * 1_000_000),
       aiGatewayId: run.model.effectiveGatewayId,
-      aiGatewayLogId: aiGatewayLog?.id ?? aiGatewayLogId,
-      aiGatewayEventId: requestId,
+      aiGatewayLogId,
       actor,
-      billing,
+      costAttribution,
       startedAt: ctx.response.timestamp,
       completedAt: new Date(),
     });
-  }
-
-  private async readAiGatewayLogDetail(
-    logId: string | undefined,
-    gatewayId: string | null,
-  ): Promise<AiGatewayLogDetail | null> {
-    if (!gatewayId || !logId) {
-      return null;
-    }
-
-    try {
-      const result = aiGatewayLogDetailSchema.safeParse(
-        await this.env.AI.gateway(gatewayId).getLog(logId),
-      );
-      return result.success ? result.data : null;
-    } catch (error) {
-      naniteLogger.warn(LOG_EVENTS.OBSERVABILITY_FACT_RECORD_FAILED, {
-        ...this.logContext(),
-        operation: "ai_gateway.get_log",
-        aiGatewayLogId: logId,
-        error: describeError(error),
-      });
-      return null;
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -1808,10 +1737,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
 
     return new GitHubMcpConnector(this.ctx, {
       createHeaders: async () => {
-        const identity = parseNaniteManagerKey(this.requireManagerName());
-        if (!identity) {
-          throw new AppError("naniteAgentGithubMcpInstallationRequired");
-        }
+        const identity = await this.requireManagerScope();
 
         const scopedToken = await issueScopedGitHubInstallationToken({
           env: this.env,
@@ -1844,7 +1770,7 @@ export class SigveloNaniteAgent extends Think<Env, NaniteAgentState> {
   }
 
   private async issueGitToolToken(repository: string): Promise<string | null> {
-    const identity = parseNaniteManagerKey(this.requireManagerName());
+    const identity = await this.readManagerScope();
     const permissions = this.state.manifest?.permissions.github;
     if (!identity || !permissions) {
       return null;

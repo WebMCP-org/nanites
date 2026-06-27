@@ -1,30 +1,10 @@
 import { Hono } from "hono";
 import { getAgentByName } from "agents";
-import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
-import { AppError, requestValidationHook } from "#/backend/errors.ts";
-import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
-import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
-
-const managerNameInput = zValidator(
-  "param",
-  z.object({
-    managerName: z.string().regex(/^app:\d+:installation:\d+$/),
-  }),
-  requestValidationHook,
-);
+import type { DeploymentInstallationHonoEnv } from "#/backend/api/apps.ts";
 
 const MODEL_CATALOG_PAGE_SIZE = 100;
 const MODEL_CATALOG_MAX_PAGES = 20;
-
-function buildThirdPartyModelsUrl(accountId: string | undefined): string | undefined {
-  if (!accountId) {
-    return undefined;
-  }
-
-  return `https://dash.cloudflare.com/${encodeURIComponent(accountId)}/ai/models?providers=third-party`;
-}
 
 async function listTextGenerationModelCatalog(
   ai: Env["AI"],
@@ -50,7 +30,7 @@ async function listTextGenerationModelCatalog(
   return models;
 }
 
-export const nanitesApiRoutes = new Hono<WorkerHonoEnv>()
+export const nanitesApiRoutes = new Hono<DeploymentInstallationHonoEnv>()
   .get("/models", async (context) => {
     // Workers AI binding exposes hosted Workers AI models; proxied AI Gateway models are not
     // returned by this API.
@@ -58,19 +38,11 @@ export const nanitesApiRoutes = new Hono<WorkerHonoEnv>()
     context.header("Cache-Control", "public, max-age=3600");
     return context.json({
       models,
-      thirdPartyModelsUrl: buildThirdPartyModelsUrl(context.env.CLOUDFLARE_ACCOUNT_ID),
+      thirdPartyModelsUrl: `https://dash.cloudflare.com/${encodeURIComponent(context.env.CLOUDFLARE_ACCOUNT_ID)}/ai/models?providers=third-party`,
     });
   })
-  .get("/manager/:managerName", managerNameInput, async (context) => {
-    const { managerName } = context.req.valid("param");
-    const deploymentInstallation = await requireDeploymentGitHubInstallation(context.env);
-    if (managerName !== deploymentInstallation.managerName) {
-      throw new AppError("agentAuthorizationForbidden", {
-        details: {
-          reason: "Nanite manager does not belong to the deployment GitHub App installation.",
-        },
-      });
-    }
+  .get("/manager", async (context) => {
+    const { managerName } = context.get("deploymentInstallation");
 
     const manager = await getAgentByName<Env, SigveloNaniteManager>(
       context.env.SigveloNaniteManager,

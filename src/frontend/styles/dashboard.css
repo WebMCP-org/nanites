@@ -81,7 +81,7 @@
 
 .login-screen__nanite.nanite-scene--solo:not(.nanite-scene--idle):not(.nanite-scene--helmet),
 .mcp-authorize__nanite.nanite-scene--solo:not(.nanite-scene--idle):not(.nanite-scene--helmet),
-.dashboard__setup-nanite.nanite-scene--solo:not(.nanite-scene--idle):not(.nanite-scene--helmet) {
+.dashboard__install-nanite.nanite-scene--solo:not(.nanite-scene--idle):not(.nanite-scene--helmet) {
   aspect-ratio: 120 / 56;
 }
 
@@ -465,7 +465,7 @@
   text-align: center;
 }
 
-.dashboard__setup-nanite.nanite-scene--solo {
+.dashboard__install-nanite.nanite-scene--solo {
   inline-size: min(11rem, 56vw);
   block-size: auto;
   aspect-ratio: 120 / 56;

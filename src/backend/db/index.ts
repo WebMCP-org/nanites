@@ -11,33 +11,23 @@ import { drizzle } from "drizzle-orm/d1";
 import { getLogger } from "@logtape/drizzle-orm";
 import { LOGGING } from "#/backend/logging.ts";
 import {
-  accountEntitlements,
   accountInstallations,
-  accountPeople,
   accountRepositories,
   accounts,
   auditEvents,
   aiUsageFacts,
-  authFunnelFacts,
-  githubApps,
   naniteCatalog,
   naniteRunFacts,
-  platformUsageFacts,
 } from "./schema.ts";
 
 const schema = {
-  accountEntitlements,
   accountInstallations,
-  accountPeople,
   accountRepositories,
   accounts,
   auditEvents,
   aiUsageFacts,
-  authFunnelFacts,
-  githubApps,
   naniteCatalog,
   naniteRunFacts,
-  platformUsageFacts,
 };
 
 export function createDbClient(d1: D1Database) {

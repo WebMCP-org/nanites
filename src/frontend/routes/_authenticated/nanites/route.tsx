@@ -1,6 +1,5 @@
 import "./nanites.css";
 import {
-  SIGVELO_GITHUB_APP_URL,
   NANITE_MANAGER_NAME,
   MANAGER_CONVERSATION_AGENT_NAME,
   NANITE_AGENT_NAME,
@@ -98,12 +97,7 @@ import {
 } from "#/frontend/ui/components/ModelSelector.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import { readApiProblem } from "#/frontend/lib/api-errors.ts";
-import {
-  AUTH_SESSION_QUERY_KEY,
-  buildReturnToPath,
-  fetchOptionalSession,
-  invalidateAuthQueries,
-} from "#/frontend/lib/auth.ts";
+import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
 import type {
   SigveloManagerConversationAgent,
   ManagerConversationState,
@@ -126,12 +120,7 @@ const emptyState: NaniteManagerState = {
   runtimeActivityByNanite: {},
   updatedAt: null,
 };
-type BrowserDeploymentGitHubApp = {
-  readonly appId: number;
-  readonly slug: string;
-  readonly htmlUrl: string;
-  readonly ownerLogin: string | null;
-};
+type BrowserDeploymentGitHubApp = BrowserNanitesContext["githubApp"];
 
 type NaniteModelCatalogGroup = CloudflareModelSelectorGroup;
 
@@ -168,14 +157,8 @@ async function logoutSession(): Promise<void> {
   await parseResponse(httpClient.api.auth.session.logout.$post());
 }
 
-async function fetchManagerState(
-  managerName: string,
-): Promise<{ managerName: string; state: NaniteManagerState }> {
-  const data: unknown = await parseResponse(
-    httpClient.api.nanites.manager[":managerName"].$get({
-      param: { managerName },
-    }),
-  );
+async function fetchManagerState(): Promise<{ managerName: string; state: NaniteManagerState }> {
+  const data: unknown = await parseResponse(httpClient.api.nanites.manager.$get());
   if (
     !isRecord(data) ||
     typeof data.managerName !== "string" ||
@@ -326,10 +309,6 @@ const naniteRelativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: "auto",
   style: "narrow",
 });
-
-function formatStatus(status: NaniteRunStatus): string {
-  return status.replaceAll("_", " ");
-}
 
 function formatRelativeDate(value: string | null): string {
   if (!value) {
@@ -534,7 +513,7 @@ function AccountMenu({
   githubApp,
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
-  readonly githubApp: BrowserDeploymentGitHubApp | null;
+  readonly githubApp: BrowserDeploymentGitHubApp;
 }) {
   const navigate = Route.useNavigate();
   const location = useLocation();
@@ -555,11 +534,11 @@ function AccountMenu({
 
   const returnToPath = buildReturnToPath(location);
   const manageAccessHref = buildGitHubAppInstallHref({
-    appSlug: githubApp?.slug,
+    appSlug: githubApp.slug,
     state: returnToPath,
     suggestedTargetId: activeInstallation.account.id,
   });
-  const githubAppHref = githubApp?.htmlUrl ?? SIGVELO_GITHUB_APP_URL;
+  const githubAppHref = githubApp.htmlUrl;
   const triggerAvatarSrc = withAvatarSize(activeInstallation.account.avatar_url, 40);
   const headerAvatarSrc = withAvatarSize(activeInstallation.account.avatar_url, 64);
 
@@ -1105,10 +1084,12 @@ function NaniteRunInfoPanel({
   const scopedRepositories = nanite?.manifest.permissions.github?.repositories ?? [];
   const eventSource = nanite?.manifest.eventSource ?? null;
   const triggerSpec = eventSource ? formatEventSourceSpec(eventSource) : "manual";
-  const manageAccessHref = buildGitHubAppInstallHref({
-    appSlug: githubAppSlug,
-    suggestedTargetId: activeInstallation.account.id,
-  });
+  const manageAccessHref = githubAppSlug
+    ? buildGitHubAppInstallHref({
+        appSlug: githubAppSlug,
+        suggestedTargetId: activeInstallation.account.id,
+      })
+    : null;
   const triggerLabel = run ? formatTriggerEvent(run.trigger) : nanite ? triggerSpec : "No trigger";
   const runSummary =
     run && run.status !== "running" && run.status !== "waiting_for_manager" ? run.summary : null;
@@ -1153,7 +1134,7 @@ function NaniteRunInfoPanel({
         githubPermissions.length > 0
           ? `GitHub App permissions granted to this Nanite: ${githubPermissions.join(", ")}.`
           : "This Nanite has no declared GitHub App permissions.",
-      href: githubPermissions.length > 0 ? manageAccessHref : undefined,
+      href: githubPermissions.length > 0 ? (manageAccessHref ?? undefined) : undefined,
       icon: <GithubLogoIcon size={15} aria-hidden="true" />,
     },
   ];
@@ -1162,7 +1143,7 @@ function NaniteRunInfoPanel({
       ? {
           key: "status",
           label: "Status",
-          value: formatStatus(run.status),
+          value: run.status.replaceAll("_", " "),
         }
       : null,
     run || nanite
@@ -1430,14 +1411,6 @@ function sortWorkspaceTreeEntries(
   });
 }
 
-function uniqueWorkspaceEntries(
-  entries: readonly NaniteWorkspaceTreeEntry[],
-): NaniteWorkspaceTreeEntry[] {
-  return sortWorkspaceTreeEntries([
-    ...new Map(entries.map((entry) => [entry.path, entry])).values(),
-  ]);
-}
-
 function NaniteWorkspacePanel({
   agent,
   nanite,
@@ -1446,20 +1419,9 @@ function NaniteWorkspacePanel({
 }: {
   readonly agent: NaniteAgentInstance | null;
   readonly nanite: ManagedNanite | null;
-  readonly naniteId: string | null;
+  readonly naniteId: string;
   readonly refreshKey: string;
 }) {
-  if (!naniteId) {
-    return (
-      <div className="nanites-workspace__workbench app__pane">
-        <div className="nanites-workspace__files-header">
-          <span>Workspace</span>
-        </div>
-        <p className="nanites-workspace__files-empty">Select a Nanite to inspect its workspace.</p>
-      </div>
-    );
-  }
-
   return (
     <Suspense
       fallback={
@@ -1661,9 +1623,13 @@ function NaniteWorkspaceReview({
     if (!workspaceFilter) {
       return loadedFileEntries;
     }
-    return uniqueWorkspaceEntries(
-      loadedFileEntries.filter((entry) => entry.path.toLowerCase().includes(workspaceFilter)),
-    );
+    return sortWorkspaceTreeEntries([
+      ...new Map(
+        loadedFileEntries
+          .filter((entry) => entry.path.toLowerCase().includes(workspaceFilter))
+          .map((entry) => [entry.path, entry]),
+      ).values(),
+    ]);
   }, [loadedFileEntries, workspaceFilter]);
   const selectedFile = selectedPath ? (filesByPath.get(selectedPath) ?? null) : null;
   const selectedFileIsLoading = selectedPath !== null && loadingFilePath === selectedPath;
@@ -1947,29 +1913,19 @@ function NaniteWorkspaceReview({
 function NanitesRoute() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { data: session, isPending } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
-  });
-  const actor = session?.actor ?? null;
-  const githubApp = session?.githubApp ?? null;
-  const activeInstallation = session?.activeInstallation ?? null;
+  const { session } = Route.useRouteContext();
 
-  if (isPending) {
-    return <RoutePendingPage />;
+  if (!session.activeInstallation) {
+    return <GitHubInstallRequiredState githubApp={session.githubApp} />;
   }
 
-  if (!activeInstallation || !actor) {
-    return <GitHubInstallRequiredState githubApp={githubApp} />;
-  }
-
-  const managerName = activeInstallation.managerName;
+  const managerName = session.activeInstallation.managerName;
 
   return (
     <NanitesRuntimeSurface
-      actor={actor}
-      activeInstallation={activeInstallation}
-      githubApp={githubApp}
+      actor={session.actor}
+      activeInstallation={session.activeInstallation}
+      githubApp={session.githubApp}
       managerName={managerName}
       selectedMode={search.mode === "create" ? "create" : null}
       selectedNaniteId={search.naniteId ?? null}
@@ -2018,7 +1974,7 @@ function NanitesRuntimeSurface({
 }: {
   readonly activeInstallation: SessionInstallationSnapshot;
   readonly actor: BrowserNanitesContext["actor"];
-  readonly githubApp: BrowserDeploymentGitHubApp | null;
+  readonly githubApp: BrowserDeploymentGitHubApp;
   readonly managerName: NaniteManagerKey;
   readonly selectedMode: "create" | null;
   readonly selectedNaniteId: string | null;
@@ -2035,7 +1991,7 @@ function NanitesRuntimeSurface({
   const mobileTouchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
   const { data: managerStateData, refetch: refetchManagerState } = useQuery({
     queryKey: ["nanites", "manager", managerName],
-    queryFn: () => fetchManagerState(managerName),
+    queryFn: fetchManagerState,
     throwOnError: true,
   });
   const manager = useAgent<SigveloNaniteManager, NaniteManagerState>({
@@ -2083,7 +2039,7 @@ function NanitesRuntimeSurface({
             nanite,
             repositories: getNaniteRepositories(nanite, naniteRuns),
             latestRun: naniteRuns[0] ?? null,
-            activity: state.runtimeActivityByNanite?.[id] ?? null,
+            activity: state.runtimeActivityByNanite[id] ?? null,
             runCount: naniteRuns.length,
           };
         })
@@ -2489,21 +2445,13 @@ function NanitesRuntimeSurface({
             <NaniteRunInfoPanel
               activeInstallation={activeInstallation}
               deleteError={deleteNanite.error}
-              githubAppSlug={githubApp?.slug ?? null}
+              githubAppSlug={githubApp.slug}
               isDeleting={deleteNanite.isPending}
               nanite={selectedNanite}
               onDeleteNanite={() => {
-                if (!selectedNaniteAgentId) {
-                  return;
-                }
-
                 deleteNanite.mutate({ naniteId: selectedNaniteAgentId });
               }}
               onSetNaniteModel={async (modelId) => {
-                if (!selectedNaniteAgentId) {
-                  return;
-                }
-
                 await manager.stub.setNaniteModel({
                   naniteId: selectedNaniteAgentId,
                   modelId,

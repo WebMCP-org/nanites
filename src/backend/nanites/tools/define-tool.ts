@@ -1,7 +1,6 @@
 import { getLogger } from "@logtape/logtape";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { getAgentByName } from "agents";
-import { tool, type FlexibleSchema, type ToolExecutionOptions } from "ai";
 import { z } from "zod";
 import { SUPPORTED_MCP_SCOPES } from "#/shared/constants.ts";
 import { APP_ERRORS, AppError, describeError } from "#/backend/errors.ts";
@@ -11,7 +10,7 @@ import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager
 import type { ObservabilityActor } from "#/backend/observability/recorders.ts";
 import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
-export type SigveloNaniteToolSurface = "mcp" | "manager_chat";
+type SigveloNaniteToolSurface = "mcp" | "manager_chat";
 type SigveloMcpScope = (typeof SUPPORTED_MCP_SCOPES)[number];
 
 type NaniteToolContext = {
@@ -50,7 +49,6 @@ export type SigveloMcpToolDefinition<TInputSchema extends z.ZodType, TOutput ext
   outputSchema: z.ZodType;
   requiredScope: SigveloMcpScope;
   annotations?: ToolAnnotations;
-  _meta?: Record<string, unknown>;
   execute(input: z.output<TInputSchema>, runtime: NaniteToolRuntime): Promise<TOutput>;
 };
 
@@ -80,27 +78,18 @@ type SigveloNaniteToolInvocation = {
   env: Env;
   props: SigveloMcpAuthProps;
   surface: SigveloNaniteToolSurface;
-  requestId?: string;
-};
-type PreparedSigveloNaniteToolInvocation = SigveloNaniteToolInvocation & {
   requestId: string;
 };
 type SigveloNaniteToolTelemetryInput = {
   definition: AnySigveloMcpToolDefinition;
-  invocation: PreparedSigveloNaniteToolInvocation;
+  invocation: SigveloNaniteToolInvocation;
   runtime?: NaniteToolRuntime;
 };
 
-export type CreateSigveloThinkToolsInput = {
-  env: Env;
-  auth: SigveloMcpAuthProps;
-};
-
 async function resolveAuthorizedNaniteToolRuntime(
-  input: PreparedSigveloNaniteToolInvocation,
+  input: SigveloNaniteToolInvocation,
 ): Promise<NaniteToolRuntime> {
   const managerName = buildNaniteManagerKey({
-    githubAppId: input.props.githubAppId,
     githubInstallationId: input.props.githubInstallationId,
   });
 
@@ -170,7 +159,6 @@ function createToolTelemetryContext(input: SigveloNaniteToolTelemetryInput) {
     [OTEL_ATTRS.NANITE_MANAGER_NAME]:
       runtimeContext?.managerName ??
       buildNaniteManagerKey({
-        githubAppId: input.invocation.props.githubAppId,
         githubInstallationId: input.invocation.props.githubInstallationId,
       }),
     [OTEL_ATTRS.NANITE_TOOL_NAME]: input.definition.name,
@@ -183,21 +171,17 @@ export async function executeSigveloNaniteTool(input: {
   toolInput: unknown;
   invocation: SigveloNaniteToolInvocation;
 }): Promise<object> {
-  const invocation = {
-    ...input.invocation,
-    requestId: input.invocation.requestId ?? crypto.randomUUID(),
-  };
   const startedAt = performance.now();
   let telemetryInput: SigveloNaniteToolTelemetryInput = {
     definition: input.definition,
-    invocation,
+    invocation: input.invocation,
   };
 
   try {
     const toolInput = input.definition.inputSchema.parse(input.toolInput);
     authorizeSigveloNaniteToolScope({
       definition: input.definition,
-      auth: invocation.props,
+      auth: input.invocation.props,
     });
 
     naniteToolLogger.info(
@@ -205,10 +189,10 @@ export async function executeSigveloNaniteTool(input: {
       createToolTelemetryContext(telemetryInput),
     );
 
-    const runtime = await resolveAuthorizedNaniteToolRuntime(invocation);
+    const runtime = await resolveAuthorizedNaniteToolRuntime(input.invocation);
     telemetryInput = {
       definition: input.definition,
-      invocation,
+      invocation: input.invocation,
       runtime,
     };
     const telemetry = createToolTelemetryContext(telemetryInput);
@@ -228,29 +212,4 @@ export async function executeSigveloNaniteTool(input: {
     });
     throw error;
   }
-}
-
-export function createSigveloThinkTool(
-  definition: AnySigveloMcpToolDefinition,
-  input: CreateSigveloThinkToolsInput,
-) {
-  return tool<unknown, unknown>({
-    type: "dynamic",
-    title: definition.title,
-    description: definition.description,
-    inputSchema: definition.inputSchema as FlexibleSchema<unknown>,
-    outputSchema: definition.outputSchema as FlexibleSchema<unknown>,
-    execute: async (toolInput: unknown, executeOptions: ToolExecutionOptions) => {
-      return executeSigveloNaniteTool({
-        definition,
-        toolInput,
-        invocation: {
-          env: input.env,
-          props: input.auth,
-          surface: "manager_chat",
-          requestId: executeOptions.toolCallId,
-        },
-      });
-    },
-  });
 }

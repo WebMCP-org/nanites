@@ -1,0 +1,66 @@
+name: Publish Artifact
+
+# Builds the prebuilt Nanites artifact and publishes it to the private SigVelo R2
+# bucket. The provisioner reads it from there and installs it into a customer's
+# Cloudflare account — the bundle ships, the source never leaves this repo.
+#
+# Triggered by a `v*` release tag (or manual dispatch). Keep the bucket PRIVATE.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version (defaults to the git tag)"
+        required: false
+        type: string
+
+concurrency:
+  group: publish-artifact-${{ github.event.inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    env:
+      ARTIFACT_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      # R2 is S3-compatible; aws cli v2 sends checksums R2 rejects unless these
+      # are set to when_required. ponytail: drop if the cli stops defaulting them.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version: "24"
+          cache: true
+          run-install: true
+
+      - name: Build worker + client
+        run: vp build
+
+      - name: Assemble artifact
+        run: node tooling/artifact/assemble.mjs
+
+      - name: Publish to R2
+        env:
+          R2_BUCKET: ${{ secrets.R2_ARTIFACT_BUCKET }}
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          aws s3 sync dist/artifact "s3://${R2_BUCKET}/" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --only-show-errors
+          echo "Published nanites@${ARTIFACT_VERSION} to ${R2_BUCKET}"

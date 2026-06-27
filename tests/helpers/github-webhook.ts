@@ -28,15 +28,6 @@ async function signGitHubWebhookBody(body: string, secret: string): Promise<stri
   return `sha256=${encodeHex(await crypto.subtle.sign("HMAC", key, textEncoder.encode(body)))}`;
 }
 
-function requireTestGitHubWebhookSecret(): string {
-  const secret = Reflect.get(env, `GITHUB_APP_${TEST_GITHUB_APP_ID}_WEBHOOK_SECRET`);
-  if (typeof secret !== "string" || secret.length === 0) {
-    throw new Error("The test GitHub App webhook secret is required for webhook tests.");
-  }
-
-  return secret;
-}
-
 export async function buildTestGitHubWebhookRequest({
   body,
   delivery,
@@ -61,7 +52,7 @@ export async function buildTestGitHubWebhookRequest({
   if (signed) {
     headers.set(
       "x-hub-signature-256",
-      await signGitHubWebhookBody(body, requireTestGitHubWebhookSecret()),
+      await signGitHubWebhookBody(body, env.GITHUB_APP_WEBHOOK_SECRET),
     );
   }
 

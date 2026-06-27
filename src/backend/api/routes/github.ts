@@ -1,8 +1,4 @@
-import {
-  GITHUB_WEBHOOK_PATH,
-  GITHUB_WEBHOOK_TARGET_ID_HEADER,
-  NANITES_SETUP_AGENT_INSTANCE_NAME,
-} from "#/shared/constants.ts";
+import { GITHUB_WEBHOOK_PATH, GITHUB_WEBHOOK_TARGET_ID_HEADER } from "#/shared/constants.ts";
 import { getLogger } from "@logtape/logtape";
 import { Hono } from "hono";
 import { createWebMiddleware, Webhooks } from "@octokit/webhooks";
@@ -16,13 +12,7 @@ import {
   buildGitHubManagerMessengerName,
   type SigveloManagerConversationAgent,
 } from "#/backend/agents/SigveloManagerConversationAgent.ts";
-import type {
-  GitHubInstallationRepairReason,
-  NanitesSetupAgent,
-} from "#/backend/agents/NanitesSetupAgent.ts";
-import { createDbClient } from "#/backend/db/index.ts";
-import { recordAuthFunnelFact } from "#/backend/db/facts.ts";
-import { readDeploymentGitHubAppMetadata, resolveGitHubApp } from "#/backend/github/apps.ts";
+import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 import {
   getGitHubWebhookAction,
   getGitHubWebhookEventName,
@@ -36,46 +26,6 @@ const githubWebhookLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .with({
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
-
-function readGitHubInstallationRepairReason(
-  eventName: string,
-): GitHubInstallationRepairReason | null {
-  switch (eventName) {
-    case "installation.deleted":
-      return "installation_deleted";
-    case "installation.suspend":
-      return "installation_suspended";
-    case "installation_repositories.removed":
-      return "installation_repositories_removed";
-    case "installation.new_permissions_accepted":
-      return "installation_permissions_changed";
-    default:
-      return null;
-  }
-}
-
-async function recordGitHubInstallationRepairSignal({
-  env,
-  githubAppId,
-  githubInstallationId,
-  reason,
-}: {
-  readonly env: Env;
-  readonly githubAppId: number;
-  readonly githubInstallationId: number;
-  readonly reason: GitHubInstallationRepairReason;
-}): Promise<void> {
-  const setupAgent = await getAgentByName<Env, NanitesSetupAgent>(
-    env.NanitesSetupAgent,
-    NANITES_SETUP_AGENT_INSTANCE_NAME,
-  );
-
-  await setupAgent.recordInstallationRepair({
-    githubAppId,
-    githubInstallationId,
-    reason,
-  });
-}
 
 /**
  * GitHub stamps every app webhook delivery with the owning app's id. The
@@ -100,20 +50,9 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
     // still needs the original signed webhook request.
     const chatRequest = context.req.raw.clone();
     const isPing = context.req.header("x-github-event") === "ping";
-    const db = createDbClient(context.env.DB);
     const githubAppId = readGitHubWebhookTargetAppId(context.req.raw);
-    const deploymentApp = await readDeploymentGitHubAppMetadata(db);
-    const githubAppConfig =
-      githubAppId === deploymentApp?.appId
-        ? await resolveGitHubApp(db, context.env, deploymentApp.appId)
-        : null;
-    if (githubAppId === null || !deploymentApp || !githubAppConfig) {
-      context.executionCtx.waitUntil(
-        recordAuthFunnelFact(db, {
-          eventType: "github_webhook_rejected_unknown_app",
-          metadata: { githubAppId },
-        }),
-      );
+    const githubAppConfig = requireDeploymentGitHubApp(context.env);
+    if (githubAppId === null || githubAppId !== githubAppConfig.appId) {
       return context.text("Unknown GitHub App for this deployment.", 401);
     }
     const webhooks = new Webhooks({ secret: githubAppConfig.webhookSecret });
@@ -132,21 +71,7 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
       if (eventName === "ping") {
         return;
       }
-      const repairReason = readGitHubInstallationRepairReason(eventName);
-      if (repairReason) {
-        const githubInstallationId = getGitHubWebhookInstallationId(event);
-        if (typeof githubInstallationId === "number") {
-          context.executionCtx.waitUntil(
-            recordGitHubInstallationRepairSignal({
-              env: context.env,
-              githubAppId,
-              githubInstallationId,
-              reason: repairReason,
-            }),
-          );
-        }
-        return;
-      }
+      // ponytail: installation repair/re-provision is the external provisioner's job, not runtime's
       if (
         eventName === "issue_comment" ||
         eventName.startsWith("issue_comment.") ||
@@ -170,6 +95,7 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
               context.env.SigveloManagerConversationAgent,
               buildGitHubManagerMessengerName({
                 managerName: deploymentInstallation.managerName,
+                githubAppId,
                 githubAppSlug: githubAppConfig.slug,
               }),
             );
@@ -206,7 +132,6 @@ export const githubWebhookRoutes = new Hono<WorkerHonoEnv>().post(
           await dispatchGitHubWebhookToNaniteManager({
             env: context.env,
             event,
-            githubAppId,
             githubInstallationId,
           });
         })(),

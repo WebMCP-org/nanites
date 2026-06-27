@@ -26,7 +26,6 @@ Read [testing-golden-standard.md](../docs/testing-golden-standard.md) for the fu
 
 - Browser lane:
   - fail-fast MSW lifecycle in `tests/helpers/browser-msw-setup.ts`
-  - typed MSW worker access through `tests/helpers/browser-test.ts`
   - local authenticated browsing is separate from this lane; browser tests stay MSW-backed and do not require a GitHub user token
   - no active browser tests are kept until they mount a real route/app surface
 - Backend lane:

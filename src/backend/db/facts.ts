@@ -1,22 +1,15 @@
 import { and, eq, notInArray } from "drizzle-orm";
-import type { InferInsertModel } from "drizzle-orm";
 import type { DbClient } from "./index.ts";
 import {
   accounts,
   accountInstallations,
   accountRepositories,
-  authFunnelFacts,
-  platformUsageFacts,
   type GitHubAccountType,
 } from "./schema.ts";
 import type {
   GitHubInstallationRepository,
   GitHubVisibleInstallation,
 } from "#/backend/github/index.ts";
-
-type Defined<T> = Exclude<T, undefined>;
-type PlatformUsageFactInsert = InferInsertModel<typeof platformUsageFacts>;
-type AuthFunnelFactInsert = InferInsertModel<typeof authFunnelFacts>;
 
 type VisibleInstallationProjection = {
   id: number;
@@ -30,31 +23,6 @@ type VisibleInstallationProjection = {
 };
 
 type GitHubVisibleInstallationAccount = NonNullable<GitHubVisibleInstallation["account"]>;
-
-type AuthFunnelFactInput = {
-  accountId?: AuthFunnelFactInsert["accountId"];
-  githubInstallationId?: AuthFunnelFactInsert["githubInstallationId"];
-  githubRepositoryId?: AuthFunnelFactInsert["githubRepositoryId"];
-  githubUserId?: AuthFunnelFactInsert["githubUserId"];
-  githubLogin?: AuthFunnelFactInsert["githubLogin"];
-  eventType: Defined<AuthFunnelFactInsert["eventType"]>;
-  metadata?: Record<string, unknown>;
-  occurredAt?: Defined<AuthFunnelFactInsert["occurredAt"]>;
-};
-
-type PlatformUsageFactInput = {
-  accountId?: PlatformUsageFactInsert["accountId"];
-  githubInstallationId?: PlatformUsageFactInsert["githubInstallationId"];
-  githubRepositoryId?: PlatformUsageFactInsert["githubRepositoryId"];
-  runKey?: PlatformUsageFactInsert["runKey"];
-  category: Defined<PlatformUsageFactInsert["category"]>;
-  eventKey: Defined<PlatformUsageFactInsert["eventKey"]>;
-  status?: PlatformUsageFactInsert["status"];
-  quantity?: PlatformUsageFactInsert["quantity"];
-  durationMs?: PlatformUsageFactInsert["durationMs"];
-  metadata?: Record<string, unknown>;
-  occurredAt?: Defined<PlatformUsageFactInsert["occurredAt"]>;
-};
 
 function readGitHubAccountLogin(account: GitHubVisibleInstallationAccount): string | null {
   if ("login" in account && typeof account.login === "string" && account.login.length > 0) {
@@ -102,10 +70,10 @@ function readVisibleInstallationProjection(
   };
 }
 
-export async function findInstallationAccount(
+export async function requireInstallationAccount(
   db: DbClient,
   githubInstallationId: number,
-): Promise<{ githubAccountLogin: string; githubAccountType: GitHubAccountType } | null> {
+): Promise<{ githubAccountLogin: string; githubAccountType: GitHubAccountType }> {
   const row = await db
     .select({
       githubAccountLogin: accounts.githubAccountLogin,
@@ -117,13 +85,17 @@ export async function findInstallationAccount(
     .limit(1)
     .get();
 
-  return row ?? null;
+  if (!row) {
+    throw new Error(`No account mapped for GitHub installation ${githubInstallationId}.`);
+  }
+
+  return row;
 }
 
-export async function findAccountIdByInstallationId(
+export async function requireAccountIdByInstallationId(
   db: DbClient,
   githubInstallationId: number,
-): Promise<string | null> {
+): Promise<string> {
   const row = await db.query.accountInstallations.findFirst({
     columns: {
       accountId: true,
@@ -131,71 +103,11 @@ export async function findAccountIdByInstallationId(
     where: eq(accountInstallations.githubInstallationId, githubInstallationId),
   });
 
-  return row?.accountId ?? null;
-}
-
-async function findInstallationScope(
-  db: DbClient,
-  githubInstallationId: number,
-): Promise<{ accountId: string; githubAppId: number } | null> {
-  const row = await db.query.accountInstallations.findFirst({
-    columns: {
-      accountId: true,
-      githubAppId: true,
-    },
-    where: eq(accountInstallations.githubInstallationId, githubInstallationId),
-  });
-
-  return row ?? null;
-}
-
-async function normalizeOptionalInstallationScope(
-  db: DbClient,
-  input: {
-    accountId?: string | null;
-    githubInstallationId?: number | null;
-    metadata?: Record<string, unknown>;
-  },
-): Promise<{
-  accountId: string | null;
-  githubAppId: number | null;
-  githubInstallationId: number | null;
-  metadata: Record<string, unknown> | undefined;
-}> {
-  let accountId = input.accountId ?? null;
-  let githubInstallationId = input.githubInstallationId ?? null;
-  let metadata = input.metadata;
-
-  if (githubInstallationId === null) {
-    return {
-      accountId,
-      githubAppId: null,
-      githubInstallationId,
-      metadata,
-    };
+  if (!row) {
+    throw new Error(`No account mapped for GitHub installation ${githubInstallationId}.`);
   }
 
-  const mappedScope = await findInstallationScope(db, githubInstallationId);
-  if (mappedScope) {
-    return {
-      accountId: accountId ?? mappedScope.accountId,
-      githubAppId: mappedScope.githubAppId,
-      githubInstallationId,
-      metadata,
-    };
-  }
-
-  metadata = Object.assign({}, metadata, {
-    unresolvedGithubInstallationId: githubInstallationId,
-  });
-  githubInstallationId = null;
-
-  return {
-    accountId,
-    githubAppId: null,
-    githubInstallationId,
-    metadata,
-  };
+  return row.accountId;
 }
 
 export async function touchAccountActivity(
@@ -305,7 +217,7 @@ export async function recordInstallationRepositorySnapshots(
   });
 
   if (!installation) {
-    return;
+    throw new Error(`No account mapped for GitHub installation ${input.githubInstallationId}.`);
   }
 
   const repositoryIds = [...new Set(input.repositories.map((repository) => repository.id))];
@@ -350,81 +262,4 @@ export async function recordInstallationRepositorySnapshots(
         );
 
   await db.delete(accountRepositories).where(staleRepositoryFilter).run();
-}
-
-export async function recordAuthFunnelFact(
-  db: DbClient,
-  input: AuthFunnelFactInput,
-): Promise<void> {
-  const occurredAt = input.occurredAt ?? new Date();
-  const normalizedScope = await normalizeOptionalInstallationScope(db, {
-    accountId: input.accountId ?? null,
-    githubInstallationId: input.githubInstallationId ?? null,
-    metadata: input.metadata,
-  });
-
-  await db
-    .insert(authFunnelFacts)
-    .values({
-      id: crypto.randomUUID(),
-      accountId: normalizedScope.accountId,
-      githubAppId: normalizedScope.githubAppId,
-      githubInstallationId: normalizedScope.githubInstallationId,
-      githubRepositoryId: input.githubRepositoryId ?? null,
-      githubUserId: input.githubUserId ?? null,
-      githubLogin: input.githubLogin ?? null,
-      eventType: input.eventType,
-      metadataJson: JSON.stringify(normalizedScope.metadata ?? {}),
-      occurredAt,
-    })
-    .run();
-
-  await recordPlatformUsageFact(db, {
-    accountId: normalizedScope.accountId,
-    githubInstallationId: normalizedScope.githubInstallationId,
-    githubRepositoryId: input.githubRepositoryId ?? null,
-    category: "auth",
-    eventKey: input.eventType,
-    metadata: normalizedScope.metadata,
-    occurredAt,
-  });
-
-  if (normalizedScope.accountId) {
-    await touchAccountActivity(db, normalizedScope.accountId, occurredAt);
-  }
-}
-
-export async function recordPlatformUsageFact(
-  db: DbClient,
-  input: PlatformUsageFactInput,
-): Promise<void> {
-  const occurredAt = input.occurredAt ?? new Date();
-  const normalizedScope = await normalizeOptionalInstallationScope(db, {
-    accountId: input.accountId ?? null,
-    githubInstallationId: input.githubInstallationId ?? null,
-    metadata: input.metadata,
-  });
-
-  await db
-    .insert(platformUsageFacts)
-    .values({
-      id: crypto.randomUUID(),
-      accountId: normalizedScope.accountId,
-      githubAppId: normalizedScope.githubAppId,
-      githubInstallationId: normalizedScope.githubInstallationId,
-      githubRepositoryId: input.githubRepositoryId ?? null,
-      runKey: input.runKey ?? null,
-      category: input.category,
-      eventKey: input.eventKey,
-      status: input.status ?? null,
-      quantity: input.quantity ?? 1,
-      durationMs: input.durationMs ?? null,
-      metadataJson: JSON.stringify(normalizedScope.metadata ?? {}),
-      occurredAt,
-    })
-    .run();
-
-  if (normalizedScope.accountId) {
-    await touchAccountActivity(db, normalizedScope.accountId, occurredAt);
-  }
 }

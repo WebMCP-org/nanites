@@ -1,5 +1,4 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { sentryCliBinaryExists, sentryVitePlugin } from "@sentry/vite-plugin";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
@@ -10,21 +9,6 @@ import { noTestMocksOverride } from "./tooling/lint/no-test-mocks.ts";
 
 const srcDir = path.join(import.meta.dirname, "src");
 const isVitest = process.env.VITEST !== undefined;
-const sentryOrg = process.env.SENTRY_ORG;
-const sentryProject = process.env.SENTRY_PROJECT?.split(",")
-  .map((project) => project.trim())
-  .filter(Boolean);
-const hasSentryBuildConfig =
-  Boolean(process.env.SENTRY_AUTH_TOKEN) &&
-  Boolean(sentryOrg) &&
-  Boolean(sentryProject && sentryProject.length > 0);
-const canUploadSentrySourceMaps = hasSentryBuildConfig && sentryCliBinaryExists();
-const sentryProjects =
-  !sentryProject || sentryProject.length === 0
-    ? undefined
-    : sentryProject.length === 1
-      ? sentryProject[0]
-      : sentryProject;
 const routerPlugin = tanstackRouter({
   target: "react",
   routesDirectory: "./src/frontend/routes",
@@ -34,46 +18,15 @@ const routerPlugin = tanstackRouter({
   autoCodeSplitting: true,
 }) as PluginOption;
 
-if (hasSentryBuildConfig && !canUploadSentrySourceMaps) {
-  console.warn(
-    "Sentry source map upload is configured but the @sentry/cli binary is unavailable. Approve @sentry/cli build scripts or upload artifacts with `vp dlx -- @sentry/cli ...`.",
-  );
-}
-
 export default defineConfig({
   staged: {
     "*.{ts,tsx,js,jsx}": "vp check --fix",
-  },
-  build: {
-    sourcemap: hasSentryBuildConfig,
   },
   plugins: [
     routerPlugin,
     agents() as PluginOption,
     react() as PluginOption,
     ...(!isVitest ? ([cloudflare() as PluginOption] satisfies PluginOption[]) : []),
-    ...(!isVitest && hasSentryBuildConfig
-      ? ([
-          sentryVitePlugin({
-            org: sentryOrg,
-            project: sentryProjects,
-            authToken: process.env.SENTRY_AUTH_TOKEN,
-            telemetry: false,
-            sourcemaps: {
-              disable: canUploadSentrySourceMaps ? false : "disable-upload",
-              filesToDeleteAfterUpload: canUploadSentrySourceMaps
-                ? ["./dist/client/**/*.js.map", "./dist/nanites_app/**/*.js.map"]
-                : undefined,
-            },
-            release: {
-              name: process.env.SENTRY_RELEASE,
-              create: canUploadSentrySourceMaps,
-              finalize: canUploadSentrySourceMaps,
-              setCommits: canUploadSentrySourceMaps ? { auto: true } : false,
-            },
-          }) as PluginOption,
-        ] satisfies PluginOption[])
-      : []),
   ],
   resolve: {
     alias: [{ find: /^#\/(.*)$/, replacement: `${srcDir}/$1` }],

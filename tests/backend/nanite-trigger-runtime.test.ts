@@ -1,10 +1,9 @@
 import { env } from "cloudflare:test";
 import { getAgentByName } from "agents";
-import {
-  TEST_GITHUB_APP_ID,
-  ensureD1BaselineSchema,
-  saveTestGitHubApp,
-} from "../helpers/d1-baseline.ts";
+import { TEST_GITHUB_APP_ID, ensureD1BaselineSchema } from "../helpers/d1-baseline.ts";
+import { createDbClient } from "#/backend/db/index.ts";
+import { accountInstallations, accounts } from "#/backend/db/schema.ts";
+import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 import { mockGitHubApi } from "../helpers/github-api-mock.ts";
 import type {
   NaniteRunRecord,
@@ -54,16 +53,58 @@ async function getManager(): Promise<InstallationManager> {
 async function getInstallationManager(
   githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1,
 ): Promise<InstallationManager> {
+  await seedInstallationAccount(githubInstallationId);
   return withDetachedRpcResults(
     (await getAgentByName(
       env.SigveloNaniteManager as DurableObjectNamespace<SigveloNaniteManager>,
-      `app:${TEST_GITHUB_APP_ID}:installation:${githubInstallationId}`,
+      buildNaniteManagerKey({ githubInstallationId }),
     )) as unknown as InstallationManager,
   );
 }
 
 function randomInstallationId(): number {
   return Math.floor(Math.random() * 1_000_000) + 1;
+}
+
+async function seedInstallationAccount(githubInstallationId: number): Promise<void> {
+  const db = createDbClient(env.DB);
+  const accountId = `github-account:${githubInstallationId}`;
+
+  await db
+    .insert(accounts)
+    .values({
+      id: accountId,
+      githubAccountId: githubInstallationId,
+      githubAccountLogin: "WebMCP-org",
+      githubAccountType: "Organization",
+    })
+    .onConflictDoUpdate({
+      target: accounts.githubAccountId,
+      set: {
+        githubAccountLogin: "WebMCP-org",
+        githubAccountType: "Organization",
+      },
+    })
+    .run();
+
+  await db
+    .insert(accountInstallations)
+    .values({
+      id: `github-installation:${githubInstallationId}`,
+      accountId,
+      githubAppId: TEST_GITHUB_APP_ID,
+      githubInstallationId,
+      status: "active",
+    })
+    .onConflictDoUpdate({
+      target: accountInstallations.githubInstallationId,
+      set: {
+        accountId,
+        githubAppId: TEST_GITHUB_APP_ID,
+        status: "active",
+      },
+    })
+    .run();
 }
 
 const packageDocsTriggerSource = `
@@ -287,8 +328,6 @@ test("nanite registration stores generated triggers only after validation passes
       eventSource: {
         type: "github",
         events: ["push"],
-        repositories: ["WebMCP-org/nanites"],
-        branches: ["main"],
       },
       triggerSource: `
 export default {
@@ -493,6 +532,7 @@ test("trigger tests reject invalid raw events before generated triggers run", as
 
 test("issues write Nanites can file issues and comment through GitHub MCP inside execute", async () => {
   const githubInstallationId = Math.floor(Math.random() * 1_000_000) + 1;
+  await seedInstallationAccount(githubInstallationId);
   const manager = await getInstallationManager(githubInstallationId);
   const naniteId = "issue-github-mcp-actions";
   const originalFixture = fixtureEnv.NANITES_LLM_FIXTURE;
@@ -597,7 +637,6 @@ test("issues write Nanites can file issues and comment through GitHub MCP inside
   };
 
   try {
-    await saveTestGitHubApp(env.DB);
     fixtureEnv.NANITES_LLM_FIXTURE = "github_mcp_issue_actions";
     await manager.registerNanite({
       manifest: {

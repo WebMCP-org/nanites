@@ -1,14 +1,15 @@
 import { DetailedError } from "hono/client";
 import { z } from "zod";
 
-const detailedErrorDetailSchema = z.object({ data: z.unknown().optional() }).passthrough();
+const detailedErrorDetailSchema = z.object({ data: z.unknown() }).passthrough();
 const apiProblemSchema = z.object({
-  title: z.string().optional(),
-  detail: z.string().optional(),
-  status: z.number().int().optional(),
-  code: z.string().optional(),
+  title: z.string(),
+  detail: z.string(),
+  status: z.number().int(),
+  code: z.string(),
+  instance: z.string(),
   kind: z.string().optional(),
-  requestId: z.string().optional(),
+  requestId: z.string(),
   details: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -32,6 +33,5 @@ export function isAuthenticationRequiredError(error: unknown): boolean {
     return false;
   }
 
-  const code = readApiProblem(error)?.code;
-  return code === undefined || code === "authentication_required";
+  return readApiProblem(error)?.code === "authentication_required";
 }

@@ -2,14 +2,17 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
-import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
-import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
+import { readCloudflareAiGatewayLog } from "#/backend/observability/ai-gateway.ts";
+import type {
+  DeploymentInstallationContext,
+  DeploymentInstallationHonoEnv,
+} from "#/backend/api/apps.ts";
 import {
   OBSERVABILITY_RANGES,
   getAuditFeed,
   getNaniteCatalogRows,
-  getNaniteCostBreakdown,
+  getNaniteAiRequestBreakdown,
   getObservabilityDashboard,
   getObservabilityEventDetail,
   getObservabilityFilterOptions,
@@ -59,11 +62,11 @@ const filterOptionsInput = zValidator(
   requestValidationHook,
 );
 
-async function resolveObservabilityScope(
-  context: WorkerContext,
+function resolveObservabilityScope(
+  context: DeploymentInstallationContext,
   filters: ObservabilityFilters,
-): Promise<ObservabilityVisibilityScope> {
-  const installationScope = await requireDeploymentGitHubInstallation(context.env);
+): ObservabilityVisibilityScope {
+  const installationScope = context.get("deploymentInstallation");
   const visibleRepositoryFullNames = installationScope.repositories.map(
     (repository) => repository.full_name,
   );
@@ -88,7 +91,7 @@ async function resolveObservabilityScope(
 }
 
 async function withObservabilityScope<TResponse>(
-  context: WorkerContext,
+  context: DeploymentInstallationContext,
   filters: ObservabilityFilters,
   handler: (
     db: ReturnType<typeof createDbClient>,
@@ -96,19 +99,19 @@ async function withObservabilityScope<TResponse>(
   ) => Promise<TResponse>,
 ) {
   const db = createDbClient(context.env.DB);
-  const scope = await resolveObservabilityScope(context, filters);
+  const scope = resolveObservabilityScope(context, filters);
   return context.json(await handler(db, scope));
 }
 
-export const observabilityApiRoutes = new Hono<WorkerHonoEnv>()
+export const observabilityApiRoutes = new Hono<DeploymentInstallationHonoEnv>()
   .get("/dashboard", observabilityQueryInput, async (context) =>
     withObservabilityScope(context, context.req.valid("query"), getObservabilityDashboard),
   )
   .get("/overview", observabilityQueryInput, async (context) =>
     withObservabilityScope(context, context.req.valid("query"), getObservabilityOverview),
   )
-  .get("/costs", observabilityQueryInput, async (context) =>
-    withObservabilityScope(context, context.req.valid("query"), getNaniteCostBreakdown),
+  .get("/ai-requests", observabilityQueryInput, async (context) =>
+    withObservabilityScope(context, context.req.valid("query"), getNaniteAiRequestBreakdown),
   )
   .get("/nanites", observabilityQueryInput, async (context) =>
     withObservabilityScope(context, context.req.valid("query"), getNaniteCatalogRows),
@@ -130,6 +133,20 @@ export const observabilityApiRoutes = new Hono<WorkerHonoEnv>()
         throw new AppError("naniteRunNotFound", {
           details: { runId: context.req.valid("param").eventId },
         });
+      }
+
+      if (detail.kind === "ai_usage") {
+        return {
+          ...detail,
+          row: {
+            ...detail.row,
+            aiGatewayLog: await readCloudflareAiGatewayLog({
+              env: context.env,
+              gatewayId: detail.row.aiGatewayId,
+              logId: detail.row.aiGatewayLogId,
+            }),
+          },
+        };
       }
 
       return detail;

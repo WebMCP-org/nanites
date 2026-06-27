@@ -176,14 +176,6 @@ export declare function defineGitHubTrigger<
 ): GitHubTriggerModule<TEventName>;
 `;
 
-function createSigveloTriggerPackageFiles(): Record<string, string> {
-  return {
-    [`${SIGVELO_TRIGGER_PACKAGE_PATH}/package.json`]: sigveloTriggerPackageJson,
-    [`${SIGVELO_TRIGGER_PACKAGE_PATH}/index.d.ts`]: sigveloTriggerTypesSource,
-    [`${SIGVELO_TRIGGER_PACKAGE_PATH}/index.js`]: sigveloTriggerRuntimeSource,
-  };
-}
-
 function describeError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -429,7 +421,9 @@ async function loadGeneratedTriggerWorker(input: RunGeneratedTriggerInput) {
         files: {
           [GENERATED_TRIGGER_ENTRYPOINT_PATH]: triggerWorkerRuntimeSource,
           [GENERATED_TRIGGER_SOURCE_PATH]: input.sourceCode,
-          ...createSigveloTriggerPackageFiles(),
+          [`${SIGVELO_TRIGGER_PACKAGE_PATH}/package.json`]: sigveloTriggerPackageJson,
+          [`${SIGVELO_TRIGGER_PACKAGE_PATH}/index.d.ts`]: sigveloTriggerTypesSource,
+          [`${SIGVELO_TRIGGER_PACKAGE_PATH}/index.js`]: sigveloTriggerRuntimeSource,
         },
         bundle: true,
         minify: false,
@@ -579,24 +573,11 @@ export async function runGeneratedTrigger(
     };
   }
 
-  try {
-    const rawIntents = isRecord(body) && Array.isArray(body.intents) ? body.intents : [];
-    const intents = rawIntents.flatMap((intent) => {
-      const parsedIntent = parseTriggerIntent(intent);
-      return parsedIntent ? [parsedIntent] : [];
-    });
+  const rawIntents = isRecord(body) && Array.isArray(body.intents) ? body.intents : [];
+  const intents = rawIntents.flatMap((intent) => {
+    const parsedIntent = parseTriggerIntent(intent);
+    return parsedIntent ? [parsedIntent] : [];
+  });
 
-    return { ok: true, intents };
-  } catch (error) {
-    return {
-      ok: false,
-      error: formatTriggerError({
-        phase: "intent",
-        error,
-        cacheKey: input.cacheKey,
-        sourceCode: input.sourceCode,
-        responseStatus: response.status,
-      }),
-    };
-  }
+  return { ok: true, intents };
 }

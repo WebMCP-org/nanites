@@ -16,11 +16,9 @@ The core model should stay simple:
 
 Everything else is implementation detail unless it changes trust, timing, cost, or the user's next decision.
 
-For the self-hosted bootstrap direction, see
-[Zero-Config Self-Hosting Plan](./zero-config-self-hosting-plan.md) and
-[Zero-Config Self-Hosting Edge Cases](./zero-config-self-hosting-edge-cases.md). The north star is
-a Cloudflare-owned deploy plus setup flow where customers click through first-party Cloudflare and
-GitHub screens without copying secrets or entering API keys.
+For how Nanites is delivered and what that means for this codebase (and what is safe to delete),
+read [Provisioner Architecture](./provisioner-architecture.md) — this repo is **pure runtime**; a
+central provisioner in the `sigvelo` repo installs Nanites into the customer's Cloudflare account.
 
 ## System map
 

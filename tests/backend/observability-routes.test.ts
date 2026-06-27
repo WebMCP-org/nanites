@@ -13,9 +13,8 @@ import {
   TEST_GITHUB_APP_ID,
   buildTestBrowserAuthCookieHeader,
   ensureD1BaselineSchema,
-  resetGitHubAppTables,
-  saveTestGitHubApp,
 } from "../helpers/d1-baseline.ts";
+import { mockGitHubVisibleInstallations } from "../helpers/github-api-mock.ts";
 
 const TEST_INSTALLATION_ID = 42;
 const TEST_REPOSITORY_ID = 987;
@@ -29,10 +28,8 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM nanite_run_facts;");
   await env.DB.exec("DELETE FROM nanite_catalog;");
   await env.DB.exec("DELETE FROM account_repositories;");
-  await env.DB.exec("DELETE FROM account_people;");
-  await resetGitHubAppTables(env.DB);
+  await env.DB.exec("DELETE FROM account_installations;");
   await env.DB.exec("DELETE FROM accounts;");
-  await saveTestGitHubApp(env.DB);
 });
 
 function buildVisibleRepository(input: { id?: number; fullName?: string } = {}) {
@@ -144,7 +141,6 @@ async function seedObservabilityRows(): Promise<void> {
       repositoryFullName: TEST_REPOSITORY,
       runKey: "run-1",
       naniteId: "docs-syncer",
-      variant: "workspace",
       triggerKind: "manual",
       actorKind: "github_user",
       actorGithubUserId: 1,
@@ -152,9 +148,13 @@ async function seedObservabilityRows(): Promise<void> {
       actorSource: "browser",
       status: "complete",
       conclusion: "success",
-      phase: "completed",
       task: "Update docs",
       summary: "Docs updated.",
+      modelRuntimePath: "workers_ai_gateway",
+      effectiveModelId: "@cf/test/model",
+      effectiveGatewayId: "sigvelo-nanites",
+      modelManifestVersionId: "version-1",
+      modelResolvedAt: now,
       startedAt: now,
       completedAt: now,
       lastUpdatedAt: now,
@@ -173,14 +173,13 @@ async function seedObservabilityRows(): Promise<void> {
       requestId: "request-1",
       provider: "workers-ai",
       model: "@cf/test/model",
-      inputTokens: 10,
-      outputTokens: 20,
-      totalTokens: 30,
+      sessionAffinity: "run-1",
+      aiGatewayId: "sigvelo-nanites",
+      aiGatewayLogId: "gateway-log-1",
       actorKind: "github_user",
       actorGithubUserId: 1,
       actorGithubLogin: "alice",
       actorSource: "browser",
-      estimatedTotalCostUsdMicros: 123,
       startedAt: now,
       completedAt: now,
     })
@@ -212,41 +211,47 @@ async function seedObservabilityRows(): Promise<void> {
 
 test("observability dashboard composes the page after resolving GitHub scope once", async () => {
   await seedObservabilityRows();
+  const restore = mockGitHubVisibleInstallations([{ id: TEST_INSTALLATION_ID }]);
   const request = new Request("http://localhost:5173/api/observability/dashboard?range=7d");
-  const response = await nanitesHttpApp.request(
-    request,
-    {
-      headers: {
-        Cookie: await buildCookieHeader(request),
+  try {
+    const response = await nanitesHttpApp.request(
+      request,
+      {
+        headers: {
+          Cookie: await buildCookieHeader(request),
+        },
       },
-    },
-    env,
-  );
-  const responseBody = await response.json();
-  const body = responseBody as {
-    overview: { kpis: readonly { key: string; value: number }[] };
-    nanites: readonly { naniteId: string }[];
-    runs: readonly { runKey: string }[];
-    audit: readonly { eventName: string }[];
-    filterOptions: {
-      repositories: readonly string[];
-      nanites: readonly string[];
-      creators: readonly string[];
-      outcomes: readonly string[];
-      surfaces: readonly string[];
+      env,
+    );
+    const responseBody = await response.json();
+    const body = responseBody as {
+      overview: { kpis: readonly { key: string; value: number }[] };
+      nanites: readonly { naniteId: string }[];
+      runs: readonly { runKey: string }[];
+      audit: readonly { eventName: string }[];
+      filterOptions: {
+        repositories: readonly string[];
+        nanites: readonly string[];
+        creators: readonly string[];
+        outcomes: readonly string[];
+        surfaces: readonly string[];
+      };
     };
-  };
 
-  expect(response.status).toBe(200);
-  expect(body.nanites).toEqual([expect.objectContaining({ naniteId: "docs-syncer" })]);
-  expect(body.runs).toEqual([expect.objectContaining({ runKey: "run-1" })]);
-  expect(body.audit).toEqual([expect.objectContaining({ eventName: "nanite.run.completed" })]);
-  expect(body.filterOptions.repositories).toEqual([TEST_REPOSITORY]);
-  expect(body.filterOptions).toMatchObject({
-    nanites: ["docs-syncer"],
-    creators: ["alice"],
-    outcomes: ["success"],
-    surfaces: ["browser"],
-  });
-  expect(body.overview.kpis.find((kpi) => kpi.key === "runs")?.value).toBe(1);
+    expect(response.status).toBe(200);
+    expect(body.nanites).toEqual([expect.objectContaining({ naniteId: "docs-syncer" })]);
+    expect(body.runs).toEqual([expect.objectContaining({ runKey: "run-1" })]);
+    expect(body.audit).toEqual([expect.objectContaining({ eventName: "nanite.run.completed" })]);
+    expect(body.filterOptions.repositories).toEqual([TEST_REPOSITORY]);
+    expect(body.filterOptions).toMatchObject({
+      nanites: ["docs-syncer"],
+      creators: ["alice"],
+      outcomes: ["success"],
+      surfaces: ["browser"],
+    });
+    expect(body.overview.kpis.find((kpi) => kpi.key === "ai-requests")?.value).toBe(1);
+    expect(body.overview.kpis.find((kpi) => kpi.key === "runs")?.value).toBe(1);
+  } finally {
+    restore();
+  }
 });

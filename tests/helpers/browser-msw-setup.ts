@@ -1,6 +1,8 @@
 // fallow-ignore-file unused-file
 import { afterAll, afterEach, beforeAll } from "vite-plus/test";
-import { browserWorker } from "./msw-browser-worker.ts";
+import { setupWorker } from "msw/browser";
+
+const browserWorker = setupWorker();
 
 beforeAll(async () => {
   await browserWorker.start({ onUnhandledRequest: "error" });

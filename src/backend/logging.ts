@@ -36,13 +36,13 @@ export const LOG_EVENTS = {
   AGENT_SCHEDULE_EXECUTED: "agent.schedule.executed",
   AGENTS_SDK_OBSERVABILITY_EVENT: "agents_sdk.observability.event",
   AGENT_WEBSOCKET_ERROR: "agent.websocket.error",
-  AUTH_FUNNEL_EVENT_RECORD_FAILED: "auth.funnel_event.record_failed",
   API_REQUEST_FAILED: "api.request.failed",
   API_REQUEST_COMPLETED: "api.request.completed",
   API_REQUEST_NOT_FOUND: "api.request.not_found",
   API_UNHANDLED_ERROR: "api.request.unhandled",
   GITHUB_API_REQUEST_FAILED: "github.api.request.failed",
   GITHUB_API_REQUEST_SUCCEEDED: "github.api.request.succeeded",
+  GITHUB_INSTALLATION_SNAPSHOT_RECORD_FAILED: "github.installation_snapshot.record_failed",
   GITHUB_MANAGER_CONVERSATION_FAILED: "github.manager_conversation.failed",
   GITHUB_MANAGER_CONVERSATION_PUBLISH_FAILED: "github.manager_conversation.publish_failed",
   GITHUB_MANAGER_CONVERSATION_REPLY_TIMEOUT: "github.manager_conversation.reply_timeout",
@@ -72,13 +72,6 @@ export const LOG_EVENTS = {
   NANITE_TRIGGER_EVALUATED: "nanite.trigger.evaluated",
   NANITE_TURN_STARTED: "nanite.turn.started",
   NANITE_STEP_FINISHED: "nanite.step.finished",
-  NANITE_WORKSPACE_HYDRATION_COMPLETED: "nanite.workspace.hydration.completed",
-  NANITE_WORKSPACE_HYDRATION_FAILED: "nanite.workspace.hydration.failed",
-  NANITE_WORKSPACE_HYDRATION_REF_FALLBACK: "nanite.workspace.hydration.ref_fallback",
-  NANITE_WORKSPACE_HYDRATION_REF_RETRY: "nanite.workspace.hydration.ref_retry",
-  NANITE_WORKSPACE_HYDRATION_HEARTBEAT: "nanite.workspace.hydration.heartbeat",
-  NANITE_WORKSPACE_HYDRATION_STARTED: "nanite.workspace.hydration.started",
-  SETUP_INSTALLATION_VERIFICATION_FAILED: "setup.installation.verification.failed",
   SIGVELO_TOOL_CALL_FAILED: "sigvelo.tool_call.failed",
   SIGVELO_TOOL_CALL_FINISHED: "sigvelo.tool_call.finished",
   SIGVELO_TOOL_CALL_STARTED: "sigvelo.tool_call.started",
@@ -103,7 +96,6 @@ export const OTEL_ATTRS = {
   EXCEPTION_CAUSE: "exception.cause",
   EXCEPTION_MESSAGE: "exception.message",
   EXCEPTION_STACKTRACE: "exception.stacktrace",
-  SENTRY_EVENT_ID: "sentry.event_id",
   RPC_SYSTEM: "rpc.system",
   RPC_METHOD: "rpc.method",
   OAUTH_ERROR_CODE: "oauth.error.code",
@@ -121,7 +113,6 @@ export const OTEL_ATTRS = {
   REQUEST_ID: "sigvelo.request.id",
   REQUEST_DURATION_MS: "sigvelo.request.duration_ms",
   ROUTE_TARGET: "sigvelo.route.target",
-  AUTH_FUNNEL_EVENT_TYPE: "sigvelo.auth.funnel.event_type",
   CONVERSATION_NAME: "sigvelo.conversation.name",
   STATUS_MESSAGE_ID: "sigvelo.status_message.id",
   SUBMISSION_ID: "sigvelo.submission.id",
@@ -134,7 +125,6 @@ export const OTEL_ATTRS = {
   AGENTS_SDK_EVENT_TYPE: "agents.sdk.event.type",
   MCP_SERVER_ID: "sigvelo.mcp.server.id",
   MCP_SERVER_NAME: "sigvelo.mcp.server.name",
-  NANITE_PHASE: "sigvelo.nanite.phase",
   NANITE_ACTIVITY_STATE: "sigvelo.nanite.activity.state",
   NANITE_ID: "sigvelo.nanite.id",
   NANITE_MANAGER_NAME: "sigvelo.nanite.manager.name",
@@ -150,8 +140,6 @@ export const OTEL_ATTRS = {
   NANITE_TRIGGER_EVENT: "sigvelo.nanite.trigger.event",
   NANITE_TRIGGER_INTENT_COUNT: "sigvelo.nanite.trigger.intent_count",
   NANITE_TRIGGER_TYPE: "sigvelo.nanite.trigger.type",
-  NANITE_WORKSPACE_HYDRATION_ELAPSED_MS: "sigvelo.nanite.workspace.hydration.elapsed_ms",
-  NANITE_WORKSPACE_HYDRATION_HEARTBEAT_COUNT: "sigvelo.nanite.workspace.hydration.heartbeat_count",
   PROCESS_RUNTIME_NAME: "process.runtime.name",
   SIGVELO_TOOL_SURFACE: "sigvelo.tool.surface",
 } as const satisfies Record<string, string>;
@@ -410,14 +398,6 @@ function logAgentsSdkObservabilityEvent(
   }
 }
 
-function subscribeAgentsSdkObservabilityChannel<K extends AgentsSdkObservabilityChannel>(
-  channel: K,
-): () => void {
-  return subscribe(channel, (event) => {
-    logAgentsSdkObservabilityEvent(channel, event);
-  });
-}
-
 function configureAgentsSdkObservabilityBridge(): void {
   if (agentsSdkObservabilityBridgeConfigured) {
     return;
@@ -426,7 +406,11 @@ function configureAgentsSdkObservabilityBridge(): void {
   agentsSdkObservabilityBridgeConfigured = true;
 
   for (const channel of AGENTS_SDK_OBSERVABILITY_CHANNELS) {
-    agentsSdkObservabilityUnsubscribers.push(subscribeAgentsSdkObservabilityChannel(channel));
+    agentsSdkObservabilityUnsubscribers.push(
+      subscribe(channel, (event) => {
+        logAgentsSdkObservabilityEvent(channel, event);
+      }),
+    );
   }
 }
 

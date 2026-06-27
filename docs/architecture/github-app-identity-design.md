@@ -5,47 +5,37 @@
 
 Nanites hard-requires exactly one active GitHub App per deployment. GitHub is
 the source of truth for installations and repositories; D1 stores projections
-observed from GitHub plus the single deployment app's non-secret metadata.
+observed from GitHub. Worker env stores the single deployment app identity and
+credentials.
 
 ## Decision
 
-One deployment has one active `github_apps` row. That app mints browser OAuth
-tokens, verifies webhooks, mints installation tokens, owns setup links, and
-names Durable Object managers.
+One deployment has one configured GitHub App in Worker vars/secrets. That app
+mints browser OAuth tokens, verifies webhooks, and mints installation tokens.
+The deployment, not a manager name, selects that app.
 
-The manager key remains:
+The manager key is:
 
 ```text
-app:<githubAppId>:installation:<githubInstallationId>
+installation:<githubInstallationId>
 ```
 
-The app id stays in D1 facts and manager identity because it is an observed
-fact, not public page state. The deployment installation is resolved from setup
-metadata and D1 projections; browser page state does not choose it.
+The app id stays in D1 facts, auth cookies, MCP auth props, and GitHub
+messenger credentials because it is a real GitHub/security fact. It is not a
+runtime routing dimension.
 
 ## Invariants
 
-- `resolveDeploymentGitHubApp` / `requireDeploymentGitHubApp` are the only
-  runtime deployment-app resolvers.
-- More than one active `github_apps` row is a deployment configuration error.
-- Registering the same app refreshes its metadata and binding names.
-- Registering a different app fails closed.
+- `readDeploymentGitHubAppMetadata` and `requireDeploymentGitHubApp` are the
+  only runtime deployment-app readers.
+- The deployment app is configured by fixed Worker vars/secrets:
+  `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`,
+  `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_SECRET`, and
+  `GITHUB_APP_WEBHOOK_SECRET`.
 - Browser GitHub user-token cookies are bound to the deployment app by app id
   and client id.
 - Browser sessions identify the signed-in human, not an installation choice.
 - Runtime manager names derive from the deployment installation.
-
-## Setup
-
-The setup wizard creates or restores one deployment app. If a deployment app
-row already exists, setup must not start another GitHub App manifest flow. A
-stalled app means generated Worker secrets are not readable yet or were lost;
-creating another app is not a repair path because it produces orphaned GitHub
-Apps and secret blocks.
-
-Local restore follows the same invariant: `/setup/local/restore` restores
-exactly one app row from `GITHUB_APP_<id>_*` environment blocks and rejects
-multiple blocks with cleanup instructions.
 
 ## Projection
 
@@ -58,22 +48,12 @@ D1 mirrors what the deployment app can see through GitHub APIs:
 Projection rows are cache data. If they disagree with GitHub, refresh from
 GitHub and update D1; do not use D1 as visibility proof.
 
-## Migration And Reset
+## Reset
 
-The one-app database guard is a partial unique index on active GitHub Apps.
-This migration intentionally does not choose a winner if an environment already
-has more than one active app row. This repository is still pre-production, and
-encoding an automatic cleanup policy would preserve a state shape we do not
-want.
-
-If an environment has multiple active `github_apps` rows, reset that environment
-before applying this line of development:
-
-1. Back up anything needed for investigation.
-2. Wipe local `.wrangler` state or the remote pre-prod D1 database.
-3. Re-run migrations.
-4. Restore/register exactly one GitHub App.
-5. Re-authenticate through the deployment app's real GitHub OAuth flow.
+This repository is pre-production. If local GitHub App configuration drifts,
+wipe local `.wrangler` state or the remote pre-prod D1 database, set the fixed
+Worker vars/secrets from the provisioner, and re-authenticate through the
+deployment app's real GitHub OAuth flow.
 
 ## Deferred
 
@@ -82,4 +62,3 @@ These are not part of the one-app deployment model:
 - app-rotation flows
 - bring-your-own-app coexistence
 - cross-app visible-installation unions
-- manager-name migration away from `app:<appId>:installation:<installationId>`

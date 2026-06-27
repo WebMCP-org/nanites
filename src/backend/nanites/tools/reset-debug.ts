@@ -11,7 +11,6 @@ import {
 const resetDebugToolInputSchema = z
   .object({
     naniteId: nonEmptyStringSchema,
-    reason: nonEmptyStringSchema,
   })
   .describe("Reset child-owned Nanite debug state.");
 

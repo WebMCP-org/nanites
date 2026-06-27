@@ -44,7 +44,7 @@ should fail normally.
 
 The manager authoring prompt should tell agents to inspect the current Cloudflare model catalog and
 pick the cheapest reliable function-calling text model for the Nanite's job. Prefer
-Cloudflare-hosted `@cf/...` models for zero-config defaults. Use third-party provider ids only when
+Cloudflare-hosted `@cf/...` models for defaults. Use third-party provider ids only when
 the operator has confirmed the Cloudflare account and AI Gateway can authenticate that provider.
 
 ## Validation
@@ -69,8 +69,8 @@ All model execution goes through the customer-owned Cloudflare deployment:
 - Cloudflare-hosted Workers AI models run through the Worker `AI` binding.
 - Third-party model ids also run through the Worker `AI` binding with the deployment AI Gateway id
   when the Cloudflare account has the needed provider authentication.
-- Setup creates or configures the deployment AI Gateway before launch, using the same environment
-  retry and ZDR settings that runtime requests send per call.
+- The provisioner creates or configures the deployment AI Gateway before launch, using the same
+  environment retry and ZDR settings that runtime requests send per call.
 - Cloudflare owns provider authentication, unified billing, BYOK storage, rate limits, and budget
   controls at the account/gateway layer.
 

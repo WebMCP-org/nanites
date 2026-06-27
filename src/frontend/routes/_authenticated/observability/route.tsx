@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, stripSearchParams } from "@tanstack/react-router";
+import { parseResponse } from "hono/client";
 import {
   ActivityIcon,
   ArrowClockwiseIcon,
@@ -33,8 +34,6 @@ import {
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import { GitHubInstallRequiredState } from "#/frontend/routes/_authenticated/-github-install-required-state.tsx";
 import {
-  AUTH_SESSION_QUERY_KEY,
-  fetchOptionalSession,
   type BrowserNanitesContext,
   type SessionInstallationSnapshot,
 } from "#/frontend/lib/auth.ts";
@@ -42,6 +41,7 @@ import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
 import { Badge, type BadgeColor } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { Card } from "#/frontend/ui/components/Card.tsx";
+import { httpClient } from "#/frontend/lib/http-client.ts";
 import {
   Select,
   SelectList,
@@ -53,10 +53,9 @@ import {
   SelectValue,
 } from "#/frontend/ui/components/Select.tsx";
 import {
-  fetchObservabilityEventDetail,
-  fetchObservabilityDashboard,
   observabilityDashboardQueryKey,
   observabilityEventDetailQueryKey,
+  requestQuery,
   type ObservabilityDashboardData,
 } from "./-queries.ts";
 import {
@@ -67,8 +66,8 @@ import {
 } from "./-search.ts";
 import { ObservabilityValueFilterSelect } from "./-filter-select.tsx";
 import type {
+  AiRequestPoint,
   AuditFeedRow,
-  CostPoint,
   ImpactTrendPoint,
   KpiMetric,
   NaniteCreatorPoint,
@@ -107,7 +106,7 @@ const tabLabels = {
   runs: "Runs",
   audit: "Audit",
 } as const satisfies Record<ObservabilitySearch["tab"], string>;
-const costChartColor = "var(--app-control-dark)";
+const aiRequestChartColor = "var(--app-control-dark)";
 const chartColors = [
   "var(--app-control-dark)",
   "var(--app-accent)",
@@ -140,7 +139,7 @@ const summaryMetricKeys = [
   "lines-changed",
   "active-nanites",
   "waiting-runs",
-  "estimated-cost",
+  "ai-requests",
 ] as const;
 
 type SearchPatch = Partial<ObservabilitySearch>;
@@ -177,20 +176,17 @@ export const Route = createFileRoute("/_authenticated/observability")({
   pendingComponent: RoutePendingPage,
 });
 
-function formatUsd(value: number): string {
-  return (Math.abs(value) < 1 ? preciseUsdFormatter : usdFormatter).format(value);
-}
-
-function formatUsdMicros(value: number): string {
-  return formatUsd(value / 1_000_000);
-}
-
 function formatNumber(value: number): string {
   return numberFormatter.format(value);
 }
 
 function formatKpi(metric: KpiMetric): string {
-  return metric.unit === "usd-micros" ? formatUsdMicros(metric.value) : formatNumber(metric.value);
+  if (metric.unit !== "usd-micros") {
+    return formatNumber(metric.value);
+  }
+
+  const value = metric.value / 1_000_000;
+  return (Math.abs(value) < 1 ? preciseUsdFormatter : usdFormatter).format(value);
 }
 
 function withAvatarSize(avatarUrl: string | null | undefined, size: number): string | undefined {
@@ -213,43 +209,6 @@ function githubProfileUrl(login: string): string {
 
 function avatarFallback(value: string | null | undefined): string {
   return (value ?? "?").slice(0, 2).toUpperCase();
-}
-
-function actorAvatarUrl(session: BrowserNanitesContext | null | undefined): string | null {
-  const actor = session?.actor;
-  return actor && "avatar_url" in actor && typeof actor.avatar_url === "string"
-    ? actor.avatar_url
-    : null;
-}
-
-function actorIdentityPerson(
-  session: BrowserNanitesContext | null | undefined,
-): GitHubIdentityPerson {
-  const login = session?.actor.login;
-
-  return {
-    eyebrow: "Signed in",
-    title: login ?? "GitHub user",
-    fallback: avatarFallback(login),
-    avatarUrl: withAvatarSize(actorAvatarUrl(session), 64),
-    profileLogin: login,
-  };
-}
-
-function installationIdentityPerson(
-  installation: SessionInstallationSnapshot | null | undefined,
-): GitHubIdentityPerson {
-  const login = installation?.account.login;
-
-  return {
-    eyebrow: "Installation",
-    title: login ?? "No installation connected",
-    fallback: avatarFallback(login),
-    avatarUrl: withAvatarSize(installation?.account.avatar_url, 64),
-    detail: installation
-      ? `#${installation.githubInstallationId}`
-      : "Complete setup to connect GitHub",
-  };
 }
 
 function tabSearch(
@@ -346,18 +305,6 @@ function resetFiltersPatch(): SearchPatch {
   };
 }
 
-function costChartPoints(points: readonly CostPoint[]): ChartPoint[] {
-  return points.map((point) => {
-    const value = point.estimatedCostUsdMicros / 1_000_000;
-    return {
-      key: point.key,
-      label: point.label,
-      value,
-      formattedValue: formatUsd(value),
-    };
-  });
-}
-
 function runTrendChartPoints(points: readonly RunTrendPoint[]) {
   return points.map((point) => ({
     label: point.label,
@@ -380,7 +327,7 @@ function impactTrendChartPoints(points: readonly ImpactTrendPoint[]) {
   }));
 }
 
-function countChartPoints(points: readonly CostPoint[]): ChartPoint[] {
+function countChartPoints(points: readonly AiRequestPoint[]): ChartPoint[] {
   return points.map((point) => ({
     key: point.key,
     label: point.label,
@@ -428,7 +375,7 @@ function SummaryMetricIcon({ metricKey }: { readonly metricKey: SummaryMetricKey
       return <ArrowClockwiseIcon size={18} aria-hidden="true" />;
     case "active-nanites":
       return <RobotIcon size={18} aria-hidden="true" />;
-    case "estimated-cost":
+    case "ai-requests":
       return <CoinVerticalIcon size={18} aria-hidden="true" />;
   }
 }
@@ -573,50 +520,42 @@ function TrendArea({
   );
 }
 
-function costPointTotals(points: readonly CostPoint[]) {
+function aiRequestPointTotals(points: readonly AiRequestPoint[]) {
   return points.reduce(
     (totals, point) => ({
-      estimatedCostUsdMicros: totals.estimatedCostUsdMicros + point.estimatedCostUsdMicros,
-      totalTokens: totals.totalTokens + point.totalTokens,
       count: totals.count + point.count,
     }),
-    { estimatedCostUsdMicros: 0, totalTokens: 0, count: 0 },
+    { count: 0 },
   );
 }
 
-function CostOverTimeChart({ points }: { readonly points: readonly CostPoint[] }) {
-  const chartData = useMemo(() => costChartPoints(points), [points]);
-  const totals = useMemo(() => costPointTotals(points), [points]);
+function AiRequestsOverTimeChart({ points }: { readonly points: readonly AiRequestPoint[] }) {
+  const chartData = useMemo(() => countChartPoints(points), [points]);
+  const totals = useMemo(() => aiRequestPointTotals(points), [points]);
 
   return (
-    <ChartPanel title="Cost over time" icon={<CoinVerticalIcon size={17} aria-hidden="true" />}>
+    <ChartPanel
+      title="AI requests over time"
+      icon={<CoinVerticalIcon size={17} aria-hidden="true" />}
+    >
       {chartData.length ? (
         <>
           <TrendAreaChart
             data={chartData}
             initialDimension={{ width: 880, height: 320 }}
-            yAxisWidth={76}
-            tickFormatter={formatUsd}
-            tooltipFormatter={formatUsd}
+            yAxisWidth={56}
+            tooltipFormatter={formatNumber}
           >
             <TrendArea
               dataKey="value"
-              name="Estimated cost"
-              color={costChartColor}
+              name="AI requests"
+              color={aiRequestChartColor}
               fillOpacity={0.16}
               strokeWidth={2.75}
               dot
             />
           </TrendAreaChart>
           <div className="observability-chart-stats">
-            <span>
-              <strong>{formatUsdMicros(totals.estimatedCostUsdMicros)}</strong>
-              <small>Total cost</small>
-            </span>
-            <span>
-              <strong>{formatNumber(totals.totalTokens)}</strong>
-              <small>Tokens</small>
-            </span>
             <span>
               <strong>{formatNumber(totals.count)}</strong>
               <small>Requests</small>
@@ -882,14 +821,14 @@ function RunOutcomeChart({ points }: { readonly points: readonly RunOutcomePoint
 }
 
 function BreakdownBoard({
-  costByNanite,
-  costByRepository,
-  costByModel,
+  aiRequestsByNanite,
+  aiRequestsByRepository,
+  aiRequestsByModel,
   topNanitesByRunCount,
 }: {
-  readonly costByNanite: readonly ChartPoint[];
-  readonly costByRepository: readonly ChartPoint[];
-  readonly costByModel: readonly ChartPoint[];
+  readonly aiRequestsByNanite: readonly ChartPoint[];
+  readonly aiRequestsByRepository: readonly ChartPoint[];
+  readonly aiRequestsByModel: readonly ChartPoint[];
   readonly topNanitesByRunCount: readonly ChartPoint[];
 }) {
   return (
@@ -897,24 +836,24 @@ function BreakdownBoard({
       <div className="observability-panel__header">
         <h2>
           <ChartBarIcon size={17} aria-hidden="true" />
-          Cost and usage breakdown
+          AI request breakdown
         </h2>
       </div>
       <div className="observability-breakdown-grid">
         <MetricBarList
-          title="Cost by Nanite"
-          points={costByNanite}
-          emptyText="No Nanite costs in scope."
+          title="Requests by Nanite"
+          points={aiRequestsByNanite}
+          emptyText="No Nanite requests in scope."
         />
         <MetricBarList
-          title="Cost by repository"
-          points={costByRepository}
-          emptyText="No repository costs in scope."
+          title="Requests by repository"
+          points={aiRequestsByRepository}
+          emptyText="No repository requests in scope."
         />
         <MetricBarList
-          title="Cost by model"
-          points={costByModel}
-          emptyText="No model costs in scope."
+          title="Requests by model"
+          points={aiRequestsByModel}
+          emptyText="No model requests in scope."
         />
         <MetricBarList
           title="Top by run count"
@@ -951,17 +890,38 @@ function GitHubIdentityPanel({
   creator,
   onSelectCreator,
 }: {
-  readonly session: BrowserNanitesContext | null | undefined;
-  readonly activeInstallation: SessionInstallationSnapshot | null;
+  readonly session: BrowserNanitesContext;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly creator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
-  const actorLogin = session?.actor.login;
+  const actorLogin = session.actor.login;
+  const actorAvatarUrl =
+    "avatar_url" in session.actor && typeof session.actor.avatar_url === "string"
+      ? session.actor.avatar_url
+      : null;
+  const installationLogin = activeInstallation.account.login;
 
   return (
     <Card className="observability-github-panel">
-      <GitHubIdentityPersonRow person={actorIdentityPerson(session)} />
-      <GitHubIdentityPersonRow person={installationIdentityPerson(activeInstallation)} />
+      <GitHubIdentityPersonRow
+        person={{
+          eyebrow: "Signed in",
+          title: actorLogin,
+          fallback: avatarFallback(actorLogin),
+          avatarUrl: withAvatarSize(actorAvatarUrl, 64),
+          profileLogin: actorLogin,
+        }}
+      />
+      <GitHubIdentityPersonRow
+        person={{
+          eyebrow: "Installation",
+          title: installationLogin,
+          fallback: avatarFallback(installationLogin),
+          avatarUrl: withAvatarSize(activeInstallation.account.avatar_url, 64),
+          detail: `#${activeInstallation.githubInstallationId}`,
+        }}
+      />
       <GitHubIdentityActions
         actorLogin={actorLogin}
         creator={creator}
@@ -1000,11 +960,11 @@ function GitHubIdentityActions({
   creator,
   onSelectCreator,
 }: {
-  readonly actorLogin: string | undefined;
+  readonly actorLogin: string;
   readonly creator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
-  const actorSelected = Boolean(actorLogin && creator === actorLogin);
+  const actorSelected = creator === actorLogin;
 
   return (
     <div className="observability-github-actions">
@@ -1013,7 +973,6 @@ function GitHubIdentityActions({
         variant={actorSelected ? "normal" : "outline"}
         color={actorSelected ? "primary" : "neutral"}
         size="sm"
-        disabled={!actorLogin}
         onClick={() => onSelectCreator(actorSelected ? undefined : actorLogin)}
       >
         <UsersIcon size={15} aria-hidden="true" />
@@ -1113,15 +1072,15 @@ function ImpactBoard({ impact }: { readonly impact: ObservabilityImpactSummary }
 function PeopleBoard({
   creatorPoints,
   actorPoints,
-  costByActor,
-  costByBillingUser,
+  aiRequestsByActor,
+  aiRequestsByAttributedUser,
   selectedCreator,
   onSelectCreator,
 }: {
   readonly creatorPoints: readonly ChartPoint[];
   readonly actorPoints: readonly ChartPoint[];
-  readonly costByActor: readonly ChartPoint[];
-  readonly costByBillingUser: readonly ChartPoint[];
+  readonly aiRequestsByActor: readonly ChartPoint[];
+  readonly aiRequestsByAttributedUser: readonly ChartPoint[];
   readonly selectedCreator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
@@ -1145,14 +1104,14 @@ function PeopleBoard({
         />
         <MetricBarList title="Runs by actor" points={actorPoints} emptyText="No runs in scope." />
         <MetricBarList
-          title="Cost by actor"
-          points={costByActor}
-          emptyText="No actor costs in scope."
+          title="AI requests by actor"
+          points={aiRequestsByActor}
+          emptyText="No actor requests in scope."
         />
         <MetricBarList
-          title="Cost by billing user"
-          points={costByBillingUser}
-          emptyText="No billing costs in scope."
+          title="AI requests by attributed user"
+          points={aiRequestsByAttributedUser}
+          emptyText="No attributed requests in scope."
         />
       </div>
     </Card>
@@ -1430,7 +1389,6 @@ function NaniteTable({ rows }: { readonly rows: readonly NaniteCatalogRow[] }) {
         row.repositories.slice(0, repositoryPreviewLimit).join(", ") || row.repositoryCount,
     },
     { header: "Runs", render: (row) => formatNumber(row.runCount) },
-    { header: "Cost", render: (row) => formatUsdMicros(row.estimatedCostUsdMicros) },
     { header: "Creator", render: (row) => row.creator ?? "Unknown" },
   ];
 
@@ -1466,7 +1424,6 @@ function RunTable({ rows }: { readonly rows: readonly RunFeedRow[] }) {
     { header: "Repository", render: (row) => row.repository },
     { header: "Status", render: (row) => <OutcomeBadge value={row.conclusion ?? row.status} /> },
     { header: "Actor", render: (row) => row.actor ?? "Unknown" },
-    { header: "Cost", render: (row) => formatUsdMicros(row.estimatedCostUsdMicros) },
     { header: "Impact", render: (row) => <RunImpactCell row={row} /> },
     {
       header: "Result",
@@ -1523,16 +1480,31 @@ function Dashboard({
 }: {
   readonly data: ObservabilityDashboardData;
   readonly search: ObservabilitySearch;
-  readonly session: BrowserNanitesContext | null | undefined;
-  readonly activeInstallation: SessionInstallationSnapshot | null;
+  readonly session: BrowserNanitesContext;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
-  const costByNanite = useMemo(() => costChartPoints(data.overview.costByNanite), [data]);
-  const costByRepository = useMemo(() => costChartPoints(data.overview.costByRepository), [data]);
-  const costByModel = useMemo(() => costChartPoints(data.overview.costByModel), [data]);
-  const costByActor = useMemo(() => costChartPoints(data.overview.costByActor), [data]);
-  const costByBillingUser = useMemo(() => costChartPoints(data.overview.costByBillingUser), [data]);
+  const aiRequestsByNanite = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByNanite),
+    [data],
+  );
+  const aiRequestsByRepository = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByRepository),
+    [data],
+  );
+  const aiRequestsByModel = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByModel),
+    [data],
+  );
+  const aiRequestsByActor = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByActor),
+    [data],
+  );
+  const aiRequestsByAttributedUser = useMemo(
+    () => countChartPoints(data.overview.aiRequestsByAttributedUser),
+    [data],
+  );
   const creatorPoints = useMemo(() => creatorChartPoints(data.overview.nanitesByCreator), [data]);
   const actorPoints = useMemo(() => actorChartPoints(data.overview.runsByActor), [data]);
   const topNanitesByRunCount = useMemo(
@@ -1556,9 +1528,9 @@ function Dashboard({
             <RunOutcomeChart points={data.overview.runsByOutcome} />
           </div>
           <BreakdownBoard
-            costByNanite={costByNanite}
-            costByRepository={costByRepository}
-            costByModel={costByModel}
+            aiRequestsByNanite={aiRequestsByNanite}
+            aiRequestsByRepository={aiRequestsByRepository}
+            aiRequestsByModel={aiRequestsByModel}
             topNanitesByRunCount={topNanitesByRunCount}
           />
         </>
@@ -1575,8 +1547,8 @@ function Dashboard({
           <PeopleBoard
             creatorPoints={creatorPoints}
             actorPoints={actorPoints}
-            costByActor={costByActor}
-            costByBillingUser={costByBillingUser}
+            aiRequestsByActor={aiRequestsByActor}
+            aiRequestsByAttributedUser={aiRequestsByAttributedUser}
             selectedCreator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1592,8 +1564,8 @@ function Dashboard({
           <PeopleBoard
             creatorPoints={creatorPoints}
             actorPoints={actorPoints}
-            costByActor={costByActor}
-            costByBillingUser={costByBillingUser}
+            aiRequestsByActor={aiRequestsByActor}
+            aiRequestsByAttributedUser={aiRequestsByAttributedUser}
             selectedCreator={search.creator}
             onSelectCreator={(creator) => onSearchChange({ creator })}
           />
@@ -1638,11 +1610,11 @@ function Dashboard({
             <RunOutcomeChart points={data.overview.runsByOutcome} />
           </div>
           <ImpactBoard impact={data.overview.impact} />
-          <CostOverTimeChart points={data.overview.costOverTime} />
+          <AiRequestsOverTimeChart points={data.overview.aiRequestsOverTime} />
           <BreakdownBoard
-            costByNanite={costByNanite}
-            costByRepository={costByRepository}
-            costByModel={costByModel}
+            aiRequestsByNanite={aiRequestsByNanite}
+            aiRequestsByRepository={aiRequestsByRepository}
+            aiRequestsByModel={aiRequestsByModel}
             topNanitesByRunCount={topNanitesByRunCount}
           />
           <EventRail
@@ -1689,8 +1661,8 @@ function ObservabilityDashboardState({
   readonly data: ObservabilityDashboardData | undefined;
   readonly isPending: boolean;
   readonly search: ObservabilitySearch;
-  readonly session: BrowserNanitesContext | null | undefined;
-  readonly activeInstallation: SessionInstallationSnapshot | null;
+  readonly session: BrowserNanitesContext;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
@@ -1755,7 +1727,10 @@ function useObservabilityDashboardQueries({
   const dataEnabled = activeInstallation !== null;
   const { data: dashboard, isPending: isDashboardPending } = useQuery({
     queryKey: observabilityDashboardQueryKey(scopedSearch),
-    queryFn: () => fetchObservabilityDashboard(scopedSearch),
+    queryFn: () =>
+      parseResponse(
+        httpClient.api.observability.dashboard.$get({ query: requestQuery(scopedSearch) }),
+      ),
     enabled: dataEnabled,
     refetchInterval: scopedSearch.live ? liveRefreshIntervalMs : false,
     throwOnError: true,
@@ -1764,7 +1739,12 @@ function useObservabilityDashboardQueries({
     queryKey: observabilityEventDetailQueryKey(scopedSearch, selectedEventId),
     queryFn: () =>
       selectedEventId
-        ? fetchObservabilityEventDetail(scopedSearch, selectedEventId)
+        ? parseResponse(
+            httpClient.api.observability.events[":eventId"].$get({
+              param: { eventId: selectedEventId },
+              query: requestQuery(scopedSearch),
+            }),
+          )
         : Promise.resolve(null),
     enabled: dataEnabled && Boolean(selectedEventId),
     throwOnError: true,
@@ -1781,16 +1761,12 @@ function useObservabilityDashboardQueries({
 function ObservabilityRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { data: session, isPending } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
-  });
-  const activeInstallation = session?.activeInstallation ?? null;
-  const scopedSearch = search;
-  const selectedEventId = scopedSearch.selectedEvent;
+  const { session } = Route.useRouteContext();
+  const activeInstallation = session.activeInstallation;
+  const selectedEventId = search.selectedEvent;
   const { dashboard, isDashboardPending, selectedEvent, isSelectedEventPending } =
     useObservabilityDashboardQueries({
-      scopedSearch,
+      scopedSearch: search,
       activeInstallation,
     });
   const setSearch = (patch: SearchPatch) => {
@@ -1800,28 +1776,24 @@ function ObservabilityRoute() {
     });
   };
 
-  if (isPending) {
-    return <RoutePendingPage />;
-  }
-
   if (!activeInstallation) {
-    return <GitHubInstallRequiredState githubApp={session?.githubApp ?? null} />;
+    return <GitHubInstallRequiredState githubApp={session.githubApp} />;
   }
 
   return (
     <main className="observability-shell">
-      <ObservabilityHeader search={scopedSearch} />
+      <ObservabilityHeader search={search} />
       <ObservabilityFilters
-        search={scopedSearch}
+        search={search}
         options={dashboard?.filterOptions ?? emptyFilterOptions}
         onChange={setSearch}
       />
-      <ObservabilityTabs search={scopedSearch} />
-      <ActiveFilterChips search={scopedSearch} onChange={setSearch} />
+      <ObservabilityTabs search={search} />
+      <ActiveFilterChips search={search} onChange={setSearch} />
       <ObservabilityDashboardState
         data={dashboard}
         isPending={isDashboardPending}
-        search={scopedSearch}
+        search={search}
         session={session}
         activeInstallation={activeInstallation}
         onSearchChange={setSearch}
@@ -1834,7 +1806,7 @@ function ObservabilityRoute() {
       />
       <footer className="observability-footer">
         <CoinVerticalIcon size={15} aria-hidden="true" />
-        Estimated AI cost only
+        Cloudflare AI Gateway
       </footer>
     </main>
   );

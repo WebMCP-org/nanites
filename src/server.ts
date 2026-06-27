@@ -5,21 +5,17 @@ import {
   MCP_TOKEN_ROUTE,
   MCP_CLIENT_REGISTRATION_ROUTE,
   SUPPORTED_MCP_SCOPES,
-  DEFAULT_LOCAL_TRACES_SAMPLE_RATE,
-  DEFAULT_REMOTE_TRACES_SAMPLE_RATE,
-  SAMPLING_RATE_MIN,
-  SAMPLING_RATE_MAX,
 } from "#/shared/constants.ts";
 import {
   OAuthError,
   OAuthProvider,
   type OAuthProviderOptions,
 } from "@cloudflare/workers-oauth-provider";
+import { ZodError } from "zod";
 import { HostBridgeLoopback } from "@cloudflare/think/extensions";
 import { getLogger } from "@logtape/logtape";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { nanitesMcpApiHandler } from "#/backend/mcp/index.ts";
-import * as Sentry from "@sentry/cloudflare";
 import {
   downscopeMcpAuthPropsForToken,
   INVALID_MCP_AUTH_PROPS_DESCRIPTION,
@@ -34,14 +30,11 @@ import {
   OTEL_ATTRS,
 } from "#/backend/logging.ts";
 import { createMcpTokenScopeUnavailableError } from "#/backend/errors.ts";
-import { createDbClient } from "#/backend/db/index.ts";
-import { resolveDeploymentGitHubApp } from "#/backend/github/apps.ts";
+import { requireNanitesEnv, summarizeNanitesEnvIssues } from "#/backend/env.ts";
 import { SigveloManagerConversationAgent as BaseSigveloManagerConversationAgent } from "#/backend/agents/SigveloManagerConversationAgent.ts";
 import { SigveloNaniteManager as BaseSigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
 import { NaniteRunWorkflow } from "#/backend/agents/NaniteRunWorkflow.ts";
-import { SigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
-import { NanitesSetupAgent as BaseNanitesSetupAgent } from "#/backend/agents/NanitesSetupAgent.ts";
-import { parseBoundedNumber } from "#/shared/utils/values.ts";
+import { SigveloNaniteAgent as BaseSigveloNaniteAgent } from "#/backend/agents/SigveloNaniteAgent.ts";
 import { ThinkMessengerStateAgent } from "@cloudflare/think/messengers";
 
 configureAgentLogging("info");
@@ -51,37 +44,17 @@ type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions<Env>["onEr
 const OAUTH_AUTHORIZATION_SERVER_METADATA_ROUTE = "/.well-known/oauth-authorization-server";
 const OAUTH_PROTECTED_RESOURCE_METADATA_ROUTE_PREFIX = "/.well-known/oauth-protected-resource";
 
-// Keep Sentry at the Worker boundary. Agents/Think already manages the Durable Object
-// WebSocket context, and Sentry's DO wrapper rewraps waitUntil recursively on those routes.
 export class SigveloManagerConversationAgent extends BaseSigveloManagerConversationAgent {}
 export class SigveloNaniteManager extends BaseSigveloNaniteManager {}
-export class NanitesSetupAgent extends BaseNanitesSetupAgent {}
+export class SigveloNaniteAgent extends BaseSigveloNaniteAgent {}
 
-export { HostBridgeLoopback, NaniteRunWorkflow, SigveloNaniteAgent, ThinkMessengerStateAgent };
+export { HostBridgeLoopback, NaniteRunWorkflow, ThinkMessengerStateAgent };
 
 // The codemode execute tool runs inside a DO facet. Production workerd only
 // accepts a facet class through ctx.exports (a loopback namespace), so the
 // runtime class must be a worker-entry export; the in-module class fallback
 // works in the vitest workerd pool but not in deployed Workers.
 export { CodemodeRuntime } from "@cloudflare/think/server-entry";
-
-function createServerSentryOptions(env: Env) {
-  const environment = env.SENTRY_ENVIRONMENT ?? "production";
-  const isLocalLikeEnvironment = environment === "local" || environment === "development";
-
-  return {
-    dsn: env.SENTRY_DSN ?? "",
-    enabled: Boolean(env.SENTRY_DSN),
-    environment,
-    tracesSampleRate: parseBoundedNumber(
-      env.SENTRY_TRACES_SAMPLE_RATE,
-      isLocalLikeEnvironment ? DEFAULT_LOCAL_TRACES_SAMPLE_RATE : DEFAULT_REMOTE_TRACES_SAMPLE_RATE,
-      SAMPLING_RATE_MIN,
-      SAMPLING_RATE_MAX,
-    ),
-    integrations: [Sentry.vercelAIIntegration()],
-  };
-}
 
 const oauthLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .getChild("oauth")
@@ -90,6 +63,11 @@ const oauthLogger = getLogger(LOGGING.SERVER_CATEGORY)
   });
 const oauthProviderRequestLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .getChild(LOGGING.REQUEST_CHILD_CATEGORY)
+  .with({
+    [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
+  });
+const envLogger = getLogger(LOGGING.SERVER_CATEGORY)
+  .getChild("env")
   .with({
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
@@ -232,19 +210,29 @@ const oauthProvider = new OAuthProvider<Env>({
   },
 });
 
+function readRequestEnv(env: Env): Env | Response {
+  try {
+    return requireNanitesEnv(env);
+  } catch (error) {
+    envLogger.error("deployment_runtime_config_invalid", {
+      [OTEL_ATTRS.EXCEPTION_MESSAGE]:
+        error instanceof ZodError ? summarizeNanitesEnvIssues(error.issues) : String(error),
+    });
+    return Response.json({ code: "deployment_runtime_config_invalid" }, { status: 503 });
+  }
+}
+
 const handler = {
   async fetch(request: Request, env: Env, executionContext: ExecutionContext): Promise<Response> {
-    const oauthProviderRoute = getOAuthProviderRequestRoute(new URL(request.url));
-    if (
-      oauthProviderRoute === MCP_ROUTE &&
-      (await resolveDeploymentGitHubApp(createDbClient(env.DB), env)) === null
-    ) {
-      return Response.json({ code: "deployment_github_app_setup_required" }, { status: 403 });
+    const runtimeEnv = readRequestEnv(env);
+    if (runtimeEnv instanceof Response) {
+      return runtimeEnv;
     }
 
+    const oauthProviderRoute = getOAuthProviderRequestRoute(new URL(request.url));
     const requestId = oauthProviderRoute ? createWorkerRequestId(request) : undefined;
     const startTime = performance.now();
-    const response = await oauthProvider.fetch(request, env, executionContext);
+    const response = await oauthProvider.fetch(request, runtimeEnv, executionContext);
     if (oauthProviderRoute && requestId) {
       logOAuthProviderRequest({
         request,
@@ -259,4 +247,4 @@ const handler = {
   },
 } satisfies ExportedHandler<Env>;
 
-export default Sentry.withSentry(createServerSentryOptions, handler);
+export default handler;

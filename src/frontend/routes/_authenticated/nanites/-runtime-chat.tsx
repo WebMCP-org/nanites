@@ -140,10 +140,6 @@ function normalizeMessages(value: unknown): UIMessage[] {
   });
 }
 
-function getMessageText(message: UIMessage): string {
-  return message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
-}
-
 function shouldShowStreamedTextPart(part: { text: string; state?: "streaming" | "done" }): boolean {
   return part.text.length > 0 || part.state === "streaming";
 }
@@ -193,39 +189,6 @@ function getStringField(value: unknown, field: string): string | null {
   return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : null;
 }
 
-function getLifecycleBaseOutcome(toolName: NaniteLifecycleToolName): {
-  readonly title: string;
-  readonly statusLabel: string;
-  readonly tone: Exclude<NaniteLifecycleToolTone, "active">;
-} {
-  switch (toolName) {
-    case "complete":
-      return {
-        title: "Work complete",
-        statusLabel: "Complete",
-        tone: "success",
-      };
-    case "no_change":
-      return {
-        title: "No change needed",
-        statusLabel: "No change",
-        tone: "neutral",
-      };
-    case "fail":
-      return {
-        title: "Run failed",
-        statusLabel: "Failed",
-        tone: "danger",
-      };
-    case "ask_manager":
-      return {
-        title: "Manager input needed",
-        statusLabel: "Needs manager",
-        tone: "warning",
-      };
-  }
-}
-
 function getNaniteLifecycleOutcome(
   toolName: NaniteLifecycleToolName,
   part: {
@@ -234,13 +197,42 @@ function getNaniteLifecycleOutcome(
     readonly state: string;
   },
 ): NaniteLifecycleOutcome {
-  const base = getLifecycleBaseOutcome(toolName);
+  const base = {
+    complete: {
+      title: "Work complete",
+      statusLabel: "Complete",
+      tone: "success",
+    },
+    no_change: {
+      title: "No change needed",
+      statusLabel: "No change",
+      tone: "neutral",
+    },
+    fail: {
+      title: "Run failed",
+      statusLabel: "Failed",
+      tone: "danger",
+    },
+    ask_manager: {
+      title: "Manager input needed",
+      statusLabel: "Needs manager",
+      tone: "warning",
+    },
+  } as const satisfies Record<
+    NaniteLifecycleToolName,
+    {
+      readonly title: string;
+      readonly statusLabel: string;
+      readonly tone: Exclude<NaniteLifecycleToolTone, "active">;
+    }
+  >;
+  const outcome = base[toolName];
   const isActive = part.state === "input-streaming" || part.state === "input-available";
 
   return {
-    ...base,
-    tone: isActive ? "active" : base.tone,
-    statusLabel: isActive ? "Reporting" : base.statusLabel,
+    ...outcome,
+    tone: isActive ? "active" : outcome.tone,
+    statusLabel: isActive ? "Reporting" : outcome.statusLabel,
     summary: getLifecycleSummary(part),
     outputUrl: getStringField(part.output, "outputUrl") ?? getStringField(part.input, "outputUrl"),
   };
@@ -264,15 +256,20 @@ function getLifecycleSummary(part: {
   return part.state === "output-available" ? "The Nanite reported this outcome." : null;
 }
 
-function NaniteLifecycleIcon({ tone }: { readonly tone: NaniteLifecycleToolTone }) {
-  if (tone === "success") return <CheckCircleIcon size={18} weight="fill" aria-hidden="true" />;
-  if (tone === "danger") return <XCircleIcon size={18} weight="fill" aria-hidden="true" />;
-  if (tone === "warning") return <HandPalmIcon size={18} weight="fill" aria-hidden="true" />;
-  if (tone === "active") return <CircleNotchIcon size={18} aria-hidden="true" />;
-  return <WarningCircleIcon size={18} weight="fill" aria-hidden="true" />;
-}
-
 function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteLifecycleOutcome }) {
+  const icon =
+    outcome.tone === "success" ? (
+      <CheckCircleIcon size={18} weight="fill" aria-hidden="true" />
+    ) : outcome.tone === "danger" ? (
+      <XCircleIcon size={18} weight="fill" aria-hidden="true" />
+    ) : outcome.tone === "warning" ? (
+      <HandPalmIcon size={18} weight="fill" aria-hidden="true" />
+    ) : outcome.tone === "active" ? (
+      <CircleNotchIcon size={18} aria-hidden="true" />
+    ) : (
+      <WarningCircleIcon size={18} weight="fill" aria-hidden="true" />
+    );
+
   return (
     <section
       className="nanite-lifecycle-tool"
@@ -280,9 +277,7 @@ function NaniteLifecycleToolCard({ outcome }: { readonly outcome: NaniteLifecycl
       data-testid="nanite-lifecycle-tool"
       aria-label={outcome.title}
     >
-      <div className="nanite-lifecycle-tool__icon">
-        <NaniteLifecycleIcon tone={outcome.tone} />
-      </div>
+      <div className="nanite-lifecycle-tool__icon">{icon}</div>
       <div className="nanite-lifecycle-tool__body">
         <div className="nanite-lifecycle-tool__header">
           <strong>{outcome.title}</strong>
@@ -399,7 +394,7 @@ function ProseMarkdown({ children, streaming = false }: { children: string; stre
   );
 }
 
-export function RuntimeConversation({
+function RuntimeConversation({
   agentMessages,
   isRecovering = false,
   isStreaming,
@@ -443,7 +438,11 @@ export function RuntimeConversation({
                   return (
                     <Message key={message.id} from="user">
                       <MessageContent>
-                        <ProseMarkdown>{getMessageText(message)}</ProseMarkdown>
+                        <ProseMarkdown>
+                          {message.parts
+                            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+                            .join("")}
+                        </ProseMarkdown>
                       </MessageContent>
                     </Message>
                   );

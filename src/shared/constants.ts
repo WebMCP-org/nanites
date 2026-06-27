@@ -29,7 +29,7 @@ export const GITHUB_OAUTH_CALLBACK_PATH = `${GITHUB_AUTH_ROUTE_PREFIX}callback`;
 export const AUTH_RETURN_TO_PARAM = "returnTo";
 
 /**
- * Path scope for browser auth cookies. `/` lets login state cover the dashboard, setup, and MCP
+ * Path scope for browser auth cookies. `/` lets login state cover the dashboard and MCP
  * authorization screens.
  */
 export const BROWSER_AUTH_COOKIE_PATH = "/";
@@ -55,17 +55,6 @@ export const BROWSER_AUTH_COOKIE_NAMES = {
  * URL base used only to parse app-relative browser paths with the platform `URL` parser.
  */
 export const RELATIVE_URL_BASE = "https://sigvelo.local";
-
-/**
- * Default GitHub App slug for hosted SigVelo installs when a deployment does not provide another
- * app slug.
- */
-export const DEFAULT_GITHUB_APP_SLUG = "sigvelo";
-
-/**
- * Public GitHub App page for the default SigVelo app.
- */
-export const SIGVELO_GITHUB_APP_URL = `https://github.com/apps/${DEFAULT_GITHUB_APP_SLUG}`;
 
 /**
  * GitHub path that starts a fresh app installation.
@@ -164,65 +153,13 @@ export const MANAGER_CONVERSATION_AGENT_NAME = "sigvelo-manager-conversation-age
 export const NANITE_AGENT_NAME = "sigvelo-nanite-agent";
 
 /**
- * Agents SDK class name used by the first-launch setup wizard.
- */
-export const NANITES_SETUP_AGENT_NAME = "nanites-setup-agent";
-
-/**
- * Single deployment-scoped setup wizard instance.
- */
-export const NANITES_SETUP_AGENT_INSTANCE_NAME = "default";
-
-/**
  * Default model for SigVelo agents. Shared with the browser so the UI can show the same fallback
  * model used by getModel() when conversation state predates the `model` field.
  */
 export const DEFAULT_SIGVELO_AGENT_MODEL_ID = "@cf/zai-org/glm-5.2";
 
 /**
- * Canonical manager Durable Object key pattern. Captures GitHub App id and installation id from
- * `app:<appId>:installation:<installationId>`.
+ * Canonical manager Durable Object key pattern. A deployment has one active GitHub App, so the
+ * GitHub installation id is the runtime manager boundary.
  */
-export const NANITE_MANAGER_KEY_PATTERN = /^app:(\d+):installation:(\d+)$/;
-
-/**
- * Local and development Sentry traces sample every transaction to make debugging deterministic.
- */
-export const DEFAULT_LOCAL_TRACES_SAMPLE_RATE = 1;
-
-/**
- * Production-like Sentry traces sample a small fraction of traffic to control event volume.
- */
-export const DEFAULT_REMOTE_TRACES_SAMPLE_RATE = 0.1;
-
-/**
- * Browser development Sentry traces sample every transaction to match local Worker behavior.
- */
-export const DEFAULT_DEV_TRACES_SAMPLE_RATE = DEFAULT_LOCAL_TRACES_SAMPLE_RATE;
-
-/**
- * Browser production Sentry traces use the same low-volume default as the Worker.
- */
-export const DEFAULT_PROD_TRACES_SAMPLE_RATE = DEFAULT_REMOTE_TRACES_SAMPLE_RATE;
-
-/**
- * Default browser Replay session sample rate. This keeps Replay opt-in at runtime but low-volume
- * when enabled.
- */
-export const DEFAULT_REPLAY_SESSION_SAMPLE_RATE = 0.1;
-
-/**
- * Default browser Replay on-error sample rate. When an error occurs, capture the full session for
- * debugging context.
- */
-export const DEFAULT_REPLAY_ON_ERROR_SAMPLE_RATE = 1;
-
-/**
- * Lowest valid Sentry sample rate accepted by Sentry SDKs.
- */
-export const SAMPLING_RATE_MIN = 0;
-
-/**
- * Highest valid Sentry sample rate accepted by Sentry SDKs.
- */
-export const SAMPLING_RATE_MAX = 1;
+export const NANITE_MANAGER_KEY_PATTERN = /^installation:(\d+)$/;

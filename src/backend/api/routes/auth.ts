@@ -7,9 +7,11 @@ import {
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { createDbClient } from "#/backend/db/index.ts";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
-import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
+import {
+  requireAuthorizedDeploymentInstallation,
+  type DeploymentGitHubInstallation,
+} from "#/backend/auth/installations.ts";
 import {
   completeGitHubOAuthCallback,
   mintTestAuthSession,
@@ -27,7 +29,6 @@ import {
 import { readDeploymentGitHubAppMetadata } from "#/backend/github/apps.ts";
 import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { normalizeAuthenticatedReturnToPath } from "#/shared/utils/auth.ts";
-import { shouldShowSetup } from "#/backend/setup-policy.ts";
 
 const testAuthQueryInput = zValidator(
   "query",
@@ -69,54 +70,6 @@ const githubOAuthCallbackQueryInput = zValidator(
   requestValidationHook,
 );
 
-const githubInstallationIdQueryValueSchema = z
-  .string()
-  .min(1)
-  .transform((value) => Number(value))
-  .pipe(z.number().int().positive());
-
-const gitHubAppInstallCallbackQuerySchema = z.object({
-  installation_id: githubInstallationIdQueryValueSchema,
-  setup_action: z.enum(["install", "update"]),
-  state: z.string().min(1).nullable(),
-});
-
-type GitHubAppInstallCallbackQuery = z.infer<typeof gitHubAppInstallCallbackQuerySchema>;
-
-function readGitHubAppInstallCallbackQuery(request: Request): GitHubAppInstallCallbackQuery | null {
-  const callbackUrl = new URL(request.url);
-  if (!callbackUrl.searchParams.has("setup_action")) {
-    return null;
-  }
-
-  const result = gitHubAppInstallCallbackQuerySchema.safeParse({
-    installation_id: callbackUrl.searchParams.get("installation_id"),
-    setup_action: callbackUrl.searchParams.get("setup_action"),
-    state: callbackUrl.searchParams.get("state"),
-  });
-  return result.success ? result.data : null;
-}
-
-function buildGitHubInstallVerificationLoginUrl(
-  request: Request,
-  callbackQuery: GitHubAppInstallCallbackQuery,
-): URL {
-  const verifyUrl = new URL("/setup/github/verify", request.url);
-  verifyUrl.searchParams.set("installation_id", String(callbackQuery.installation_id));
-  if (callbackQuery.state) {
-    verifyUrl.searchParams.set("state", callbackQuery.state);
-  }
-
-  const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, request.url);
-  loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, `${verifyUrl.pathname}${verifyUrl.search}`);
-  return loginUrl;
-}
-
-function buildGitHubInstallCallbackLoginUrl(request: Request): URL | null {
-  const callbackQuery = readGitHubAppInstallCallbackQuery(request);
-  return callbackQuery ? buildGitHubInstallVerificationLoginUrl(request, callbackQuery) : null;
-}
-
 export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
   .get(TEST_AUTH_MINT_SESSION_PATH, testAuthQueryInput, async (context) => {
     if (String(context.env.ALLOW_TEST_AUTH) !== "true") {
@@ -148,52 +101,17 @@ export const browserAuthRoutes = new Hono<WorkerHonoEnv>()
       requestUrl.hostname = "localhost";
       return context.redirect(requestUrl.toString(), 302);
     }
-    const deploymentApp = await readDeploymentGitHubAppMetadata(createDbClient(context.env.DB));
-    const canonicalOrigin = deploymentApp?.setupOrigin ?? null;
-    if (canonicalOrigin && requestUrl.origin !== canonicalOrigin) {
-      return context.redirect(
-        new URL(`${requestUrl.pathname}${requestUrl.search}`, canonicalOrigin).toString(),
-        302,
-      );
-    }
-
-    let login: Awaited<ReturnType<typeof startGitHubOAuthLogin>>;
-    try {
-      login = await startGitHubOAuthLogin({
-        request: context.req.raw,
-        env: context.env,
-        requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
-      });
-    } catch (error) {
-      if (error instanceof AppError && error.kind === "deploymentGitHubAppSetupRequired") {
-        if (shouldShowSetup(context.env)) {
-          return context.redirect("/setup", 302);
-        }
-        // Literal path (not an import from dev-setup.ts) so production builds
-        // can still tree-shake the dev-only route module. Loopback IPs were
-        // already normalized to `localhost` above.
-        if (
-          import.meta.env.DEV &&
-          (requestUrl.hostname === "localhost" || requestUrl.hostname.endsWith(".localhost"))
-        ) {
-          return context.redirect("/setup/local", 302);
-        }
-      }
-      throw error;
-    }
+    const login = await startGitHubOAuthLogin({
+      request: context.req.raw,
+      env: context.env,
+      requestedReturnToPath: context.req.valid("query")[AUTH_RETURN_TO_PARAM] ?? null,
+    });
 
     context.header("Set-Cookie", login.stateCookie);
     return context.redirect(login.authorizationUrl, 302);
   })
   .get(GITHUB_OAUTH_CALLBACK_PATH, githubOAuthCallbackQueryInput, async (context) => {
     const callbackQuery = context.req.valid("query");
-    const setupVerificationLoginUrl = buildGitHubInstallCallbackLoginUrl(context.req.raw);
-    if (setupVerificationLoginUrl !== null) {
-      context.header("Set-Cookie", clearGitHubOAuthStateCookie(context.req.raw), {
-        append: true,
-      });
-      return context.redirect(setupVerificationLoginUrl.toString(), 302);
-    }
 
     const result = await completeGitHubOAuthCallback({
       request: context.req.raw,
@@ -216,37 +134,29 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
       return context.json(null);
     }
 
-    const deploymentGitHubApp = await readDeploymentGitHubAppMetadata(
-      createDbClient(context.env.DB),
-    );
-    if (!deploymentGitHubApp) {
-      appendExpiredAuthCookies(context.req.raw, context.res.headers);
-      return context.json(null);
-    }
+    const deploymentGitHubApp = readDeploymentGitHubAppMetadata(context.env);
 
+    let activeInstallation: DeploymentGitHubInstallation | null = null;
     try {
-      await requireGitHubUserToken(context.req.raw, context.env, {
-        responseHeaders: context.res.headers,
+      const githubUserToken = await requireGitHubUserToken(
+        context.req.raw,
+        context.env,
+        context.res.headers,
+      );
+      activeInstallation = await requireAuthorizedDeploymentInstallation({
+        env: context.env,
+        githubUserToken,
       });
     } catch (error) {
-      if (
-        error instanceof AppError &&
-        (error.kind === "authenticationRequired" ||
-          error.kind === "deploymentGitHubAppSetupRequired")
-      ) {
+      if (error instanceof AppError && error.kind === "authenticationRequired") {
         appendExpiredAuthCookies(context.req.raw, context.res.headers);
         return context.json(null);
       }
-
-      throw error;
-    }
-
-    let activeInstallation: Awaited<ReturnType<typeof requireDeploymentGitHubInstallation>> | null =
-      null;
-    try {
-      activeInstallation = await requireDeploymentGitHubInstallation(context.env);
-    } catch (error) {
-      if (!(error instanceof AppError) || error.kind !== "deploymentGitHubInstallationRequired") {
+      if (
+        !(error instanceof AppError) ||
+        (error.kind !== "deploymentGitHubInstallationRequired" &&
+          error.kind !== "deploymentGitHubInstallationForbidden")
+      ) {
         throw error;
       }
     }
@@ -255,10 +165,8 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
       actor: session.githubViewer,
       activeInstallation,
       githubApp: {
-        appId: deploymentGitHubApp.appId,
         slug: deploymentGitHubApp.slug,
         htmlUrl: deploymentGitHubApp.htmlUrl,
-        ownerLogin: deploymentGitHubApp.ownerLogin,
       },
       expiresAt: session.expiresAt,
     });

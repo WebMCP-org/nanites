@@ -118,13 +118,11 @@ permissions, and stop conditions. The Think runtime owns the actual work.
 Current repo state:
 
 - `wrangler.jsonc` already declares `LOADER` and `BROWSER` bindings.
-- `NanitesSetupAgent.checkBrowserBinding()` treats Browser Run as optional and
-  labels it future preview verification support.
 - `SigveloNaniteAgent.getTools()` creates the `execute` tool with workspace,
   git, artifacts, optional GitHub MCP connectors, and Browser Run only when
   manager-owned `runtimeConfig.browser` enables it.
-- The setup wizard stops after repository selection plus launch. It should not
-  ask for the Modern Web Guidance URL or create a Nanite.
+- First-run onboarding should not ask for the Modern Web Guidance URL or create
+  a Nanite.
 - The Nanites manager empty state includes a Modern Web Guidance starter prompt
   that preloads the right intent without bypassing manager questions.
 - `SigveloManagerConversationAgent` already loads the canonical Nanites authoring

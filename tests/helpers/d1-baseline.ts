@@ -6,29 +6,42 @@ import {
   sealGitHubUserTokenCookie,
   sealSessionCookie,
 } from "#/backend/auth/session.ts";
-import { createDbClient } from "#/backend/db/index.ts";
-import { registerGitHubApp } from "#/backend/github/apps.ts";
 
-/**
- * The GitHub App id used across backend tests. The test wrangler config
- * provides this app's per-app worker secrets
- * (`GITHUB_APP_12345_PRIVATE_KEY` and friends).
- */
 export const TEST_GITHUB_APP_ID = 12345;
+export const TEST_GITHUB_APP_CLIENT_ID = "generated-client-id";
 
 const initializedDatabases = new WeakSet<D1Database>();
-
-function buildIdempotentMigrationStatements(): readonly string[] {
+const baselineTables = [
+  "ai_usage_facts",
+  "audit_events",
+  "nanite_run_facts",
+  "nanite_catalog",
+  "account_repositories",
+  "account_installations",
+  "accounts",
+] as const;
+function buildMigrationStatements(): readonly string[] {
   return baselineMigrationSql
     .split("--> statement-breakpoint")
-    .map((statement) =>
-      statement
-        .replaceAll("CREATE TABLE `", "CREATE TABLE IF NOT EXISTS `")
-        .replaceAll("CREATE UNIQUE INDEX `", "CREATE UNIQUE INDEX IF NOT EXISTS `")
-        .replaceAll(/\s+/g, " ")
-        .trim(),
-    )
+    .map((statement) => statement.replaceAll(/\s+/g, " ").trim())
     .filter((statement) => statement.length > 0);
+}
+
+function idempotentCreateStatement(statement: string): string {
+  return statement
+    .replaceAll("CREATE TABLE `", "CREATE TABLE IF NOT EXISTS `")
+    .replaceAll("CREATE UNIQUE INDEX `", "CREATE UNIQUE INDEX IF NOT EXISTS `");
+}
+
+async function resetBaselineTables(db: D1Database): Promise<void> {
+  await db.exec("PRAGMA foreign_keys = OFF;");
+  try {
+    for (const tableName of baselineTables) {
+      await db.exec(`DROP TABLE IF EXISTS \`${tableName}\`;`);
+    }
+  } finally {
+    await db.exec("PRAGMA foreign_keys = ON;");
+  }
 }
 
 export async function ensureD1BaselineSchema(db: D1Database): Promise<void> {
@@ -36,40 +49,85 @@ export async function ensureD1BaselineSchema(db: D1Database): Promise<void> {
     return;
   }
 
-  for (const statement of buildIdempotentMigrationStatements()) {
-    await db.exec(statement);
+  await resetBaselineTables(db);
+  for (const statement of buildMigrationStatements()) {
+    await db.exec(idempotentCreateStatement(statement));
   }
   initializedDatabases.add(db);
 }
 
-export async function resetGitHubAppTables(db: D1Database): Promise<void> {
-  await ensureD1BaselineSchema(db);
-  // account_installations references github_apps, so clear it first.
-  await db.exec("DELETE FROM account_installations;");
-  await db.exec("DELETE FROM github_apps;");
-}
-
-export async function saveTestGitHubApp(
+export async function seedTestDeploymentInstallation(
   db: D1Database,
   input: {
-    readonly appId?: number;
-    readonly slug?: string;
-    readonly htmlUrl?: string;
-    readonly setupOrigin?: string | null;
-  } = {},
+    readonly githubInstallationId: number;
+    readonly accountId?: string;
+    readonly githubAccountId?: number;
+    readonly githubAccountLogin?: string;
+    readonly githubAccountType?: "Organization" | "User";
+    readonly githubAppId?: number;
+  },
 ): Promise<void> {
-  await ensureD1BaselineSchema(db);
-  await registerGitHubApp(createDbClient(db), {
-    appId: input.appId ?? TEST_GITHUB_APP_ID,
-    slug: input.slug ?? "nanites-test",
-    htmlUrl: input.htmlUrl ?? "https://github.com/apps/nanites-test",
-    setupOrigin: input.setupOrigin ?? null,
-    ownerLogin: "WebMCP-org",
-    ownerType: "Organization",
-    clientId: "generated-client-id",
-    permissions: {},
-    events: [],
-  });
+  const now = Date.now();
+  const accountId = input.accountId ?? `github-account:${input.githubInstallationId}`;
+  const githubAppId = input.githubAppId ?? TEST_GITHUB_APP_ID;
+  const githubAccountId = input.githubAccountId ?? input.githubInstallationId;
+
+  await db
+    .prepare(
+      `INSERT INTO accounts (
+        id,
+        github_account_id,
+        github_account_login,
+        github_account_type,
+        github_account_avatar_url,
+        last_active_at,
+        first_seen_at,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      accountId,
+      githubAccountId,
+      input.githubAccountLogin ?? "WebMCP-org",
+      input.githubAccountType ?? "Organization",
+      null,
+      now,
+      now,
+      now,
+      now,
+    )
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO account_installations (
+        id,
+        account_id,
+        github_app_id,
+        github_installation_id,
+        status,
+        first_seen_at,
+        last_seen_at,
+        suspended_at,
+        removed_at,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      `github-installation:${input.githubInstallationId}`,
+      accountId,
+      githubAppId,
+      input.githubInstallationId,
+      "active",
+      now,
+      now,
+      null,
+      null,
+      now,
+      now,
+    )
+    .run();
 }
 
 export async function buildTestBrowserAuthCookieHeader(
@@ -92,7 +150,7 @@ export async function buildTestBrowserAuthCookieHeader(
     refreshToken: null,
     refreshTokenExpiresAt: null,
     githubAppId,
-    githubAppClientId: "generated-client-id",
+    githubAppClientId: TEST_GITHUB_APP_CLIENT_ID,
   });
 
   return [
