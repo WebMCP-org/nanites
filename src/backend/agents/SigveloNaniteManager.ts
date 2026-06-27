@@ -1661,10 +1661,11 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
   @callable()
   async testNaniteTrigger(input: TestNaniteTriggerInput): Promise<TestNaniteTriggerOutput> {
-    const githubInstallationId = this.installationId();
-    if (!githubInstallationId) {
+    const identity = this.managerIdentity();
+    if (!identity) {
       throw new AppError("naniteManagerInstallationRequired");
     }
+    const githubInstallationId = identity.githubInstallationId;
     this.requireNanite(input.naniteId);
 
     const parsedEvent = parseGitHubTriggerTestEvent(input.event, githubInstallationId);
@@ -1843,10 +1844,9 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
     for (const nanite of Object.values(this.state.nanites)) {
       const naniteId = nanite.manifest.id;
-      const resolveAgent = async () => this.naniteAgent(naniteId);
-      let agent: Awaited<ReturnType<typeof resolveAgent>>;
+      let agent: NaniteAgentRpc;
       try {
-        agent = await resolveAgent();
+        agent = await this.naniteAgent(naniteId);
       } catch (error) {
         failedNaniteAgentMaintenance.push({
           naniteId,
@@ -1912,10 +1912,6 @@ export class SigveloNaniteManager extends Agent<Env, NaniteManagerState> {
 
   private managerIdentity(): NaniteManagerIdentity | null {
     return parseNaniteManagerKey(this.name);
-  }
-
-  private installationId(): number | null {
-    return this.managerIdentity()?.githubInstallationId ?? null;
   }
 
   private async managerScope(): Promise<NaniteManagerRuntimeScope | null> {

@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { createDbClient } from "#/backend/db/index.ts";
-import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
 import { readCloudflareAiGatewayLog } from "#/backend/observability/ai-gateway.ts";
-import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
+import type {
+  DeploymentInstallationContext,
+  DeploymentInstallationHonoEnv,
+} from "#/backend/api/apps.ts";
 import {
   OBSERVABILITY_RANGES,
   getAuditFeed,
@@ -60,11 +62,11 @@ const filterOptionsInput = zValidator(
   requestValidationHook,
 );
 
-async function resolveObservabilityScope(
-  context: WorkerContext,
+function resolveObservabilityScope(
+  context: DeploymentInstallationContext,
   filters: ObservabilityFilters,
-): Promise<ObservabilityVisibilityScope> {
-  const installationScope = await requireDeploymentGitHubInstallation(context.env);
+): ObservabilityVisibilityScope {
+  const installationScope = context.get("deploymentInstallation");
   const visibleRepositoryFullNames = installationScope.repositories.map(
     (repository) => repository.full_name,
   );
@@ -89,7 +91,7 @@ async function resolveObservabilityScope(
 }
 
 async function withObservabilityScope<TResponse>(
-  context: WorkerContext,
+  context: DeploymentInstallationContext,
   filters: ObservabilityFilters,
   handler: (
     db: ReturnType<typeof createDbClient>,
@@ -97,11 +99,11 @@ async function withObservabilityScope<TResponse>(
   ) => Promise<TResponse>,
 ) {
   const db = createDbClient(context.env.DB);
-  const scope = await resolveObservabilityScope(context, filters);
+  const scope = resolveObservabilityScope(context, filters);
   return context.json(await handler(db, scope));
 }
 
-export const observabilityApiRoutes = new Hono<WorkerHonoEnv>()
+export const observabilityApiRoutes = new Hono<DeploymentInstallationHonoEnv>()
   .get("/dashboard", observabilityQueryInput, async (context) =>
     withObservabilityScope(context, context.req.valid("query"), getObservabilityDashboard),
   )

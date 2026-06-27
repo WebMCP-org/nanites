@@ -3,16 +3,16 @@ import { env } from "cloudflare:test";
 import { nanitesHttpApp } from "#/backend/api/apps.ts";
 import { authorizeAgentRequest } from "#/backend/auth/index.ts";
 import {
-  TEST_GITHUB_APP_ID,
   buildTestBrowserAuthCookieHeader,
   ensureD1BaselineSchema,
+  seedTestDeploymentInstallation,
 } from "../helpers/d1-baseline.ts";
-import { mockGitHubApi } from "../helpers/github-api-mock.ts";
+import { mockGitHubApi, mockGitHubVisibleInstallations } from "../helpers/github-api-mock.ts";
 import { buildNaniteManagerKey } from "#/shared/utils/nanites.ts";
 
 const GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const TEST_INSTALLATION_ID = 122769206;
-const TEST_ACCOUNT_ID = "github-account:122769206";
+const TEST_REQUEST_ID = "test-request-id";
 
 beforeEach(async () => {
   await ensureD1BaselineSchema(env.DB);
@@ -40,61 +40,7 @@ function mockGitHubViewer(): () => void {
 }
 
 async function seedDeploymentInstallation(): Promise<void> {
-  const now = Date.now();
-  await env.DB.prepare(
-    `INSERT INTO accounts (
-      id,
-      github_account_id,
-      github_account_login,
-      github_account_type,
-      github_account_avatar_url,
-      last_active_at,
-      first_seen_at,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      TEST_ACCOUNT_ID,
-      TEST_INSTALLATION_ID,
-      "WebMCP-org",
-      "Organization",
-      null,
-      now,
-      now,
-      now,
-      now,
-    )
-    .run();
-  await env.DB.prepare(
-    `INSERT INTO account_installations (
-      id,
-      account_id,
-      github_app_id,
-      github_installation_id,
-      status,
-      first_seen_at,
-      last_seen_at,
-      suspended_at,
-      removed_at,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      `github-installation:${TEST_INSTALLATION_ID}`,
-      TEST_ACCOUNT_ID,
-      TEST_GITHUB_APP_ID,
-      TEST_INSTALLATION_ID,
-      "active",
-      now,
-      now,
-      null,
-      null,
-      now,
-      now,
-    )
-    .run();
+  await seedTestDeploymentInstallation(env.DB, { githubInstallationId: TEST_INSTALLATION_ID });
 }
 
 async function buildAuthenticatedCookieHeader(request: Request): Promise<string> {
@@ -128,7 +74,7 @@ async function expectAgentAuthProblemResponse(
   expected: Record<string, unknown>,
   status = 403,
 ): Promise<void> {
-  const authorized = await authorizeAgentRequest(request, env);
+  const authorized = await authorizeAgentRequest(request, env, TEST_REQUEST_ID);
 
   expect(authorized).toBeInstanceOf(Response);
   expect((authorized as Response).status).toBe(status);
@@ -242,6 +188,31 @@ test("optional session returns a null active installation when no deployment ins
   });
 });
 
+test("optional session hides active installation when GitHub user cannot see it", async () => {
+  await seedDeploymentInstallation();
+  const restore = mockGitHubVisibleInstallations([]);
+  const request = new Request("http://localhost:5173/api/auth/session/optional");
+  const cookieHeader = await buildAuthenticatedCookieHeader(request);
+
+  try {
+    const response = await nanitesHttpApp.request(
+      request,
+      {
+        headers: { Cookie: cookieHeader },
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actor: { id: 94631653, login: "MiguelsPizza" },
+      activeInstallation: null,
+    });
+  } finally {
+    restore();
+  }
+});
+
 test("optional session clears stale auth cookies when the token belongs to another app", async () => {
   const request = new Request("http://localhost:5173/api/auth/session/optional");
   const cookieHeader = await buildTestBrowserAuthCookieHeader(env, request, {
@@ -254,6 +225,7 @@ test("optional session clears stale auth cookies when the token belongs to anoth
 
 test("manager conversation agent auth derives trusted actor headers", async () => {
   await seedDeploymentInstallation();
+  const restore = mockGitHubVisibleInstallations([{ id: TEST_INSTALLATION_ID }]);
   const managerName = buildNaniteManagerKey({
     githubInstallationId: TEST_INSTALLATION_ID,
   });
@@ -270,16 +242,21 @@ test("manager conversation agent auth derives trusted actor headers", async () =
     },
   );
 
-  const authorized = await authorizeAgentRequest(request, env);
+  try {
+    const authorized = await authorizeAgentRequest(request, env, TEST_REQUEST_ID);
 
-  expect(authorized).toBeInstanceOf(Request);
-  const headers = (authorized as Request).headers;
-  expect(headers.get("x-nanites-github-login")).toBe("MiguelsPizza");
-  expect(headers.get("x-nanites-github-user-id")).toBe("94631653");
+    expect(authorized).toBeInstanceOf(Request);
+    const headers = (authorized as Request).headers;
+    expect(headers.get("x-nanites-github-login")).toBe("MiguelsPizza");
+    expect(headers.get("x-nanites-github-user-id")).toBe("94631653");
+  } finally {
+    restore();
+  }
 });
 
 test("manager conversation agent auth rejects a manager outside the deployment installation", async () => {
   await seedDeploymentInstallation();
+  const restore = mockGitHubVisibleInstallations([{ id: TEST_INSTALLATION_ID }]);
   const managerName = buildNaniteManagerKey({
     githubInstallationId: 999,
   });
@@ -294,9 +271,13 @@ test("manager conversation agent auth rejects a manager outside the deployment i
     },
   );
 
-  await expectAgentAuthProblemResponse(request, {
-    code: "agent_authorization_forbidden",
-  });
+  try {
+    await expectAgentAuthProblemResponse(request, {
+      code: "agent_authorization_forbidden",
+    });
+  } finally {
+    restore();
+  }
 });
 
 test("manager conversation agent auth rejects another actor suffix", async () => {
@@ -320,6 +301,33 @@ test("manager conversation agent auth rejects another actor suffix", async () =>
   });
 });
 
+test("manager conversation agent auth rejects GitHub users outside the deployment installation", async () => {
+  await seedDeploymentInstallation();
+  const restore = mockGitHubVisibleInstallations([]);
+  const managerName = buildNaniteManagerKey({
+    githubInstallationId: TEST_INSTALLATION_ID,
+  });
+  const request = new Request(
+    `http://localhost:5173/agents/${MANAGER_CONVERSATION_AGENT_NAME}/${managerName}:manager:94631653`,
+    {
+      headers: {
+        Cookie: await buildAuthenticatedCookieHeader(
+          new Request("http://localhost:5173/api/auth/session/optional"),
+        ),
+      },
+    },
+  );
+
+  try {
+    await expectAgentAuthProblemResponse(request, {
+      code: "deployment_github_installation_forbidden",
+      githubInstallationId: TEST_INSTALLATION_ID,
+    });
+  } finally {
+    restore();
+  }
+});
+
 test("test auth token failures bubble through the root error handler", async () => {
   const response = await nanitesHttpApp.request("/auth/test/mint-session?redirect=0", {}, env);
 
@@ -330,11 +338,37 @@ test("test auth token failures bubble through the root error handler", async () 
   });
 });
 
-test("root error handler maps auth failures from mounted API routes", async () => {
+test("protected API routes require a browser session", async () => {
   const response = await nanitesHttpApp.request("/api/nanites/manager", {}, env);
 
-  expect(response.status).toBe(403);
+  expect(response.status).toBe(401);
   expect(await response.json()).toMatchObject({
-    code: "deployment_github_installation_required",
+    code: "authentication_required",
   });
+});
+
+test("protected API routes reject GitHub users outside the deployment installation", async () => {
+  await seedDeploymentInstallation();
+  const restore = mockGitHubVisibleInstallations([]);
+  const request = new Request("http://localhost:5173/api/nanites/models");
+
+  try {
+    const response = await nanitesHttpApp.request(
+      request,
+      {
+        headers: {
+          Cookie: await buildAuthenticatedCookieHeader(request),
+        },
+      },
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      code: "deployment_github_installation_forbidden",
+      githubInstallationId: TEST_INSTALLATION_ID,
+    });
+  } finally {
+    restore();
+  }
 });

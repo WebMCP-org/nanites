@@ -116,7 +116,6 @@ type NaniteToolOutputArtifactStoreOptions = {
   naniteId: string | null;
   naniteName: string;
   runId: string | null;
-  ttlSeconds?: number;
 };
 
 type RequiredArtifactScope = {
@@ -133,10 +132,6 @@ function encodeKeySegment(value: string): string {
     /[!'()*]/g,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   );
-}
-
-function addSeconds(date: Date, seconds: number): Date {
-  return new Date(date.getTime() + seconds * 1_000);
 }
 
 function clampInteger(
@@ -214,7 +209,6 @@ export class NaniteToolOutputArtifactStore {
   readonly #naniteId: string | null;
   readonly #naniteName: string;
   readonly #runId: string | null;
-  readonly #ttlSeconds: number;
 
   constructor(options: NaniteToolOutputArtifactStoreOptions) {
     this.#kv = options.kv;
@@ -222,7 +216,6 @@ export class NaniteToolOutputArtifactStore {
     this.#naniteId = options.naniteId;
     this.#naniteName = options.naniteName;
     this.#runId = options.runId;
-    this.#ttlSeconds = options.ttlSeconds ?? naniteToolOutputArtifactTtlSeconds;
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -230,7 +223,7 @@ export class NaniteToolOutputArtifactStore {
     const scope = this.#requireScope();
     const artifactId = `toolout_${crypto.randomUUID().replace(/-/g, "")}`;
     const createdAt = new Date();
-    const expiresAt = addSeconds(createdAt, this.#ttlSeconds);
+    const expiresAt = new Date(createdAt.getTime() + naniteToolOutputArtifactTtlSeconds * 1_000);
     const metadata: NaniteToolOutputArtifactMetadata = {
       artifactId,
       runId: scope.runId,
@@ -247,7 +240,7 @@ export class NaniteToolOutputArtifactStore {
     };
 
     await this.#kv.put(this.#key(scope, artifactId), input.content, {
-      expirationTtl: this.#ttlSeconds,
+      expirationTtl: naniteToolOutputArtifactTtlSeconds,
       metadata,
     });
 
@@ -285,26 +278,21 @@ export class NaniteToolOutputArtifactStore {
     return metadata.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
-  async #read(
-    input: NaniteToolOutputArtifactReadCommand,
-  ): Promise<NaniteToolOutputArtifactReadResult> {
-    switch (input.action) {
+  async readToolInput(input: unknown): Promise<NaniteToolOutputArtifactReadResult> {
+    const command = normalizeArtifactReadInput(
+      naniteToolOutputArtifactReadInputSchema.parse(input),
+    );
+    switch (command.action) {
       case "list":
         return {
           action: "list",
-          artifacts: await this.#list(input.listLimit),
+          artifacts: await this.#list(command.listLimit),
         };
       case "read":
-        return this.#readSlice(input);
+        return this.#readSlice(command);
       case "grep":
-        return this.#grep(input);
+        return this.#grep(command);
     }
-  }
-
-  async readToolInput(input: unknown): Promise<NaniteToolOutputArtifactReadResult> {
-    return this.#read(
-      normalizeArtifactReadInput(naniteToolOutputArtifactReadInputSchema.parse(input)),
-    );
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -455,9 +443,6 @@ type PersistToolOutputArtifactInput = {
 };
 
 type NaniteToolOutputBudgetOptions = {
-  defaultMaxResponseChars?: number;
-  minResponseChars?: number;
-  hardMaxResponseChars?: number;
   excludedToolNames?: Iterable<string>;
   persistArtifact: (input: PersistToolOutputArtifactInput) => Promise<{ artifactId: string }>;
   onTruncated?: (event: {
@@ -537,18 +522,13 @@ function serializeToolOutput(output: unknown): SerializedToolOutput {
   };
 }
 
-function clampMaxResponseChars(input: {
-  requestedMaxResponseChars: number | null;
-  options: NaniteToolOutputBudgetOptions;
-}): number {
-  const minResponseChars =
-    input.options.minResponseChars ?? naniteToolOutputBudget.minResponseChars;
-  const hardMaxResponseChars =
-    input.options.hardMaxResponseChars ?? naniteToolOutputBudget.hardMaxResponseChars;
-  const defaultMaxResponseChars =
-    input.options.defaultMaxResponseChars ?? naniteToolOutputBudget.defaultMaxResponseChars;
-  const requestedMaxResponseChars = input.requestedMaxResponseChars ?? defaultMaxResponseChars;
-  return Math.min(Math.max(requestedMaxResponseChars, minResponseChars), hardMaxResponseChars);
+function clampMaxResponseChars(input: { requestedMaxResponseChars: number | null }): number {
+  const requestedMaxResponseChars =
+    input.requestedMaxResponseChars ?? naniteToolOutputBudget.defaultMaxResponseChars;
+  return Math.min(
+    Math.max(requestedMaxResponseChars, naniteToolOutputBudget.minResponseChars),
+    naniteToolOutputBudget.hardMaxResponseChars,
+  );
 }
 
 function buildPreview(text: string, maxResponseChars: number): string {
@@ -631,7 +611,6 @@ async function applyNaniteToolOutputBudget(
   const serialized = serializeToolOutput(output);
   const maxResponseChars = clampMaxResponseChars({
     requestedMaxResponseChars: input.requestedMaxResponseChars ?? null,
-    options: input.options,
   });
 
   if (serialized.text.length <= maxResponseChars) {

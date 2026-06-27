@@ -11,10 +11,6 @@ type GitHubMcpConnectorOptions = {
    * installation token plus the X-MCP tool-filter headers.
    */
   createHeaders: () => Promise<Record<string, string>>;
-  /** Overridable for tests; defaults to GitHub's hosted MCP server. */
-  url?: string;
-  /** Overridable for tests; defaults to a real streamable-HTTP MCP client. */
-  createConnection?: () => Promise<McpConnectionLike> | McpConnectionLike;
 };
 
 /**
@@ -37,20 +33,15 @@ export class GitHubMcpConnector extends McpConnector {
   }
 
   protected override async createConnection(): Promise<McpConnectionLike> {
-    if (this.#options.createConnection) {
-      return this.#options.createConnection();
-    }
-
     // A failure here fails codemode initialization, and with it every execute call of
     // the current turn, git.* and state.* included — so make the cause
     // unmistakably GitHub MCP rather than a generic execute error.
     try {
       const headers = await this.#options.createHeaders();
       const client = new Client({ name: "sigvelo-nanite", version: "0.0.0" });
-      const transport = new StreamableHTTPClientTransport(
-        new URL(this.#options.url ?? GITHUB_MCP_SERVER_URL),
-        { requestInit: { headers } },
-      );
+      const transport = new StreamableHTTPClientTransport(new URL(GITHUB_MCP_SERVER_URL), {
+        requestInit: { headers },
+      });
       await client.connect(transport);
       return {
         name: "github",

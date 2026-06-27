@@ -1,15 +1,10 @@
 import { Hono } from "hono";
 import { getAgentByName } from "agents";
-import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
 import type { SigveloNaniteManager } from "#/backend/agents/SigveloNaniteManager.ts";
-import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
+import type { DeploymentInstallationHonoEnv } from "#/backend/api/apps.ts";
 
 const MODEL_CATALOG_PAGE_SIZE = 100;
 const MODEL_CATALOG_MAX_PAGES = 20;
-
-function buildThirdPartyModelsUrl(accountId: string): string {
-  return `https://dash.cloudflare.com/${encodeURIComponent(accountId)}/ai/models?providers=third-party`;
-}
 
 async function listTextGenerationModelCatalog(
   ai: Env["AI"],
@@ -35,7 +30,7 @@ async function listTextGenerationModelCatalog(
   return models;
 }
 
-export const nanitesApiRoutes = new Hono<WorkerHonoEnv>()
+export const nanitesApiRoutes = new Hono<DeploymentInstallationHonoEnv>()
   .get("/models", async (context) => {
     // Workers AI binding exposes hosted Workers AI models; proxied AI Gateway models are not
     // returned by this API.
@@ -43,12 +38,11 @@ export const nanitesApiRoutes = new Hono<WorkerHonoEnv>()
     context.header("Cache-Control", "public, max-age=3600");
     return context.json({
       models,
-      thirdPartyModelsUrl: buildThirdPartyModelsUrl(context.env.CLOUDFLARE_ACCOUNT_ID),
+      thirdPartyModelsUrl: `https://dash.cloudflare.com/${encodeURIComponent(context.env.CLOUDFLARE_ACCOUNT_ID)}/ai/models?providers=third-party`,
     });
   })
   .get("/manager", async (context) => {
-    const deploymentInstallation = await requireDeploymentGitHubInstallation(context.env);
-    const managerName = deploymentInstallation.managerName;
+    const { managerName } = context.get("deploymentInstallation");
 
     const manager = await getAgentByName<Env, SigveloNaniteManager>(
       context.env.SigveloNaniteManager,

@@ -9,7 +9,7 @@ import {
   MCP_CONSENT_COOKIE_MAX_AGE_SECONDS,
 } from "#/shared/constants.ts";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
 import { secureHeaders } from "hono/secure-headers";
@@ -18,15 +18,15 @@ import { z } from "zod";
 import { AppError, describeError, requestValidationHook } from "#/backend/errors.ts";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import {
-  requireDeploymentGitHubInstallation,
+  requireAuthorizedDeploymentInstallation,
   type DeploymentGitHubInstallation,
 } from "#/backend/auth/installations.ts";
 import {
-  readSessionCookie,
-  type NanitesSession,
   requireGitHubUserToken,
+  requireSession,
+  type NanitesSession,
 } from "#/backend/auth/session.ts";
-import type { WorkerContext, WorkerHonoEnv } from "#/backend/api/apps.ts";
+import type { WorkerHonoEnv } from "#/backend/api/apps.ts";
 import { resolveGrantedMcpScopes } from "#/backend/mcp/index.ts";
 import { buildGitHubAppInstallHref } from "#/shared/utils/github.ts";
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
@@ -40,13 +40,32 @@ const consentCookiePayloadSchema = z.object({
 });
 
 type EnvWithOAuthHelpers = Env & {
-  OAUTH_PROVIDER?: OAuthHelpers;
+  OAUTH_PROVIDER: OAuthHelpers;
 };
 
-type BrowserAuthorizeContext = {
+export type McpBrowserAuthorizeContext = {
   actor: NanitesSession["githubViewer"];
-  deploymentInstallation: DeploymentGitHubInstallation | null;
+  deploymentInstallation: DeploymentGitHubInstallation;
 };
+
+type McpOAuthHonoEnv = {
+  Bindings: Env;
+  Variables: WorkerHonoEnv["Variables"] & {
+    mcpAuthRequest: AuthRequest;
+    mcpBrowserAuthorizeContext: McpBrowserAuthorizeContext;
+    mcpOAuthProvider: OAuthHelpers;
+  };
+};
+
+type McpOAuthContext = Context<McpOAuthHonoEnv>;
+
+type BrowserAuthorizeContext =
+  | ({
+      status: "authorized";
+    } & McpBrowserAuthorizeContext)
+  | {
+      status: "login" | "no_installations" | "forbidden";
+    };
 
 export type McpAuthorizeContext =
   | {
@@ -92,17 +111,12 @@ const mcpConsentFormInput = zValidator(
   requestValidationHook,
 );
 
-const mcpOAuthProviderRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {
-  const oauthProvider = (context.env as EnvWithOAuthHelpers).OAUTH_PROVIDER;
-  if (!oauthProvider) {
-    throw new AppError("mcpOAuthProviderUnavailable");
-  }
-
-  context.set("mcpOAuthProvider", oauthProvider);
+const mcpOAuthProviderRequired = createMiddleware<McpOAuthHonoEnv>(async (context, next) => {
+  context.set("mcpOAuthProvider", (context.env as EnvWithOAuthHelpers).OAUTH_PROVIDER);
   await next();
 });
 
-const mcpAuthRequestRequired = createMiddleware<WorkerHonoEnv>(async (context, next) => {
+const mcpAuthRequestRequired = createMiddleware<McpOAuthHonoEnv>(async (context, next) => {
   const sourceUrl = new URL(context.req.raw.url);
   const authRequestUrl =
     sourceUrl.pathname === MCP_AUTHORIZE_CONTEXT_ROUTE
@@ -132,7 +146,7 @@ const mcpAuthRequestRequired = createMiddleware<WorkerHonoEnv>(async (context, n
   await next();
 });
 
-async function readOptionalBrowserAuthorizeContext({
+async function requireMcpBrowserAuthorizeContext({
   request,
   env,
   responseHeaders,
@@ -140,30 +154,47 @@ async function readOptionalBrowserAuthorizeContext({
   request: Request;
   env: Env;
   responseHeaders: Headers;
-}): Promise<BrowserAuthorizeContext | null> {
-  const session = await readSessionCookie(request, env);
-  if (!session) {
-    return null;
-  }
+}): Promise<McpBrowserAuthorizeContext> {
+  const session = await requireSession(request, env);
+  const githubUserToken = await requireGitHubUserToken(request, env, responseHeaders);
+  const deploymentInstallation = await requireAuthorizedDeploymentInstallation({
+    env,
+    githubUserToken,
+  });
 
+  return {
+    actor: session.githubViewer,
+    deploymentInstallation,
+  };
+}
+
+async function readBrowserAuthorizeContext({
+  request,
+  env,
+  responseHeaders,
+}: {
+  request: Request;
+  env: Env;
+  responseHeaders: Headers;
+}): Promise<BrowserAuthorizeContext> {
   try {
-    await requireGitHubUserToken(request, env, { responseHeaders });
-    let deploymentInstallation: DeploymentGitHubInstallation | null = null;
-    try {
-      deploymentInstallation = await requireDeploymentGitHubInstallation(env);
-    } catch (error) {
-      if (!(error instanceof AppError && error.kind === "deploymentGitHubInstallationRequired")) {
-        throw error;
-      }
-    }
-
     return {
-      actor: session.githubViewer,
-      deploymentInstallation,
+      status: "authorized",
+      ...(await requireMcpBrowserAuthorizeContext({
+        request,
+        env,
+        responseHeaders,
+      })),
     };
   } catch (error) {
     if (error instanceof AppError && error.kind === "authenticationRequired") {
-      return null;
+      return { status: "login" };
+    }
+    if (error instanceof AppError && error.kind === "deploymentGitHubInstallationRequired") {
+      return { status: "no_installations" };
+    }
+    if (error instanceof AppError && error.kind === "deploymentGitHubInstallationForbidden") {
+      return { status: "forbidden" };
     }
 
     throw error;
@@ -192,7 +223,7 @@ async function hashAuthRequest(authRequest: AuthRequest): Promise<string> {
   ).toString("base64url");
 }
 
-async function readConsentCookie(context: WorkerContext) {
+async function readConsentCookie(context: McpOAuthContext) {
   const sealedValue = await getSignedCookie(
     context,
     `${context.env.AUTH_COOKIE_SECRET}:mcp-consent`,
@@ -210,7 +241,7 @@ async function readConsentCookie(context: WorkerContext) {
   }
 }
 
-function expireConsentCookie(context: WorkerContext): void {
+function expireConsentCookie(context: McpOAuthContext): void {
   deleteCookie(context, MCP_CONSENT_COOKIE_NAME, {
     path: MCP_CONSENT_COOKIE_PATH,
     httpOnly: true,
@@ -220,7 +251,7 @@ function expireConsentCookie(context: WorkerContext): void {
 }
 
 function redirectOAuthError(
-  context: WorkerContext,
+  context: McpOAuthContext,
   authRequest: AuthRequest,
   error: "access_denied",
   description: string,
@@ -234,7 +265,21 @@ function redirectOAuthError(
   return context.redirect(redirectUrl.toString(), 302);
 }
 
-export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
+const mcpBrowserAuthorizeContextRequired = createMiddleware<McpOAuthHonoEnv>(
+  async (context, next) => {
+    context.set(
+      "mcpBrowserAuthorizeContext",
+      await requireMcpBrowserAuthorizeContext({
+        request: context.req.raw,
+        env: context.env,
+        responseHeaders: context.res.headers,
+      }),
+    );
+    await next();
+  },
+);
+
+export const mcpOAuthRoutes = new Hono<McpOAuthHonoEnv>()
   .use(MCP_AUTHORIZE_ROUTE, secureHeaders({ xFrameOptions: "DENY" }), (context, next) => {
     context.header("cache-control", "no-store");
     return next();
@@ -260,20 +305,13 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
     mcpConsentFormInput,
     mcpOAuthProviderRequired,
     mcpAuthRequestRequired,
+    mcpBrowserAuthorizeContextRequired,
     async (context) => {
       const oauthProvider = context.get("mcpOAuthProvider");
       const authRequest = context.get("mcpAuthRequest");
       const client = await oauthProvider.lookupClient(authRequest.clientId);
       const clientName = client?.clientName?.trim() || authRequest.clientId;
-      const authContext = await readOptionalBrowserAuthorizeContext({
-        request: context.req.raw,
-        env: context.env,
-        responseHeaders: context.res.headers,
-      });
-
-      if (!authContext) {
-        throw new AppError("mcpAuthorizationInstallationRequired");
-      }
+      const authContext = context.get("mcpBrowserAuthorizeContext");
 
       const formData = context.req.valid("form");
       const consentCookie = await readConsentCookie(context);
@@ -297,9 +335,6 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
       }
 
       const deploymentInstallation = authContext.deploymentInstallation;
-      if (!deploymentInstallation) {
-        throw new AppError("mcpAuthorizationInstallationRequired");
-      }
       if (deploymentInstallation.repositories.length === 0) {
         return redirectOAuthError(
           context,
@@ -353,14 +388,14 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
       const clientName = client?.clientName?.trim() || authRequest.clientId;
       const requestedScopes = resolveGrantedMcpScopes(authRequest.scope);
 
-      const authContext = await readOptionalBrowserAuthorizeContext({
+      const authContext = await readBrowserAuthorizeContext({
         request: context.req.raw,
         env: context.env,
         responseHeaders: context.res.headers,
       });
       const authorizeReturnToPath = `${MCP_AUTHORIZE_UI_ROUTE}${sourceUrl.search}`;
 
-      if (!authContext) {
+      if (authContext.status === "login") {
         const loginUrl = new URL(GITHUB_OAUTH_LOGIN_PATH, context.req.raw.url);
         loginUrl.searchParams.set(AUTH_RETURN_TO_PARAM, `${sourceUrl.pathname}${sourceUrl.search}`);
 
@@ -369,6 +404,16 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           clientName,
           loginHref: loginUrl.toString(),
         });
+      }
+
+      if (authContext.status === "forbidden") {
+        return context.json(
+          {
+            status: "invalid",
+            message: "Your GitHub account cannot access this Nanites deployment.",
+          },
+          403,
+        );
       }
 
       const deploymentGitHubApp = requireDeploymentGitHubApp(context.env);
@@ -380,8 +425,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
           appSlug: deploymentGitHubApp.slug,
         });
 
-      const deploymentInstallation = authContext.deploymentInstallation;
-      if (!deploymentInstallation) {
+      if (authContext.status === "no_installations") {
         expireConsentCookie(context);
         return context.json({
           status: "no_installations",
@@ -390,6 +434,7 @@ export const mcpOAuthRoutes = new Hono<WorkerHonoEnv>()
         });
       }
 
+      const deploymentInstallation = authContext.deploymentInstallation;
       if (deploymentInstallation.repositories.length === 0) {
         expireConsentCookie(context);
         return context.json({

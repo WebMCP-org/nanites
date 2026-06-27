@@ -5,13 +5,12 @@ import {
   NANITE_AGENT_NAME,
 } from "#/shared/constants.ts";
 import { getLogger } from "@logtape/logtape";
-import { AppError, createAppErrorProblemResponse } from "#/backend/errors.ts";
-import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
+import { AppError, appErrorProblemResponse } from "#/backend/errors.ts";
+import { requireAuthorizedDeploymentInstallation } from "#/backend/auth/installations.ts";
 import { createDbClient } from "#/backend/db/index.ts";
 import { getWebFlowAuthorizationUrl } from "@octokit/oauth-methods";
 import {
   buildBrowserSessionExpiration,
-  buildOAuthStateExpiration,
   clearGitHubOAuthStateCookie,
   clearGitHubUserTokenCookie,
   clearSessionCookie,
@@ -23,7 +22,9 @@ import {
   sealGitHubUserTokenCookie,
   sealSessionCookie,
   appendExpiredAuthCookies,
+  requireGitHubUserToken,
   requireSession,
+  type NanitesSession,
 } from "#/backend/auth/session.ts";
 import { recordVisibleInstallationSnapshots } from "#/backend/db/facts.ts";
 import {
@@ -41,6 +42,7 @@ const authLogger = getLogger(LOGGING.SERVER_CATEGORY)
   .with({
     [OTEL_ATTRS.PROCESS_RUNTIME_NAME]: LOGGING.WORKER_RUNTIME,
   });
+const GITHUB_OAUTH_STATE_TTL_SECONDS = 60 * 60;
 
 function buildGitHubOAuthCallbackUrl(request: Request): string {
   const url = new URL(request.url);
@@ -63,7 +65,7 @@ export async function startGitHubOAuthLogin({
   const githubOAuthState = githubOAuthStateSchema.parse({
     state: crypto.randomUUID(),
     returnToPath: normalizeAuthenticatedReturnToPath(requestedReturnToPath),
-    expiresAt: buildOAuthStateExpiration(),
+    expiresAt: new Date(Date.now() + GITHUB_OAUTH_STATE_TTL_SECONDS * 1000).toISOString(),
   });
   const githubAppConfig = requireDeploymentGitHubApp(env);
   const { url: authorizationUrl } = getWebFlowAuthorizationUrl({
@@ -105,33 +107,11 @@ export async function completeGitHubOAuthCallback({
   }
 
   const deploymentGitHubApp = requireDeploymentGitHubApp(env);
-  let githubUserToken: Awaited<ReturnType<typeof exchangeGitHubOAuthCode>>;
-  try {
-    githubUserToken = await exchangeGitHubOAuthCode({
-      code,
-      redirectUri: buildGitHubOAuthCallbackUrl(request),
-      env,
-    });
-  } catch (error) {
-    if (!(error instanceof AppError) || error.kind !== "githubOAuthTokenExchangeFailed") {
-      throw error;
-    }
-
-    const githubError =
-      typeof error.details?.githubError === "string" ? error.details.githubError : null;
-    const githubResponseStatus =
-      typeof error.details?.githubResponseStatus === "number"
-        ? error.details.githubResponseStatus
-        : null;
-    authLogger.warn(LOG_EVENTS.GITHUB_OAUTH_TOKEN_EXCHANGE_FAILED, {
-      [OTEL_ATTRS.GITHUB_OAUTH_ERROR]: githubError ?? "oauth_token_exchange_failed",
-      ...(githubResponseStatus === null
-        ? {}
-        : { [OTEL_ATTRS.GITHUB_RESPONSE_STATUS]: githubResponseStatus }),
-    });
-
-    throw error;
-  }
+  const githubUserToken = await exchangeGitHubOAuthCode({
+    code,
+    redirectUri: buildGitHubOAuthCallbackUrl(request),
+    env,
+  });
   const actor = await fetchGitHubViewer(githubUserToken.accessToken);
 
   // Best-effort: populate deployment installation rows at runtime. The deleted
@@ -173,7 +153,7 @@ const TEST_AUTH_TOKEN_REQUIRED_MESSAGE =
   "Local authenticated browser sessions require a real GitHub user token. Provide GITHUB_TEST_USER_TOKEN, x-github-test-user-token, or ?githubAccessToken=...";
 
 type TestAuthSessionParams = {
-  githubAccessToken?: string | undefined;
+  githubAccessToken?: string;
   redirect: boolean;
   returnTo: string;
 };
@@ -250,13 +230,13 @@ type AgentInstallationTarget = {
   readonly managerName: string;
 };
 
-function toAgentErrorResponse(error: AppError, request?: Request): Response {
+function toAgentErrorResponse(error: AppError, request: Request, requestId: string): Response {
   const headers = new Headers();
-  if (error.kind === "authenticationRequired" && request) {
+  if (error.kind === "authenticationRequired") {
     appendExpiredAuthCookies(request, headers);
   }
 
-  return createAppErrorProblemResponse(error, request, headers);
+  return appErrorProblemResponse(error, request, requestId, headers);
 }
 
 function decodePathSegment(value: string): string | null {
@@ -285,7 +265,7 @@ function getAgentRouteTarget(request: Request): AgentRouteTarget | null {
 
 function readManagerConversationTarget(
   instanceName: string,
-  session: Awaited<ReturnType<typeof requireSession>>,
+  session: NanitesSession,
 ): AgentInstallationTarget | AppError {
   const actorSeparator = ":manager:";
   const separatorIndex = instanceName.lastIndexOf(actorSeparator);
@@ -309,7 +289,7 @@ function readManagerConversationTarget(
 
 function readNaniteAgentInstallationTarget(
   request: Request,
-  session: Awaited<ReturnType<typeof requireSession>>,
+  session: NanitesSession,
 ): AgentInstallationTarget | AppError | null {
   const routeTarget = getAgentRouteTarget(request);
   if (!routeTarget) {
@@ -342,6 +322,7 @@ function readNaniteAgentInstallationTarget(
 export async function authorizeAgentRequest(
   request: Request,
   env: Env,
+  requestId: string,
 ): Promise<Request | Response> {
   try {
     const session = await requireSession(request, env);
@@ -353,16 +334,22 @@ export async function authorizeAgentRequest(
 
     const routeTarget = readNaniteAgentInstallationTarget(request, session);
     if (routeTarget instanceof AppError) {
-      return toAgentErrorResponse(routeTarget);
+      return toAgentErrorResponse(routeTarget, request, requestId);
     }
 
-    const scope = await requireDeploymentGitHubInstallation(env);
+    const githubUserToken = await requireGitHubUserToken(request, env, null);
+    const scope = await requireAuthorizedDeploymentInstallation({
+      env,
+      githubUserToken,
+    });
     if (routeTarget) {
       if (routeTarget.managerName !== scope.managerName) {
         return toAgentErrorResponse(
           new AppError("agentAuthorizationForbidden", {
             details: { reason: "Agent target does not belong to the deployment GitHub App." },
           }),
+          request,
+          requestId,
         );
       }
     }
@@ -370,7 +357,7 @@ export async function authorizeAgentRequest(
     return new Request(request, { headers });
   } catch (error) {
     if (error instanceof AppError) {
-      return toAgentErrorResponse(error, request);
+      return toAgentErrorResponse(error, request, requestId);
     }
 
     throw error;

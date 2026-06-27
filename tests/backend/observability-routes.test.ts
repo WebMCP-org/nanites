@@ -14,6 +14,7 @@ import {
   buildTestBrowserAuthCookieHeader,
   ensureD1BaselineSchema,
 } from "../helpers/d1-baseline.ts";
+import { mockGitHubVisibleInstallations } from "../helpers/github-api-mock.ts";
 
 const TEST_INSTALLATION_ID = 42;
 const TEST_REPOSITORY_ID = 987;
@@ -210,42 +211,47 @@ async function seedObservabilityRows(): Promise<void> {
 
 test("observability dashboard composes the page after resolving GitHub scope once", async () => {
   await seedObservabilityRows();
+  const restore = mockGitHubVisibleInstallations([{ id: TEST_INSTALLATION_ID }]);
   const request = new Request("http://localhost:5173/api/observability/dashboard?range=7d");
-  const response = await nanitesHttpApp.request(
-    request,
-    {
-      headers: {
-        Cookie: await buildCookieHeader(request),
+  try {
+    const response = await nanitesHttpApp.request(
+      request,
+      {
+        headers: {
+          Cookie: await buildCookieHeader(request),
+        },
       },
-    },
-    env,
-  );
-  const responseBody = await response.json();
-  const body = responseBody as {
-    overview: { kpis: readonly { key: string; value: number }[] };
-    nanites: readonly { naniteId: string }[];
-    runs: readonly { runKey: string }[];
-    audit: readonly { eventName: string }[];
-    filterOptions: {
-      repositories: readonly string[];
-      nanites: readonly string[];
-      creators: readonly string[];
-      outcomes: readonly string[];
-      surfaces: readonly string[];
+      env,
+    );
+    const responseBody = await response.json();
+    const body = responseBody as {
+      overview: { kpis: readonly { key: string; value: number }[] };
+      nanites: readonly { naniteId: string }[];
+      runs: readonly { runKey: string }[];
+      audit: readonly { eventName: string }[];
+      filterOptions: {
+        repositories: readonly string[];
+        nanites: readonly string[];
+        creators: readonly string[];
+        outcomes: readonly string[];
+        surfaces: readonly string[];
+      };
     };
-  };
 
-  expect(response.status).toBe(200);
-  expect(body.nanites).toEqual([expect.objectContaining({ naniteId: "docs-syncer" })]);
-  expect(body.runs).toEqual([expect.objectContaining({ runKey: "run-1" })]);
-  expect(body.audit).toEqual([expect.objectContaining({ eventName: "nanite.run.completed" })]);
-  expect(body.filterOptions.repositories).toEqual([TEST_REPOSITORY]);
-  expect(body.filterOptions).toMatchObject({
-    nanites: ["docs-syncer"],
-    creators: ["alice"],
-    outcomes: ["success"],
-    surfaces: ["browser"],
-  });
-  expect(body.overview.kpis.find((kpi) => kpi.key === "ai-requests")?.value).toBe(1);
-  expect(body.overview.kpis.find((kpi) => kpi.key === "runs")?.value).toBe(1);
+    expect(response.status).toBe(200);
+    expect(body.nanites).toEqual([expect.objectContaining({ naniteId: "docs-syncer" })]);
+    expect(body.runs).toEqual([expect.objectContaining({ runKey: "run-1" })]);
+    expect(body.audit).toEqual([expect.objectContaining({ eventName: "nanite.run.completed" })]);
+    expect(body.filterOptions.repositories).toEqual([TEST_REPOSITORY]);
+    expect(body.filterOptions).toMatchObject({
+      nanites: ["docs-syncer"],
+      creators: ["alice"],
+      outcomes: ["success"],
+      surfaces: ["browser"],
+    });
+    expect(body.overview.kpis.find((kpi) => kpi.key === "ai-requests")?.value).toBe(1);
+    expect(body.overview.kpis.find((kpi) => kpi.key === "runs")?.value).toBe(1);
+  } finally {
+    restore();
+  }
 });

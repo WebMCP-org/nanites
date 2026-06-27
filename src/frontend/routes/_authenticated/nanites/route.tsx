@@ -97,12 +97,7 @@ import {
 } from "#/frontend/ui/components/ModelSelector.tsx";
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import { readApiProblem } from "#/frontend/lib/api-errors.ts";
-import {
-  AUTH_SESSION_QUERY_KEY,
-  buildReturnToPath,
-  fetchOptionalSession,
-  invalidateAuthQueries,
-} from "#/frontend/lib/auth.ts";
+import { buildReturnToPath, invalidateAuthQueries } from "#/frontend/lib/auth.ts";
 import type {
   SigveloManagerConversationAgent,
   ManagerConversationState,
@@ -314,10 +309,6 @@ const naniteRelativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: "auto",
   style: "narrow",
 });
-
-function formatStatus(status: NaniteRunStatus): string {
-  return status.replaceAll("_", " ");
-}
 
 function formatRelativeDate(value: string | null): string {
   if (!value) {
@@ -1152,7 +1143,7 @@ function NaniteRunInfoPanel({
       ? {
           key: "status",
           label: "Status",
-          value: formatStatus(run.status),
+          value: run.status.replaceAll("_", " "),
         }
       : null,
     run || nanite
@@ -1420,14 +1411,6 @@ function sortWorkspaceTreeEntries(
   });
 }
 
-function uniqueWorkspaceEntries(
-  entries: readonly NaniteWorkspaceTreeEntry[],
-): NaniteWorkspaceTreeEntry[] {
-  return sortWorkspaceTreeEntries([
-    ...new Map(entries.map((entry) => [entry.path, entry])).values(),
-  ]);
-}
-
 function NaniteWorkspacePanel({
   agent,
   nanite,
@@ -1436,20 +1419,9 @@ function NaniteWorkspacePanel({
 }: {
   readonly agent: NaniteAgentInstance | null;
   readonly nanite: ManagedNanite | null;
-  readonly naniteId: string | null;
+  readonly naniteId: string;
   readonly refreshKey: string;
 }) {
-  if (!naniteId) {
-    return (
-      <div className="nanites-workspace__workbench app__pane">
-        <div className="nanites-workspace__files-header">
-          <span>Workspace</span>
-        </div>
-        <p className="nanites-workspace__files-empty">Select a Nanite to inspect its workspace.</p>
-      </div>
-    );
-  }
-
   return (
     <Suspense
       fallback={
@@ -1651,9 +1623,13 @@ function NaniteWorkspaceReview({
     if (!workspaceFilter) {
       return loadedFileEntries;
     }
-    return uniqueWorkspaceEntries(
-      loadedFileEntries.filter((entry) => entry.path.toLowerCase().includes(workspaceFilter)),
-    );
+    return sortWorkspaceTreeEntries([
+      ...new Map(
+        loadedFileEntries
+          .filter((entry) => entry.path.toLowerCase().includes(workspaceFilter))
+          .map((entry) => [entry.path, entry]),
+      ).values(),
+    ]);
   }, [loadedFileEntries, workspaceFilter]);
   const selectedFile = selectedPath ? (filesByPath.get(selectedPath) ?? null) : null;
   const selectedFileIsLoading = selectedPath !== null && loadingFilePath === selectedPath;
@@ -1937,17 +1913,7 @@ function NaniteWorkspaceReview({
 function NanitesRoute() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { data: session, isPending } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
-  });
-  if (isPending) {
-    return <RoutePendingPage />;
-  }
-
-  if (!session) {
-    return <RoutePendingPage />;
-  }
+  const { session } = Route.useRouteContext();
 
   if (!session.activeInstallation) {
     return <GitHubInstallRequiredState githubApp={session.githubApp} />;
@@ -2073,7 +2039,7 @@ function NanitesRuntimeSurface({
             nanite,
             repositories: getNaniteRepositories(nanite, naniteRuns),
             latestRun: naniteRuns[0] ?? null,
-            activity: state.runtimeActivityByNanite?.[id] ?? null,
+            activity: state.runtimeActivityByNanite[id] ?? null,
             runCount: naniteRuns.length,
           };
         })
@@ -2483,17 +2449,9 @@ function NanitesRuntimeSurface({
               isDeleting={deleteNanite.isPending}
               nanite={selectedNanite}
               onDeleteNanite={() => {
-                if (!selectedNaniteAgentId) {
-                  return;
-                }
-
                 deleteNanite.mutate({ naniteId: selectedNaniteAgentId });
               }}
               onSetNaniteModel={async (modelId) => {
-                if (!selectedNaniteAgentId) {
-                  return;
-                }
-
                 await manager.stub.setNaniteModel({
                   naniteId: selectedNaniteAgentId,
                   modelId,

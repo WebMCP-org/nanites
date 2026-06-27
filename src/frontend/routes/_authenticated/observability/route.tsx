@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, stripSearchParams } from "@tanstack/react-router";
+import { parseResponse } from "hono/client";
 import {
   ActivityIcon,
   ArrowClockwiseIcon,
@@ -33,8 +34,6 @@ import {
 import { RoutePendingPage } from "#/frontend/lib/route-state.tsx";
 import { GitHubInstallRequiredState } from "#/frontend/routes/_authenticated/-github-install-required-state.tsx";
 import {
-  AUTH_SESSION_QUERY_KEY,
-  fetchOptionalSession,
   type BrowserNanitesContext,
   type SessionInstallationSnapshot,
 } from "#/frontend/lib/auth.ts";
@@ -42,6 +41,7 @@ import { Avatar } from "#/frontend/ui/components/Avatar.tsx";
 import { Badge, type BadgeColor } from "#/frontend/ui/components/Badge.tsx";
 import { Button } from "#/frontend/ui/components/Button.tsx";
 import { Card } from "#/frontend/ui/components/Card.tsx";
+import { httpClient } from "#/frontend/lib/http-client.ts";
 import {
   Select,
   SelectList,
@@ -53,10 +53,9 @@ import {
   SelectValue,
 } from "#/frontend/ui/components/Select.tsx";
 import {
-  fetchObservabilityEventDetail,
-  fetchObservabilityDashboard,
   observabilityDashboardQueryKey,
   observabilityEventDetailQueryKey,
+  requestQuery,
   type ObservabilityDashboardData,
 } from "./-queries.ts";
 import {
@@ -177,20 +176,17 @@ export const Route = createFileRoute("/_authenticated/observability")({
   pendingComponent: RoutePendingPage,
 });
 
-function formatUsd(value: number): string {
-  return (Math.abs(value) < 1 ? preciseUsdFormatter : usdFormatter).format(value);
-}
-
-function formatUsdMicros(value: number): string {
-  return formatUsd(value / 1_000_000);
-}
-
 function formatNumber(value: number): string {
   return numberFormatter.format(value);
 }
 
 function formatKpi(metric: KpiMetric): string {
-  return metric.unit === "usd-micros" ? formatUsdMicros(metric.value) : formatNumber(metric.value);
+  if (metric.unit !== "usd-micros") {
+    return formatNumber(metric.value);
+  }
+
+  const value = metric.value / 1_000_000;
+  return (Math.abs(value) < 1 ? preciseUsdFormatter : usdFormatter).format(value);
 }
 
 function withAvatarSize(avatarUrl: string | null | undefined, size: number): string | undefined {
@@ -213,43 +209,6 @@ function githubProfileUrl(login: string): string {
 
 function avatarFallback(value: string | null | undefined): string {
   return (value ?? "?").slice(0, 2).toUpperCase();
-}
-
-function actorAvatarUrl(session: BrowserNanitesContext | null | undefined): string | null {
-  const actor = session?.actor;
-  return actor && "avatar_url" in actor && typeof actor.avatar_url === "string"
-    ? actor.avatar_url
-    : null;
-}
-
-function actorIdentityPerson(
-  session: BrowserNanitesContext | null | undefined,
-): GitHubIdentityPerson {
-  const login = session?.actor.login;
-
-  return {
-    eyebrow: "Signed in",
-    title: login ?? "GitHub user",
-    fallback: avatarFallback(login),
-    avatarUrl: withAvatarSize(actorAvatarUrl(session), 64),
-    profileLogin: login,
-  };
-}
-
-function installationIdentityPerson(
-  installation: SessionInstallationSnapshot | null | undefined,
-): GitHubIdentityPerson {
-  const login = installation?.account.login;
-
-  return {
-    eyebrow: "Installation",
-    title: login ?? "No installation connected",
-    fallback: avatarFallback(login),
-    avatarUrl: withAvatarSize(installation?.account.avatar_url, 64),
-    detail: installation
-      ? `#${installation.githubInstallationId}`
-      : "Connect a GitHub installation",
-  };
 }
 
 function tabSearch(
@@ -931,17 +890,38 @@ function GitHubIdentityPanel({
   creator,
   onSelectCreator,
 }: {
-  readonly session: BrowserNanitesContext | null | undefined;
-  readonly activeInstallation: SessionInstallationSnapshot | null;
+  readonly session: BrowserNanitesContext;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly creator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
-  const actorLogin = session?.actor.login;
+  const actorLogin = session.actor.login;
+  const actorAvatarUrl =
+    "avatar_url" in session.actor && typeof session.actor.avatar_url === "string"
+      ? session.actor.avatar_url
+      : null;
+  const installationLogin = activeInstallation.account.login;
 
   return (
     <Card className="observability-github-panel">
-      <GitHubIdentityPersonRow person={actorIdentityPerson(session)} />
-      <GitHubIdentityPersonRow person={installationIdentityPerson(activeInstallation)} />
+      <GitHubIdentityPersonRow
+        person={{
+          eyebrow: "Signed in",
+          title: actorLogin,
+          fallback: avatarFallback(actorLogin),
+          avatarUrl: withAvatarSize(actorAvatarUrl, 64),
+          profileLogin: actorLogin,
+        }}
+      />
+      <GitHubIdentityPersonRow
+        person={{
+          eyebrow: "Installation",
+          title: installationLogin,
+          fallback: avatarFallback(installationLogin),
+          avatarUrl: withAvatarSize(activeInstallation.account.avatar_url, 64),
+          detail: `#${activeInstallation.githubInstallationId}`,
+        }}
+      />
       <GitHubIdentityActions
         actorLogin={actorLogin}
         creator={creator}
@@ -980,11 +960,11 @@ function GitHubIdentityActions({
   creator,
   onSelectCreator,
 }: {
-  readonly actorLogin: string | undefined;
+  readonly actorLogin: string;
   readonly creator: string | undefined;
   readonly onSelectCreator: (creator: string | undefined) => void;
 }) {
-  const actorSelected = Boolean(actorLogin && creator === actorLogin);
+  const actorSelected = creator === actorLogin;
 
   return (
     <div className="observability-github-actions">
@@ -993,7 +973,6 @@ function GitHubIdentityActions({
         variant={actorSelected ? "normal" : "outline"}
         color={actorSelected ? "primary" : "neutral"}
         size="sm"
-        disabled={!actorLogin}
         onClick={() => onSelectCreator(actorSelected ? undefined : actorLogin)}
       >
         <UsersIcon size={15} aria-hidden="true" />
@@ -1501,8 +1480,8 @@ function Dashboard({
 }: {
   readonly data: ObservabilityDashboardData;
   readonly search: ObservabilitySearch;
-  readonly session: BrowserNanitesContext | null | undefined;
-  readonly activeInstallation: SessionInstallationSnapshot | null;
+  readonly session: BrowserNanitesContext;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
@@ -1682,8 +1661,8 @@ function ObservabilityDashboardState({
   readonly data: ObservabilityDashboardData | undefined;
   readonly isPending: boolean;
   readonly search: ObservabilitySearch;
-  readonly session: BrowserNanitesContext | null | undefined;
-  readonly activeInstallation: SessionInstallationSnapshot | null;
+  readonly session: BrowserNanitesContext;
+  readonly activeInstallation: SessionInstallationSnapshot;
   readonly onSearchChange: (patch: SearchPatch) => void;
   readonly onSelectEvent: (eventId: string | undefined) => void;
 }) {
@@ -1748,7 +1727,10 @@ function useObservabilityDashboardQueries({
   const dataEnabled = activeInstallation !== null;
   const { data: dashboard, isPending: isDashboardPending } = useQuery({
     queryKey: observabilityDashboardQueryKey(scopedSearch),
-    queryFn: () => fetchObservabilityDashboard(scopedSearch),
+    queryFn: () =>
+      parseResponse(
+        httpClient.api.observability.dashboard.$get({ query: requestQuery(scopedSearch) }),
+      ),
     enabled: dataEnabled,
     refetchInterval: scopedSearch.live ? liveRefreshIntervalMs : false,
     throwOnError: true,
@@ -1757,7 +1739,12 @@ function useObservabilityDashboardQueries({
     queryKey: observabilityEventDetailQueryKey(scopedSearch, selectedEventId),
     queryFn: () =>
       selectedEventId
-        ? fetchObservabilityEventDetail(scopedSearch, selectedEventId)
+        ? parseResponse(
+            httpClient.api.observability.events[":eventId"].$get({
+              param: { eventId: selectedEventId },
+              query: requestQuery(scopedSearch),
+            }),
+          )
         : Promise.resolve(null),
     enabled: dataEnabled && Boolean(selectedEventId),
     throwOnError: true,
@@ -1774,16 +1761,12 @@ function useObservabilityDashboardQueries({
 function ObservabilityRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { data: session, isPending } = useQuery({
-    queryKey: AUTH_SESSION_QUERY_KEY,
-    queryFn: fetchOptionalSession,
-  });
-  const activeInstallation = session?.activeInstallation ?? null;
-  const scopedSearch = search;
-  const selectedEventId = scopedSearch.selectedEvent;
+  const { session } = Route.useRouteContext();
+  const activeInstallation = session.activeInstallation;
+  const selectedEventId = search.selectedEvent;
   const { dashboard, isDashboardPending, selectedEvent, isSelectedEventPending } =
     useObservabilityDashboardQueries({
-      scopedSearch,
+      scopedSearch: search,
       activeInstallation,
     });
   const setSearch = (patch: SearchPatch) => {
@@ -1793,32 +1776,24 @@ function ObservabilityRoute() {
     });
   };
 
-  if (isPending) {
-    return <RoutePendingPage />;
-  }
-
-  if (!session) {
-    return <RoutePendingPage />;
-  }
-
   if (!activeInstallation) {
     return <GitHubInstallRequiredState githubApp={session.githubApp} />;
   }
 
   return (
     <main className="observability-shell">
-      <ObservabilityHeader search={scopedSearch} />
+      <ObservabilityHeader search={search} />
       <ObservabilityFilters
-        search={scopedSearch}
+        search={search}
         options={dashboard?.filterOptions ?? emptyFilterOptions}
         onChange={setSearch}
       />
-      <ObservabilityTabs search={scopedSearch} />
-      <ActiveFilterChips search={scopedSearch} onChange={setSearch} />
+      <ObservabilityTabs search={search} />
+      <ActiveFilterChips search={search} onChange={setSearch} />
       <ObservabilityDashboardState
         data={dashboard}
         isPending={isDashboardPending}
-        search={scopedSearch}
+        search={search}
         session={session}
         activeInstallation={activeInstallation}
         onSearchChange={setSearch}

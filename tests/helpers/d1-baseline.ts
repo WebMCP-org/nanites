@@ -56,6 +56,80 @@ export async function ensureD1BaselineSchema(db: D1Database): Promise<void> {
   initializedDatabases.add(db);
 }
 
+export async function seedTestDeploymentInstallation(
+  db: D1Database,
+  input: {
+    readonly githubInstallationId: number;
+    readonly accountId?: string;
+    readonly githubAccountId?: number;
+    readonly githubAccountLogin?: string;
+    readonly githubAccountType?: "Organization" | "User";
+    readonly githubAppId?: number;
+  },
+): Promise<void> {
+  const now = Date.now();
+  const accountId = input.accountId ?? `github-account:${input.githubInstallationId}`;
+  const githubAppId = input.githubAppId ?? TEST_GITHUB_APP_ID;
+  const githubAccountId = input.githubAccountId ?? input.githubInstallationId;
+
+  await db
+    .prepare(
+      `INSERT INTO accounts (
+        id,
+        github_account_id,
+        github_account_login,
+        github_account_type,
+        github_account_avatar_url,
+        last_active_at,
+        first_seen_at,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      accountId,
+      githubAccountId,
+      input.githubAccountLogin ?? "WebMCP-org",
+      input.githubAccountType ?? "Organization",
+      null,
+      now,
+      now,
+      now,
+      now,
+    )
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO account_installations (
+        id,
+        account_id,
+        github_app_id,
+        github_installation_id,
+        status,
+        first_seen_at,
+        last_seen_at,
+        suspended_at,
+        removed_at,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      `github-installation:${input.githubInstallationId}`,
+      accountId,
+      githubAppId,
+      input.githubInstallationId,
+      "active",
+      now,
+      now,
+      null,
+      null,
+      now,
+      now,
+    )
+    .run();
+}
+
 export async function buildTestBrowserAuthCookieHeader(
   env: Env,
   request: Request,

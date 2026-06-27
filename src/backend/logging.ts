@@ -43,7 +43,6 @@ export const LOG_EVENTS = {
   GITHUB_API_REQUEST_FAILED: "github.api.request.failed",
   GITHUB_API_REQUEST_SUCCEEDED: "github.api.request.succeeded",
   GITHUB_INSTALLATION_SNAPSHOT_RECORD_FAILED: "github.installation_snapshot.record_failed",
-  GITHUB_OAUTH_TOKEN_EXCHANGE_FAILED: "github.oauth.token_exchange.failed",
   GITHUB_MANAGER_CONVERSATION_FAILED: "github.manager_conversation.failed",
   GITHUB_MANAGER_CONVERSATION_PUBLISH_FAILED: "github.manager_conversation.publish_failed",
   GITHUB_MANAGER_CONVERSATION_REPLY_TIMEOUT: "github.manager_conversation.reply_timeout",
@@ -114,8 +113,6 @@ export const OTEL_ATTRS = {
   REQUEST_ID: "sigvelo.request.id",
   REQUEST_DURATION_MS: "sigvelo.request.duration_ms",
   ROUTE_TARGET: "sigvelo.route.target",
-  GITHUB_OAUTH_ERROR: "github.oauth.error",
-  GITHUB_RESPONSE_STATUS: "github.response.status",
   CONVERSATION_NAME: "sigvelo.conversation.name",
   STATUS_MESSAGE_ID: "sigvelo.status_message.id",
   SUBMISSION_ID: "sigvelo.submission.id",
@@ -401,14 +398,6 @@ function logAgentsSdkObservabilityEvent(
   }
 }
 
-function subscribeAgentsSdkObservabilityChannel<K extends AgentsSdkObservabilityChannel>(
-  channel: K,
-): () => void {
-  return subscribe(channel, (event) => {
-    logAgentsSdkObservabilityEvent(channel, event);
-  });
-}
-
 function configureAgentsSdkObservabilityBridge(): void {
   if (agentsSdkObservabilityBridgeConfigured) {
     return;
@@ -417,7 +406,11 @@ function configureAgentsSdkObservabilityBridge(): void {
   agentsSdkObservabilityBridgeConfigured = true;
 
   for (const channel of AGENTS_SDK_OBSERVABILITY_CHANNELS) {
-    agentsSdkObservabilityUnsubscribers.push(subscribeAgentsSdkObservabilityChannel(channel));
+    agentsSdkObservabilityUnsubscribers.push(
+      subscribe(channel, (event) => {
+        logAgentsSdkObservabilityEvent(channel, event);
+      }),
+    );
   }
 }
 

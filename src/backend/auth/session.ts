@@ -13,14 +13,6 @@ import { refreshToken as refreshGitHubOAuthToken } from "@octokit/oauth-methods"
 import { requireDeploymentGitHubApp } from "#/backend/github/apps.ts";
 
 /**
- * GitHub OAuth state lifetime in seconds.
- *
- * Browser OAuth may include GitHub App install and repository-selection detours,
- * so keep the state deliberately lax.
- */
-const GITHUB_OAUTH_STATE_TTL_SECONDS = 60 * 60;
-
-/**
  * Nanites-owned browser session lifetime in seconds.
  *
  * This is intentionally decoupled from the GitHub user access-token lifetime.
@@ -76,17 +68,6 @@ const NANITES_BROWSER_AUTH_HKDF_HASH = "SHA-256";
  */
 const NANITES_BROWSER_AUTH_HKDF_SALT = "sigvelo:nanites:browser-auth";
 
-function requireAuthCookieSecret(env: Env): string {
-  return env.AUTH_COOKIE_SECRET;
-}
-
-/**
- * Returns the GitHub OAuth state expiry timestamp as an ISO-8601 UTC string.
- */
-export function buildOAuthStateExpiration(now = Date.now()): string {
-  return new Date(now + GITHUB_OAUTH_STATE_TTL_SECONDS * 1000).toISOString();
-}
-
 /**
  * Returns the Nanites browser-session expiry timestamp as an ISO-8601 UTC string.
  */
@@ -96,7 +77,6 @@ export function buildBrowserSessionExpiration(now = Date.now()): string {
 
 const isoDateTimeSchema = z.string();
 const githubIdSchema = z.number().int().positive();
-const githubLoginSchema = z.string().min(1);
 
 type BrowserAuthenticatedActor = {
   id: number;
@@ -107,7 +87,7 @@ type BrowserAuthenticatedActor = {
 const authenticatedActorSchema: z.ZodType<BrowserAuthenticatedActor> = z
   .object({
     id: githubIdSchema,
-    login: githubLoginSchema,
+    login: z.string().min(1),
   })
   .passthrough();
 export const nanitesSessionSchema = z.object({
@@ -198,7 +178,7 @@ async function sealCookieValue<TSchema extends CookiePayloadSchema>(
   expiresAt: string,
 ): Promise<string> {
   const parsedValue = schema.parse(value);
-  const key = await deriveCookieEncryptionKey(requireAuthCookieSecret(env), purpose);
+  const key = await deriveCookieEncryptionKey(env.AUTH_COOKIE_SECRET, purpose);
 
   return new EncryptJWT(parsedValue)
     .setProtectedHeader({
@@ -218,7 +198,7 @@ async function readSealedCookieValue<TSchema extends CookiePayloadSchema>(
   env: Env,
   purpose: string,
 ): Promise<z.output<TSchema> | null> {
-  const key = await deriveCookieEncryptionKey(requireAuthCookieSecret(env), purpose);
+  const key = await deriveCookieEncryptionKey(env.AUTH_COOKIE_SECRET, purpose);
 
   try {
     const { payload } = await jwtDecrypt<z.output<TSchema>>(sealedValue, key, {
@@ -312,19 +292,6 @@ export async function sealGitHubUserTokenCookie(
       cookieExpiresAt,
     ),
     buildCookieOptions(request, cookieExpiresAt),
-  );
-}
-
-async function readGitHubUserTokenCookie(
-  request: Request,
-  env: Env,
-): Promise<GitHubUserToken | null> {
-  return readOptionalCookie(
-    request,
-    env,
-    BROWSER_AUTH_COOKIE_NAMES.githubUserToken,
-    githubUserTokenSchema,
-    BROWSER_AUTH_COOKIE_PURPOSES.githubUserToken,
   );
 }
 
@@ -455,18 +422,21 @@ function isGitHubUserTokenBoundToDeploymentApp(
 export async function requireGitHubUserToken(
   request: Request,
   env: Env,
-  options?: {
-    responseHeaders?: Headers | undefined;
-  },
+  responseHeaders: Headers | null,
 ): Promise<GitHubUserToken> {
-  const githubUserToken = await readGitHubUserTokenCookie(request, env);
+  const githubUserToken = await readOptionalCookie(
+    request,
+    env,
+    BROWSER_AUTH_COOKIE_NAMES.githubUserToken,
+    githubUserTokenSchema,
+    BROWSER_AUTH_COOKIE_PURPOSES.githubUserToken,
+  );
   if (!githubUserToken) {
     throw new AppError("authenticationRequired");
   }
 
   const deploymentApp = requireDeploymentGitHubApp(env);
   if (!isGitHubUserTokenBoundToDeploymentApp(githubUserToken, deploymentApp)) {
-    appendExpiredAuthCookies(request, options?.responseHeaders);
     throw new AppError("authenticationRequired");
   }
 
@@ -475,7 +445,6 @@ export async function requireGitHubUserToken(
   }
 
   if (!isRefreshTokenUsable(githubUserToken)) {
-    appendExpiredAuthCookies(request, options?.responseHeaders);
     throw new AppError("authenticationRequired");
   }
 
@@ -484,21 +453,17 @@ export async function requireGitHubUserToken(
       githubUserToken,
       env,
     });
-    options?.responseHeaders?.append(
+    responseHeaders?.append(
       "Set-Cookie",
       await sealGitHubUserTokenCookie(refreshedGitHubUserToken, request, env),
     );
     return refreshedGitHubUserToken;
   } catch {
-    appendExpiredAuthCookies(request, options?.responseHeaders);
     throw new AppError("authenticationRequired");
   }
 }
 
-export function appendExpiredAuthCookies(
-  request: Request,
-  responseHeaders: Headers | undefined,
-): void {
-  responseHeaders?.append("Set-Cookie", clearSessionCookie(request));
-  responseHeaders?.append("Set-Cookie", clearGitHubUserTokenCookie(request));
+export function appendExpiredAuthCookies(request: Request, responseHeaders: Headers): void {
+  responseHeaders.append("Set-Cookie", clearSessionCookie(request));
+  responseHeaders.append("Set-Cookie", clearGitHubUserTokenCookie(request));
 }

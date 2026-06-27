@@ -97,7 +97,6 @@ function registerSigveloNaniteTools(server: McpServer, context: SigveloMcpToolCo
         inputSchema: definition.inputSchema,
         outputSchema: definition.outputSchema,
         annotations: definition.annotations,
-        _meta: definition._meta,
       },
       async (toolInput, extra) =>
         formatMcpToolResult(
@@ -108,7 +107,7 @@ function registerSigveloNaniteTools(server: McpServer, context: SigveloMcpToolCo
               env: context.env,
               props: context.auth,
               surface: "mcp",
-              requestId: extra.requestId == null ? undefined : String(extra.requestId),
+              requestId: extra.requestId == null ? crypto.randomUUID() : String(extra.requestId),
             },
           }),
         ),

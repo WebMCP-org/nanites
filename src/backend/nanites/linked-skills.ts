@@ -74,8 +74,7 @@ export type LinkedSkillCacheOptions = {
   prefix?: string;
 };
 
-export type WorkspaceSkillLinksOptions = LinkedSkillCacheOptions & {
-  id?: string;
+export type NaniteWorkspaceSkillSourceOptions = LinkedSkillCacheOptions & {
   sourceUrls: readonly string[] | (() => readonly string[] | Promise<readonly string[]>);
   beforeRefresh?: () => Promise<void>;
   fetcher?: typeof fetch;
@@ -164,26 +163,20 @@ function uniqueNonEmpty(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
-function gitExcludePatternForPrefix(prefix: string): string {
-  return `${prefix.replace(/^\/+|\/+$/g, "")}/`;
-}
-
-async function rootGitRepositoryExists(workspace: SkillLinkWorkspace): Promise<boolean> {
-  return Boolean(
-    (await workspace.readFile("/.git/HEAD").catch(() => null)) ||
-    (await workspace.readFile("/.git/config").catch(() => null)),
-  );
-}
-
 async function excludeLinkedSkillsFromRootGit(input: {
   workspace: SkillLinkWorkspace;
   prefix: string;
 }): Promise<void> {
-  if (!(await rootGitRepositoryExists(input.workspace))) {
+  if (
+    !(
+      (await input.workspace.readFile("/.git/HEAD").catch(() => null)) ||
+      (await input.workspace.readFile("/.git/config").catch(() => null))
+    )
+  ) {
     return;
   }
 
-  const pattern = gitExcludePatternForPrefix(input.prefix);
+  const pattern = `${input.prefix.replace(/^\/+|\/+$/g, "")}/`;
   const existing = (await input.workspace.readFile(ROOT_GIT_EXCLUDE_PATH).catch(() => null)) ?? "";
   if (existing.split(/\r?\n/).some((line) => line.trim() === pattern)) {
     return;
@@ -462,10 +455,6 @@ async function resolveCommit(
   return { ref, sha: commit.sha };
 }
 
-function hasSkippedSegment(path: string): boolean {
-  return path.split("/").some((segment) => SKIP_TREE_SEGMENTS.has(segment));
-}
-
 function pathIsUnder(path: string, directory: string): boolean {
   return directory ? path === directory || path.startsWith(`${directory}/`) : true;
 }
@@ -510,7 +499,9 @@ async function installGitHubSkillSource(input: {
   }
 
   const blobs = (treeResponse.tree ?? []).filter(
-    (entry) => entry.type === "blob" && !hasSkippedSegment(entry.path),
+    (entry) =>
+      entry.type === "blob" &&
+      !entry.path.split("/").some((segment) => SKIP_TREE_SEGMENTS.has(segment)),
   );
   const base = source.subpath ?? "";
   const skillMdEntries = blobs
@@ -619,7 +610,6 @@ async function ensureLinkedSkillUrls(input: {
   workspace: SkillLinkWorkspace;
   skillUrls: readonly string[];
   fetcher?: typeof fetch;
-  installMissing?: boolean;
   prefix?: string;
 }): Promise<InstalledLinkedSkillSource[]> {
   const fetcher = input.fetcher ?? fetch;
@@ -635,9 +625,6 @@ async function ensureLinkedSkillUrls(input: {
     const cached = index.sources[sourceUrl];
     if (cached && (await cachedSourceIsUsable(input.workspace, cached))) {
       installed.push(cached);
-      continue;
-    }
-    if (input.installMissing === false) {
       continue;
     }
 
@@ -668,18 +655,18 @@ function linkedSkillDescriptor(id: string, skill: InstalledLinkedSkill): SkillDe
   };
 }
 
-function workspaceSkillLinks(
-  workspace: SkillLinkWorkspace,
-  options: WorkspaceSkillLinksOptions,
+export function createNaniteWorkspaceSkillSource(
+  input: { workspace: SkillLinkWorkspace } & NaniteWorkspaceSkillSourceOptions,
 ): SkillSource {
-  const id = options.id ?? "workspace-skill-links";
+  const id = "nanite-linked-skills";
+  const workspace = input.workspace;
   let loadedKey: string | null = null;
   let loadedSkills: InstalledLinkedSkill[] = [];
   let fingerprint = `${id}:empty`;
 
   async function sourceUrls(): Promise<string[]> {
     return uniqueNonEmpty(
-      typeof options.sourceUrls === "function" ? await options.sourceUrls() : options.sourceUrls,
+      typeof input.sourceUrls === "function" ? await input.sourceUrls() : input.sourceUrls,
     );
   }
 
@@ -691,8 +678,8 @@ function workspaceSkillLinks(
     const sources = await ensureLinkedSkillUrls({
       workspace,
       skillUrls: urls,
-      fetcher: options.fetcher,
-      prefix: options.prefix,
+      fetcher: input.fetcher,
+      prefix: input.prefix,
     });
     loadedSkills = sources.flatMap((source) =>
       source.skills.map((skill) => ({
@@ -744,21 +731,9 @@ function workspaceSkillLinks(
       return content === null ? null : { ...resource, content };
     },
     async refresh() {
-      await options.beforeRefresh?.();
+      await input.beforeRefresh?.();
       loadedKey = null;
       await loadIndex();
     },
   };
-}
-
-export function createNaniteWorkspaceSkillSource(input: {
-  workspace: SkillLinkWorkspace;
-  sourceUrls: WorkspaceSkillLinksOptions["sourceUrls"];
-  beforeRefresh?: () => Promise<void>;
-}): SkillSource {
-  return workspaceSkillLinks(input.workspace, {
-    id: "nanite-linked-skills",
-    sourceUrls: input.sourceUrls,
-    beforeRefresh: input.beforeRefresh,
-  });
 }

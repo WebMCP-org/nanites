@@ -8,7 +8,10 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { AppError, requestValidationHook } from "#/backend/errors.ts";
-import { requireDeploymentGitHubInstallation } from "#/backend/auth/installations.ts";
+import {
+  requireAuthorizedDeploymentInstallation,
+  type DeploymentGitHubInstallation,
+} from "#/backend/auth/installations.ts";
 import {
   completeGitHubOAuthCallback,
   mintTestAuthSession,
@@ -133,25 +136,27 @@ export const browserAuthApiRoutes = new Hono<WorkerHonoEnv>()
 
     const deploymentGitHubApp = readDeploymentGitHubAppMetadata(context.env);
 
+    let activeInstallation: DeploymentGitHubInstallation | null = null;
     try {
-      await requireGitHubUserToken(context.req.raw, context.env, {
-        responseHeaders: context.res.headers,
+      const githubUserToken = await requireGitHubUserToken(
+        context.req.raw,
+        context.env,
+        context.res.headers,
+      );
+      activeInstallation = await requireAuthorizedDeploymentInstallation({
+        env: context.env,
+        githubUserToken,
       });
     } catch (error) {
       if (error instanceof AppError && error.kind === "authenticationRequired") {
         appendExpiredAuthCookies(context.req.raw, context.res.headers);
         return context.json(null);
       }
-
-      throw error;
-    }
-
-    let activeInstallation: Awaited<ReturnType<typeof requireDeploymentGitHubInstallation>> | null =
-      null;
-    try {
-      activeInstallation = await requireDeploymentGitHubInstallation(context.env);
-    } catch (error) {
-      if (!(error instanceof AppError) || error.kind !== "deploymentGitHubInstallationRequired") {
+      if (
+        !(error instanceof AppError) ||
+        (error.kind !== "deploymentGitHubInstallationRequired" &&
+          error.kind !== "deploymentGitHubInstallationForbidden")
+      ) {
         throw error;
       }
     }

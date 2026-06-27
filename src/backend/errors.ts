@@ -39,13 +39,13 @@ type ProblemDetails = {
   readonly status: number;
   readonly detail: string;
   readonly code: string;
-  readonly instance?: string;
-  readonly requestId?: string;
+  readonly instance: string;
+  readonly requestId: string;
   readonly kind?: string;
   readonly details?: Record<string, unknown>;
   readonly diagnostics: {
     readonly request: {
-      readonly id?: string;
+      readonly id: string;
       readonly method: string;
       readonly path: string;
       readonly query: Record<string, unknown>;
@@ -89,6 +89,12 @@ export const APP_ERRORS = {
     status: 403,
     message:
       "This deployment must have one connected GitHub App installation before this action can run.",
+  },
+  deploymentGitHubInstallationForbidden: {
+    code: "deployment_github_installation_forbidden",
+    status: 403,
+    message: "Authenticated GitHub user cannot access this deployment's GitHub App installation.",
+    publicDetailKeys: ["githubInstallationId"],
   },
   deploymentGitHubInstallationConflict: {
     code: "deployment_github_installation_conflict",
@@ -231,11 +237,6 @@ export const APP_ERRORS = {
     message: "Invalid MCP authorization request",
     publicDetailKeys: ["reason"],
   },
-  mcpAuthorizationInstallationRequired: {
-    code: "mcp_authorization_installation_required",
-    status: 401,
-    message: "MCP authorization requires an authenticated GitHub installation.",
-  },
   invalidMcpAuthorizationConsent: {
     code: "invalid_mcp_authorization_consent",
     status: 400,
@@ -246,11 +247,6 @@ export const APP_ERRORS = {
     status: 400,
     message: "Unsupported SigVelo MCP scope.",
     publicDetailKeys: ["scopes"],
-  },
-  mcpOAuthProviderUnavailable: {
-    code: "mcp_oauth_provider_unavailable",
-    status: 500,
-    message: "OAuth provider helpers are not available on this request.",
   },
   mcpTokenScopeUnavailable: {
     code: "mcp_token_scope_unavailable",
@@ -267,7 +263,7 @@ export const APP_ERRORS = {
 export type AppErrorKind = keyof typeof APP_ERRORS;
 
 export class AppError extends Error {
-  readonly details: AppErrorDetails | undefined;
+  readonly details?: AppErrorDetails;
 
   constructor(
     readonly kind: AppErrorKind,
@@ -444,25 +440,11 @@ function serializeError(error: unknown, depth = 0): SerializedError {
   return serialized;
 }
 
-function writeProblemResponse(body: ProblemDetails, sourceHeaders?: Headers): Response {
-  const headers = new Headers();
-  sourceHeaders?.forEach((value, key) => {
-    headers.append(key, value);
-  });
-  headers.set("content-type", PROBLEM_CONTENT_TYPE);
-  headers.set("cache-control", "no-store");
-
-  return new Response(JSON.stringify(body), {
-    status: body.status,
-    headers,
-  });
-}
-
 function problemResponse(input: {
   readonly error: unknown;
-  readonly request?: Request;
-  readonly requestId?: string;
-  readonly sourceHeaders?: Headers;
+  readonly request: Request;
+  readonly requestId: string;
+  readonly sourceHeaders: Headers;
   readonly status: number;
   readonly code: string;
   readonly title: string;
@@ -470,8 +452,7 @@ function problemResponse(input: {
   readonly details?: AppErrorDetails;
   readonly publicDetailKeys?: readonly string[];
 }): Response {
-  const requestUrl = input.request ? new URL(input.request.url) : undefined;
-  const requestId = input.requestId;
+  const requestUrl = new URL(input.request.url);
   const error = serializeError(input.error);
   const details = input.details ? (sanitize(input.details) as Record<string, unknown>) : undefined;
   const body: ProblemDetails = {
@@ -481,14 +462,15 @@ function problemResponse(input: {
     detail: error.message,
     code: input.code,
     ...(input.kind ? { kind: input.kind } : {}),
-    ...(requestId ? { instance: `urn:sigvelo:request:${requestId}`, requestId } : {}),
+    instance: `urn:sigvelo:request:${input.requestId}`,
+    requestId: input.requestId,
     ...(details ? { details } : {}),
     diagnostics: {
       request: {
-        ...(requestId ? { id: requestId } : {}),
-        method: input.request?.method ?? "UNKNOWN",
-        path: requestUrl?.pathname ?? "unknown",
-        query: requestUrl ? readQuery(requestUrl) : {},
+        id: input.requestId,
+        method: input.request.method,
+        path: requestUrl.pathname,
+        query: readQuery(requestUrl),
       },
       error,
     },
@@ -501,14 +483,24 @@ function problemResponse(input: {
     }
   }
 
-  return writeProblemResponse(body, input.sourceHeaders);
+  const headers = new Headers();
+  input.sourceHeaders.forEach((value, key) => {
+    headers.append(key, value);
+  });
+  headers.set("content-type", PROBLEM_CONTENT_TYPE);
+  headers.set("cache-control", "no-store");
+
+  return new Response(JSON.stringify(body), {
+    status: body.status,
+    headers,
+  });
 }
 
-function appErrorProblemResponse(
+export function appErrorProblemResponse(
   error: AppError,
-  request?: Request,
-  requestId?: string,
-  sourceHeaders?: Headers,
+  request: Request,
+  requestId: string,
+  sourceHeaders: Headers,
 ): Response {
   const definition = APP_ERRORS[error.kind];
   const publicDetailKeys =
@@ -525,19 +517,6 @@ function appErrorProblemResponse(
     details: error.details,
     publicDetailKeys,
   });
-}
-
-export function createAppErrorProblemResponse(
-  error: AppError,
-  request?: Request,
-  sourceHeaders?: Headers,
-): Response {
-  return appErrorProblemResponse(
-    error,
-    request,
-    request?.headers.get("x-request-id") ?? undefined,
-    sourceHeaders,
-  );
 }
 
 function readMcpAuthorizationErrorMessage(error: AppError): string {
@@ -621,9 +600,23 @@ function handleMcpAuthorizeError(error: AppError, context: ErrorHandlerContext):
     return redirectMcpOAuthError(context, "invalid_scope", error.message);
   }
 
+  if (error.kind === "deploymentGitHubInstallationForbidden") {
+    return redirectMcpOAuthError(
+      context,
+      "access_denied",
+      "Your GitHub account cannot access this Nanites deployment.",
+    );
+  }
+
+  if (
+    error.kind === "authenticationRequired" ||
+    error.kind === "deploymentGitHubInstallationRequired"
+  ) {
+    return context.text("MCP authorization requires an authenticated GitHub installation.", 401);
+  }
+
   if (
     error.kind !== "invalidMcpAuthorizationRequest" &&
-    error.kind !== "mcpAuthorizationInstallationRequired" &&
     error.kind !== "invalidMcpAuthorizationConsent"
   ) {
     return null;
@@ -694,7 +687,8 @@ function handleAppErrorResponse(error: AppError, context: ErrorHandlerContext): 
   );
 }
 
-function withContextHeaders(response: Response, context: ErrorHandlerContext): Response {
+function handleHttpException(error: HTTPException, context: ErrorHandlerContext): Response {
+  const response = error.getResponse();
   const headers = new Headers(response.headers);
   context.res.headers.forEach((value, key) => {
     headers.append(key, value);
@@ -705,11 +699,6 @@ function withContextHeaders(response: Response, context: ErrorHandlerContext): R
     statusText: response.statusText,
     headers,
   });
-}
-
-function handleHttpException(error: HTTPException, context: ErrorHandlerContext): Response {
-  const response = error.getResponse();
-  return withContextHeaders(response, context);
 }
 
 export const handleAppError: ErrorHandler<WorkerHonoEnv> = (error, context) => {

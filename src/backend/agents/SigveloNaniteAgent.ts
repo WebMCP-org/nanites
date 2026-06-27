@@ -483,15 +483,6 @@ function browserRuntimeConfig(
   return browser?.enabled === true ? browser : null;
 }
 
-function getTriggerTestInstruction(trigger: NaniteTriggerEvent): string | null {
-  if (trigger.type !== "github") {
-    return null;
-  }
-
-  const instruction = trigger.input?.sigveloTestInstruction;
-  return typeof instruction === "string" && instruction.trim() ? instruction.trim() : null;
-}
-
 const naniteGitSafetyInstructions = [
   "Before committing or pushing, verify the current branch, upstream branch, remote default branch, and latest remote head for the branch you plan to update.",
   "If a push is rejected, fetch the remote branch and reconcile with rebase or merge before pushing again. Do not assume GitHub or the git tool is stale.",
@@ -525,9 +516,13 @@ function buildRunPrompt(
     input.run.trigger.type === "manual" && input.run.trigger.message
       ? `\n\nManual operator message:\n${input.run.trigger.message}`
       : "";
-  const testInstruction = getTriggerTestInstruction(input.run.trigger);
-  const testInstructionMessage = testInstruction
-    ? `\n\nTrigger acceptance test instruction:\n${testInstruction}`
+  const triggerTestInstruction =
+    input.run.trigger.type === "github" &&
+    typeof input.run.trigger.input?.sigveloTestInstruction === "string"
+      ? input.run.trigger.input.sigveloTestInstruction.trim()
+      : "";
+  const testInstructionMessage = triggerTestInstruction
+    ? `\n\nTrigger acceptance test instruction:\n${triggerTestInstruction}`
     : "";
   const browser = browserRuntimeConfig(input.nanite.runtimeConfig ?? null);
   const browserInstruction = browser
